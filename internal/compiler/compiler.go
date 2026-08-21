@@ -1,0 +1,109 @@
+// Package compiler описывает пайплайн компилятора Rech как набор
+// интерфейсов (Frontend, Backend, Toolchain) и связывает их в Compiler.
+//
+// Конкретная сборка (какой Frontend, какой Backend, какой Toolchain)
+// собирается через Wire - см. cmd/rech/wire.go. Когда появятся
+// interpreter/VM backend или альтернативный toolchain (см. docs/ROADMAP.md),
+// добавление новой конфигурации не потребует переписывать main.go.
+package compiler
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend"
+	"github.com/IlyaFeoktistov/Rech/internal/lexer"
+	"github.com/IlyaFeoktistov/Rech/internal/parser"
+)
+
+// Frontend превращает исходный текст на Rech в AST (лексер + парсер).
+type Frontend interface {
+	Parse(src string) (*ast.Program, error)
+}
+
+// Backend превращает AST в исходник на целевом языке (сейчас - C).
+type Backend interface {
+	Generate(prog *ast.Program) (string, error)
+}
+
+// Toolchain отвечает за финальную сборку сгенерированного исходника
+// в нативный бинарник.
+type Toolchain interface {
+	CompileC(cPath, binPath string) error
+}
+
+type defaultFrontend struct{}
+
+// NewFrontend создаёт стандартный Frontend v0.1 (lexer.New + parser.New).
+func NewFrontend() Frontend { return defaultFrontend{} }
+
+func (defaultFrontend) Parse(src string) (*ast.Program, error) {
+	if err := lexer.ValidateUTF8(src); err != nil {
+		return nil, err
+	}
+	tokens, err := lexer.New(src).Tokenize()
+	if err != nil {
+		return nil, fmt.Errorf("лексер: %w", err)
+	}
+	prog, err := parser.New(tokens).ParseProgram()
+	if err != nil {
+		return nil, fmt.Errorf("парсер: %w", err)
+	}
+	return prog, nil
+}
+
+type defaultBackend struct{}
+
+// NewBackend создаёт стандартный Backend v0.1 - транспиляцию в C.
+func NewBackend() Backend { return defaultBackend{} }
+
+func (defaultBackend) Generate(prog *ast.Program) (string, error) {
+	return cbackend.Generate(prog)
+}
+
+// Compiler связывает Frontend, Backend и Toolchain в единый пайплайн
+// "исходник на Rech -> нативный бинарник".
+type Compiler struct {
+	Frontend  Frontend
+	Backend   Backend
+	Toolchain Toolchain
+}
+
+// NewCompiler - провайдер для Wire, собирающий Compiler из готовых зависимостей.
+func NewCompiler(frontend Frontend, backend Backend, toolchain Toolchain) *Compiler {
+	return &Compiler{Frontend: frontend, Backend: backend, Toolchain: toolchain}
+}
+
+// Build прогоняет srcPath через весь пайплайн и возвращает путь
+// к собранному бинарнику.
+func (c *Compiler) Build(srcPath string) (string, error) {
+	srcBytes, err := os.ReadFile(srcPath)
+	if err != nil {
+		return "", fmt.Errorf("не удалось прочитать файл: %w", err)
+	}
+
+	prog, err := c.Frontend.Parse(string(srcBytes))
+	if err != nil {
+		return "", err
+	}
+
+	cSource, err := c.Backend.Generate(prog)
+	if err != nil {
+		return "", fmt.Errorf("генерация C: %w", err)
+	}
+
+	base := strings.TrimSuffix(srcPath, filepath.Ext(srcPath))
+	cPath := base + ".c"
+	if err := os.WriteFile(cPath, []byte(cSource), 0o644); err != nil {
+		return "", fmt.Errorf("не удалось записать %s: %w", cPath, err)
+	}
+
+	binPath := base
+	if err := c.Toolchain.CompileC(cPath, binPath); err != nil {
+		return "", err
+	}
+	return binPath, nil
+}
