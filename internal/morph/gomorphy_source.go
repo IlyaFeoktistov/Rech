@@ -1,0 +1,46 @@
+package morph
+
+import "strings"
+
+// gomorphyAnalyzer - минимальный интерфейс, который нам нужен от gomorphy -
+// не импортируем сам пакет здесь напрямую, чтобы файл легко подменить
+// заглушкой в тестах и не тащить внешнюю зависимость в остальной код.
+type gomorphyAnalyzer interface {
+	Tag(word string) string
+}
+
+// sharedGomorphy - разделяемый экземпляр анализатора gomorphy, найден при
+// первом использовании (см. initGomorphy в gomorphy_init.go). nil, если
+// библиотека не смогла загрузить встроенный словарь - в этом случае
+// lookupGenderViaGomorphy просто ничего не находит, деградация мягкая.
+var sharedGomorphy gomorphyAnalyzer
+
+// lookupGenderViaGomorphy - **узкое** использование gomorphy: только род
+// существительного, ничего больше. Не используется как источник парадигмы
+// или падежного разбора - у публичного API gomorphy нет надёжного способа
+// получить все словоформы с привязкой к падежу/числу (WordForms не
+// привязывает форму к тегу и дедуплицирует омонимичные формы, Tag отдаёт
+// только одну "лучшую" трактовку, теряя синкретизм) - см. docs/MORPHOLOGY.md,
+// "gomorphy: узкое использование". Парадигму всё равно строит наш
+// BuildNounParadigm, gomorphy здесь - только замена/расширение словаря
+// исключений для слов на "-ь", где окончание не определяет род однозначно.
+func lookupGenderViaGomorphy(nomSg string) (Gender, bool) {
+	if sharedGomorphy == nil {
+		return 0, false
+	}
+	tag := sharedGomorphy.Tag(nomSg)
+	if tag == "" || !strings.HasPrefix(tag, "NOUN") {
+		return 0, false
+	}
+	for _, tok := range strings.FieldsFunc(tag, func(r rune) bool { return r == ',' || r == ' ' }) {
+		switch tok {
+		case "masc":
+			return Masculine, true
+		case "femn":
+			return Feminine, true
+		case "neut":
+			return Neuter, true
+		}
+	}
+	return 0, false
+}

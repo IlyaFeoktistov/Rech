@@ -10,6 +10,9 @@
 запланировано, - [docs/GRAMMAR.md](docs/GRAMMAR.md); дизайн морфологического
 движка - [docs/MORPHOLOGY.md](docs/MORPHOLOGY.md).
 
+Компилятор встраивает словарные данные OpenCorpora (через gomorphy) -
+атрибуция и условия лицензии CC BY-SA 4.0 - [NOTICE.md](NOTICE.md).
+
 ## Пример
 
 `examples/привет.rech`:
