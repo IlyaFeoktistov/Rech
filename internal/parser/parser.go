@@ -6,10 +6,14 @@
 //	program     := { newline } { function { newline } }
 //	function    := "функция" IDENT newline block
 //	block       := "{" newline { statement } "}"
-//	statement   := var_decl | assign | print_stmt
+//	statement   := var_decl | assign | print_stmt | if_stmt | while_stmt | for_stmt | return_stmt
 //	var_decl    := "переменная" IDENT "=" expr
 //	assign      := IDENT "=" expr
 //	print_stmt  := "вывести" expr
+//	if_stmt     := "если" expr block [ "иначе" block ]
+//	while_stmt  := "пока" expr block
+//	for_stmt    := "для" IDENT "от" expr "до" expr block
+//	return_stmt := "вернуть"
 //
 //	expr        := or_expr
 //	or_expr     := and_expr { "или" and_expr }
@@ -73,6 +77,33 @@ func (p *Parser) skipNewlines() {
 	}
 }
 
+// skipSeparators пропускает ноль или больше разделителей инструкций
+// (перенос строки или ";", в любом сочетании) и возвращает, сколько было
+// пропущено.
+func (p *Parser) skipSeparators() int {
+	n := 0
+	for p.cur().Type == lexer.NEWLINE || p.cur().Type == lexer.SEMICOLON {
+		p.advance()
+		n++
+	}
+	return n
+}
+
+// requireSeparator - как skipSeparators, но ошибка, если разделителей не
+// нашлось ни одного. Используется между двумя инструкциями внутри блока:
+// перенос строки/`;` возле "{"/"}" остаётся необязательным (расстановка
+// скобок свободная), а вот между соседними инструкциями - обязателен,
+// иначе "переменная а = 5 переменная б = 3" разбиралось бы как две
+// инструкции без разделителя, что становится неоднозначным, как только в
+// языке появятся многословные конструкции (естественные вызовы, шаг 3).
+func (p *Parser) requireSeparator() error {
+	if p.skipSeparators() == 0 {
+		return fmt.Errorf("строка %d, столбец %d: инструкции должны быть разделены переносом строки или \";\", получено %q",
+			p.cur().Line, p.cur().Col, p.cur().Value)
+	}
+	return nil
+}
+
 // ParseProgram - точка входа парсера.
 func (p *Parser) ParseProgram() (*ast.Program, error) {
 	prog := &ast.Program{}
@@ -112,7 +143,9 @@ func (p *Parser) parseBlock() ([]ast.Stmt, error) {
 	if _, err := p.expect(lexer.LBRACE); err != nil {
 		return nil, err
 	}
-	p.skipNewlines()
+	// Разделитель сразу после "{" необязателен - расстановка скобки на той
+	// же строке или с переносом - вопрос стиля, а не грамматики.
+	p.skipSeparators()
 
 	var stmts []ast.Stmt
 	for p.cur().Type != lexer.RBRACE {
@@ -124,7 +157,12 @@ func (p *Parser) parseBlock() ([]ast.Stmt, error) {
 			return nil, err
 		}
 		stmts = append(stmts, stmt)
-		p.skipNewlines()
+		if p.cur().Type == lexer.RBRACE {
+			break
+		}
+		if err := p.requireSeparator(); err != nil {
+			return nil, err
+		}
 	}
 	if _, err := p.expect(lexer.RBRACE); err != nil {
 		return nil, err
@@ -138,6 +176,14 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 		return p.parsePrintStmt()
 	case lexer.KwVariable:
 		return p.parseVarDecl()
+	case lexer.KwIf:
+		return p.parseIfStmt()
+	case lexer.KwWhile:
+		return p.parseWhileStmt()
+	case lexer.KwFor:
+		return p.parseForStmt()
+	case lexer.KwReturn:
+		return p.parseReturnStmt()
 	case lexer.IDENT:
 		if p.peekAt(1).Type == lexer.ASSIGN {
 			return p.parseAssign()
@@ -191,6 +237,97 @@ func (p *Parser) parseAssign() (ast.Stmt, error) {
 		return nil, fmt.Errorf("в присваивании %q: %w", name.Value, err)
 	}
 	return &ast.Assign{Name: name.Value, Value: value, Line: name.Line}, nil
+}
+
+func (p *Parser) parseIfStmt() (ast.Stmt, error) {
+	kw, err := p.expect(lexer.KwIf)
+	if err != nil {
+		return nil, err
+	}
+	cond, err := p.parseExpr()
+	if err != nil {
+		return nil, fmt.Errorf("после \"если\" ожидалось условие: %w", err)
+	}
+	p.skipNewlines()
+	thenBlock, err := p.parseBlock()
+	if err != nil {
+		return nil, err
+	}
+	stmt := &ast.IfStmt{Cond: cond, Then: thenBlock, Line: kw.Line}
+
+	p.skipNewlines()
+	if p.cur().Type == lexer.KwElse {
+		p.advance()
+		p.skipNewlines()
+		elseBlock, err := p.parseBlock()
+		if err != nil {
+			return nil, err
+		}
+		stmt.Else = elseBlock
+	}
+	return stmt, nil
+}
+
+func (p *Parser) parseWhileStmt() (ast.Stmt, error) {
+	kw, err := p.expect(lexer.KwWhile)
+	if err != nil {
+		return nil, err
+	}
+	cond, err := p.parseExpr()
+	if err != nil {
+		return nil, fmt.Errorf("после \"пока\" ожидалось условие: %w", err)
+	}
+	p.skipNewlines()
+	body, err := p.parseBlock()
+	if err != nil {
+		return nil, err
+	}
+	return &ast.WhileStmt{Cond: cond, Body: body, Line: kw.Line}, nil
+}
+
+func (p *Parser) parseForStmt() (ast.Stmt, error) {
+	kw, err := p.expect(lexer.KwFor)
+	if err != nil {
+		return nil, err
+	}
+	name, err := p.expect(lexer.IDENT)
+	if err != nil {
+		return nil, fmt.Errorf("после \"для\" ожидалось имя переменной цикла: %w", err)
+	}
+	if _, err := p.expect(lexer.KwFrom); err != nil {
+		return nil, fmt.Errorf("после имени переменной цикла ожидалось \"от\": %w", err)
+	}
+	from, err := p.parseExpr()
+	if err != nil {
+		return nil, fmt.Errorf("после \"от\" ожидалось выражение: %w", err)
+	}
+	if _, err := p.expect(lexer.KwTo); err != nil {
+		return nil, fmt.Errorf("после начала диапазона ожидалось \"до\": %w", err)
+	}
+	to, err := p.parseExpr()
+	if err != nil {
+		return nil, fmt.Errorf("после \"до\" ожидалось выражение: %w", err)
+	}
+	p.skipNewlines()
+	body, err := p.parseBlock()
+	if err != nil {
+		return nil, err
+	}
+	return &ast.ForStmt{Var: name.Value, From: from, To: to, Body: body, Line: kw.Line}, nil
+}
+
+func (p *Parser) parseReturnStmt() (ast.Stmt, error) {
+	kw, err := p.expect(lexer.KwReturn)
+	if err != nil {
+		return nil, err
+	}
+	switch p.cur().Type {
+	case lexer.NEWLINE, lexer.RBRACE, lexer.EOF:
+		return &ast.ReturnStmt{Line: kw.Line}, nil
+	default:
+		return nil, fmt.Errorf("строка %d, столбец %d: \"вернуть\" со значением появится в шаге 3 - у функций пока нет объявленного типа результата",
+			p.cur().Line, p.cur().Col)
+	}
 }
 
 func (p *Parser) parseExpr() (ast.Expr, error) {

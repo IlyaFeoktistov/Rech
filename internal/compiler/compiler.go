@@ -11,13 +11,48 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 	"github.com/IlyaFeoktistov/Rech/internal/parser"
 )
+
+// sourceFileNameRe - разрешённый алфавит имени .rech-файла (без расширения):
+// строчные буквы (кириллица или латиница), цифры, "_". Никаких заглавных
+// букв - на файловых системах без учёта регистра (Windows, macOS по
+// умолчанию) "Файл.rech" и "файл.rech" - один и тот же файл, а на Linux -
+// два разных; единственный надёжный способ не подорваться на этом -
+// заглавные буквы в именах файлов не использовать вовсе. Правило и
+// мотивация - docs/GRAMMAR.md, раздел "Имена файлов и кодировка".
+var sourceFileNameRe = regexp.MustCompile(`^[a-zа-яё0-9_]+$`)
+
+// validateSourceFileName проверяет имя .rech-файла: расширение, алфавит и
+// форму Unicode NFC. Это уже сейчас единица импорта в будущей системе
+// модулей ("использовать X из "имя_файла""), поэтому имя файла должно быть
+// однозначным байт-в-байт, а не только "похожим на правильное".
+func validateSourceFileName(path string) error {
+	base := filepath.Base(path)
+	ext := filepath.Ext(base)
+	if ext != ".rech" {
+		return fmt.Errorf("файл должен иметь расширение .rech, получено %q", base)
+	}
+	name := strings.TrimSuffix(base, ext)
+	if name == "" {
+		return fmt.Errorf("имя файла не может быть пустым (получено %q)", base)
+	}
+	if !norm.NFC.IsNormalString(name) {
+		return fmt.Errorf("имя файла %q не в нормализованной форме Unicode NFC - переименуйте файл в редакторе/файловом менеджере с нормализацией NFC", name)
+	}
+	if !sourceFileNameRe.MatchString(name) {
+		return fmt.Errorf("имя файла %q должно состоять только из строчных букв (кириллица или латиница), цифр и \"_\" - например, имя_файла.rech", name)
+	}
+	return nil
+}
 
 // Frontend превращает исходный текст на Rech в AST (лексер + парсер).
 type Frontend interface {
@@ -42,6 +77,9 @@ func NewFrontend() Frontend { return defaultFrontend{} }
 
 func (defaultFrontend) Parse(src string) (*ast.Program, error) {
 	if err := lexer.ValidateUTF8(src); err != nil {
+		return nil, err
+	}
+	if err := lexer.ValidateNFC(src); err != nil {
 		return nil, err
 	}
 	tokens, err := lexer.New(src).Tokenize()
@@ -80,6 +118,10 @@ func NewCompiler(frontend Frontend, backend Backend, toolchain Toolchain) *Compi
 // Build прогоняет srcPath через весь пайплайн и возвращает путь
 // к собранному бинарнику.
 func (c *Compiler) Build(srcPath string) (string, error) {
+	if err := validateSourceFileName(srcPath); err != nil {
+		return "", err
+	}
+
 	srcBytes, err := os.ReadFile(srcPath)
 	if err != nil {
 		return "", fmt.Errorf("не удалось прочитать файл: %w", err)

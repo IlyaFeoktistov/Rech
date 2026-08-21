@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"unicode"
 	"unicode/utf8"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 // Lexer превращает исходный текст на Rech в поток токенов.
@@ -90,6 +92,9 @@ func (l *Lexer) next() (Token, error) {
 	case r == ')':
 		l.advance()
 		return Token{Type: RPAREN, Value: ")", Line: line, Col: col}, nil
+	case r == ';':
+		l.advance()
+		return Token{Type: SEMICOLON, Value: ";", Line: line, Col: col}, nil
 	case r == '+':
 		l.advance()
 		return Token{Type: PLUS, Value: "+", Line: line, Col: col}, nil
@@ -236,6 +241,21 @@ func (l *Lexer) readString(line, col int) (Token, error) {
 func ValidateUTF8(src string) error {
 	if !utf8.ValidString(src) {
 		return fmt.Errorf("исходный файл не в кодировке UTF-8")
+	}
+	return nil
+}
+
+// ValidateNFC требует, чтобы исходник был в нормализованной форме Unicode
+// NFC. Без этого два визуально одинаковых идентификатора (например, "ё" как
+// один символ U+0451 против "е" + отдельный диакритический знак U+0308)
+// оказываются разными строками и тихо не совпадают друг с другом - в
+// таблице символов, при импорте по имени файла и т.п. Явная проверка
+// превращает такое несовпадение в понятную ошибку компиляции, а не в
+// необъяснимое "модуль/переменная не найдена". Правило и мотивация -
+// docs/GRAMMAR.md, раздел "Имена файлов и кодировка".
+func ValidateNFC(src string) error {
+	if !norm.NFC.IsNormalString(src) {
+		return fmt.Errorf("исходный файл не в нормализованной форме Unicode NFC - пересохраните его в редакторе с нормализацией NFC (частая причина - буква \"ё\", набранная как \"е\" с отдельным диакритическим знаком)")
 	}
 	return nil
 }

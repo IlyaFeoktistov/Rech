@@ -13,6 +13,7 @@ package cbackend
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -98,12 +99,48 @@ func (t valueType) cType() string {
 	}
 }
 
-// genCtx - состояние генерации одной функции: символьная таблица переменных
-// и флаги использованных runtime-хелперов (влияют на пролог файла).
+// genCtx - состояние генерации одной функции: стек областей видимости
+// (шаг 2 - если/иначе/пока/для вводят вложенные блоки, как в C) и флаги
+// использованных runtime-хелперов (влияют на пролог файла).
 type genCtx struct {
-	symbols    map[string]valueType
+	scopes     []map[string]valueType
 	usesConcat bool
 	usesStrCmp bool
+}
+
+func (ctx *genCtx) pushScope() {
+	ctx.scopes = append(ctx.scopes, map[string]valueType{})
+}
+
+func (ctx *genCtx) popScope() {
+	ctx.scopes = ctx.scopes[:len(ctx.scopes)-1]
+}
+
+// declare добавляет переменную в текущую (самую внутреннюю) область
+// видимости. Возвращает false, если переменная с этим именем уже объявлена
+// в этой же области - повторное объявление того же имени во вложенном
+// блоке разрешено (затенение, как в C).
+func (ctx *genCtx) declare(name string, typ valueType) bool {
+	top := ctx.scopes[len(ctx.scopes)-1]
+	if _, exists := top[name]; exists {
+		return false
+	}
+	top[name] = typ
+	return true
+}
+
+// lookup ищет переменную от самой внутренней области видимости к внешним.
+func (ctx *genCtx) lookup(name string) (valueType, bool) {
+	for _, scope := range slices.Backward(ctx.scopes) {
+		if typ, ok := scope[name]; ok {
+			return typ, true
+		}
+	}
+	return typeUnknown, false
+}
+
+func indent(depth int) string {
+	return strings.Repeat("    ", depth)
 }
 
 // Generate возвращает исходник на C, соответствующий программе prog.
@@ -155,46 +192,48 @@ const strConcatHelper = `static char *rech_str_concat(const char *a, const char 
 
 func generateFunction(sb *strings.Builder, ctx *genCtx, fn *ast.FunctionDecl) error {
 	cName := mangleName(fn.Name)
-	ctx.symbols = map[string]valueType{}
+	ctx.scopes = nil
+	ctx.pushScope()
 
 	fmt.Fprintf(sb, "// %s\n", fn.Name)
 	fmt.Fprintf(sb, "int %s(void) {\n", cName)
 	for _, stmt := range fn.Body {
-		if err := generateStmt(sb, ctx, stmt); err != nil {
+		if err := generateStmt(sb, ctx, stmt, 1); err != nil {
 			return fmt.Errorf("функция %q: %w", fn.Name, err)
 		}
 	}
-	if cName == "main" {
-		sb.WriteString("    return 0;\n")
-	}
+	// Функции в v0.1 не имеют объявленного типа результата (шаг 3), поэтому
+	// 0 в конце - не значение "результата", а просто способ не оставлять
+	// int-функцию без return (что для строгого C - undefined behavior).
+	sb.WriteString("    return 0;\n")
 	sb.WriteString("}\n\n")
 	return nil
 }
 
-func generateStmt(sb *strings.Builder, ctx *genCtx, stmt ast.Stmt) error {
+func generateStmt(sb *strings.Builder, ctx *genCtx, stmt ast.Stmt, depth int) error {
+	ind := indent(depth)
 	switch s := stmt.(type) {
 	case *ast.PrintStmt:
 		code, typ, err := genExpr(ctx, s.Value)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(sb, "    %s\n", printCall(typ, code))
+		fmt.Fprintf(sb, "%s%s\n", ind, printCall(typ, code))
 		return nil
 
 	case *ast.VarDecl:
-		if _, exists := ctx.symbols[s.Name]; exists {
-			return fmt.Errorf("строка %d: переменная %q уже объявлена", s.Line, s.Name)
-		}
 		code, typ, err := genExpr(ctx, s.Value)
 		if err != nil {
 			return err
 		}
-		ctx.symbols[s.Name] = typ
-		fmt.Fprintf(sb, "    %s %s = %s;\n", typ.cType(), mangleVar(s.Name), code)
+		if !ctx.declare(s.Name, typ) {
+			return fmt.Errorf("строка %d: переменная %q уже объявлена в этой области видимости", s.Line, s.Name)
+		}
+		fmt.Fprintf(sb, "%s%s %s = %s;\n", ind, typ.cType(), mangleVar(s.Name), code)
 		return nil
 
 	case *ast.Assign:
-		declared, exists := ctx.symbols[s.Name]
+		declared, exists := ctx.lookup(s.Name)
 		if !exists {
 			return fmt.Errorf("строка %d: переменная %q не объявлена - используйте \"переменная\" для объявления", s.Line, s.Name)
 		}
@@ -205,7 +244,87 @@ func generateStmt(sb *strings.Builder, ctx *genCtx, stmt ast.Stmt) error {
 		if typ != declared {
 			return fmt.Errorf("строка %d: переменной %q типа %s нельзя присвоить значение типа %s", s.Line, s.Name, declared, typ)
 		}
-		fmt.Fprintf(sb, "    %s = %s;\n", mangleVar(s.Name), code)
+		fmt.Fprintf(sb, "%s%s = %s;\n", ind, mangleVar(s.Name), code)
+		return nil
+
+	case *ast.IfStmt:
+		cond, typ, err := genExpr(ctx, s.Cond)
+		if err != nil {
+			return err
+		}
+		if typ != typeBool {
+			return fmt.Errorf("строка %d: условие \"если\" должно быть логическим, получено %s", s.Line, typ)
+		}
+		fmt.Fprintf(sb, "%sif (%s) {\n", ind, cond)
+		ctx.pushScope()
+		for _, st := range s.Then {
+			if err := generateStmt(sb, ctx, st, depth+1); err != nil {
+				return err
+			}
+		}
+		ctx.popScope()
+		if s.Else != nil {
+			fmt.Fprintf(sb, "%s} else {\n", ind)
+			ctx.pushScope()
+			for _, st := range s.Else {
+				if err := generateStmt(sb, ctx, st, depth+1); err != nil {
+					return err
+				}
+			}
+			ctx.popScope()
+		}
+		fmt.Fprintf(sb, "%s}\n", ind)
+		return nil
+
+	case *ast.WhileStmt:
+		cond, typ, err := genExpr(ctx, s.Cond)
+		if err != nil {
+			return err
+		}
+		if typ != typeBool {
+			return fmt.Errorf("строка %d: условие \"пока\" должно быть логическим, получено %s", s.Line, typ)
+		}
+		fmt.Fprintf(sb, "%swhile (%s) {\n", ind, cond)
+		ctx.pushScope()
+		for _, st := range s.Body {
+			if err := generateStmt(sb, ctx, st, depth+1); err != nil {
+				return err
+			}
+		}
+		ctx.popScope()
+		fmt.Fprintf(sb, "%s}\n", ind)
+		return nil
+
+	case *ast.ForStmt:
+		fromCode, fromType, err := genExpr(ctx, s.From)
+		if err != nil {
+			return err
+		}
+		if fromType != typeInt {
+			return fmt.Errorf("строка %d: граница диапазона после \"от\" должна быть целым числом, получено %s", s.Line, fromType)
+		}
+		toCode, toType, err := genExpr(ctx, s.To)
+		if err != nil {
+			return err
+		}
+		if toType != typeInt {
+			return fmt.Errorf("строка %d: граница диапазона после \"до\" должна быть целым числом, получено %s", s.Line, toType)
+		}
+		ctx.pushScope()
+		ctx.declare(s.Var, typeInt) // область свежая - имя точно свободно
+		varC := mangleVar(s.Var)
+		fmt.Fprintf(sb, "%sfor (long long %s = %s; %s <= %s; %s++) {\n", ind, varC, fromCode, varC, toCode, varC)
+		for _, st := range s.Body {
+			if err := generateStmt(sb, ctx, st, depth+1); err != nil {
+				return err
+			}
+		}
+		ctx.popScope()
+		fmt.Fprintf(sb, "%s}\n", ind)
+		return nil
+
+	case *ast.ReturnStmt:
+		fmt.Fprintf(sb, "%sreturn 0;\n", ind)
 		return nil
 
 	default:
@@ -248,7 +367,7 @@ func genExpr(ctx *genCtx, expr ast.Expr) (string, valueType, error) {
 		return "false", typeBool, nil
 
 	case *ast.Identifier:
-		typ, ok := ctx.symbols[e.Name]
+		typ, ok := ctx.lookup(e.Name)
 		if !ok {
 			return "", typeUnknown, fmt.Errorf("строка %d: переменная %q не объявлена", e.Line, e.Name)
 		}
@@ -394,6 +513,14 @@ func lineOf(n ast.Node) int {
 	case *ast.VarDecl:
 		return v.Line
 	case *ast.Assign:
+		return v.Line
+	case *ast.IfStmt:
+		return v.Line
+	case *ast.WhileStmt:
+		return v.Line
+	case *ast.ForStmt:
+		return v.Line
+	case *ast.ReturnStmt:
 		return v.Line
 	case *ast.StringLiteral:
 		return v.Line

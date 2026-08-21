@@ -78,6 +78,62 @@ type Assign struct {
 func (*Assign) node() {}
 func (*Assign) stmt() {}
 
+// IfStmt соответствует конструкции:
+//
+//	если <условие> { <then> } [ иначе { <else> } ]
+//
+// Else == nil, если ветки "иначе" не было. Цепочки "иначе если" в v0.1 нет -
+// вложенность через отдельный if внутри блока Else.
+type IfStmt struct {
+	Cond Expr
+	Then []Stmt
+	Else []Stmt
+	Line int
+}
+
+func (*IfStmt) node() {}
+func (*IfStmt) stmt() {}
+
+// WhileStmt соответствует конструкции:
+//
+//	пока <условие> { <тело> }
+type WhileStmt struct {
+	Cond Expr
+	Body []Stmt
+	Line int
+}
+
+func (*WhileStmt) node() {}
+func (*WhileStmt) stmt() {}
+
+// ForStmt соответствует конструкции цикла по целочисленному диапазону
+// (включая обе границы):
+//
+//	для <имя> от <from> до <to> { <тело> }
+type ForStmt struct {
+	Var  string
+	From Expr
+	To   Expr
+	Body []Stmt
+	Line int
+}
+
+func (*ForStmt) node() {}
+func (*ForStmt) stmt() {}
+
+// ReturnStmt соответствует инструкции:
+//
+//	вернуть
+//
+// Без значения - у функций в v0.1 нет объявленного типа результата (он
+// появится в шаге 3), поэтому "вернуть <выражение>" пока не поддерживается.
+type ReturnStmt struct {
+	Line int
+}
+
+func (*ReturnStmt) node() {}
+func (*ReturnStmt) stmt() {}
+
 // Expr - выражение, вычисляемое в значение.
 type Expr interface {
 	Node

@@ -4,14 +4,15 @@
 словообразование становятся частью синтаксиса и семантики.
 
 Сейчас в репозитории - v0.1: минимальный, но реально работающий
-пайплайн `Rech -> AST -> C -> нативный бинарник`. Полный план развития - в
-[docs/ROADMAP.md](docs/ROADMAP.md), грамматика синтаксиса - в
-[docs/GRAMMAR.md](docs/GRAMMAR.md), дизайн морфологического движка - в
-[docs/MORPHOLOGY.md](docs/MORPHOLOGY.md).
+пайплайн `Rech -> AST -> C -> нативный бинарник`. Что компилятор принимает
+прямо сейчас - [docs/SPEC.md](docs/SPEC.md); план развития по шагам -
+[docs/ROADMAP.md](docs/ROADMAP.md); черновик синтаксиса для того, что
+запланировано, - [docs/GRAMMAR.md](docs/GRAMMAR.md); дизайн морфологического
+движка - [docs/MORPHOLOGY.md](docs/MORPHOLOGY.md).
 
 ## Пример
 
-`examples/hello.rech`:
+`examples/привет.rech`:
 
 ```
 функция главная
@@ -26,7 +27,7 @@
 либо переменная окружения `CC`).
 
 ```sh
-go run ./cmd/rech run examples/hello.rech
+go run ./cmd/rech run examples/привет.rech
 ```
 
 Вывод:
@@ -38,24 +39,33 @@ go run ./cmd/rech run examples/hello.rech
 Отдельно собрать бинарник без запуска:
 
 ```sh
-go run ./cmd/rech build examples/hello.rech
+go run ./cmd/rech build examples/привет.rech
 ```
 
-Компилятор сгенерирует `examples/hello.c` и соберёт `examples/hello`.
+Компилятор сгенерирует `examples/привет.c` и соберёт `examples/привет`.
+
+Имена `.rech`-файлов - только строчные буквы и `_` (`имя_файла.rech`, без
+заглавных букв) и обязательно в форме Unicode NFC - подробности и мотивация
+в [docs/SPEC.md](docs/SPEC.md#1-кодировка-и-имена-файлов). Если репозиторий
+только что клонирован, разово выполните `git config core.quotepath false`
+(без `--global`) - иначе `git status` печатает кириллические пути
+восьмеричными escape-кодами.
 
 ## Структура проекта
 
 ```
-cmd/rech/                  - CLI (build/run), сборка зависимостей через google/wire
+cmd/rech/                  - CLI (build/run/version), сборка зависимостей через google/wire
 internal/lexer/            - лексер (кириллица в идентификаторах и ключевых словах)
 internal/ast/              - синтаксическое дерево, не зависящее от backend'а
 internal/parser/           - парсер v0.1
 internal/backend/cbackend/ - генерация C из AST
 internal/compiler/         - интерфейсы Frontend/Backend/Toolchain и их связывание
 internal/toolchain/        - вызов системного cc/clang/gcc
+internal/version/          - версия компилятора (см. `rech version`)
 examples/                  - примеры программ на Rech
+docs/SPEC.md               - спецификация того, что реализовано прямо сейчас
 docs/ROADMAP.md            - план развития языка по шагам
-docs/GRAMMAR.md            - грамматика синтаксиса (EBNF-набросок)
+docs/GRAMMAR.md            - черновик синтаксиса для того, что запланировано
 docs/MORPHOLOGY.md         - дизайн морфологического движка (шаг 1.5)
 ```
 

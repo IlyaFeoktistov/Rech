@@ -12,10 +12,11 @@ const (
 	INT    // целочисленный литерал: 42
 	FLOAT  // литерал с плавающей точкой: 3.14
 
-	LBRACE // {
-	RBRACE // }
-	LPAREN // (
-	RPAREN // )
+	LBRACE    // {
+	RBRACE    // }
+	LPAREN    // (
+	RPAREN    // )
+	SEMICOLON // ;
 
 	ASSIGN // =
 	PLUS   // +
@@ -37,12 +38,19 @@ const (
 	KwNot      // не
 	KwTrue     // истина
 	KwFalse    // ложь
+	KwIf       // если
+	KwElse     // иначе
+	KwWhile    // пока
+	KwFor      // для
+	KwFrom     // от
+	KwTo       // до
+	KwReturn   // вернуть
 )
 
 // keywords - таблица ключевых слов v0.1. Список сознательно узкий:
-// остальные слова из финальной идеи (сущность, имеет, может, если, иначе,
-// пока, для, вернуть, создать, вызвать) добавляются по мере реализации
-// соответствующих этапов - см. docs/ROADMAP.md.
+// остальные слова из финальной идеи (сущность, имеет, может, создать,
+// вызвать) добавляются по мере реализации соответствующих этапов - см.
+// docs/ROADMAP.md.
 var keywords = map[string]TokenType{
 	"функция":    KwFunction,
 	"вывести":    KwPrint,
@@ -52,6 +60,13 @@ var keywords = map[string]TokenType{
 	"не":         KwNot,
 	"истина":     KwTrue,
 	"ложь":       KwFalse,
+	"если":       KwIf,
+	"иначе":      KwElse,
+	"пока":       KwWhile,
+	"для":        KwFor,
+	"от":         KwFrom,
+	"до":         KwTo,
+	"вернуть":    KwReturn,
 }
 
 // Token - одна лексема с позицией в исходном файле (для сообщений об ошибках).
@@ -84,6 +99,8 @@ func (t TokenType) String() string {
 		return "("
 	case RPAREN:
 		return ")"
+	case SEMICOLON:
+		return ";"
 	case ASSIGN:
 		return "="
 	case PLUS:
@@ -122,6 +139,20 @@ func (t TokenType) String() string {
 		return "истина"
 	case KwFalse:
 		return "ложь"
+	case KwIf:
+		return "если"
+	case KwElse:
+		return "иначе"
+	case KwWhile:
+		return "пока"
+	case KwFor:
+		return "для"
+	case KwFrom:
+		return "от"
+	case KwTo:
+		return "до"
+	case KwReturn:
+		return "вернуть"
 	default:
 		return "UNKNOWN"
 	}
