@@ -5,7 +5,9 @@
 
 Сейчас в репозитории - v0.1: минимальный, но реально работающий
 пайплайн `Rech -> AST -> C -> нативный бинарник`. Полный план развития - в
-[docs/ROADMAP.md](docs/ROADMAP.md).
+[docs/ROADMAP.md](docs/ROADMAP.md), грамматика синтаксиса - в
+[docs/GRAMMAR.md](docs/GRAMMAR.md), дизайн морфологического движка - в
+[docs/MORPHOLOGY.md](docs/MORPHOLOGY.md).
 
 ## Пример
 
@@ -53,6 +55,8 @@ internal/compiler/         - интерфейсы Frontend/Backend/Toolchain и 
 internal/toolchain/        - вызов системного cc/clang/gcc
 examples/                  - примеры программ на Rech
 docs/ROADMAP.md            - план развития языка по шагам
+docs/GRAMMAR.md            - грамматика синтаксиса (EBNF-набросок)
+docs/MORPHOLOGY.md         - дизайн морфологического движка (шаг 1.5)
 ```
 
 ## Архитектура
