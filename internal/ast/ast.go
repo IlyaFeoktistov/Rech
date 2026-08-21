@@ -51,6 +51,33 @@ type PrintStmt struct {
 func (*PrintStmt) node() {}
 func (*PrintStmt) stmt() {}
 
+// VarDecl соответствует инструкции объявления переменной с инициализацией:
+//
+//	переменная <имя> = <выражение>
+//
+// Тип переменной не аннотируется явно - выводится из выражения-инициализатора
+// (простой literal-based inference, см. docs/ROADMAP.md, шаг 1).
+type VarDecl struct {
+	Name  string
+	Value Expr
+	Line  int
+}
+
+func (*VarDecl) node() {}
+func (*VarDecl) stmt() {}
+
+// Assign соответствует инструкции присваивания уже объявленной переменной:
+//
+//	<имя> = <выражение>
+type Assign struct {
+	Name  string
+	Value Expr
+	Line  int
+}
+
+func (*Assign) node() {}
+func (*Assign) stmt() {}
+
 // Expr - выражение, вычисляемое в значение.
 type Expr interface {
 	Node
@@ -65,3 +92,61 @@ type StringLiteral struct {
 
 func (*StringLiteral) node() {}
 func (*StringLiteral) expr() {}
+
+// IntLiteral - целочисленный литерал.
+type IntLiteral struct {
+	Value int64
+	Line  int
+}
+
+func (*IntLiteral) node() {}
+func (*IntLiteral) expr() {}
+
+// FloatLiteral - литерал с плавающей точкой.
+type FloatLiteral struct {
+	Value float64
+	Line  int
+}
+
+func (*FloatLiteral) node() {}
+func (*FloatLiteral) expr() {}
+
+// BoolLiteral - логический литерал ("истина" / "ложь").
+type BoolLiteral struct {
+	Value bool
+	Line  int
+}
+
+func (*BoolLiteral) node() {}
+func (*BoolLiteral) expr() {}
+
+// Identifier - ссылка на переменную в выражении.
+type Identifier struct {
+	Name string
+	Line int
+}
+
+func (*Identifier) node() {}
+func (*Identifier) expr() {}
+
+// BinaryExpr - бинарная операция. Op - один из:
+// "+" "-" "*" "/" "==" "!=" "<" ">" "<=" ">=" "и" "или".
+type BinaryExpr struct {
+	Op    string
+	Left  Expr
+	Right Expr
+	Line  int
+}
+
+func (*BinaryExpr) node() {}
+func (*BinaryExpr) expr() {}
+
+// UnaryExpr - унарная операция. Op - один из: "-" "не".
+type UnaryExpr struct {
+	Op      string
+	Operand Expr
+	Line    int
+}
+
+func (*UnaryExpr) node() {}
+func (*UnaryExpr) expr() {}

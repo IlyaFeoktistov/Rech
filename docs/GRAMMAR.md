@@ -49,8 +49,9 @@ param       := IDENT ":" type
 block       := "{" { statement } "}"
 ```
 
-`[v0.1]`: без параметров, тело - только `вывести "строка"`.
-`[шаг 1-3]`: параметры, возвращаемый тип, произвольные инструкции в теле.
+`[v0.1]`: без параметров и без возвращаемого типа; тело - `var_decl`,
+`assign`, `print_stmt` с произвольным выражением (см. "Выражения" ниже).
+`[шаг 2-3]`: управляющие конструкции, параметры, возвращаемый тип.
 
 ## Сущности
 
@@ -71,8 +72,9 @@ method      := IDENT "(" [ params ] ")" [ ":" type ] block
 ## Инструкции
 
 ```
-statement   := assign | if_stmt | while_stmt | print_stmt
+statement   := var_decl | assign | if_stmt | while_stmt | print_stmt
              | become_stmt | call_stmt | gerund_stmt | return_stmt
+var_decl    := "переменная" IDENT "=" expr
 assign      := IDENT "=" expr
 if_stmt     := "если" condition block [ "иначе" block ]
 while_stmt  := "пока" condition block
@@ -81,12 +83,39 @@ return_stmt := "вернуть" [ expr ]
 become_stmt := "этот" "становится" STATE_ADJ
 ```
 
-`[v0.1]`: только `print_stmt`, и только со строковым литералом.
-`[шаг 1]`: `assign`. `[шаг 2]`: `if_stmt`, `while_stmt`, `return_stmt`.
+`[v0.1]`: `var_decl`, `assign`, `print_stmt` (теперь с любым выражением, не
+только строковым литералом). `[шаг 2]`: `if_stmt`, `while_stmt`, `return_stmt`.
 `[шаг 4.1]`: `become_stmt`.
 
 `condition` и `call_stmt` могут быть как строгим вызовом (`X.метод(...)`),
 так и естественной фразой (`X метод ...` с падежными аргументами) - см. ниже.
+
+## Выражения `[v0.1]`
+
+```
+expr           := or_expr
+or_expr        := and_expr { "или" and_expr }
+and_expr       := not_expr { "и" not_expr }
+not_expr       := "не" not_expr | comparison
+comparison     := additive [ ("==" | "!=" | "<" | ">" | "<=" | ">=") additive ]
+additive       := multiplicative { ("+" | "-") multiplicative }
+multiplicative := unary { ("*" | "/") unary }
+unary          := "-" unary | primary
+primary        := INT | FLOAT | STRING | "истина" | "ложь" | IDENT | "(" expr ")"
+```
+
+Логические операторы - русские слова (`и`, `или`, `не`), а не символы
+(`&& || !`) - это уже сейчас, не дожидаясь морфологии, часть общего принципа
+"грамматика как механизм", просто на уровне лексики, а не словоизменения.
+
+Типы (`Строка`, `Целое`, `Число`, `Логическое`) выводятся из литералов
+(literal-based inference) прямо в C backend'е - отдельного слоя типов на
+AST/IR пока нет, он появится вместе с semantic analysis на шаге 5. `+` между
+двумя `Строка` - конкатенация (через runtime-хелпер `rech_str_concat` в
+сгенерированном C), между числами - арифметика с приведением `Целое` к
+`Число`, если хотя бы один операнд - `Число`. Присваивание значения другого
+типа уже объявленной переменной - ошибка компиляции, неявных преобразований
+нет.
 
 ## Естественный вызов и падежное сопоставление `[шаг 3, движок - шаг 1.5]`
 

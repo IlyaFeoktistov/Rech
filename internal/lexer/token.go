@@ -9,21 +9,49 @@ const (
 
 	IDENT  // идентификатор, например: главная, пользователь
 	STRING // строковый литерал в двойных кавычках
+	INT    // целочисленный литерал: 42
+	FLOAT  // литерал с плавающей точкой: 3.14
 
 	LBRACE // {
 	RBRACE // }
+	LPAREN // (
+	RPAREN // )
+
+	ASSIGN // =
+	PLUS   // +
+	MINUS  // -
+	STAR   // *
+	SLASH  // /
+	EQ     // ==
+	NEQ    // !=
+	LT     // <
+	GT     // >
+	LE     // <=
+	GE     // >=
 
 	KwFunction // функция
 	KwPrint    // вывести
+	KwVariable // переменная
+	KwAnd      // и
+	KwOr       // или
+	KwNot      // не
+	KwTrue     // истина
+	KwFalse    // ложь
 )
 
 // keywords - таблица ключевых слов v0.1. Список сознательно узкий:
-// остальные слова из финальной идеи (сущность, имеет, может, переменная,
-// если, иначе, пока, для, вернуть, создать, вызвать) добавляются по мере
-// реализации соответствующих этапов - см. docs/ROADMAP.md.
+// остальные слова из финальной идеи (сущность, имеет, может, если, иначе,
+// пока, для, вернуть, создать, вызвать) добавляются по мере реализации
+// соответствующих этапов - см. docs/ROADMAP.md.
 var keywords = map[string]TokenType{
-	"функция": KwFunction,
-	"вывести": KwPrint,
+	"функция":    KwFunction,
+	"вывести":    KwPrint,
+	"переменная": KwVariable,
+	"и":          KwAnd,
+	"или":        KwOr,
+	"не":         KwNot,
+	"истина":     KwTrue,
+	"ложь":       KwFalse,
 }
 
 // Token - одна лексема с позицией в исходном файле (для сообщений об ошибках).
@@ -44,14 +72,56 @@ func (t TokenType) String() string {
 		return "IDENT"
 	case STRING:
 		return "STRING"
+	case INT:
+		return "INT"
+	case FLOAT:
+		return "FLOAT"
 	case LBRACE:
 		return "{"
 	case RBRACE:
 		return "}"
+	case LPAREN:
+		return "("
+	case RPAREN:
+		return ")"
+	case ASSIGN:
+		return "="
+	case PLUS:
+		return "+"
+	case MINUS:
+		return "-"
+	case STAR:
+		return "*"
+	case SLASH:
+		return "/"
+	case EQ:
+		return "=="
+	case NEQ:
+		return "!="
+	case LT:
+		return "<"
+	case GT:
+		return ">"
+	case LE:
+		return "<="
+	case GE:
+		return ">="
 	case KwFunction:
 		return "функция"
 	case KwPrint:
 		return "вывести"
+	case KwVariable:
+		return "переменная"
+	case KwAnd:
+		return "и"
+	case KwOr:
+		return "или"
+	case KwNot:
+		return "не"
+	case KwTrue:
+		return "истина"
+	case KwFalse:
+		return "ложь"
 	default:
 		return "UNKNOWN"
 	}

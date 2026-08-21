@@ -4,10 +4,16 @@
 // docs/ROADMAP.md он не единственный на будущее: AST специально не содержит
 // ничего C-специфичного, чтобы позже рядом можно было добавить interpreter
 // и VM backend без изменения lexer/parser/ast.
+//
+// Типы (valueType) выводятся здесь же, прямо во время генерации кода -
+// простой literal-based inference по docs/ROADMAP.md, шаг 1. Настоящая
+// проверка типов на отдельном IR-слое появится на шаге 5 ("Semantic
+// analysis"); до тех пор эта логика намеренно живёт в backend'е, а не в AST.
 package cbackend
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
@@ -17,7 +23,7 @@ import (
 // (C main). Остальные имена транслитерируются в валидные C-идентификаторы.
 const entryPointName = "главная"
 
-// translit - таблица транслитерации кириллицы для имён функций.
+// translit - таблица транслитерации кириллицы для имён функций и переменных.
 // Не претендует на лингвистическую точность (это не морфология, см.
 // docs/ROADMAP.md), задача - дать читаемый и уникальный C-идентификатор.
 var translit = map[rune]string{
@@ -28,12 +34,8 @@ var translit = map[rune]string{
 	'ы': "y", 'ь': "", 'э': "e", 'ю': "yu", 'я': "ya",
 }
 
-func mangleName(name string) string {
-	if name == entryPointName {
-		return "main"
-	}
+func transliterate(name string) string {
 	var sb strings.Builder
-	sb.WriteString("rech_")
 	for _, r := range strings.ToLower(name) {
 		if lat, ok := translit[r]; ok {
 			sb.WriteString(lat)
@@ -44,33 +46,121 @@ func mangleName(name string) string {
 	return sb.String()
 }
 
+func mangleName(name string) string {
+	if name == entryPointName {
+		return "main"
+	}
+	return "rech_" + transliterate(name)
+}
+
+func mangleVar(name string) string {
+	return "v_" + transliterate(name)
+}
+
+// valueType - тип значения выражения, выведенный во время генерации C-кода.
+type valueType int
+
+const (
+	typeUnknown valueType = iota
+	typeString
+	typeInt
+	typeFloat
+	typeBool
+)
+
+func (t valueType) String() string {
+	switch t {
+	case typeString:
+		return "Строка"
+	case typeInt:
+		return "Целое"
+	case typeFloat:
+		return "Число"
+	case typeBool:
+		return "Логическое"
+	default:
+		return "неизвестный тип"
+	}
+}
+
+func (t valueType) cType() string {
+	switch t {
+	case typeString:
+		return "const char *"
+	case typeInt:
+		return "long long"
+	case typeFloat:
+		return "double"
+	case typeBool:
+		return "bool"
+	default:
+		return "void *"
+	}
+}
+
+// genCtx - состояние генерации одной функции: символьная таблица переменных
+// и флаги использованных runtime-хелперов (влияют на пролог файла).
+type genCtx struct {
+	symbols    map[string]valueType
+	usesConcat bool
+	usesStrCmp bool
+}
+
 // Generate возвращает исходник на C, соответствующий программе prog.
 func Generate(prog *ast.Program) (string, error) {
-	var sb strings.Builder
-	sb.WriteString("// Автоматически сгенерировано компилятором rech. Не редактировать руками.\n")
-	sb.WriteString("#include <stdio.h>\n\n")
+	var body strings.Builder
+	ctx := &genCtx{}
 
 	hasEntryPoint := false
 	for _, fn := range prog.Functions {
 		if fn.Name == entryPointName {
 			hasEntryPoint = true
 		}
-		if err := generateFunction(&sb, fn); err != nil {
+		if err := generateFunction(&body, ctx, fn); err != nil {
 			return "", err
 		}
 	}
 	if !hasEntryPoint {
 		return "", fmt.Errorf("в программе не найдена функция %q - она служит точкой входа", entryPointName)
 	}
+
+	var sb strings.Builder
+	sb.WriteString("// Автоматически сгенерировано компилятором rech. Не редактировать руками.\n")
+	sb.WriteString("#include <stdio.h>\n")
+	sb.WriteString("#include <stdbool.h>\n")
+	if ctx.usesConcat || ctx.usesStrCmp {
+		sb.WriteString("#include <string.h>\n")
+	}
+	if ctx.usesConcat {
+		sb.WriteString("#include <stdlib.h>\n")
+	}
+	sb.WriteString("\n")
+	if ctx.usesConcat {
+		sb.WriteString(strConcatHelper)
+		sb.WriteString("\n")
+	}
+	sb.WriteString(body.String())
 	return sb.String(), nil
 }
 
-func generateFunction(sb *strings.Builder, fn *ast.FunctionDecl) error {
+const strConcatHelper = `static char *rech_str_concat(const char *a, const char *b) {
+    size_t la = strlen(a), lb = strlen(b);
+    char *out = malloc(la + lb + 1);
+    memcpy(out, a, la);
+    memcpy(out + la, b, lb);
+    out[la + lb] = '\0';
+    return out;
+}
+`
+
+func generateFunction(sb *strings.Builder, ctx *genCtx, fn *ast.FunctionDecl) error {
 	cName := mangleName(fn.Name)
+	ctx.symbols = map[string]valueType{}
+
 	fmt.Fprintf(sb, "// %s\n", fn.Name)
 	fmt.Fprintf(sb, "int %s(void) {\n", cName)
 	for _, stmt := range fn.Body {
-		if err := generateStmt(sb, stmt); err != nil {
+		if err := generateStmt(sb, ctx, stmt); err != nil {
 			return fmt.Errorf("функция %q: %w", fn.Name, err)
 		}
 	}
@@ -81,29 +171,201 @@ func generateFunction(sb *strings.Builder, fn *ast.FunctionDecl) error {
 	return nil
 }
 
-func generateStmt(sb *strings.Builder, stmt ast.Stmt) error {
+func generateStmt(sb *strings.Builder, ctx *genCtx, stmt ast.Stmt) error {
 	switch s := stmt.(type) {
 	case *ast.PrintStmt:
-		value, err := evalConstString(s.Value)
+		code, typ, err := genExpr(ctx, s.Value)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(sb, "    printf(\"%s\\n\");\n", escapeCString(value))
+		fmt.Fprintf(sb, "    %s\n", printCall(typ, code))
 		return nil
+
+	case *ast.VarDecl:
+		if _, exists := ctx.symbols[s.Name]; exists {
+			return fmt.Errorf("строка %d: переменная %q уже объявлена", s.Line, s.Name)
+		}
+		code, typ, err := genExpr(ctx, s.Value)
+		if err != nil {
+			return err
+		}
+		ctx.symbols[s.Name] = typ
+		fmt.Fprintf(sb, "    %s %s = %s;\n", typ.cType(), mangleVar(s.Name), code)
+		return nil
+
+	case *ast.Assign:
+		declared, exists := ctx.symbols[s.Name]
+		if !exists {
+			return fmt.Errorf("строка %d: переменная %q не объявлена - используйте \"переменная\" для объявления", s.Line, s.Name)
+		}
+		code, typ, err := genExpr(ctx, s.Value)
+		if err != nil {
+			return err
+		}
+		if typ != declared {
+			return fmt.Errorf("строка %d: переменной %q типа %s нельзя присвоить значение типа %s", s.Line, s.Name, declared, typ)
+		}
+		fmt.Fprintf(sb, "    %s = %s;\n", mangleVar(s.Name), code)
+		return nil
+
 	default:
 		return fmt.Errorf("строка %d: инструкция %T пока не поддерживается C backend'ом", lineOf(stmt), stmt)
 	}
 }
 
-// evalConstString в v0.1 умеет вычислять только строковые литералы -
-// переменные и конкатенация появятся вместе с этапом "Выражения".
-func evalConstString(expr ast.Expr) (string, error) {
+func printCall(typ valueType, code string) string {
+	switch typ {
+	case typeString:
+		return fmt.Sprintf(`printf("%%s\n", %s);`, code)
+	case typeInt:
+		return fmt.Sprintf(`printf("%%lld\n", %s);`, code)
+	case typeFloat:
+		return fmt.Sprintf(`printf("%%g\n", %s);`, code)
+	case typeBool:
+		return fmt.Sprintf(`printf("%%s\n", (%s) ? "истина" : "ложь");`, code)
+	default:
+		return fmt.Sprintf(`printf("%%s\n", %s);`, code)
+	}
+}
+
+// genExpr генерирует C-выражение для expr и возвращает вместе с ним
+// выведенный тип значения.
+func genExpr(ctx *genCtx, expr ast.Expr) (string, valueType, error) {
 	switch e := expr.(type) {
 	case *ast.StringLiteral:
-		return e.Value, nil
+		return fmt.Sprintf(`"%s"`, escapeCString(e.Value)), typeString, nil
+
+	case *ast.IntLiteral:
+		return fmt.Sprintf("%dLL", e.Value), typeInt, nil
+
+	case *ast.FloatLiteral:
+		return formatFloatLiteral(e.Value), typeFloat, nil
+
+	case *ast.BoolLiteral:
+		if e.Value {
+			return "true", typeBool, nil
+		}
+		return "false", typeBool, nil
+
+	case *ast.Identifier:
+		typ, ok := ctx.symbols[e.Name]
+		if !ok {
+			return "", typeUnknown, fmt.Errorf("строка %d: переменная %q не объявлена", e.Line, e.Name)
+		}
+		return mangleVar(e.Name), typ, nil
+
+	case *ast.UnaryExpr:
+		return genUnaryExpr(ctx, e)
+
+	case *ast.BinaryExpr:
+		return genBinaryExpr(ctx, e)
+
 	default:
-		return "", fmt.Errorf("строка %d: выражение %T пока не поддерживается C backend'ом", lineOf(expr), expr)
+		return "", typeUnknown, fmt.Errorf("строка %d: выражение %T пока не поддерживается C backend'ом", lineOf(expr), expr)
 	}
+}
+
+func genUnaryExpr(ctx *genCtx, e *ast.UnaryExpr) (string, valueType, error) {
+	code, typ, err := genExpr(ctx, e.Operand)
+	if err != nil {
+		return "", typeUnknown, err
+	}
+	switch e.Op {
+	case "-":
+		if typ != typeInt && typ != typeFloat {
+			return "", typeUnknown, fmt.Errorf("строка %d: унарный \"-\" применим только к числам, получен %s", e.Line, typ)
+		}
+		return fmt.Sprintf("(-%s)", code), typ, nil
+	case "не":
+		if typ != typeBool {
+			return "", typeUnknown, fmt.Errorf("строка %d: \"не\" применимо только к логическому значению, получен %s", e.Line, typ)
+		}
+		return fmt.Sprintf("(!%s)", code), typeBool, nil
+	default:
+		return "", typeUnknown, fmt.Errorf("строка %d: неизвестная унарная операция %q", e.Line, e.Op)
+	}
+}
+
+func genBinaryExpr(ctx *genCtx, e *ast.BinaryExpr) (string, valueType, error) {
+	lc, lt, err := genExpr(ctx, e.Left)
+	if err != nil {
+		return "", typeUnknown, err
+	}
+	rc, rt, err := genExpr(ctx, e.Right)
+	if err != nil {
+		return "", typeUnknown, err
+	}
+
+	switch e.Op {
+	case "+":
+		if lt == typeString && rt == typeString {
+			ctx.usesConcat = true
+			return fmt.Sprintf("rech_str_concat(%s, %s)", lc, rc), typeString, nil
+		}
+		return genArithmetic(e, "+", lc, lt, rc, rt)
+	case "-", "*", "/":
+		return genArithmetic(e, e.Op, lc, lt, rc, rt)
+
+	case "==", "!=":
+		if lt == typeString && rt == typeString {
+			ctx.usesStrCmp = true
+			cmp := fmt.Sprintf("strcmp(%s, %s)", lc, rc)
+			if e.Op == "==" {
+				return fmt.Sprintf("(%s == 0)", cmp), typeBool, nil
+			}
+			return fmt.Sprintf("(%s != 0)", cmp), typeBool, nil
+		}
+		if lt != rt || (lt != typeInt && lt != typeFloat && lt != typeBool) {
+			return "", typeUnknown, fmt.Errorf("строка %d: оператор %q не поддерживается для типов %s и %s", e.Line, e.Op, lt, rt)
+		}
+		return fmt.Sprintf("(%s %s %s)", lc, e.Op, rc), typeBool, nil
+
+	case "<", ">", "<=", ">=":
+		if lt != rt || (lt != typeInt && lt != typeFloat) {
+			return "", typeUnknown, fmt.Errorf("строка %d: оператор %q применим только к числам одного типа, получены %s и %s", e.Line, e.Op, lt, rt)
+		}
+		return fmt.Sprintf("(%s %s %s)", lc, e.Op, rc), typeBool, nil
+
+	case "и", "или":
+		if lt != typeBool || rt != typeBool {
+			return "", typeUnknown, fmt.Errorf("строка %d: оператор %q применим только к логическим значениям, получены %s и %s", e.Line, e.Op, lt, rt)
+		}
+		cOp := "&&"
+		if e.Op == "или" {
+			cOp = "||"
+		}
+		return fmt.Sprintf("(%s %s %s)", lc, cOp, rc), typeBool, nil
+
+	default:
+		return "", typeUnknown, fmt.Errorf("строка %d: неизвестная операция %q", e.Line, e.Op)
+	}
+}
+
+func genArithmetic(e *ast.BinaryExpr, op string, lc string, lt valueType, rc string, rt valueType) (string, valueType, error) {
+	if lt != typeInt && lt != typeFloat {
+		return "", typeUnknown, fmt.Errorf("строка %d: оператор %q не поддерживается для типа %s", e.Line, op, lt)
+	}
+	if rt != typeInt && rt != typeFloat {
+		return "", typeUnknown, fmt.Errorf("строка %d: оператор %q не поддерживается для типа %s", e.Line, op, rt)
+	}
+	if lt == typeFloat || rt == typeFloat {
+		if lt == typeInt {
+			lc = fmt.Sprintf("((double)%s)", lc)
+		}
+		if rt == typeInt {
+			rc = fmt.Sprintf("((double)%s)", rc)
+		}
+		return fmt.Sprintf("(%s %s %s)", lc, op, rc), typeFloat, nil
+	}
+	return fmt.Sprintf("(%s %s %s)", lc, op, rc), typeInt, nil
+}
+
+func formatFloatLiteral(v float64) string {
+	s := strconv.FormatFloat(v, 'g', -1, 64)
+	if !strings.ContainsAny(s, ".eE") {
+		s += ".0"
+	}
+	return s
 }
 
 func escapeCString(s string) string {
@@ -129,7 +391,23 @@ func lineOf(n ast.Node) int {
 	switch v := n.(type) {
 	case *ast.PrintStmt:
 		return v.Line
+	case *ast.VarDecl:
+		return v.Line
+	case *ast.Assign:
+		return v.Line
 	case *ast.StringLiteral:
+		return v.Line
+	case *ast.IntLiteral:
+		return v.Line
+	case *ast.FloatLiteral:
+		return v.Line
+	case *ast.BoolLiteral:
+		return v.Line
+	case *ast.Identifier:
+		return v.Line
+	case *ast.UnaryExpr:
+		return v.Line
+	case *ast.BinaryExpr:
 		return v.Line
 	default:
 		return 0

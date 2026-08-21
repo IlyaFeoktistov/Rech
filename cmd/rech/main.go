@@ -4,6 +4,7 @@
 //
 //	rech build <файл.rech>   - сгенерировать <файл>.c и собрать нативный бинарник <файл>
 //	rech run <файл.rech>     - собрать и сразу выполнить
+//	rech version             - напечатать версию компилятора
 package main
 
 import (
@@ -11,14 +12,26 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"github.com/IlyaFeoktistov/Rech/internal/version"
 )
 
 func main() {
-	if len(os.Args) < 3 {
+	if len(os.Args) < 2 {
 		usage()
 		os.Exit(2)
 	}
 	cmd := os.Args[1]
+
+	if cmd == "version" {
+		fmt.Println("rech", version.Version)
+		return
+	}
+
+	if len(os.Args) < 3 {
+		usage()
+		os.Exit(2)
+	}
 	srcPath := os.Args[2]
 
 	comp := InitializeCompiler()
@@ -46,7 +59,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "использование: rech build|run <файл.rech>")
+	fmt.Fprintln(os.Stderr, "использование: rech build|run <файл.rech> | rech version")
 }
 
 func runBinary(binPath string) error {

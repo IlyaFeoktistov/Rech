@@ -84,8 +84,56 @@ func (l *Lexer) next() (Token, error) {
 	case r == '}':
 		l.advance()
 		return Token{Type: RBRACE, Value: "}", Line: line, Col: col}, nil
+	case r == '(':
+		l.advance()
+		return Token{Type: LPAREN, Value: "(", Line: line, Col: col}, nil
+	case r == ')':
+		l.advance()
+		return Token{Type: RPAREN, Value: ")", Line: line, Col: col}, nil
+	case r == '+':
+		l.advance()
+		return Token{Type: PLUS, Value: "+", Line: line, Col: col}, nil
+	case r == '-':
+		l.advance()
+		return Token{Type: MINUS, Value: "-", Line: line, Col: col}, nil
+	case r == '*':
+		l.advance()
+		return Token{Type: STAR, Value: "*", Line: line, Col: col}, nil
+	case r == '/':
+		l.advance()
+		return Token{Type: SLASH, Value: "/", Line: line, Col: col}, nil
+	case r == '=':
+		l.advance()
+		if l.peek() == '=' {
+			l.advance()
+			return Token{Type: EQ, Value: "==", Line: line, Col: col}, nil
+		}
+		return Token{Type: ASSIGN, Value: "=", Line: line, Col: col}, nil
+	case r == '!':
+		l.advance()
+		if l.peek() == '=' {
+			l.advance()
+			return Token{Type: NEQ, Value: "!=", Line: line, Col: col}, nil
+		}
+		return Token{}, fmt.Errorf("строка %d, столбец %d: одиночный \"!\" не поддерживается, используйте \"не\"", line, col)
+	case r == '<':
+		l.advance()
+		if l.peek() == '=' {
+			l.advance()
+			return Token{Type: LE, Value: "<=", Line: line, Col: col}, nil
+		}
+		return Token{Type: LT, Value: "<", Line: line, Col: col}, nil
+	case r == '>':
+		l.advance()
+		if l.peek() == '=' {
+			l.advance()
+			return Token{Type: GE, Value: ">=", Line: line, Col: col}, nil
+		}
+		return Token{Type: GT, Value: ">", Line: line, Col: col}, nil
 	case r == '"':
 		return l.readString(line, col)
+	case unicode.IsDigit(r):
+		return l.readNumber(line, col), nil
 	case unicode.IsLetter(r) || r == '_':
 		return l.readIdentOrKeyword(line, col), nil
 	default:
@@ -122,6 +170,26 @@ func (l *Lexer) readIdentOrKeyword(line, col int) Token {
 		return Token{Type: kw, Value: value, Line: line, Col: col}
 	}
 	return Token{Type: IDENT, Value: value, Line: line, Col: col}
+}
+
+func (l *Lexer) readNumber(line, col int) Token {
+	start := l.pos
+	for l.pos < len(l.src) && unicode.IsDigit(l.peek()) {
+		l.advance()
+	}
+	isFloat := false
+	if l.peek() == '.' && unicode.IsDigit(l.peekAt(1)) {
+		isFloat = true
+		l.advance() // .
+		for l.pos < len(l.src) && unicode.IsDigit(l.peek()) {
+			l.advance()
+		}
+	}
+	value := string(l.src[start:l.pos])
+	if isFloat {
+		return Token{Type: FLOAT, Value: value, Line: line, Col: col}
+	}
+	return Token{Type: INT, Value: value, Line: line, Col: col}
 }
 
 func (l *Lexer) readString(line, col int) (Token, error) {
