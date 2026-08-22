@@ -333,7 +333,7 @@ func TestParseNewExprAndFieldAccess(t *testing.T) {
         имя: Строка
 }
 функция главная {
-    переменная пользователь = создать Пользователь("Илья")
+    переменная пользователь = новый Пользователь("Илья")
     вывести пользователь.имя
 }
 `)
@@ -450,7 +450,7 @@ func TestParseMethodCallAsExpressionAndStatement(t *testing.T) {
         х: Целое
 }
 функция главная {
-    переменная p = создать П(1)
+    переменная p = новый П(1)
     p.метод()
     переменная y = p.другой(1, 2)
 }
@@ -487,7 +487,7 @@ func TestParseMethodRequiresParens(t *testing.T) {
 func TestParseGenericTypeNameInNewExpr(t *testing.T) {
 	prog, err := parseSource(t, `
 функция главная {
-    переменная числа = создать Список<Целое>()
+    переменная числа = новый Список<Целое>()
 }
 `)
 	if err != nil {
@@ -537,8 +537,8 @@ func TestParseNaturalCallMixedTaggedAndPositional(t *testing.T) {
 }
 функция оформить(кого пользователь: Пользователь, права: Права) { вывести пользователь.имя }
 функция главная {
-    переменная пользователь = создать Пользователь("Илья")
-    переменная админ = создать Права(1)
+    переменная пользователь = новый Пользователь("Илья")
+    переменная админ = новые Права(1)
     оформить пользователя админ
 }
 `)
@@ -548,7 +548,7 @@ func TestParseNaturalCallMixedTaggedAndPositional(t *testing.T) {
 	stmt := prog.Functions[1].Body[2].(*ast.ExprStmt)
 	call := stmt.Call
 	if call == nil || len(call.Args) != 2 {
-		t.Fatalf("ожидался вызов \"создать\" с двумя аргументами, получено %+v", stmt)
+		t.Fatalf("ожидался вызов \"оформить\" с двумя аргументами, получено %+v", stmt)
 	}
 	if id, ok := call.Args[0].(*ast.Identifier); !ok || id.Name != "пользователь" {
 		t.Fatalf("ожидался первым аргументом \"пользователь\" (падежная роль \"кого\"), получено %+v", call.Args[0])
@@ -587,5 +587,124 @@ func TestParseReturnWithoutValueStillWorks(t *testing.T) {
 	ret := ifStmt.Then[0].(*ast.ReturnStmt)
 	if ret.Value != nil {
 		t.Fatalf("ожидался \"вернуть\" без значения, получено значение: %+v", ret.Value)
+	}
+}
+
+func TestParseNewExprGenderAgreement(t *testing.T) {
+	// "Сова" (женский род, окончание "-а"), "Окно" (средний род, окончание
+	// "-о"), "Пользователь" (мужской род, курируемое исключение) - по одному
+	// представителю каждого рода через ClassifyByEnding/исключения (без
+	// обращения к gomorphy, чьи теги для нарицательных слов не всегда
+	// однозначны - см. docs/MORPHOLOGY.md), плюс "Права" (plurale tantum,
+	// число вместо рода).
+	src := `
+сущность Сова
+{
+    имеет:
+        х: Целое
+}
+сущность Окно
+{
+    имеет:
+        х: Целое
+}
+сущность Пользователь
+{
+    имеет:
+        х: Целое
+}
+сущность Права
+{
+    имеет:
+        х: Целое
+}
+функция главная {
+    переменная а = новая Сова(1)
+    переменная б = новое Окно(1)
+    переменная д = новый Пользователь(1)
+    переменная г = новые Права(1)
+}
+`
+	if _, err := parseSource(t, src); err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
+func TestParseNewExprGenderMismatchFails(t *testing.T) {
+	_, err := parseSource(t, `
+сущность Сова
+{
+    имеет:
+        х: Целое
+}
+функция главная {
+    переменная а = новый Сова(1)
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "требует форму") {
+		t.Fatalf("ожидалась ошибка согласования рода, получено: %v", err)
+	}
+}
+
+func TestParseNewExprUnclassifiableWordAcceptsAnyForm(t *testing.T) {
+	// "Мнрдчь" оканчивается на "-ь" (Фаза A не может определить род без
+	// курируемого исключения/словаря gomorphy) - обе формы должны
+	// приниматься без ошибки (permissive fallback).
+	for _, kw := range []string{"новая", "новое"} {
+		src := `
+сущность Мнрдчь
+{
+    имеет:
+        х: Целое
+}
+функция главная {
+    переменная а = ` + kw + ` Мнрдчь(1)
+}
+`
+		if _, err := parseSource(t, src); err != nil {
+			t.Fatalf("форма %q: неожиданная ошибка: %v", kw, err)
+		}
+	}
+}
+
+func TestParseNewExprLabeledArgs(t *testing.T) {
+	prog, err := parseSource(t, `
+сущность Пользователь
+{
+    имеет:
+        имя: Строка
+        возраст: Целое
+}
+функция главная {
+    переменная п = новый Пользователь(возраст: 30, имя: "Илья")
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	varDecl := prog.Functions[0].Body[0].(*ast.VarDecl)
+	newExpr, ok := varDecl.Value.(*ast.NewExpr)
+	if !ok || len(newExpr.FieldNames) != 2 {
+		t.Fatalf("ожидался NewExpr с именованными аргументами, получено %+v", varDecl.Value)
+	}
+	if newExpr.FieldNames[0] != "возраст" || newExpr.FieldNames[1] != "имя" {
+		t.Fatalf("ожидался порядок меток [возраст имя], получено %v", newExpr.FieldNames)
+	}
+}
+
+func TestParseNewExprMixedLabeledAndPositionalFails(t *testing.T) {
+	_, err := parseSource(t, `
+сущность Пользователь
+{
+    имеет:
+        имя: Строка
+        возраст: Целое
+}
+функция главная {
+    переменная п = новый Пользователь("Илья", возраст: 30)
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "нельзя смешивать именованные и позиционные аргументы") {
+		t.Fatalf("ожидалась ошибка смешивания форм аргументов, получено: %v", err)
 	}
 }

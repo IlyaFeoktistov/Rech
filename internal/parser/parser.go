@@ -37,6 +37,7 @@ package parser
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
@@ -842,20 +843,104 @@ func (p *Parser) parseArgList() ([]ast.Expr, error) {
 // конструктор сущности (шаг 4). Только строгий синтаксис, аргументы
 // позиционные по порядку полей - падежное согласование имени типа как
 // прямого дополнения отложено (docs/GRAMMAR.md).
+// parseNewExpr разбирает конструктор: "новый"/"новая"/"новое"/"новые"
+// (согласуется по роду/числу с именем сущности - см. checkNewKeywordAgreement)
+// type_name "(" args ")". Аргументы - либо позиционные (по порядку полей,
+// как раньше), либо именованные (`имя_поля: значение`, в любом порядке) -
+// смешивать в одном вызове нельзя.
 func (p *Parser) parseNewExpr() (ast.Expr, error) {
-	kw := p.advance() // "создать"
+	kw, err := p.expect(lexer.KwNew)
+	if err != nil {
+		return nil, err
+	}
 	typeName, err := p.parseTypeName()
 	if err != nil {
-		return nil, fmt.Errorf("после \"создать\" ожидалось имя сущности: %w", err)
+		return nil, fmt.Errorf("после %q ожидалось имя сущности: %w", kw.Value, err)
+	}
+	if err := p.checkNewKeywordAgreement(kw, typeName); err != nil {
+		return nil, err
 	}
 	if p.cur().Type != lexer.LPAREN {
 		return nil, fmt.Errorf("строка %d, столбец %d: после имени сущности %q ожидалось \"(\"", p.cur().Line, p.cur().Col, typeName)
 	}
-	args, err := p.parseArgList()
-	if err != nil {
-		return nil, fmt.Errorf("в аргументах конструктора %q: %w", typeName, err)
+	p.advance() // "("
+
+	var args []ast.Expr
+	var fieldNames []string
+	if p.cur().Type != lexer.RPAREN {
+		labeled := p.cur().Type == lexer.IDENT && p.peekAt(1).Type == lexer.COLON
+		for {
+			nowLabeled := p.cur().Type == lexer.IDENT && p.peekAt(1).Type == lexer.COLON
+			if nowLabeled != labeled {
+				return nil, fmt.Errorf("строка %d, столбец %d: в конструкторе %q нельзя смешивать именованные и позиционные аргументы",
+					p.cur().Line, p.cur().Col, typeName)
+			}
+			if labeled {
+				label, err := p.expect(lexer.IDENT)
+				if err != nil {
+					return nil, err
+				}
+				p.advance() // ":"
+				val, err := p.parseExpr()
+				if err != nil {
+					return nil, fmt.Errorf("в значении поля %q конструктора %q: %w", label.Value, typeName, err)
+				}
+				fieldNames = append(fieldNames, label.Value)
+				args = append(args, val)
+			} else {
+				val, err := p.parseExpr()
+				if err != nil {
+					return nil, fmt.Errorf("в аргументах конструктора %q: %w", typeName, err)
+				}
+				args = append(args, val)
+			}
+			if p.cur().Type != lexer.COMMA {
+				break
+			}
+			p.advance() // ","
+		}
 	}
-	return &ast.NewExpr{Type: typeName, Args: args, Line: kw.Line}, nil
+	if _, err := p.expect(lexer.RPAREN); err != nil {
+		return nil, err
+	}
+	return &ast.NewExpr{Type: typeName, Args: args, FieldNames: fieldNames, Line: kw.Line}, nil
+}
+
+// newKeywordFor возвращает форму конструктора, согласованную с (gender,
+// number) - "новый"/"новая"/"новое"/"новые".
+func newKeywordFor(gender morph.Gender, number morph.Number) string {
+	if number == morph.Plural {
+		return "новые"
+	}
+	switch gender {
+	case morph.Feminine:
+		return "новая"
+	case morph.Neuter:
+		return "новое"
+	default:
+		return "новый"
+	}
+}
+
+// checkNewKeywordAgreement проверяет, что фактически написанная форма
+// конструктора (kw.Value) согласуется по роду/числу с typeName - только
+// если morph.NounAgreement вообще смогла определить род/число (permissive
+// fallback: слово, которое Фаза A и словарь OpenCorpora не classify, не
+// блокирует компиляцию - подходит любая форма). typeName для
+// generic-инстанциации ("Список<Целое>") - согласование по имени шаблона
+// (до "<"), у самого аргумента типа рода нет значения здесь.
+func (p *Parser) checkNewKeywordAgreement(kw lexer.Token, typeName string) error {
+	base, _, _ := strings.Cut(typeName, "<")
+	gender, number, ok := morph.NounAgreement(base)
+	if !ok {
+		return nil
+	}
+	want := newKeywordFor(gender, number)
+	if kw.Value != want {
+		return fmt.Errorf("строка %d, столбец %d: сущность %q требует форму %q, получено %q",
+			kw.Line, kw.Col, typeName, want, kw.Value)
+	}
+	return nil
 }
 
 // naturalCallPrepositions - предлоги, разрешённые перед аргументом
@@ -1177,7 +1262,7 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 		}
 		p.advance()
 		return &ast.Identifier{Name: tok.Value, Line: tok.Line}, nil
-	case lexer.KwCreate:
+	case lexer.KwNew:
 		return p.parseNewExpr()
 	case lexer.KwThis:
 		p.advance()

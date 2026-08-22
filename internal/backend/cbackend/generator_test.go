@@ -295,6 +295,79 @@ func TestGenerateNewExprUndeclaredEntity(t *testing.T) {
 	}
 }
 
+func TestGenerateNewExprLabeledArgs(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "p", Value: &ast.NewExpr{
+			Type:       "Пользователь",
+			Args:       []ast.Expr{&ast.IntLiteral{Value: 30}, &ast.StringLiteral{Value: "Илья"}},
+			FieldNames: []string{"возраст", "имя"},
+		}},
+	}}
+	out, err := Generate(&ast.Program{Entities: []*ast.EntityDecl{entityUser()}, Functions: []*ast.FunctionDecl{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, `(rech_T_polzovatel){.f_vozrast = 30LL, .f_imya = "Илья"}`) {
+		t.Fatalf("ожидался compound literal с метками в порядке аргументов, получено:\n%s", out)
+	}
+}
+
+func TestGenerateNewExprLabeledArgsUnknownField(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "p", Value: &ast.NewExpr{
+			Type:       "Пользователь",
+			Args:       []ast.Expr{&ast.StringLiteral{Value: "Илья"}, &ast.IntLiteral{Value: 30}},
+			FieldNames: []string{"фамилия", "возраст"},
+		}},
+	}}
+	_, err := Generate(&ast.Program{Entities: []*ast.EntityDecl{entityUser()}, Functions: []*ast.FunctionDecl{main}})
+	if err == nil || !strings.Contains(err.Error(), "нет поля") {
+		t.Fatalf("ожидалась ошибка про несуществующее поле, получено: %v", err)
+	}
+}
+
+func TestGenerateNewExprLabeledArgsDuplicateField(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "p", Value: &ast.NewExpr{
+			Type:       "Пользователь",
+			Args:       []ast.Expr{&ast.StringLiteral{Value: "Илья"}, &ast.StringLiteral{Value: "Пётр"}},
+			FieldNames: []string{"имя", "имя"},
+		}},
+	}}
+	_, err := Generate(&ast.Program{Entities: []*ast.EntityDecl{entityUser()}, Functions: []*ast.FunctionDecl{main}})
+	if err == nil || !strings.Contains(err.Error(), "указано более одного раза") {
+		t.Fatalf("ожидалась ошибка про дублирующееся поле, получено: %v", err)
+	}
+}
+
+func TestGenerateNewExprLabeledArgsWrongCount(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "p", Value: &ast.NewExpr{
+			Type:       "Пользователь",
+			Args:       []ast.Expr{&ast.StringLiteral{Value: "Илья"}},
+			FieldNames: []string{"имя"},
+		}},
+	}}
+	_, err := Generate(&ast.Program{Entities: []*ast.EntityDecl{entityUser()}, Functions: []*ast.FunctionDecl{main}})
+	if err == nil || !strings.Contains(err.Error(), "ожидает значений полей") {
+		t.Fatalf("ожидалась ошибка про число полей конструктора, получено: %v", err)
+	}
+}
+
+func TestGenerateNewExprLabeledArgsWrongType(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "p", Value: &ast.NewExpr{
+			Type:       "Пользователь",
+			Args:       []ast.Expr{&ast.IntLiteral{Value: 1}, &ast.IntLiteral{Value: 30}},
+			FieldNames: []string{"имя", "возраст"},
+		}},
+	}}
+	_, err := Generate(&ast.Program{Entities: []*ast.EntityDecl{entityUser()}, Functions: []*ast.FunctionDecl{main}})
+	if err == nil || !strings.Contains(err.Error(), "должно быть типа") {
+		t.Fatalf("ожидалась ошибка про тип значения поля, получено: %v", err)
+	}
+}
+
 func TestGenerateFieldAccessUnknownField(t *testing.T) {
 	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
 		&ast.VarDecl{Name: "p", Value: &ast.NewExpr{Type: "Пользователь", Args: []ast.Expr{&ast.StringLiteral{Value: "x"}, &ast.IntLiteral{Value: 1}}}},

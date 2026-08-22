@@ -1176,19 +1176,28 @@ func genNewExpr(ctx *genCtx, e *ast.NewExpr) (string, valueType, error) {
 			return "", typeUnknown, fmt.Errorf("строка %d: сущность %q не объявлена", e.Line, e.Type)
 		}
 	}
-	if len(e.Args) != len(sig.FieldNames) {
-		return "", typeUnknown, fmt.Errorf("строка %d: конструктор %q ожидает значений полей: %d, передано: %d", e.Line, e.Type, len(sig.FieldNames), len(e.Args))
-	}
-	parts := make([]string, len(e.Args))
-	for i, arg := range e.Args {
-		code, typ, err := genExpr(ctx, arg)
+	var parts []string
+	if e.FieldNames != nil {
+		var err error
+		parts, err = genNewExprLabeled(ctx, e, sig)
 		if err != nil {
 			return "", typeUnknown, err
 		}
-		if typ != sig.FieldTypes[i] {
-			return "", typeUnknown, fmt.Errorf("строка %d: поле %q сущности %q должно быть типа %s, получено %s", e.Line, sig.FieldNames[i], e.Type, sig.FieldTypes[i], typ)
+	} else {
+		if len(e.Args) != len(sig.FieldNames) {
+			return "", typeUnknown, fmt.Errorf("строка %d: конструктор %q ожидает значений полей: %d, передано: %d", e.Line, e.Type, len(sig.FieldNames), len(e.Args))
 		}
-		parts[i] = fmt.Sprintf(".%s = %s", mangleField(sig.FieldNames[i]), code)
+		parts = make([]string, len(e.Args))
+		for i, arg := range e.Args {
+			code, typ, err := genExpr(ctx, arg)
+			if err != nil {
+				return "", typeUnknown, err
+			}
+			if typ != sig.FieldTypes[i] {
+				return "", typeUnknown, fmt.Errorf("строка %d: поле %q сущности %q должно быть типа %s, получено %s", e.Line, sig.FieldNames[i], e.Type, sig.FieldTypes[i], typ)
+			}
+			parts[i] = fmt.Sprintf(".%s = %s", mangleField(sig.FieldNames[i]), code)
+		}
 	}
 	initList := strings.Join(parts, ", ")
 	if initList == "" {
@@ -1198,6 +1207,40 @@ func genNewExpr(ctx *genCtx, e *ast.NewExpr) (string, valueType, error) {
 		initList = "0"
 	}
 	return fmt.Sprintf("(%s){%s}", mangleType(e.Type), initList), entityType(e.Type), nil
+}
+
+// genNewExprLabeled генерирует именованную форму конструктора
+// ("новый Тип(поле: значение, ...)") - designated-initializer части
+// compound literal в том порядке, в котором поля перечислены в вызове (C
+// не требует порядка инициализаторов). Число меток должно совпадать с
+// числом полей сущности - вместе с проверкой "поле указано не более
+// одного раза" это гарантирует, что каждое поле получает ровно одно
+// значение, без отдельной проверки "все поля покрыты".
+func genNewExprLabeled(ctx *genCtx, e *ast.NewExpr, sig entitySig) ([]string, error) {
+	if len(e.FieldNames) != len(sig.FieldNames) {
+		return nil, fmt.Errorf("строка %d: конструктор %q ожидает значений полей: %d, передано: %d", e.Line, e.Type, len(sig.FieldNames), len(e.FieldNames))
+	}
+	seen := make([]bool, len(sig.FieldNames))
+	parts := make([]string, len(e.Args))
+	for i, label := range e.FieldNames {
+		idx := sig.fieldIndex(label)
+		if idx == -1 {
+			return nil, fmt.Errorf("строка %d: у сущности %q нет поля %q", e.Line, e.Type, label)
+		}
+		if seen[idx] {
+			return nil, fmt.Errorf("строка %d: поле %q конструктора %q указано более одного раза", e.Line, label, e.Type)
+		}
+		seen[idx] = true
+		code, typ, err := genExpr(ctx, e.Args[i])
+		if err != nil {
+			return nil, err
+		}
+		if typ != sig.FieldTypes[idx] {
+			return nil, fmt.Errorf("строка %d: поле %q сущности %q должно быть типа %s, получено %s", e.Line, label, e.Type, sig.FieldTypes[idx], typ)
+		}
+		parts[i] = fmt.Sprintf(".%s = %s", mangleField(label), code)
+	}
+	return parts, nil
 }
 
 // genFieldAccess генерирует чтение поля сущности ("receiver.поле").

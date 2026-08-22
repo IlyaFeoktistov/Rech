@@ -53,7 +53,7 @@ const (
 	KwEntity   // сущность
 	KwClass    // класс (синоним "сущность")
 	KwHas      // имеет
-	KwCreate   // создать
+	KwNew      // новый / новая / новое / новые
 	KwThis     // этот
 )
 
@@ -82,7 +82,10 @@ var keywords = map[string]TokenType{
 	"сущность":   KwEntity,
 	"класс":      KwClass,
 	"имеет":      KwHas,
-	"создать":    KwCreate,
+	"новый":      KwNew,
+	"новая":      KwNew,
+	"новое":      KwNew,
+	"новые":      KwNew,
 	"этот":       KwThis,
 }
 
@@ -186,8 +189,8 @@ func (t TokenType) String() string {
 		return "класс"
 	case KwHas:
 		return "имеет"
-	case KwCreate:
-		return "создать"
+	case KwNew:
+		return "новый"
 	case KwThis:
 		return "этот"
 	default:

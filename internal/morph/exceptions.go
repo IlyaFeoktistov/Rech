@@ -1,5 +1,7 @@
 package morph
 
+import "strings"
+
 // nounGenderExceptions - слова, для которых ClassifyByEnding не может
 // определить класс склонения однозначно (в Фазе A - в первую очередь слова
 // на "-ь": возможен и мужской, и женский род). Проверяется в
@@ -32,6 +34,43 @@ func AnimacyOf(nomSg string) Animacy {
 		return a
 	}
 	return Inanimate
+}
+
+// pluraleTantum - курируемый список существительных, у которых нет формы
+// единственного числа в том смысле, в котором слово используется в
+// программе ("права" - как в "права доступа", не "право" в смысле "закон").
+// Как и nounAnimacy, не выводится ни из чего - только явный список.
+var pluraleTantum = map[string]bool{
+	"права": true,
+}
+
+// NounAgreement возвращает род и число, нужные для согласования слов вроде
+// "новый"/"новая"/"новое"/"новые" (docs/GRAMMAR.md, конструктор) с
+// существительным nomSg. Число - Plural только для существительных из
+// pluraleTantum - для них род не определяется (согласование в
+// множественном числе от рода не зависит). ok == false - определить не
+// удалось (слово вне Фазы A - "-й"/голое "-е" без исключения - и не
+// нашлось в словаре OpenCorpora через gomorphy) - вызывающий код не должен
+// в этом случае требовать согласования вовсе, а не угадывать форму.
+//
+// Не дублирует Dictionary.RegisterNoun - здесь нужен только род/число, не
+// полная парадигма словоформ, поэтому источники те же (курируемые
+// исключения -> ClassifyByEnding -> gomorphy), но без построения Paradigm.
+func NounAgreement(nomSg string) (gender Gender, number Number, ok bool) {
+	lower := strings.ToLower(nomSg)
+	if pluraleTantum[lower] {
+		return 0, Plural, true
+	}
+	if exc, found := nounGenderExceptions[lower]; found {
+		return exc.Gender, Singular, true
+	}
+	if class, found := ClassifyByEnding(lower); found {
+		return GenderOf(class), Singular, true
+	}
+	if gender, found := lookupGenderViaGomorphy(lower); found {
+		return gender, Singular, true
+	}
+	return 0, 0, false
 }
 
 // SystemVerbs - курируемый словарь глаголов стандартной библиотеки. Формы
