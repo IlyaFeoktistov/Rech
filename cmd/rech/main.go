@@ -135,10 +135,17 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "использование: rech build|run [--keep-c] <файл.rech>|<каталог>|-c \"<код>\" | rech test <файл.rech>|<каталог> | rech version")
 }
 
-// runTests запускает testrunner.Run по path, печатает результат каждого
-// файла и итоговую сводку. Возвращает false, если хотя бы один тест не
-// прошёл (компилятор/семантика/"утверждать" - без разницы, всё это делает
-// файл непройденным).
+// testDotsPerLine - сколько точек/"F" печатать в строке прогресса, прежде
+// чем перейти на новую (как у PHPUnit/Composer) - чисто читаемость вывода
+// при большом числе тестов, не влияет на подсчёт результатов.
+const testDotsPerLine = 60
+
+// runTests запускает testrunner.Run по path и печатает результат в стиле
+// прогресс-точек (Composer/PHPUnit): "." за пройденный тест, "F" за
+// непройденный - ни один упавший файл не прерывает прогон остальных
+// (testrunner.RunFile изолирует ошибки каждого файла отдельно). После
+// прогресса - список причин каждого провала, затем итоговая сводка.
+// Возвращает false, если хотя бы один тест не прошёл.
 func runTests(path string) bool {
 	results, err := testrunner.Run(path)
 	if err != nil {
@@ -149,17 +156,32 @@ func runTests(path string) bool {
 		fmt.Println("тестовых файлов не найдено")
 		return true
 	}
-	passed := 0
-	for _, r := range results {
+
+	var failed []testrunner.Result
+	for i, r := range results {
 		if r.Passed {
-			passed++
-			fmt.Printf("ок      %s\n", r.Path)
-			continue
+			fmt.Print(".")
+		} else {
+			fmt.Print("F")
+			failed = append(failed, r)
 		}
-		fmt.Printf("ОШИБКА  %s: %v\n", r.Path, r.Err)
+		if (i+1)%testDotsPerLine == 0 {
+			fmt.Println()
+		}
 	}
-	fmt.Printf("Итого: %d пройдено, %d провалено\n", passed, len(results)-passed)
-	return passed == len(results)
+	fmt.Println()
+	fmt.Println()
+
+	if len(failed) > 0 {
+		fmt.Println("Провалившиеся тесты:")
+		fmt.Println()
+		for i, r := range failed {
+			fmt.Printf("%d) %s\n%v\n\n", i+1, r.Path, r.Err)
+		}
+	}
+
+	fmt.Printf("Тестов: %d, провалено: %d\n", len(results), len(failed))
+	return len(failed) == 0
 }
 
 func runBinary(binPath string) error {
