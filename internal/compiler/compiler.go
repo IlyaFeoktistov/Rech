@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"golang.org/x/text/unicode/norm"
@@ -115,25 +116,36 @@ func NewCompiler(frontend Frontend, backend Backend, toolchain Toolchain) *Compi
 	return &Compiler{Frontend: frontend, Backend: backend, Toolchain: toolchain}
 }
 
-// Build прогоняет srcPath через весь пайплайн и возвращает путь
-// к собранному бинарнику. Сгенерированный .c удаляется после успешной
-// сборки бинарника, если keepC == false - по умолчанию это техническая
-// заготовка, а не то, что нужно смотреть; keepC == true (флаг --keep-c в
-// cmd/rech) оставляет его - удобно для примеров и для того, чтобы
-// посмотреть, во что компилируется программа.
+// Build прогоняет srcPath (файл .rech или каталог) через весь пайплайн и
+// возвращает путь к собранному бинарнику. Сгенерированный .c удаляется
+// после успешной сборки бинарника, если keepC == false - по умолчанию это
+// техническая заготовка, а не то, что нужно смотреть; keepC == true (флаг
+// --keep-c в cmd/rech) оставляет его - удобно для примеров и для того,
+// чтобы посмотреть, во что компилируется программа.
 func (c *Compiler) Build(srcPath string, keepC bool) (string, error) {
-	if err := validateSourceFileName(srcPath); err != nil {
-		return "", err
+	info, err := os.Stat(srcPath)
+	if err != nil {
+		return "", fmt.Errorf("не удалось найти %q: %w", srcPath, err)
 	}
 
-	srcBytes, err := os.ReadFile(srcPath)
-	if err != nil {
-		return "", fmt.Errorf("не удалось прочитать файл: %w", err)
-	}
-
-	prog, err := c.Frontend.Parse(string(srcBytes))
-	if err != nil {
-		return "", err
+	var prog *ast.Program
+	var base string
+	if info.IsDir() {
+		prog, err = c.parseDir(srcPath)
+		if err != nil {
+			return "", err
+		}
+		absDir, err := filepath.Abs(srcPath)
+		if err != nil {
+			return "", err
+		}
+		base = filepath.Join(srcPath, filepath.Base(absDir))
+	} else {
+		prog, err = c.parseFile(srcPath)
+		if err != nil {
+			return "", err
+		}
+		base = strings.TrimSuffix(srcPath, filepath.Ext(srcPath))
 	}
 
 	cSource, err := c.Backend.Generate(prog)
@@ -141,7 +153,6 @@ func (c *Compiler) Build(srcPath string, keepC bool) (string, error) {
 		return "", fmt.Errorf("генерация C: %w", err)
 	}
 
-	base := strings.TrimSuffix(srcPath, filepath.Ext(srcPath))
 	cPath := base + ".c"
 	if err := os.WriteFile(cPath, []byte(cSource), 0o644); err != nil {
 		return "", fmt.Errorf("не удалось записать %s: %w", cPath, err)
@@ -157,4 +168,55 @@ func (c *Compiler) Build(srcPath string, keepC bool) (string, error) {
 		_ = os.Remove(cPath)
 	}
 	return binPath, nil
+}
+
+func (c *Compiler) parseFile(srcPath string) (*ast.Program, error) {
+	if err := validateSourceFileName(srcPath); err != nil {
+		return nil, err
+	}
+	srcBytes, err := os.ReadFile(srcPath)
+	if err != nil {
+		return nil, fmt.Errorf("не удалось прочитать файл: %w", err)
+	}
+	return c.Frontend.Parse(string(srcBytes))
+}
+
+// parseDir собирает все ".rech"-файлы прямо в dirPath (без рекурсии в
+// подкаталоги - как "." у "go build ."; рекурсивный обход отложен до
+// файла-манифеста проекта, docs/ROADMAP.md, Шаг 11) и объединяет их в одну
+// программу. Это НЕ система импортов (Шаг 11, "использовать X из "файла"" -
+// явная, управляемая связь между конкретными файлами) - здесь всё
+// содержимое каталога неявно становится одной единицей компиляции, файлы
+// объединяются в алфавитном порядке имён (детерминированно, но без
+// какого-либо контроля видимости между ними - временное решение до
+// появления настоящих импортов). Дубли имён функций/сущностей между
+// файлами - та же ошибка компиляции, что и дубль внутри одного файла
+// (проверяется дальше по конвейеру, отдельной проверки здесь не нужно).
+func (c *Compiler) parseDir(dirPath string) (*ast.Program, error) {
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("не удалось прочитать каталог %q: %w", dirPath, err)
+	}
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".rech" {
+			continue
+		}
+		names = append(names, e.Name())
+	}
+	if len(names) == 0 {
+		return nil, fmt.Errorf("в каталоге %q не найдено ни одного файла .rech", dirPath)
+	}
+	sort.Strings(names)
+
+	merged := &ast.Program{}
+	for _, name := range names {
+		prog, err := c.parseFile(filepath.Join(dirPath, name))
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", name, err)
+		}
+		merged.Functions = append(merged.Functions, prog.Functions...)
+		merged.Entities = append(merged.Entities, prog.Entities...)
+	}
+	return merged, nil
 }

@@ -2,9 +2,14 @@
 //
 // Использование:
 //
-//	rech build [--keep-c] <файл.rech>   - собрать нативный бинарник <файл>
-//	rech run [--keep-c] <файл.rech>     - собрать и сразу выполнить
-//	rech version                        - напечатать версию компилятора
+//	rech build [--keep-c] <файл.rech>|<каталог>   - собрать нативный бинарник
+//	rech run [--keep-c] <файл.rech>|<каталог>     - собрать и сразу выполнить
+//	rech version                                  - напечатать версию компилятора
+//
+// <каталог> (например, "." - как "go build .") собирает все ".rech"-файлы
+// прямо в нём (без подкаталогов) как одну единицу компиляции - это не
+// система импортов (docs/ROADMAP.md, Шаг 11), а неявное объединение всего
+// каталога, детали - internal/compiler.Compiler.parseDir.
 //
 // По умолчанию сгенерированный <файл>.c удаляется после успешной сборки -
 // это техническая заготовка, а не то, что нужно смотреть. --keep-c
@@ -77,7 +82,7 @@ func parseBuildArgs(args []string) (srcPath string, keepC bool) {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "использование: rech build|run [--keep-c] <файл.rech> | rech version")
+	fmt.Fprintln(os.Stderr, "использование: rech build|run [--keep-c] <файл.rech>|<каталог> | rech version")
 }
 
 func runBinary(binPath string) error {

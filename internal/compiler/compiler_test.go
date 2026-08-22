@@ -3,6 +3,7 @@ package compiler
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -53,5 +54,39 @@ func TestBuildKeepsCWhenRequested(t *testing.T) {
 	cPath := filepath.Join(dir, "прог.c")
 	if _, err := os.Stat(cPath); err != nil {
 		t.Fatalf("ожидалось, что %s сохранён с --keep-c, stat вернул: %v", cPath, err)
+	}
+}
+
+// TestBuildDirMergesAllRechFiles - "rech build ." (как "go build .") должен
+// собрать все ".rech"-файлы каталога как одну единицу компиляции без
+// явного импорта (docs/ROADMAP.md, Шаг 11 - это неявное объединение, не
+// система импортов).
+func TestBuildDirMergesAllRechFiles(t *testing.T) {
+	dir := t.TempDir()
+	writeSource(t, dir, "помощник.rech", "функция подсказка(): Строка\n{\n    вернуть \"привет из другого файла\"\n}\n")
+	writeSource(t, dir, "главный.rech", "функция главная\n{\n    вывести подсказка()\n}\n")
+
+	binPath, err := newTestCompiler().Build(dir, true)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	absDir, _ := filepath.Abs(dir)
+	wantBin := filepath.Join(dir, filepath.Base(absDir))
+	if binPath != wantBin {
+		t.Fatalf("ожидался бинарник %q, получено %q", wantBin, binPath)
+	}
+	cContent, err := os.ReadFile(binPath + ".c")
+	if err != nil {
+		t.Fatalf("ожидался сохранённый .c: %v", err)
+	}
+	if !strings.Contains(string(cContent), "rech_podskazka") {
+		t.Fatalf("сгенерированный C не содержит функцию из второго файла:\n%s", cContent)
+	}
+}
+
+func TestBuildDirNoRechFilesFails(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := newTestCompiler().Build(dir, false); err == nil {
+		t.Fatal("ожидалась ошибка - в каталоге нет ни одного .rech файла")
 	}
 }
