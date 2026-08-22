@@ -525,6 +525,16 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		}
 		return &ir.Assign{Name: s.Name, Value: value}, nil
 
+	case *ast.AssertStmt:
+		cond, err := analyzeExpr(sc, s.Cond)
+		if err != nil {
+			return nil, err
+		}
+		if typ := ir.TypeOf(cond); typ != ir.TypeBool {
+			return nil, fmt.Errorf("строка %d: условие \"утверждать\" должно быть логическим, получено %s", s.Line, typ)
+		}
+		return &ir.AssertStmt{Cond: cond, Line: s.Line}, nil
+
 	case *ast.IfStmt:
 		cond, err := analyzeExpr(sc, s.Cond)
 		if err != nil {

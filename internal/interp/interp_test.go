@@ -2,9 +2,7 @@ package interp
 
 import (
 	"bytes"
-	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -127,31 +125,86 @@ func TestRunEntityValueSemanticsCopyOnAssign(t *testing.T) {
 	}
 }
 
-// TestRunCollectionOutOfRangePanics проверяет panicRuntime (аварийное
-// завершение процесса, exit(1), как rech_panic в сгенерированном C) - сам
-// вызов os.Exit нельзя проверить в этом же процессе, поэтому тест
-// перезапускает себя подпроцессом (стандартный приём для тестирования
-// os.Exit в Go), передавая RECH_INTERP_CRASH_TEST=1.
+// TestRunCollectionOutOfRangePanics проверяет, что ошибка времени
+// выполнения (docs/SPEC.md, раздел 8) возвращается из Run как обычная
+// error (runtimeError, см. interp.go) - в отличие от rech_panic в
+// сгенерированном C (там процесс завершается сам, exit(1)), интерпретатор
+// не решает сам, что делать с ошибкой выполнения программы Rech - это
+// нужно "rech test", чтобы продолжить проверку остальных тестов после
+// одного неудачного, а не завершить весь процесс.
 func TestRunCollectionOutOfRangePanics(t *testing.T) {
-	if os.Getenv("RECH_INTERP_CRASH_TEST") == "1" {
-		runSrc(t, `
+	toks, err := lexer.New(`
 функция главная
 {
     переменная числа = новый Список<Целое>()
     вывести числа.получить(0)
 }
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	irProg, err := semantic.Analyze(prog)
+	if err != nil {
+		t.Fatalf("семантический анализ: %v", err)
+	}
+	var buf bytes.Buffer
+	err = Run(irProg, &buf)
+	if err == nil {
+		t.Fatal("ожидалась ошибка времени выполнения (индекс вне границ)")
+	}
+	if !strings.Contains(err.Error(), "индекс вне границ") {
+		t.Fatalf("ожидалось сообщение про индекс вне границ, получили: %v", err)
+	}
+}
+
+func TestRunAssertPasses(t *testing.T) {
+	got := runSrc(t, `
+функция главная
+{
+    переменная а = 2
+    утверждать а + 3 == 5
+    вывести "ок"
+}
 `)
-		return
+	if got != "ок\n" {
+		t.Fatalf("получили %q", got)
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=TestRunCollectionOutOfRangePanics")
-	cmd.Env = append(os.Environ(), "RECH_INTERP_CRASH_TEST=1")
-	out, err := cmd.CombinedOutput()
-	var exitErr *exec.ExitError
-	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
-		t.Fatalf("ожидался exit(1), получили err=%v, вывод:\n%s", err, out)
+}
+
+func TestRunAssertFailsWithLineNumber(t *testing.T) {
+	toks, err := lexer.New(`
+функция главная
+{
+    вывести "до"
+    утверждать 1 == 2
+    вывести "после"
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
 	}
-	if !strings.Contains(string(out), "индекс вне границ") {
-		t.Fatalf("ожидалось сообщение про индекс вне границ, получили:\n%s", out)
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	irProg, err := semantic.Analyze(prog)
+	if err != nil {
+		t.Fatalf("семантический анализ: %v", err)
+	}
+	var buf bytes.Buffer
+	err = Run(irProg, &buf)
+	if err == nil {
+		t.Fatal("ожидалась ошибка - утверждение ложно")
+	}
+	if !strings.Contains(err.Error(), "строка 5") {
+		t.Fatalf("ожидался номер строки в сообщении, получили: %v", err)
+	}
+	if buf.String() != "до\n" {
+		t.Fatalf("после неудачного \"утверждать\" выполнение должно остановиться - получили вывод %q", buf.String())
 	}
 }
 

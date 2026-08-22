@@ -778,6 +778,32 @@ func TestGenerateBecomeStmtUnknownStateFails(t *testing.T) {
 	}
 }
 
+func TestGenerateAssertStmtValidCondition(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.AssertStmt{Cond: &ast.BoolLiteral{Value: true}},
+	}}
+	out, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "if (!(true)) { rech_panic(") {
+		t.Fatalf("ожидалась проверка условия с rech_panic, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "static void rech_panic(") {
+		t.Fatalf("ожидалось определение rech_panic (usesPanic), получено:\n%s", out)
+	}
+}
+
+func TestGenerateAssertStmtNonBoolFails(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.AssertStmt{Cond: &ast.IntLiteral{Value: 1}},
+	}}
+	_, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
+	if err == nil || !strings.Contains(err.Error(), "должно быть логическим") {
+		t.Fatalf("ожидалась ошибка про тип условия, получено: %v", err)
+	}
+}
+
 func TestGenerateDerivedStateTypeUsableAsParam(t *testing.T) {
 	fn := &ast.FunctionDecl{
 		Name:   "показать",

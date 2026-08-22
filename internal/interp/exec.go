@@ -1,6 +1,9 @@
 package interp
 
-import "github.com/IlyaFeoktistov/Rech/internal/ir"
+import (
+	"github.com/IlyaFeoktistov/Rech/internal/ir"
+	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
+)
 
 // execStmt исполняет одну инструкцию - см. execBlock (interp.go) про то, как
 // ctrlReturn прерывает выполнение вверх по стеку блоков/вызову.
@@ -46,6 +49,16 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 		// Шаг 4.1, упрощённая версия: "становится" структурно проверено
 		// семантическим анализом и не несёт значения во время исполнения -
 		// как и в cbackend (не эмитит код), здесь просто ничего не делает.
+		return ctrl{}, nil
+
+	case *ir.AssertStmt:
+		cond, err := in.evalExpr(s.Cond, env, cc)
+		if err != nil {
+			return ctrl{}, err
+		}
+		if !cond.B {
+			panicRuntime("%s", rtmsg.AssertFailed(s.Line))
+		}
 		return ctrl{}, nil
 
 	case *ir.IfStmt:

@@ -840,3 +840,62 @@ func TestParseNewExprMixedLabeledAndPositionalFails(t *testing.T) {
 		t.Fatalf("ожидалась ошибка смешивания форм аргументов, получено: %v", err)
 	}
 }
+
+func TestParseFlatTopLevelStatementsBecomeMain(t *testing.T) {
+	prog, err := parseSource(t, `
+переменная а = 5
+вывести а
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if len(prog.Functions) != 1 || prog.Functions[0].Name != "главная" {
+		t.Fatalf("ожидалась ровно одна синтезированная \"главная\", получено %+v", prog.Functions)
+	}
+	if len(prog.Functions[0].Body) != 2 {
+		t.Fatalf("ожидалось 2 инструкции в теле, получено %d", len(prog.Functions[0].Body))
+	}
+}
+
+func TestParseFlatTopLevelStatementsInterleavedWithFunction(t *testing.T) {
+	prog, err := parseSource(t, `
+переменная а = 10
+функция удвоить(x: Целое): Целое
+{
+    вернуть x * 2
+}
+вывести удвоить(а)
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	var main *ast.FunctionDecl
+	for _, fn := range prog.Functions {
+		if fn.Name == "главная" {
+			main = fn
+		}
+	}
+	if main == nil || len(main.Body) != 2 {
+		t.Fatalf("ожидалась синтезированная \"главная\" из 2 инструкций, получено %+v", prog.Functions)
+	}
+}
+
+func TestParseFlatTopLevelStatementsRequireSeparator(t *testing.T) {
+	_, err := parseSource(t, `переменная а = 5 вывести а`)
+	if err == nil || !strings.Contains(err.Error(), "должны быть разделены") {
+		t.Fatalf("ожидалась ошибка про разделитель инструкций, получено: %v", err)
+	}
+}
+
+func TestParseFlatTopLevelStatementsConflictWithExplicitMainFails(t *testing.T) {
+	_, err := parseSource(t, `
+функция главная
+{
+    вывести "явная"
+}
+вывести "лишнее"
+`)
+	if err == nil || !strings.Contains(err.Error(), "объявляет функцию") {
+		t.Fatalf("ожидалась ошибка про конфликт явной \"главная\" с верхнеуровневыми инструкциями, получено: %v", err)
+	}
+}

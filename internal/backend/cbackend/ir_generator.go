@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
+	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
 // irGenCtx - состояние генерации из IR: флаги использованных
@@ -40,6 +41,10 @@ import (
 type irGenCtx struct {
 	usesConcat bool
 	usesStrCmp bool
+	// usesPanic - нужен ли rech_panic - "утверждать" с ложным условием
+	// (generic-коллекции сами по себе учтены отдельно через
+	// usesGenerics/prog.Generics в GenerateFromIR, не через этот флаг).
+	usesPanic  bool
 	entities   map[string]*ir.Entity
 	thisEntity string
 }
@@ -123,7 +128,7 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	if ctx.usesConcat || ctx.usesStrCmp {
 		sb.WriteString("#include <string.h>\n")
 	}
-	if ctx.usesConcat || usesGenerics {
+	if ctx.usesConcat || usesGenerics || ctx.usesPanic {
 		sb.WriteString("#include <stdlib.h>\n")
 	}
 	sb.WriteString("\n")
@@ -131,7 +136,7 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 		sb.WriteString(strConcatHelper)
 		sb.WriteString("\n")
 	}
-	if usesGenerics {
+	if usesGenerics || ctx.usesPanic {
 		sb.WriteString(panicHelper)
 		sb.WriteString("\n")
 	}
@@ -329,6 +334,15 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 		// Шаг 4.1, упрощённая версия: состояние уже проверено семантическим
 		// анализом как объявленное - typestate чисто компилятивный на этом
 		// шаге, "становится" не эмитит C-код, как и в AST-пути.
+		return nil
+
+	case *ir.AssertStmt:
+		cond, _, err := generateIRExpr(ctx, s.Cond)
+		if err != nil {
+			return err
+		}
+		ctx.usesPanic = true
+		fmt.Fprintf(sb, "%sif (!(%s)) { rech_panic(\"%s\"); }\n", ind, cond, escapeCString(rtmsg.AssertFailed(s.Line)))
 		return nil
 
 	case *ir.ExprStmt:

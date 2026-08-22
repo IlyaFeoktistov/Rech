@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
 // entryPointName - функция с этим именем становится точкой входа программы
@@ -269,9 +270,13 @@ type genCtx struct {
 	// через scopes отдельно - это не то же самое, что коллизия мангла.
 	mangledScopes []map[string]string
 
-	usesConcat   bool
-	usesStrCmp   bool
-	usesGenerics bool
+	usesConcat bool
+	usesStrCmp bool
+	// usesPanic - нужен ли rech_panic (helper аварийного завершения
+	// процесса): встроенные generic-коллекции (выход за границы/операция на
+	// пустой коллекции, шаг 4.2) и "утверждать" (ложное условие) - оба
+	// случая используют один и тот же helper.
+	usesPanic bool
 
 	// genericsCode - C-код (typedef struct + функции), синтезированный для
 	// встроенных generic-коллекций (Список/Стопка/Очередь, шаг 4.2) по мере
@@ -513,7 +518,7 @@ func Generate(prog *ast.Program) (string, error) {
 	if ctx.usesConcat || ctx.usesStrCmp {
 		sb.WriteString("#include <string.h>\n")
 	}
-	if ctx.usesConcat || ctx.usesGenerics {
+	if ctx.usesConcat || ctx.usesPanic {
 		sb.WriteString("#include <stdlib.h>\n")
 	}
 	sb.WriteString("\n")
@@ -521,7 +526,7 @@ func Generate(prog *ast.Program) (string, error) {
 		sb.WriteString(strConcatHelper)
 		sb.WriteString("\n")
 	}
-	if ctx.usesGenerics {
+	if ctx.usesPanic {
 		sb.WriteString(panicHelper)
 		sb.WriteString("\n")
 	}
@@ -703,11 +708,11 @@ const strConcatHelper = `static char *rech_str_concat(const char *a, const char 
 // появится - вызывающий Rech-код уже сейчас не может ни поймать, ни
 // проигнорировать эту ошибку, так что замена не будет ломать поведение
 // корректных программ.
-const panicHelper = `static void rech_panic(const char *msg) {
-    fprintf(stderr, "выполнение прервано: %s\n", msg);
+var panicHelper = fmt.Sprintf(`static void rech_panic(const char *msg) {
+    fprintf(stderr, "%s%%s\n", msg);
     exit(1);
 }
-`
+`, rtmsg.PanicPrefix)
 
 // synthesizeList синтезирует C typedef struct + функции для конкретной
 // инстанциации "Список<T>" (name, например "Список<Целое>") и регистрирует
@@ -718,7 +723,7 @@ const panicHelper = `static void rech_panic(const char *msg) {
 // сущности нет доступных из Rech полей (entitySig.FieldNames пустой),
 // только методы.
 func synthesizeList(ctx *genCtx, name string, elem valueType) {
-	ctx.usesGenerics = true
+	ctx.usesPanic = true
 	ctx.genericsCode.WriteString(listCollectionCCode(name, elem.cType()))
 	ctx.entities[name] = entitySig{IsList: true, ElemType: elem}
 	ctx.methods[name] = map[string]funcSig{
@@ -743,7 +748,7 @@ func listCollectionCCode(name, elemC string) string {
 	set := mangleMethod(name, "установить")
 	length := mangleMethod(name, "длина")
 	empty := mangleMethod(name, "пусто")
-	outOfRange := escapeCString(fmt.Sprintf("индекс вне границ у %s", name))
+	outOfRange := escapeCString(rtmsg.IndexOutOfRange(name))
 
 	return fmt.Sprintf(`typedef struct {
     %[1]s *data;
@@ -792,7 +797,7 @@ static bool %[8]s(%[2]s *this_) {
 // false (нулевое значение) - в отличие от Список<T>, Стопка<T> не
 // участвует в цикле "для x в списке" (шаг 4.2.b), это ей и не нужно.
 func synthesizeStack(ctx *genCtx, name string, elem valueType) {
-	ctx.usesGenerics = true
+	ctx.usesPanic = true
 	ctx.genericsCode.WriteString(stackCollectionCCode(name, elem.cType()))
 	ctx.entities[name] = entitySig{}
 	ctx.methods[name] = map[string]funcSig{
@@ -812,7 +817,7 @@ func stackCollectionCCode(name, elemC string) string {
 	top := mangleMethod(name, "верх")
 	length := mangleMethod(name, "длина")
 	empty := mangleMethod(name, "пусто")
-	onEmpty := escapeCString(fmt.Sprintf("нельзя снять/получить верх пустой %s", name))
+	onEmpty := escapeCString(rtmsg.EmptyStackOp(name))
 
 	return fmt.Sprintf(`typedef struct {
     %[1]s *data;
@@ -866,7 +871,7 @@ static bool %[8]s(%[2]s *this_) {
 // он тут был). Как и у Стопки, IsList не выставлен - не участвует в цикле
 // "для x в списке" (только Список<T>, шаг 4.2.b).
 func synthesizeQueue(ctx *genCtx, name string, elem valueType) {
-	ctx.usesGenerics = true
+	ctx.usesPanic = true
 	ctx.genericsCode.WriteString(queueCollectionCCode(name, elem.cType()))
 	ctx.entities[name] = entitySig{}
 	ctx.methods[name] = map[string]funcSig{
@@ -886,7 +891,7 @@ func queueCollectionCCode(name, elemC string) string {
 	first := mangleMethod(name, "первый")
 	length := mangleMethod(name, "длина")
 	empty := mangleMethod(name, "пусто")
-	onEmpty := escapeCString(fmt.Sprintf("нельзя извлечь/получить первый элемент пустой %s", name))
+	onEmpty := escapeCString(rtmsg.EmptyQueueOp(name))
 
 	return fmt.Sprintf(`typedef struct {
     %[1]s *data;
@@ -1084,6 +1089,18 @@ func generateStmt(sb *strings.Builder, ctx *genCtx, stmt ast.Stmt, depth int) er
 		// в структуре) - проверка только структурная (состояние объявлено),
 		// без потока выполнения (полная проверка - шаг 5). Поэтому в C-код
 		// эта инструкция ничего не эмитит.
+		return nil
+
+	case *ast.AssertStmt:
+		cond, typ, err := genExpr(ctx, s.Cond)
+		if err != nil {
+			return err
+		}
+		if typ != typeBool {
+			return fmt.Errorf("строка %d: условие \"утверждать\" должно быть логическим, получено %s", s.Line, typ)
+		}
+		ctx.usesPanic = true
+		fmt.Fprintf(sb, "%sif (!(%s)) { rech_panic(\"%s\"); }\n", ind, cond, escapeCString(rtmsg.AssertFailed(s.Line)))
 		return nil
 
 	case *ast.IfStmt:
@@ -1675,6 +1692,8 @@ func lineOf(n ast.Node) int {
 	case *ast.FieldAssign:
 		return v.Line
 	case *ast.BecomeStmt:
+		return v.Line
+	case *ast.AssertStmt:
 		return v.Line
 	case *ast.IfStmt:
 		return v.Line

@@ -245,18 +245,33 @@ func (p *Parser) skipFunctionBody() error {
 }
 
 // ParseProgram - точка входа парсера.
+// ParseProgram разбирает всю программу. Верхний уровень - обычно только
+// "функция"/"сущность"/"класс" (как раньше), но любая другая инструкция на
+// верхнем уровне разбирается как часть тела неявной точки входа: файл без
+// объявленной "главная" явно, где верхний уровень содержит инструкции
+// (переменные, "вывести" и т. п.), собирает их по порядку встречи в
+// одну синтезированную "главная" - плоский, скриптовый стиль записи для
+// программы без явной обёртки функцией, наравне с обычной формой (docs/
+// SPEC.md). Явно объявленная "главная" и инструкции на верхнем уровне в
+// одном файле одновременно - ошибка (два конкурирующих определения точки
+// входа), а не одно из них молча отбрасывается.
 func (p *Parser) ParseProgram() (*ast.Program, error) {
 	if err := p.collectFunctionSignatures(); err != nil {
 		return nil, err
 	}
 	prog := &ast.Program{}
-	p.skipNewlines()
+	var topLevelStmts []ast.Stmt
+	var explicitMain *ast.FunctionDecl
+	p.skipSeparators()
 	for p.cur().Type != lexer.EOF {
 		switch p.cur().Type {
 		case lexer.KwFunction:
 			fn, err := p.parseFunction()
 			if err != nil {
 				return nil, err
+			}
+			if fn.Name == entryPointName {
+				explicitMain = fn
 			}
 			prog.Functions = append(prog.Functions, fn)
 		case lexer.KwEntity, lexer.KwClass:
@@ -266,10 +281,24 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 			}
 			prog.Entities = append(prog.Entities, ent)
 		default:
-			return nil, fmt.Errorf("строка %d, столбец %d: на верхнем уровне программы ожидалась \"функция\" или \"сущность\"/\"класс\", получено %q",
-				p.cur().Line, p.cur().Col, p.cur().Value)
+			stmt, err := p.parseStatement()
+			if err != nil {
+				return nil, err
+			}
+			topLevelStmts = append(topLevelStmts, stmt)
 		}
-		p.skipNewlines()
+		if p.cur().Type == lexer.EOF {
+			break
+		}
+		if err := p.requireSeparator(); err != nil {
+			return nil, err
+		}
+	}
+	if len(topLevelStmts) > 0 {
+		if explicitMain != nil {
+			return nil, fmt.Errorf("программа объявляет функцию %q явно и одновременно содержит инструкции на верхнем уровне - выберите одну форму", entryPointName)
+		}
+		prog.Functions = append(prog.Functions, &ast.FunctionDecl{Name: entryPointName, Body: topLevelStmts})
 	}
 	if len(prog.Functions) == 0 {
 		return nil, fmt.Errorf("программа не содержит ни одной функции")
@@ -669,6 +698,8 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 	switch p.cur().Type {
 	case lexer.KwPrint:
 		return p.parsePrintStmt()
+	case lexer.KwAssert:
+		return p.parseAssertStmt()
 	case lexer.KwVariable:
 		return p.parseVarDecl()
 	case lexer.KwIf:
@@ -751,6 +782,18 @@ func (p *Parser) parsePrintStmt() (ast.Stmt, error) {
 		return nil, fmt.Errorf("после \"вывести\" ожидалось выражение: %w", err)
 	}
 	return &ast.PrintStmt{Value: value, Line: kw.Line}, nil
+}
+
+func (p *Parser) parseAssertStmt() (ast.Stmt, error) {
+	kw, err := p.expect(lexer.KwAssert)
+	if err != nil {
+		return nil, err
+	}
+	cond, err := p.parseExpr()
+	if err != nil {
+		return nil, fmt.Errorf("после \"утверждать\" ожидалось выражение: %w", err)
+	}
+	return &ast.AssertStmt{Cond: cond, Line: kw.Line}, nil
 }
 
 func (p *Parser) parseVarDecl() (ast.Stmt, error) {

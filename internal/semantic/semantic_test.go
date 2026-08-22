@@ -604,6 +604,44 @@ func TestAnalyzeBecomeUndeclaredStateFails(t *testing.T) {
 	}
 }
 
+func TestAnalyzeAssertStmt(t *testing.T) {
+	irProg := parseProgram(t, `
+функция главная
+{
+    переменная а = 2
+    утверждать а + 3 == 5
+}
+`)
+	main := irProg.Functions[0]
+	assert, ok := main.Body[1].(*ir.AssertStmt)
+	if !ok {
+		t.Fatalf("ожидался *ir.AssertStmt, получено %+v", main.Body[1])
+	}
+	if ir.TypeOf(assert.Cond) != ir.TypeBool {
+		t.Fatalf("условие должно быть Логическое, получено %s", ir.TypeOf(assert.Cond))
+	}
+}
+
+func TestAnalyzeAssertNonBoolConditionFails(t *testing.T) {
+	toks, err := lexer.New(`
+функция главная
+{
+    утверждать 1
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
+	if err == nil || !strings.Contains(err.Error(), "должно быть логическим") {
+		t.Fatalf("ожидалась ошибка про тип условия, получено: %v", err)
+	}
+}
+
 func TestAnalyzeListConstructorMethodsAndForEach(t *testing.T) {
 	irProg := parseProgram(t, `
 функция главная
@@ -711,4 +749,3 @@ func TestAnalyzeForEachNonListFails(t *testing.T) {
 		t.Fatalf("ожидалась ошибка про несоответствие типа коллекции, получено: %v", err)
 	}
 }
-

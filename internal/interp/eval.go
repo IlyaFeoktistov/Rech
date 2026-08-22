@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
+	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
 // evalExpr вычисляет e. Не клонирует значения сущностей сам по себе -
@@ -299,14 +300,14 @@ func (in *Interp) evalCollectionMethod(obj *entityObj, e *ir.MethodCallExpr, env
 	case "получить":
 		idx := args[0].I
 		if idx < 0 || idx >= int64(len(obj.coll.elems)) {
-			panicRuntime("индекс вне границ у %s", obj.typeName)
+			panicRuntime("%s", rtmsg.IndexOutOfRange(obj.typeName))
 		}
 		return cloneValue(obj.coll.elems[idx]), nil
 
 	case "установить":
 		idx := args[0].I
 		if idx < 0 || idx >= int64(len(obj.coll.elems)) {
-			panicRuntime("индекс вне границ у %s", obj.typeName)
+			panicRuntime("%s", rtmsg.IndexOutOfRange(obj.typeName))
 		}
 		obj.coll.elems[idx] = cloneValue(args[1])
 		return Value{}, nil
@@ -314,7 +315,7 @@ func (in *Interp) evalCollectionMethod(obj *entityObj, e *ir.MethodCallExpr, env
 	case "снять":
 		n := len(obj.coll.elems)
 		if n == 0 {
-			panicRuntime("нельзя снять/получить верх пустой %s", obj.typeName)
+			panicRuntime("%s", rtmsg.EmptyStackOp(obj.typeName))
 		}
 		v := obj.coll.elems[n-1]
 		obj.coll.elems = obj.coll.elems[:n-1]
@@ -323,13 +324,13 @@ func (in *Interp) evalCollectionMethod(obj *entityObj, e *ir.MethodCallExpr, env
 	case "верх":
 		n := len(obj.coll.elems)
 		if n == 0 {
-			panicRuntime("нельзя снять/получить верх пустой %s", obj.typeName)
+			panicRuntime("%s", rtmsg.EmptyStackOp(obj.typeName))
 		}
 		return cloneValue(obj.coll.elems[n-1]), nil
 
 	case "извлечь":
 		if len(obj.coll.elems) == 0 {
-			panicRuntime("нельзя извлечь/получить первый элемент пустой %s", obj.typeName)
+			panicRuntime("%s", rtmsg.EmptyQueueOp(obj.typeName))
 		}
 		v := obj.coll.elems[0]
 		obj.coll.elems = obj.coll.elems[1:]
@@ -337,7 +338,7 @@ func (in *Interp) evalCollectionMethod(obj *entityObj, e *ir.MethodCallExpr, env
 
 	case "первый":
 		if len(obj.coll.elems) == 0 {
-			panicRuntime("нельзя извлечь/получить первый элемент пустой %s", obj.typeName)
+			panicRuntime("%s", rtmsg.EmptyQueueOp(obj.typeName))
 		}
 		return cloneValue(obj.coll.elems[0]), nil
 

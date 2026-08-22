@@ -225,6 +225,22 @@ func TestGenerateFromIRBecomeStmtEmitsNoCode(t *testing.T) {
 	}
 }
 
+func TestGenerateFromIRAssertStmt(t *testing.T) {
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.AssertStmt{Cond: &ir.BoolLiteral{Value: true}, Line: 4},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, `if (!(true)) { rech_panic("утверждение не выполнено (строка 4)"); }`) {
+		t.Fatalf("ожидалась проверка условия с rech_panic и номером строки, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "static void rech_panic(") {
+		t.Fatalf("ожидалось определение rech_panic, получено:\n%s", out)
+	}
+}
+
 func mainFuncIR() *ir.Function {
 	return &ir.Function{Name: "главная", Body: []ir.Stmt{&ir.PrintStmt{Value: &ir.StringLiteral{Value: "ок"}}}}
 }

@@ -148,6 +148,29 @@ func (c *Compiler) Build(srcPath string, keepC bool) (string, error) {
 		base = strings.TrimSuffix(srcPath, filepath.Ext(srcPath))
 	}
 
+	return c.compileProgram(prog, base, keepC)
+}
+
+// BuildSource собирает src как программу без файла-источника (`rech
+// build/run -c "<код>"`) - в отличие от Build, не проверяет имя файла
+// (validateSourceFileName - правило конкретно про будущий ключ импорта,
+// у кода без файла его нет) и кладёт результат во временный каталог, а не
+// "рядом с исходником", потому что рядом с исходником здесь - никуда.
+func (c *Compiler) BuildSource(src string, keepC bool) (string, error) {
+	prog, err := c.Frontend.Parse(src)
+	if err != nil {
+		return "", err
+	}
+	dir, err := os.MkdirTemp("", "rech-code-")
+	if err != nil {
+		return "", fmt.Errorf("не удалось создать временный каталог: %w", err)
+	}
+	return c.compileProgram(prog, filepath.Join(dir, "код"), keepC)
+}
+
+// compileProgram - общий хвост Build/BuildSource: генерация C, запись,
+// сборка бинарником, необязательная уборка .c.
+func (c *Compiler) compileProgram(prog *ast.Program, base string, keepC bool) (string, error) {
 	cSource, err := c.Backend.Generate(prog)
 	if err != nil {
 		return "", fmt.Errorf("генерация C: %w", err)

@@ -57,6 +57,7 @@ const (
 	KwThis     // этот
 	KwState    // состояние (секция объявления состояний сущности, шаг 4.1)
 	KwBecomes  // становится (переход в другое состояние, шаг 4.1)
+	KwAssert   // утверждать (проверка условия, аварийно завершает при лжи)
 )
 
 // keywords - таблица ключевых слов v0.1. Список сознательно узкий:
@@ -91,6 +92,7 @@ var keywords = map[string]TokenType{
 	"этот":       KwThis,
 	"состояние":  KwState,
 	"становится": KwBecomes,
+	"утверждать": KwAssert,
 }
 
 // Token - одна лексема с позицией в исходном файле (для сообщений об ошибках).
@@ -201,6 +203,8 @@ func (t TokenType) String() string {
 		return "состояние"
 	case KwBecomes:
 		return "становится"
+	case KwAssert:
+		return "утверждать"
 	default:
 		return "UNKNOWN"
 	}
