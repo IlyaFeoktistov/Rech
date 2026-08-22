@@ -169,8 +169,9 @@ func typeFromName(name string) (valueType, bool) {
 // список (как SystemVerbs/naturalCallPrepositions в остальном компиляторе),
 // не механизм пользовательских generic-типов - тех в языке пока нет вообще.
 var genericTemplates = map[string]func(ctx *genCtx, name string, elem valueType){
-	"Список": synthesizeList,
-	"Стопка": synthesizeStack,
+	"Список":  synthesizeList,
+	"Стопка":  synthesizeStack,
+	"Очередь": synthesizeQueue,
 }
 
 // parseGenericTypeName разбирает закодированную парсером строку вида
@@ -791,6 +792,81 @@ static bool %[8]s(%[2]s *this_) {
 		"положить": {ParamTypes: []valueType{elem}},
 		"снять":    {ReturnType: elem, HasReturn: true},
 		"верх":     {ReturnType: elem, HasReturn: true},
+		"длина":    {ReturnType: typeInt, HasReturn: true},
+		"пусто":    {ReturnType: typeBool, HasReturn: true},
+	}
+}
+
+// synthesizeQueue синтезирует C typedef struct + функции для конкретной
+// инстанциации "Очередь<T>" (шаг 4.2.d) - тот же growable array, что и у
+// synthesizeList/synthesizeStack (data/len/cap, realloc с удвоением
+// ёмкости), но FIFO: "добавить" - в конец (как у Список<T>), "извлечь" -
+// снимает и возвращает с начала. Снятие с начала сдвигает остальные
+// элементы на один влево простым циклом (O(len)) - осознанно просто, не
+// кольцевой буфер: у встроенных коллекций этого шага нет цели быть
+// эффективными, только корректными (как и линейный поиск был бы, если бы
+// он тут был). Как и у Стопки, IsList не выставлен - не участвует в цикле
+// "для x в списке" (только Список<T>, шаг 4.2.b).
+func synthesizeQueue(ctx *genCtx, name string, elem valueType) {
+	ctx.usesGenerics = true
+	structName := mangleType(name)
+	elemC := elem.cType()
+	add := mangleMethod(name, "добавить")
+	remove := mangleMethod(name, "извлечь")
+	first := mangleMethod(name, "первый")
+	length := mangleMethod(name, "длина")
+	empty := mangleMethod(name, "пусто")
+	onEmpty := escapeCString(fmt.Sprintf("нельзя извлечь/получить первый элемент пустой %s", name))
+
+	fmt.Fprintf(&ctx.genericsCode, `typedef struct {
+    %[1]s *data;
+    long long len;
+    long long cap;
+} %[2]s;
+
+static void %[3]s(%[2]s *this_, %[1]s value) {
+    if (this_->len == this_->cap) {
+        this_->cap = this_->cap == 0 ? 4 : this_->cap * 2;
+        this_->data = realloc(this_->data, sizeof(%[1]s) * this_->cap);
+    }
+    this_->data[this_->len] = value;
+    this_->len++;
+}
+
+static %[1]s %[4]s(%[2]s *this_) {
+    if (this_->len == 0) {
+        rech_panic("%[7]s");
+    }
+    %[1]s value = this_->data[0];
+    for (long long i = 1; i < this_->len; i++) {
+        this_->data[i - 1] = this_->data[i];
+    }
+    this_->len--;
+    return value;
+}
+
+static %[1]s %[5]s(%[2]s *this_) {
+    if (this_->len == 0) {
+        rech_panic("%[7]s");
+    }
+    return this_->data[0];
+}
+
+static long long %[6]s(%[2]s *this_) {
+    return this_->len;
+}
+
+static bool %[8]s(%[2]s *this_) {
+    return this_->len == 0;
+}
+
+`, elemC, structName, add, remove, first, length, onEmpty, empty)
+
+	ctx.entities[name] = entitySig{}
+	ctx.methods[name] = map[string]funcSig{
+		"добавить": {ParamTypes: []valueType{elem}},
+		"извлечь":  {ReturnType: elem, HasReturn: true},
+		"первый":   {ReturnType: elem, HasReturn: true},
 		"длина":    {ReturnType: typeInt, HasReturn: true},
 		"пусто":    {ReturnType: typeBool, HasReturn: true},
 	}

@@ -684,6 +684,45 @@ func TestGenerateStackNotIterableInForEach(t *testing.T) {
 	}
 }
 
+func TestGenerateQueueInstantiationAndMethods(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "очередь", Value: &ast.NewExpr{Type: "Очередь<Целое>"}},
+		&ast.ExprStmt{MethodCall: &ast.MethodCallExpr{
+			Receiver: &ast.Identifier{Name: "очередь"}, Method: "добавить", Args: []ast.Expr{&ast.IntLiteral{Value: 5}},
+		}},
+		&ast.PrintStmt{Value: &ast.MethodCallExpr{Receiver: &ast.Identifier{Name: "очередь"}, Method: "первый"}},
+		&ast.PrintStmt{Value: &ast.MethodCallExpr{Receiver: &ast.Identifier{Name: "очередь"}, Method: "извлечь"}},
+	}}
+	out, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "typedef struct {") || !strings.Contains(out, "} rech_T_ochered_of_celoe;") {
+		t.Fatalf("ожидался typedef struct для Очередь<Целое>, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "rech_M_ochered_of_celoe_dobavit(&(v_ochered), 5LL)") {
+		t.Fatalf("ожидался вызов добавить с адресом получателя, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "rech_M_ochered_of_celoe_pervyj(&(v_ochered))") || !strings.Contains(out, "rech_M_ochered_of_celoe_izvlech(&(v_ochered))") {
+		t.Fatalf("ожидались вызовы первый/извлечь, получено:\n%s", out)
+	}
+}
+
+func TestGenerateQueueNotIterableInForEach(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "очередь", Value: &ast.NewExpr{Type: "Очередь<Целое>"}},
+		&ast.ForEachStmt{
+			Var:        "x",
+			Collection: &ast.Identifier{Name: "очередь"},
+			Body:       []ast.Stmt{&ast.PrintStmt{Value: &ast.Identifier{Name: "x"}}},
+		},
+	}}
+	_, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
+	if err == nil || !strings.Contains(err.Error(), "ожидает переменную-Список<T>") {
+		t.Fatalf("ожидалась ошибка про несоответствие типа коллекции (Очередь<T> не перебирается), получено: %v", err)
+	}
+}
+
 func TestGenerateForEachStmtNonListError(t *testing.T) {
 	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
 		&ast.VarDecl{Name: "число", Value: &ast.IntLiteral{Value: 5}},
