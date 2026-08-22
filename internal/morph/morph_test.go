@@ -314,3 +314,32 @@ func TestLongFormAdjective(t *testing.T) {
 		t.Error("LongFormAdjective(мал, ...) - ожидалась ошибка (не причастие \"-н\"/\"-т\"), получено nil")
 	}
 }
+
+func TestActiveParticipleAgreement(t *testing.T) {
+	cases := []struct {
+		masculine string
+		gender    Gender
+		number    Number
+		want      string
+	}{
+		{"вошедший", Masculine, Singular, "вошедший"},
+		{"вошедший", Feminine, Singular, "вошедшая"},
+		{"вошедший", Neuter, Singular, "вошедшее"},
+		{"вошедший", 0, Plural, "вошедшие"},
+		{"создавший", Feminine, Singular, "создавшая"},
+	}
+	for _, c := range cases {
+		got, err := ActiveParticipleAgreement(c.masculine, c.gender, c.number)
+		if err != nil {
+			t.Errorf("ActiveParticipleAgreement(%q, %v, %v): %v", c.masculine, c.gender, c.number, err)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("ActiveParticipleAgreement(%q, %v, %v) = %q, ожидалось %q", c.masculine, c.gender, c.number, got, c.want)
+		}
+	}
+
+	if _, err := ActiveParticipleAgreement("авторизован", Masculine, Singular); err == nil {
+		t.Error("ActiveParticipleAgreement(авторизован, ...) - ожидалась ошибка (не оканчивается на \"-ший\"), получено nil")
+	}
+}

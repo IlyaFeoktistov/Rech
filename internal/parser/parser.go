@@ -84,7 +84,15 @@ type Parser struct {
 }
 
 func New(tokens []lexer.Token) *Parser {
-	return &Parser{tokens: tokens, dict: morph.NewDictionary()}
+	dict := morph.NewDictionary()
+	// SystemVerbs - фиксированный, известный на этапе компиляции словарь
+	// (docs/ROADMAP.md) - ошибка здесь означала бы дубль инфинитива внутри
+	// самого SystemVerbs, а не что-то, зависящее от разбираемой программы,
+	// поэтому это panic, а не ошибка New (у New и так нет возврата error).
+	if err := morph.RegisterSystemVerbs(dict); err != nil {
+		panic(fmt.Sprintf("internal/morph.SystemVerbs: %v", err))
+	}
+	return &Parser{tokens: tokens, dict: dict}
 }
 
 // registerNoun лучшим образом пытается зарегистрировать имя переменной как
@@ -407,15 +415,15 @@ func (p *Parser) parseUseDecl() (*ast.UseDecl, error) {
 // версия) - в отличие от "имеет:", где каждое поле на своей строке с
 // отступом, здесь ровно одна строка, как во всех остальных
 // "перечислениях через пробел" в языке (docs/GRAMMAR.md). Для каждого
-// слова сразу синтезирует производный тип (StateDecl.TypeName) - полная
-// форма причастия по роду сущности entityName (morph.LongFormAdjective) +
-// само имя сущности ("авторизован" + "Пользователь" (муж.) ->
-// "авторизованныйПользователь" с большой буквы -> "АвторизованныйПользователь").
-// Если род сущности не определяется автоматически (morph.NounAgreement) -
-// явная ошибка, а не угаданная форма: в отличие от согласования
-// "новый"/"новая" у конструктора (checkNewKeywordAgreement), здесь нет
-// "любая форма принимается" запасного варианта - производному типу нужно
-// какое-то одно конкретное имя.
+// слова сразу синтезирует производный тип (StateDecl.TypeName) - полная,
+// согласованная по роду сущности entityName форма слова (см.
+// stateWordAgreement) + само имя сущности ("авторизован" + "Пользователь"
+// (муж.) -> "авторизованныйПользователь" с большой буквы ->
+// "АвторизованныйПользователь"). Если род сущности не определяется
+// автоматически (morph.NounAgreement) - явная ошибка, а не угаданная
+// форма: в отличие от согласования "новый"/"новая" у конструктора
+// (checkNewKeywordAgreement), здесь нет "любая форма принимается"
+// запасного варианта - производному типу нужно какое-то одно конкретное имя.
 func (p *Parser) parseStatesSection(entityName string) ([]ast.StateDecl, error) {
 	label, err := p.expect(lexer.KwState)
 	if err != nil {
@@ -440,13 +448,36 @@ func (p *Parser) parseStatesSection(entityName string) ([]ast.StateDecl, error) 
 
 	states := make([]ast.StateDecl, len(words))
 	for i, w := range words {
-		long, err := morph.LongFormAdjective(w.Value, gender, number)
+		long, err := p.stateWordAgreement(w.Value, gender, number)
 		if err != nil {
 			return nil, fmt.Errorf("строка %d, столбец %d: состояние %q: %w", w.Line, w.Col, w.Value, err)
 		}
 		states[i] = ast.StateDecl{Name: w.Value, TypeName: capitalizeFirst(long) + entityName, Line: w.Line}
 	}
 	return states, nil
+}
+
+// stateWordAgreement выводит полную, согласованную по роду/числу форму
+// слова состояния из word - двумя источниками (шаг 6.4 добавил второй
+// наравне с уже существующим первым):
+//
+//  1. Действительное причастие прошедшего времени известного глагола
+//     ("вошедший" из "войти", зарегистрированного в SystemVerbs -
+//     p.dict.Analyze находит его как VerbForm == morph.FormPastParticiple) -
+//     word уже сам по себе полная форма (муж. рода), morph.
+//     ActiveParticipleAgreement согласует её с gender/number.
+//  2. Краткая форма страдательного причастия ("авторизован", "закрыт") -
+//     как и раньше, morph.LongFormAdjective.
+//
+// Первый источник проверяется раньше: он специфичнее (конкретный
+// зарегистрированный глагол), второй - общее суффиксальное правило.
+func (p *Parser) stateWordAgreement(word string, gender morph.Gender, number morph.Number) (string, error) {
+	for _, a := range p.dict.Analyze(word) {
+		if a.POS == morph.Verb && a.VerbForm == morph.FormPastParticiple {
+			return morph.ActiveParticipleAgreement(word, gender, number)
+		}
+	}
+	return morph.LongFormAdjective(word, gender, number)
 }
 
 // capitalizeFirst делает первую букву s заглавной - для имени

@@ -306,6 +306,49 @@ func TestParseEntityStatesDerivesTypeName(t *testing.T) {
 	}
 }
 
+func TestParseEntityStatesFromActiveParticiple(t *testing.T) {
+	prog, err := parseSource(t, `
+сущность Пользователь
+{
+    состояние: вошедший
+
+    имеет:
+        имя: Строка
+}
+функция главная { вывести "ок" }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	ent := prog.Entities[0]
+	if len(ent.States) != 1 {
+		t.Fatalf("ожидалось 1 состояние, получено %+v", ent.States)
+	}
+	if ent.States[0].Name != "вошедший" || ent.States[0].TypeName != "ВошедшийПользователь" {
+		t.Fatalf("неожиданное состояние: %+v", ent.States[0])
+	}
+}
+
+func TestParseEntityStatesFromActiveParticipleAgreesWithGender(t *testing.T) {
+	prog, err := parseSource(t, `
+сущность Сотрудница
+{
+    состояние: вошедший
+
+    имеет:
+        имя: Строка
+}
+функция главная { вывести "ок" }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	ent := prog.Entities[0]
+	if ent.States[0].TypeName != "ВошедшаяСотрудница" {
+		t.Fatalf("ожидалось согласование по женскому роду, получено: %+v", ent.States[0])
+	}
+}
+
 func TestParseEntityStatesUnknownGenderFails(t *testing.T) {
 	_, err := parseSource(t, `
 сущность Мнофе

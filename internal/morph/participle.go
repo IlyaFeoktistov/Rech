@@ -1,6 +1,9 @@
 package morph
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // participleEndings - окончания полной формы страдательного причастия по
 // последней букве краткой формы (шаг 4.1, упрощённая версия - полное
@@ -55,6 +58,39 @@ func LongFormAdjective(short string, gender Gender, number Number) (string, erro
 		return short + endings.Feminine, nil
 	case Neuter:
 		return short + endings.Neuter, nil
+	default:
+		return "", fmt.Errorf("неизвестный род %v", gender)
+	}
+}
+
+// ActiveParticipleAgreement выводит форму действительного причастия
+// прошедшего времени (шаг 6.4 - причастие глагола как второй, наравне с
+// LongFormAdjective выше, источник слова для "состояние:" - "вошедший" из
+// глагола "войти", а не только краткая форма страдательного причастия вроде
+// "авторизован"), согласуя masculine (форма муж. рода им. п. ед. ч. -
+// curated в VerbForms.PastParticiple, см. SystemVerbs) по gender/number.
+//
+// В отличие от LongFormAdjective, здесь только один курируемый класс
+// окончания: действительное причастие прошедшего времени всегда
+// оканчивается на "-ший" независимо от глагола ("вошедший", "вышедший",
+// "создавший" - гласная/согласная перед "ший" зависит от основы глагола, но
+// сам суффикс "-ший" - нет), поэтому одно универсальное правило покрывает
+// любой глагол, а не требует словарного различения по нему.
+func ActiveParticipleAgreement(masculine string, gender Gender, number Number) (string, error) {
+	if !strings.HasSuffix(masculine, "ший") {
+		return "", fmt.Errorf("%q: действительное причастие прошедшего времени должно оканчиваться на \"-ший\"", masculine)
+	}
+	stem := strings.TrimSuffix(masculine, "ий")
+	if number == Plural {
+		return stem + "ие", nil
+	}
+	switch gender {
+	case Masculine:
+		return masculine, nil
+	case Feminine:
+		return stem + "ая", nil
+	case Neuter:
+		return stem + "ее", nil
 	default:
 		return "", fmt.Errorf("неизвестный род %v", gender)
 	}
