@@ -43,7 +43,7 @@ func LongFormAdjective(short string, gender Gender, number Number) (string, erro
 	}
 	endings, ok := participleEndings[runes[len(runes)-1]]
 	if !ok {
-		return "", fmt.Errorf("%q: краткая форма состояния должна оканчиваться на \"н\" или \"т\" (это причастие, не любое краткое прилагательное) - иначе полная форма для имени производного типа не выводится автоматически (шаг 4.1, упрощённая версия)", short)
+		return "", fmt.Errorf("%q: краткая форма состояния должна оканчиваться на \"н\" или \"т\"", short)
 	}
 	if number == Plural {
 		return short + endings.Plural, nil

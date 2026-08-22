@@ -11,20 +11,20 @@
 //
 // Реализуется вертикальными срезами по конструкциям языка (стратегия,
 // согласованная с пользователем для шага 5, см. docs/ROADMAP.md, Шаг 5) -
-// а не всей IR сразу для всех конструкций. Покрытие на данный момент - шаг
-// 0 (`вывести <строка>`), шаг 1 (переменные, арифметика, сравнения,
-// логические операторы) и шаг 2 (если/пока/для, блочная область
-// видимости). Пока покрытие не станет полным, IR НЕ встроен в реальный
-// путь компиляции
-// (internal/compiler по-прежнему вызывает cbackend.Generate(*ast.Program)
-// напрямую) - internal/ir и internal/semantic существуют параллельно,
-// проверяются собственными тестами, и заменяют старый путь только когда
-// покрытие станет исчерпывающим.
+// а не всей IR сразу для всех конструкций. Покрытие на данный момент - шаги
+// 0-4 (`вывести <строка>`, переменные/арифметика, если/пока/для, функции с
+// параметрами/типом результата и их вызов, сущности/поля/конструктор/
+// методы/"этот"). Пока покрытие не станет полным, IR НЕ встроен в реальный
+// путь компиляции (internal/compiler по-прежнему вызывает cbackend.
+// Generate(*ast.Program) напрямую) - internal/ir и internal/semantic
+// существуют параллельно, проверяются собственными тестами, и заменяют
+// старый путь только когда покрытие станет исчерпывающим.
 package ir
 
 // Program - корень IR-дерева программы.
 type Program struct {
 	Functions []*Function
+	Entities  []*Entity
 }
 
 // Function - функция программы после семантического анализа. Name - имя
@@ -44,10 +44,40 @@ type Function struct {
 	Body       []Stmt
 }
 
-// Param - один параметр функции/вызова по позиции.
+// Param - один параметр функции/метода по позиции.
 type Param struct {
 	Name string
 	Type Type
+}
+
+// Entity - сущность программы после семантического анализа (шаг 4).
+// Состояния (шаг 4.1) и generic-коллекции (шаг 4.2) сюда пока не
+// перенесены - internal/semantic явно отказывает на них, а не тихо
+// пропускает.
+type Entity struct {
+	Name    string
+	Fields  []Field
+	Methods []*Method
+}
+
+// Field - одно поле сущности, в порядке объявления (порядок значим -
+// позиционный конструктор и порядок полей в C-структуре зависят от него).
+type Field struct {
+	Name string
+	Type Type
+}
+
+// Method - метод сущности: как Function, но получатель ("этот") неявный -
+// его тип есть Type{Kind: KindEntity, Entity: <имя сущности-владельца>},
+// backend передаёт его отдельным, скрытым от Rech параметром (в cbackend -
+// указатель, чтобы мутация поля через "этот.поле = ..." была видна после
+// возврата).
+type Method struct {
+	Name       string
+	Params     []Param
+	ReturnType Type
+	HasReturn  bool
+	Body       []Stmt
 }
 
 // Stmt - общий маркерный интерфейс инструкций IR (как ast.Stmt).
@@ -83,6 +113,17 @@ type Assign struct {
 
 func (*Assign) stmt() {}
 
+// FieldAssign соответствует "receiver.поле = выражение" (шаг 4.c) -
+// Receiver уже проверен на адресуемость (переменная/"этот"/доступ к полю,
+// как и получатель вызова метода) семантическим анализом.
+type FieldAssign struct {
+	Receiver Expr
+	Field    string
+	Value    Expr
+}
+
+func (*FieldAssign) stmt() {}
+
 // IfStmt соответствует "если <условие> { <then> } [иначе { <else> }]" -
 // Cond уже провалидирован (тип Логическое) семантическим анализом.
 type IfStmt struct {
@@ -116,7 +157,7 @@ func (*ForStmt) stmt() {}
 // ReturnStmt соответствует "вернуть [<выражение>]" - Value == nil у функции
 // без объявленного типа результата (только этот вид - шаг 2); с шага 3 у
 // функции с объявленным типом результата Value обязателен и его тип уже
-// проверен internal/semantic на совпадение с ReturnType функции.
+// проверен internal/semantic на совпадение с ReturnType функции/метода.
 type ReturnStmt struct {
 	Value Expr
 }
@@ -138,39 +179,67 @@ type CallExpr struct {
 
 func (*CallExpr) expr() {}
 
-// ExprStmt - вызов функции как самостоятельная инструкция, результат
-// отбрасывается (в отличие от использования CallExpr как значения -
-// PrintStmt.Value, VarDecl.Value и т. п.).
+// ExprStmt - вызов функции или метода как самостоятельная инструкция,
+// результат отбрасывается (в отличие от использования как значения -
+// PrintStmt.Value, VarDecl.Value и т. п.) - ровно один из Call/MethodCall
+// заполнен, как и в ast.ExprStmt.
 type ExprStmt struct {
-	Call *CallExpr
+	Call       *CallExpr
+	MethodCall *MethodCallExpr
 }
 
 func (*ExprStmt) stmt() {}
 
+// TypeKind - "форма" типа значения: один из встроенных примитивов или
+// KindEntity (сущность, чьё имя несёт сама Type.Entity - без этого
+// сравнение двух Type/вывод C-типа нуждались бы во внешнем реестре, тот же
+// принцип, что и у valueType в cbackend).
+type TypeKind int
+
+const (
+	KindUnknown TypeKind = iota
+	KindString
+	KindInt
+	KindFloat
+	KindBool
+	KindEntity
+)
+
 // Type - тип значения выражения IR, уже разрешённый семантическим анализом
 // (шаг 5.b) - в отличие от AST, где тип выводится заново на каждом
 // обращении (cbackend.genExpr), IR хранит готовый результат прямо в узле
-// (Identifier.Type, BinaryExpr.Type, UnaryExpr.Type) - у литералов тип
-// известен по самому Go-типу узла, см. TypeOf.
-type Type int
+// (Identifier.Type, BinaryExpr.Type, UnaryExpr.Type и т. п.) - у литералов
+// тип известен по самому Go-типу узла, см. TypeOf.
+type Type struct {
+	Kind   TypeKind
+	Entity string // валиден только при Kind == KindEntity
+}
 
-const (
-	TypeUnknown Type = iota
-	TypeString
-	TypeInt
-	TypeFloat
-	TypeBool
+var (
+	TypeUnknown = Type{Kind: KindUnknown}
+	TypeString  = Type{Kind: KindString}
+	TypeInt     = Type{Kind: KindInt}
+	TypeFloat   = Type{Kind: KindFloat}
+	TypeBool    = Type{Kind: KindBool}
 )
 
+// EntityType возвращает Type, соответствующий значению сущности name.
+func EntityType(name string) Type {
+	return Type{Kind: KindEntity, Entity: name}
+}
+
 func (t Type) String() string {
-	switch t {
-	case TypeString:
+	if t.Kind == KindEntity {
+		return t.Entity
+	}
+	switch t.Kind {
+	case KindString:
 		return "Строка"
-	case TypeInt:
+	case KindInt:
 		return "Целое"
-	case TypeFloat:
+	case KindFloat:
 		return "Число"
-	case TypeBool:
+	case KindBool:
 		return "Логическое"
 	default:
 		return "неизвестный тип"
@@ -242,11 +311,58 @@ type UnaryExpr struct {
 
 func (*UnaryExpr) expr() {}
 
+// NewExpr - конструктор сущности ("новый Тип(...)" в любой из форм -
+// позиционной или именованной, шаг 4.b) - Args уже разложены по позиции
+// поля (см. package doc Function.Params - тот же принцип), независимо от
+// того, какой формой они были написаны в исходнике.
+type NewExpr struct {
+	Entity string
+	Args   []Expr
+}
+
+func (*NewExpr) expr() {}
+
+// FieldAccess - чтение поля сущности ("receiver.поле", шаг 4.b). Type -
+// тип поля, разрешённый семантическим анализом по сигнатуре сущности
+// Receiver'а.
+type FieldAccess struct {
+	Receiver Expr
+	Field    string
+	Type     Type
+}
+
+func (*FieldAccess) expr() {}
+
+// ThisExpr - "этот" внутри тела метода (шаг 4.d); Entity - имя сущности-
+// владельца метода, где встречен "этот" - парсер уже гарантирует, что
+// ThisExpr встречается только внутри метода, так что Entity всегда
+// заполнен.
+type ThisExpr struct {
+	Entity string
+}
+
+func (*ThisExpr) expr() {}
+
+// MethodCallExpr - вызов метода ("receiver.метод(...)", шаг 4.d) - Args
+// уже разложены по позиции параметра, как и у CallExpr. Entity - имя
+// сущности Receiver'а (нужно backend'у для мангла имени метода без
+// повторного вывода типа).
+type MethodCallExpr struct {
+	Receiver  Expr
+	Entity    string
+	Method    string
+	Args      []Expr
+	Type      Type
+	HasReturn bool
+}
+
+func (*MethodCallExpr) expr() {}
+
 // TypeOf возвращает тип значения выражения e - у литералов известен по
-// самому узлу, у Identifier/BinaryExpr/UnaryExpr - уже разрешён
-// семантическим анализом и хранится в поле Type. Общий хелпер для всех
-// backend'ов (cbackend, будущий interpreter) - не переопределять отдельно
-// в каждом.
+// самому узлу, у остальных - уже разрешён семантическим анализом и
+// хранится в поле Type (или выводится из Entity/Receiver, как у
+// NewExpr/ThisExpr). Общий хелпер для всех backend'ов (cbackend, будущий
+// interpreter) - не переопределять отдельно в каждом.
 func TypeOf(e Expr) Type {
 	switch e := e.(type) {
 	case *StringLiteral:
@@ -264,6 +380,14 @@ func TypeOf(e Expr) Type {
 	case *UnaryExpr:
 		return e.Type
 	case *CallExpr:
+		return e.Type
+	case *NewExpr:
+		return EntityType(e.Entity)
+	case *FieldAccess:
+		return e.Type
+	case *ThisExpr:
+		return EntityType(e.Entity)
+	case *MethodCallExpr:
 		return e.Type
 	default:
 		return TypeUnknown

@@ -151,6 +151,61 @@ func TestGenerateFromIRFunctionWithParamsCallAndReturn(t *testing.T) {
 	}
 }
 
+func TestGenerateFromIREntityFieldsConstructorMethodsAndThis(t *testing.T) {
+	entity := &ir.Entity{
+		Name:   "Пользователь",
+		Fields: []ir.Field{{Name: "возраст", Type: ir.TypeInt}},
+		Methods: []*ir.Method{
+			{
+				Name: "состариться",
+				Body: []ir.Stmt{&ir.FieldAssign{
+					Receiver: &ir.ThisExpr{Entity: "Пользователь"},
+					Field:    "возраст",
+					Value: &ir.BinaryExpr{
+						Op: "+", Left: &ir.FieldAccess{Receiver: &ir.ThisExpr{Entity: "Пользователь"}, Field: "возраст", Type: ir.TypeInt},
+						Right: &ir.IntLiteral{Value: 1}, Type: ir.TypeInt,
+					},
+				}},
+			},
+			{
+				Name: "представиться", ReturnType: ir.TypeInt, HasReturn: true,
+				Body: []ir.Stmt{&ir.ReturnStmt{Value: &ir.FieldAccess{
+					Receiver: &ir.ThisExpr{Entity: "Пользователь"}, Field: "возраст", Type: ir.TypeInt,
+				}}},
+			},
+		},
+	}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "пользователь", Value: &ir.NewExpr{Entity: "Пользователь", Args: []ir.Expr{&ir.IntLiteral{Value: 30}}}},
+		&ir.ExprStmt{MethodCall: &ir.MethodCallExpr{
+			Receiver: &ir.Identifier{Name: "пользователь", Type: ir.EntityType("Пользователь")}, Entity: "Пользователь", Method: "состариться",
+		}},
+		&ir.PrintStmt{Value: &ir.MethodCallExpr{
+			Receiver: &ir.Identifier{Name: "пользователь", Type: ir.EntityType("Пользователь")}, Entity: "Пользователь", Method: "представиться",
+			Type: ir.TypeInt, HasReturn: true,
+		}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Entities: []*ir.Entity{entity}, Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "typedef struct {") || !strings.Contains(out, "long long f_vozrast;\n} rech_T_polzovatel;") {
+		t.Fatalf("ожидался typedef struct для сущности, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "rech_T_polzovatel v_polzovatel = (rech_T_polzovatel){.f_vozrast = 30LL};") {
+		t.Fatalf("ожидался конструктор (compound literal), получено:\n%s", out)
+	}
+	if !strings.Contains(out, "rech_M_polzovatel_sostaritsya(&(v_polzovatel));") {
+		t.Fatalf("ожидался вызов метода с адресом получателя, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "((*this_)).f_vozrast = (((*this_)).f_vozrast + 1LL);") {
+		t.Fatalf("ожидалась мутация поля через \"этот\", получено:\n%s", out)
+	}
+	if !strings.Contains(out, "return ((*this_)).f_vozrast;") {
+		t.Fatalf("ожидался возврат поля через \"этот\", получено:\n%s", out)
+	}
+}
+
 func TestGenerateFromIRMissingEntryPointFails(t *testing.T) {
 	prog := &ir.Program{Functions: []*ir.Function{
 		{Name: "чтототам", Body: nil},

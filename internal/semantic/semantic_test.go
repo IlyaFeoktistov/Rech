@@ -367,12 +367,161 @@ func TestAnalyzeMissingFinalReturnFails(t *testing.T) {
 	}
 }
 
-func TestAnalyzeUnsupportedStmtFails(t *testing.T) {
-	toks, err := lexer.New(`
-сущность T {}
+func TestAnalyzeEntityFieldsConstructorAndFieldAccess(t *testing.T) {
+	irProg := parseProgram(t, `
+сущность Пользователь
+{
+    имеет:
+        имя: Строка
+        возраст: Целое
+}
 функция главная
 {
-    переменная t = новый T()
+    переменная пользователь = новый Пользователь("Илья", 30)
+    вывести пользователь.имя
+    пользователь.возраст = 31
+}
+`)
+	if len(irProg.Entities) != 1 {
+		t.Fatalf("ожидалась 1 сущность, получено %d", len(irProg.Entities))
+	}
+	entity := irProg.Entities[0]
+	if entity.Name != "Пользователь" || len(entity.Fields) != 2 {
+		t.Fatalf("неожиданная сущность: %+v", entity)
+	}
+	if entity.Fields[0].Name != "имя" || entity.Fields[0].Type != ir.TypeString {
+		t.Fatalf("неожиданное поле 0: %+v", entity.Fields[0])
+	}
+	if entity.Fields[1].Name != "возраст" || entity.Fields[1].Type != ir.TypeInt {
+		t.Fatalf("неожиданное поле 1: %+v", entity.Fields[1])
+	}
+
+	main := irProg.Functions[0]
+	varDecl, ok := main.Body[0].(*ir.VarDecl)
+	if !ok {
+		t.Fatalf("ожидался *ir.VarDecl, получено %T", main.Body[0])
+	}
+	newExpr, ok := varDecl.Value.(*ir.NewExpr)
+	if !ok || newExpr.Entity != "Пользователь" || len(newExpr.Args) != 2 {
+		t.Fatalf("ожидался *ir.NewExpr для \"Пользователь\" с 2 аргументами, получено %+v", varDecl.Value)
+	}
+	if ir.TypeOf(varDecl.Value) != ir.EntityType("Пользователь") {
+		t.Fatalf("ожидался тип сущности \"Пользователь\", получено %v", ir.TypeOf(varDecl.Value))
+	}
+
+	print := main.Body[1].(*ir.PrintStmt)
+	fieldAccess, ok := print.Value.(*ir.FieldAccess)
+	if !ok || fieldAccess.Field != "имя" || fieldAccess.Type != ir.TypeString {
+		t.Fatalf("ожидался доступ к полю \"имя\", получено %+v", print.Value)
+	}
+
+	fieldAssign, ok := main.Body[2].(*ir.FieldAssign)
+	if !ok || fieldAssign.Field != "возраст" {
+		t.Fatalf("ожидалось присваивание полю \"возраст\", получено %+v", main.Body[2])
+	}
+}
+
+func TestAnalyzeNamedConstructorArgsNormalizedToPositional(t *testing.T) {
+	irProg := parseProgram(t, `
+сущность Пользователь
+{
+    имеет:
+        имя: Строка
+        возраст: Целое
+}
+функция главная
+{
+    переменная пользователь = новый Пользователь(возраст: 30, имя: "Илья")
+}
+`)
+	varDecl := irProg.Functions[0].Body[0].(*ir.VarDecl)
+	newExpr := varDecl.Value.(*ir.NewExpr)
+	if _, ok := newExpr.Args[0].(*ir.StringLiteral); !ok {
+		t.Fatalf("ожидалось, что аргумент 0 (имя) - строка, получено %+v", newExpr.Args[0])
+	}
+	if _, ok := newExpr.Args[1].(*ir.IntLiteral); !ok {
+		t.Fatalf("ожидалось, что аргумент 1 (возраст) - число, получено %+v", newExpr.Args[1])
+	}
+}
+
+func TestAnalyzeMethodAndThisMutation(t *testing.T) {
+	irProg := parseProgram(t, `
+сущность Пользователь
+{
+    имеет:
+        возраст: Целое
+
+    состариться()
+    {
+        этот.возраст = этот.возраст + 1
+    }
+
+    представиться(): Целое
+    {
+        вернуть этот.возраст
+    }
+}
+функция главная
+{
+    переменная пользователь = новый Пользователь(30)
+    пользователь.состариться()
+    вывести пользователь.представиться()
+}
+`)
+	entity := irProg.Entities[0]
+	if len(entity.Methods) != 2 {
+		t.Fatalf("ожидалось 2 метода, получено %d", len(entity.Methods))
+	}
+	ageMethod := entity.Methods[0]
+	assign, ok := ageMethod.Body[0].(*ir.FieldAssign)
+	if !ok {
+		t.Fatalf("ожидалось *ir.FieldAssign, получено %T", ageMethod.Body[0])
+	}
+	if _, ok := assign.Receiver.(*ir.ThisExpr); !ok {
+		t.Fatalf("ожидался получатель \"этот\", получено %+v", assign.Receiver)
+	}
+
+	introduceMethod := entity.Methods[1]
+	if !introduceMethod.HasReturn || introduceMethod.ReturnType != ir.TypeInt {
+		t.Fatalf("неожиданная сигнатура метода: %+v", introduceMethod)
+	}
+
+	main := irProg.Functions[0]
+	exprStmt, ok := main.Body[1].(*ir.ExprStmt)
+	if !ok || exprStmt.MethodCall == nil || exprStmt.MethodCall.Method != "состариться" {
+		t.Fatalf("ожидался вызов метода \"состариться\" как инструкция, получено %+v", main.Body[1])
+	}
+	print := main.Body[2].(*ir.PrintStmt)
+	methodCall, ok := print.Value.(*ir.MethodCallExpr)
+	if !ok || methodCall.Method != "представиться" || !methodCall.HasReturn {
+		t.Fatalf("ожидался вызов метода \"представиться\" как значение, получено %+v", print.Value)
+	}
+}
+
+func TestAnalyzeMethodCallOnTemporaryFails(t *testing.T) {
+	// Получатель вызова метода - результат вызова функции (временное
+	// значение, без постоянного адреса) - недопустим, в отличие от
+	// переменной/поля/"этот". Синтаксически это достижимо только в позиции
+	// выражения (сам вызов как самостоятельная инструкция не разбирается
+	// как цепочка, только как один CallExpr).
+	toks, err := lexer.New(`
+сущность Пользователь
+{
+    имеет:
+        возраст: Целое
+
+    прочитать(): Целое
+    {
+        вернуть этот.возраст
+    }
+}
+функция создать(): Пользователь
+{
+    вернуть новый Пользователь(1)
+}
+функция главная
+{
+    переменная x = создать().прочитать()
 }
 `).Tokenize()
 	if err != nil {
@@ -383,7 +532,28 @@ func TestAnalyzeUnsupportedStmtFails(t *testing.T) {
 		t.Fatalf("парсер: %v", err)
 	}
 	_, err = Analyze(prog)
-	if err == nil || !strings.Contains(err.Error(), "не реализован") {
-		t.Fatalf("ожидалась ошибка про неподдержанную конструкцию (сущности - шаг 4, ещё не перенесён), получено: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "может быть только переменная") {
+		t.Fatalf("ожидалась ошибка про неадресуемого получателя вызова метода, получено: %v", err)
+	}
+}
+
+func TestAnalyzeUnsupportedStmtFails(t *testing.T) {
+	toks, err := lexer.New(`
+сущность Пользователь
+{
+    состояние: неавторизован авторизован
+}
+функция главная { вывести "ок" }
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
+	if err == nil || !strings.Contains(err.Error(), "не поддерживаются") {
+		t.Fatalf("ожидалась ошибка про неподдержанные состояния, получено: %v", err)
 	}
 }

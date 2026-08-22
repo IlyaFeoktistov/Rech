@@ -2,9 +2,10 @@
 // путь к Generate(*ast.Program): пока не встроен в реальную компиляцию
 // (internal/compiler по-прежнему вызывает Generate напрямую), покрывает
 // ровно то же подмножество, что и internal/semantic.Analyze на данный
-// момент - шаги 0-3 (`вывести <строка>`, переменные/арифметика,
-// если/пока/для, функции с параметрами/типом результата и их вызов).
-// Расширяется вместе с покрытием internal/semantic,
+// момент - шаги 0-4 (`вывести <строка>`, переменные/арифметика,
+// если/пока/для, функции с параметрами/типом результата и их вызов,
+// сущности/поля/конструктор/методы/"этот"). Расширяется вместе с
+// покрытием internal/semantic,
 // вертикальным срезом за срезом (см. package doc internal/ir), а не
 // отдельно от него - не имеет смысла генерировать код для IR-узла, которого
 // семантический анализ ещё не производит.
@@ -24,34 +25,65 @@ import (
 )
 
 // irGenCtx - состояние генерации из IR: флаги использованных
-// runtime-хелперов (как ctx.usesConcat/usesStrCmp в genCtx, AST-путь).
-// Символьной таблицы здесь, в отличие от AST-пути, нет вообще - IR-узлы
-// (Identifier.Type, BinaryExpr.Type) уже несут тип, разрешённый
+// runtime-хелперов (как ctx.usesConcat/usesStrCmp в genCtx, AST-путь),
+// сущности программы по имени (нужно NewExpr - её Args позиционны, без
+// имён полей, см. package doc ir.NewExpr - имена нужны только здесь, для
+// designated initializer в C) и имя сущности-владельца метода, который
+// сейчас генерируется ("" - вне метода, thisEntity делает ThisExpr
+// типизируемым без внешнего контекста, как ctx.thisEntity в AST-пути).
+// Символьной таблицы переменных здесь, в отличие от AST-пути, нет вообще -
+// IR-узлы (Identifier.Type, BinaryExpr.Type) уже несут тип, разрешённый
 // internal/semantic, генератору достаточно его прочитать, а не искать по
 // имени - в этом и смысл шага 5 (тип решается один раз, не в каждом
 // backend'е заново).
 type irGenCtx struct {
 	usesConcat bool
 	usesStrCmp bool
+	entities   map[string]*ir.Entity
+	thisEntity string
 }
 
 // GenerateFromIR возвращает исходник на C, соответствующий программе prog.
 func GenerateFromIR(prog *ir.Program) (string, error) {
-	hasEntryPoint := false
+	entities := map[string]*ir.Entity{}
+	for _, ent := range prog.Entities {
+		entities[ent.Name] = ent
+	}
+
+	var typedefs strings.Builder
+	for _, ent := range prog.Entities {
+		typedefs.WriteString(generateIREntityStruct(ent))
+	}
+
 	var protos strings.Builder
+	for _, ent := range prog.Entities {
+		for _, m := range ent.Methods {
+			fmt.Fprintf(&protos, "%s %s(%s);\n", cReturnTypeFor(m.HasReturn, m.ReturnType), mangleMethod(ent.Name, m.Name), cMethodParamListIR(ent.Name, m.Params))
+		}
+	}
+	hasEntryPoint := false
 	for _, fn := range prog.Functions {
 		if fn.Name == entryPointName {
 			hasEntryPoint = true
 			continue
 		}
-		fmt.Fprintf(&protos, "%s %s(%s);\n", cReturnTypeIR(fn), mangleName(fn.Name), cParamListIR(fn.Params))
+		fmt.Fprintf(&protos, "%s %s(%s);\n", cReturnTypeFor(fn.HasReturn, fn.ReturnType), mangleName(fn.Name), cParamListIR(fn.Params))
 	}
 	if !hasEntryPoint {
 		return "", fmt.Errorf("в программе не найдена функция %q - она служит точкой входа", entryPointName)
 	}
 
 	var body strings.Builder
-	ctx := &irGenCtx{}
+	ctx := &irGenCtx{entities: entities}
+	for _, ent := range prog.Entities {
+		for _, m := range ent.Methods {
+			mCode, err := generateIRMethod(ctx, ent.Name, m)
+			if err != nil {
+				return "", fmt.Errorf("сущность %q: метод %q: %w", ent.Name, m.Name, err)
+			}
+			body.WriteString(mCode)
+		}
+	}
 	for _, fn := range prog.Functions {
 		fnCode, err := generateIRFunction(ctx, fn)
 		if err != nil {
@@ -72,6 +104,9 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 		sb.WriteString(strConcatHelper)
 		sb.WriteString("\n")
 	}
+	if typedefs.Len() > 0 {
+		sb.WriteString(typedefs.String())
+	}
 	if protos.Len() > 0 {
 		sb.WriteString(protos.String())
 		sb.WriteString("\n")
@@ -80,13 +115,29 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	return sb.String(), nil
 }
 
-// cReturnTypeIR - C-тип результата функции: сама Type, если у функции
-// объявлен тип результата (fn.HasReturn), иначе "int" - технический 0 в
-// конце (не значение "результата"), чтобы int-функция не осталась без
-// return (для строгого C - undefined behavior), как и в AST-пути.
-func cReturnTypeIR(fn *ir.Function) string {
-	if fn.HasReturn {
-		return fromIRType(fn.ReturnType).cType()
+// generateIREntityStruct - C typedef struct для ent, как
+// cbackend.generateEntityStruct (AST-путь), только по уже собранным
+// internal/ir.Field вместо entitySig.
+func generateIREntityStruct(ent *ir.Entity) string {
+	var sb strings.Builder
+	sb.WriteString("typedef struct {\n")
+	if len(ent.Fields) == 0 {
+		sb.WriteString("    char _rech_empty;\n")
+	}
+	for _, f := range ent.Fields {
+		fmt.Fprintf(&sb, "    %s %s;\n", fromIRType(f.Type).cType(), mangleField(f.Name))
+	}
+	fmt.Fprintf(&sb, "} %s;\n\n", mangleType(ent.Name))
+	return sb.String()
+}
+
+// cReturnTypeFor - C-тип результата функции/метода: сама Type, если он
+// объявлен (hasReturn), иначе "int" - технический 0 в конце (не значение
+// "результата"), чтобы int-функция не осталась без return (для строгого
+// C - undefined behavior), как и в AST-пути.
+func cReturnTypeFor(hasReturn bool, returnType ir.Type) string {
+	if hasReturn {
+		return fromIRType(returnType).cType()
 	}
 	return "int"
 }
@@ -102,16 +153,51 @@ func cParamListIR(params []ir.Param) string {
 	return strings.Join(parts, ", ")
 }
 
+// cMethodParamListIR - как cParamListIR, но с обязательным скрытым первым
+// параметром "Тип *this_" (получатель по указателю, как и в AST-пути) -
+// у метода он есть всегда, поэтому в отличие от cParamListIR/
+// combineParamList не нужен отдельный случай "нет параметров -> void".
+func cMethodParamListIR(entityName string, params []ir.Param) string {
+	parts := make([]string, len(params)+1)
+	parts[0] = fmt.Sprintf("%s *this_", mangleType(entityName))
+	for i, p := range params {
+		parts[i+1] = fmt.Sprintf("%s %s", fromIRType(p.Type).cType(), mangleVar(p.Name))
+	}
+	return strings.Join(parts, ", ")
+}
+
 func generateIRFunction(ctx *irGenCtx, fn *ir.Function) (string, error) {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "// %s\n", fn.Name)
-	fmt.Fprintf(&sb, "%s %s(%s) {\n", cReturnTypeIR(fn), mangleName(fn.Name), cParamListIR(fn.Params))
+	fmt.Fprintf(&sb, "%s %s(%s) {\n", cReturnTypeFor(fn.HasReturn, fn.ReturnType), mangleName(fn.Name), cParamListIR(fn.Params))
 	for _, s := range fn.Body {
 		if err := generateIRStmt(&sb, ctx, s, 1); err != nil {
 			return "", err
 		}
 	}
 	if !fn.HasReturn {
+		sb.WriteString("    return 0;\n")
+	}
+	sb.WriteString("}\n\n")
+	return sb.String(), nil
+}
+
+// generateIRMethod - как generateIRFunction, но со скрытым параметром
+// "Тип *this_" и ctx.thisEntity, включённым на время генерации тела - то,
+// что делает ThisExpr типизируемым (generateIRExpr, case *ir.ThisExpr),
+// как и ctx.thisEntity в AST-пути (generateMethod).
+func generateIRMethod(ctx *irGenCtx, entityName string, m *ir.Method) (string, error) {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "// %s.%s\n", entityName, m.Name)
+	fmt.Fprintf(&sb, "%s %s(%s) {\n", cReturnTypeFor(m.HasReturn, m.ReturnType), mangleMethod(entityName, m.Name), cMethodParamListIR(entityName, m.Params))
+	ctx.thisEntity = entityName
+	defer func() { ctx.thisEntity = "" }()
+	for _, s := range m.Body {
+		if err := generateIRStmt(&sb, ctx, s, 1); err != nil {
+			return "", err
+		}
+	}
+	if !m.HasReturn {
 		sb.WriteString("    return 0;\n")
 	}
 	sb.WriteString("}\n\n")
@@ -193,8 +279,24 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 		fmt.Fprintf(sb, "%sreturn %s;\n", ind, code)
 		return nil
 
+	case *ir.FieldAssign:
+		receiverCode, _, err := generateIRExpr(ctx, s.Receiver)
+		if err != nil {
+			return err
+		}
+		code, _, err := generateIRExpr(ctx, s.Value)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(sb, "%s(%s).%s = %s;\n", ind, receiverCode, mangleField(s.Field), code)
+		return nil
+
 	case *ir.ExprStmt:
-		code, _, err := generateIRExpr(ctx, s.Call)
+		var call ir.Expr = s.Call
+		if s.MethodCall != nil {
+			call = s.MethodCall
+		}
+		code, _, err := generateIRExpr(ctx, call)
 		if err != nil {
 			return err
 		}
@@ -261,6 +363,26 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 			argCodes[i] = code
 		}
 		return fmt.Sprintf("%s(%s)", mangleName(e.Callee), strings.Join(argCodes, ", ")), fromIRType(e.Type), nil
+
+	case *ir.NewExpr:
+		return generateIRNewExpr(ctx, e)
+
+	case *ir.FieldAccess:
+		code, _, err := generateIRExpr(ctx, e.Receiver)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		return fmt.Sprintf("(%s).%s", code, mangleField(e.Field)), fromIRType(e.Type), nil
+
+	case *ir.ThisExpr:
+		// "(*this_)" - разыменованный указатель this_ ведёт себя как
+		// lvalue сущностного типа, как и в AST-пути (genExpr, case
+		// *ast.ThisExpr) - тем же способом обходится без отдельной ветки
+		// на "->" в FieldAccess/FieldAssign.
+		return "(*this_)", entityType(e.Entity), nil
+
+	case *ir.MethodCallExpr:
+		return generateIRMethodCallExpr(ctx, e)
 
 	default:
 		return "", typeUnknown, fmt.Errorf("генерация C из IR: выражение %T пока не поддерживается", e)
@@ -352,20 +474,67 @@ func generateIRArithmetic(op string, lc string, lt ir.Type, rc string, rt ir.Typ
 	return fmt.Sprintf("(%s %s %s)", lc, op, rc), typeInt, nil
 }
 
+// generateIRNewExpr генерирует C99 compound literal для "новый Тип(...)" -
+// e.Args уже позиционны по полю (см. package doc ir.NewExpr), но без имён
+// полей - для designated initializer ("."+имя+"="+значение) имена берутся
+// из ctx.entities[e.Entity].Fields, собранных раньше в GenerateFromIR.
+func generateIRNewExpr(ctx *irGenCtx, e *ir.NewExpr) (string, valueType, error) {
+	ent := ctx.entities[e.Entity]
+	parts := make([]string, len(e.Args))
+	for i, a := range e.Args {
+		code, _, err := generateIRExpr(ctx, a)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		parts[i] = fmt.Sprintf(".%s = %s", mangleField(ent.Fields[i].Name), code)
+	}
+	initList := strings.Join(parts, ", ")
+	if initList == "" {
+		// Сущность без полей - зануляем техническую заглушку структуры
+		// (generateIREntityStruct), а не полагаемся на "{}" (расширение
+		// GNU, не входящее в стандартный C99) - как и в AST-пути.
+		initList = "0"
+	}
+	return fmt.Sprintf("(%s){%s}", mangleType(e.Entity), initList), entityType(e.Entity), nil
+}
+
+// generateIRMethodCallExpr генерирует вызов метода - получатель по адресу
+// (первый скрытый параметр this_), как и в AST-пути (genMethodCall):
+// мутация поля через "этот.поле = ..." внутри метода видна вызывающему
+// коду после возврата.
+func generateIRMethodCallExpr(ctx *irGenCtx, e *ir.MethodCallExpr) (string, valueType, error) {
+	receiverCode, _, err := generateIRExpr(ctx, e.Receiver)
+	if err != nil {
+		return "", typeUnknown, err
+	}
+	argCodes := make([]string, len(e.Args)+1)
+	argCodes[0] = fmt.Sprintf("&(%s)", receiverCode)
+	for i, a := range e.Args {
+		code, _, err := generateIRExpr(ctx, a)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		argCodes[i+1] = code
+	}
+	return fmt.Sprintf("%s(%s)", mangleMethod(e.Entity, e.Method), strings.Join(argCodes, ", ")), fromIRType(e.Type), nil
+}
+
 // fromIRType переводит ir.Type (backend-независимый, internal/ir) в
 // valueType (C-специфичный, этот пакет) - единственное место, где IR-путь
 // знает про valueType вообще, остальной generateIR* код работает через
 // ir.Type/ir.TypeOf.
 func fromIRType(t ir.Type) valueType {
-	switch t {
-	case ir.TypeString:
+	switch t.Kind {
+	case ir.KindString:
 		return typeString
-	case ir.TypeInt:
+	case ir.KindInt:
 		return typeInt
-	case ir.TypeFloat:
+	case ir.KindFloat:
 		return typeFloat
-	case ir.TypeBool:
+	case ir.KindBool:
 		return typeBool
+	case ir.KindEntity:
+		return entityType(t.Entity)
 	default:
 		return typeUnknown
 	}

@@ -965,7 +965,7 @@ func generateCallable(sb *strings.Builder, ctx *genCtx, cName string, extraParam
 	if ctx.hasReturnType {
 		cReturnType = sig.ReturnType.cType()
 		if !endsWithReturnValue(body) {
-			return fmt.Errorf("%s: с объявленным типом результата %s должна заканчиваться \"вернуть <значение>\" (полная проверка всех путей выполнения - шаг 5)", errLabel, sig.ReturnType)
+			return fmt.Errorf("%s: с объявленным типом результата %s должна заканчиваться \"вернуть <значение>\"", errLabel, sig.ReturnType)
 		}
 	}
 
