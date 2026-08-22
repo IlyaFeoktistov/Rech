@@ -11,9 +11,10 @@
 //
 // Реализуется вертикальными срезами по конструкциям языка (стратегия,
 // согласованная с пользователем для шага 5, см. docs/ROADMAP.md, Шаг 5) -
-// а не всей IR сразу для всех конструкций. Первый срез - буквально то же
-// подмножество, что и шаг 0 ("функция главная { вывести "..." }"). Пока
-// покрытие не станет полным, IR НЕ встроен в реальный путь компиляции
+// а не всей IR сразу для всех конструкций. Покрытие на данный момент - шаг
+// 0 (`вывести <строка>`) и шаг 1 (переменные, арифметика, сравнения,
+// логические операторы). Пока покрытие не станет полным, IR НЕ встроен в
+// реальный путь компиляции
 // (internal/compiler по-прежнему вызывает cbackend.Generate(*ast.Program)
 // напрямую) - internal/ir и internal/semantic существуют параллельно,
 // проверяются собственными тестами, и заменяют старый путь только когда
@@ -45,6 +46,57 @@ type PrintStmt struct {
 
 func (*PrintStmt) stmt() {}
 
+// VarDecl соответствует "переменная <имя> = <выражение>". Тип переменной -
+// тип Value (literal-based inference, шаг 1) - разрешён и провалидирован
+// семантическим анализом (internal/semantic), в самом узле не хранится
+// отдельно - Value.Type()/TypeOf(Value) и есть тип переменной.
+type VarDecl struct {
+	Name  string
+	Value Expr
+}
+
+func (*VarDecl) stmt() {}
+
+// Assign соответствует "<имя> = <выражение>" для уже объявленной
+// переменной - совпадение типа с объявленным при первом "переменная" уже
+// проверено семантическим анализом.
+type Assign struct {
+	Name  string
+	Value Expr
+}
+
+func (*Assign) stmt() {}
+
+// Type - тип значения выражения IR, уже разрешённый семантическим анализом
+// (шаг 5.b) - в отличие от AST, где тип выводится заново на каждом
+// обращении (cbackend.genExpr), IR хранит готовый результат прямо в узле
+// (Identifier.Type, BinaryExpr.Type, UnaryExpr.Type) - у литералов тип
+// известен по самому Go-типу узла, см. TypeOf.
+type Type int
+
+const (
+	TypeUnknown Type = iota
+	TypeString
+	TypeInt
+	TypeFloat
+	TypeBool
+)
+
+func (t Type) String() string {
+	switch t {
+	case TypeString:
+		return "Строка"
+	case TypeInt:
+		return "Целое"
+	case TypeFloat:
+		return "Число"
+	case TypeBool:
+		return "Логическое"
+	default:
+		return "неизвестный тип"
+	}
+}
+
 // Expr - общий маркерный интерфейс выражений IR (как ast.Expr).
 type Expr interface {
 	expr()
@@ -56,3 +108,82 @@ type StringLiteral struct {
 }
 
 func (*StringLiteral) expr() {}
+
+// IntLiteral - целочисленный литерал.
+type IntLiteral struct {
+	Value int64
+}
+
+func (*IntLiteral) expr() {}
+
+// FloatLiteral - литерал с плавающей точкой.
+type FloatLiteral struct {
+	Value float64
+}
+
+func (*FloatLiteral) expr() {}
+
+// BoolLiteral - логический литерал ("истина"/"ложь").
+type BoolLiteral struct {
+	Value bool
+}
+
+func (*BoolLiteral) expr() {}
+
+// Identifier - ссылка на переменную; Type - тип, разрешённый семантическим
+// анализом по месту объявления (internal/semantic хранит для этого
+// собственную символьную таблицу, отдельную от backend'ов - в этом и
+// состоит смысл шага 5, см. package doc).
+type Identifier struct {
+	Name string
+	Type Type
+}
+
+func (*Identifier) expr() {}
+
+// BinaryExpr - бинарная операция; Op - один из "+ - * / == != < > <= >=
+// и или". Type - тип результата, уже разрешённый (и провалидированный по
+// типам операндов) семантическим анализом.
+type BinaryExpr struct {
+	Op    string
+	Left  Expr
+	Right Expr
+	Type  Type
+}
+
+func (*BinaryExpr) expr() {}
+
+// UnaryExpr - унарная операция; Op - один из "- не".
+type UnaryExpr struct {
+	Op      string
+	Operand Expr
+	Type    Type
+}
+
+func (*UnaryExpr) expr() {}
+
+// TypeOf возвращает тип значения выражения e - у литералов известен по
+// самому узлу, у Identifier/BinaryExpr/UnaryExpr - уже разрешён
+// семантическим анализом и хранится в поле Type. Общий хелпер для всех
+// backend'ов (cbackend, будущий interpreter) - не переопределять отдельно
+// в каждом.
+func TypeOf(e Expr) Type {
+	switch e := e.(type) {
+	case *StringLiteral:
+		return TypeString
+	case *IntLiteral:
+		return TypeInt
+	case *FloatLiteral:
+		return TypeFloat
+	case *BoolLiteral:
+		return TypeBool
+	case *Identifier:
+		return e.Type
+	case *BinaryExpr:
+		return e.Type
+	case *UnaryExpr:
+		return e.Type
+	default:
+		return TypeUnknown
+	}
+}
