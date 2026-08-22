@@ -176,6 +176,68 @@ func TestGenerateShadowingSameNameDifferentScopesStillWorks(t *testing.T) {
 	}
 }
 
+func TestGenerateEntityStruct(t *testing.T) {
+	ent := &ast.EntityDecl{Name: "Пользователь", Fields: []ast.Field{
+		{Name: "имя", Type: "Строка"},
+		{Name: "возраст", Type: "Целое"},
+	}}
+	out, err := Generate(&ast.Program{Entities: []*ast.EntityDecl{ent}, Functions: []*ast.FunctionDecl{mainFunc()}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "typedef struct {") || !strings.Contains(out, "} rech_T_polzovatel;") {
+		t.Fatalf("ожидался typedef struct для сущности, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "const char * f_imya;") || !strings.Contains(out, "long long f_vozrast;") {
+		t.Fatalf("ожидались поля структуры, получено:\n%s", out)
+	}
+}
+
+func TestGenerateEmptyEntityGetsPlaceholderField(t *testing.T) {
+	ent := &ast.EntityDecl{Name: "Пустая"}
+	out, err := Generate(&ast.Program{Entities: []*ast.EntityDecl{ent}, Functions: []*ast.FunctionDecl{mainFunc()}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "} rech_T_pustaya;") {
+		t.Fatalf("ожидался typedef для пустой сущности, получено:\n%s", out)
+	}
+}
+
+func TestGenerateEntityUnknownFieldType(t *testing.T) {
+	ent := &ast.EntityDecl{Name: "П", Fields: []ast.Field{{Name: "х", Type: "НеизвестныйТип"}}}
+	_, err := Generate(&ast.Program{Entities: []*ast.EntityDecl{ent}, Functions: []*ast.FunctionDecl{mainFunc()}})
+	if err == nil || !strings.Contains(err.Error(), "неизвестный тип") {
+		t.Fatalf("ожидалась ошибка про неизвестный тип поля, получено: %v", err)
+	}
+}
+
+func TestGenerateEntityFieldManglingCollision(t *testing.T) {
+	ent := &ast.EntityDecl{Name: "П", Fields: []ast.Field{{Name: "ёлка", Type: "Целое"}, {Name: "елка", Type: "Целое"}}}
+	_, err := Generate(&ast.Program{Entities: []*ast.EntityDecl{ent}, Functions: []*ast.FunctionDecl{mainFunc()}})
+	if err == nil || !strings.Contains(err.Error(), "транслитерируются в одно и то же имя") {
+		t.Fatalf("ожидалась ошибка про коллизию мангл-имён полей, получено: %v", err)
+	}
+}
+
+func TestGenerateEntityNameManglingCollision(t *testing.T) {
+	a := &ast.EntityDecl{Name: "ёлка", Fields: []ast.Field{{Name: "х", Type: "Целое"}}}
+	b := &ast.EntityDecl{Name: "елка", Fields: []ast.Field{{Name: "y", Type: "Целое"}}}
+	_, err := Generate(&ast.Program{Entities: []*ast.EntityDecl{a, b}, Functions: []*ast.FunctionDecl{mainFunc()}})
+	if err == nil || !strings.Contains(err.Error(), "транслитерируются в одно и то же имя") {
+		t.Fatalf("ожидалась ошибка про коллизию мангл-имён сущностей, получено: %v", err)
+	}
+}
+
+func TestGenerateDuplicateEntityName(t *testing.T) {
+	a := &ast.EntityDecl{Name: "П", Fields: []ast.Field{{Name: "х", Type: "Целое"}}}
+	b := &ast.EntityDecl{Name: "П", Fields: []ast.Field{{Name: "y", Type: "Целое"}}}
+	_, err := Generate(&ast.Program{Entities: []*ast.EntityDecl{a, b}, Functions: []*ast.FunctionDecl{mainFunc()}})
+	if err == nil || !strings.Contains(err.Error(), "объявлена более одного раза") {
+		t.Fatalf("ожидалась ошибка про повторное объявление сущности, получено: %v", err)
+	}
+}
+
 func TestGenerateFunctionWithoutParamsUsesVoid(t *testing.T) {
 	fn := &ast.FunctionDecl{Name: "ничего", Body: []ast.Stmt{&ast.PrintStmt{Value: &ast.StringLiteral{Value: "x"}}}}
 	out, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{fn, mainFunc()}})

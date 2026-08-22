@@ -58,6 +58,22 @@ func mangleVar(name string) string {
 	return "v_" + transliterate(name)
 }
 
+// mangleType мангирует имя сущности в C typedef-имя. Отдельный префикс
+// (rech_T_, не rech_ у функций) - в C typedef-имена и имена функций делят
+// один неймспейс, разные префиксы структурно исключают коллизию сущности
+// и функции с одним и тем же именем без отдельной проверки.
+func mangleType(name string) string {
+	return "rech_T_" + transliterate(name)
+}
+
+// mangleField мангирует имя поля сущности в имя члена C-структуры.
+// Отдельный префикс от mangleVar (f_, не v_) - чисто для читаемости
+// сгенерированного C, коллизии с переменными в C всё равно невозможны
+// (члены структуры - собственный неймспейс).
+func mangleField(name string) string {
+	return "f_" + transliterate(name)
+}
+
 // valueType - тип значения выражения, выведенный во время генерации C-кода.
 type valueType int
 
@@ -215,6 +231,32 @@ func Generate(prog *ast.Program) (string, error) {
 	// повторном определении.
 	funcMangled := map[string]string{}
 
+	// entityMangled - тот же принцип устойчивого мангирования для сущностей.
+	// Отдельного реестра с funcMangled достаточно избегать явно - разные
+	// префиксы (rech_T_ у типов, rech_ у функций) уже структурно исключают
+	// коллизию сущности с функцией; здесь ловится коллизия двух сущностей
+	// друг с другом.
+	entityMangled := map[string]string{}
+	seenEntities := map[string]bool{}
+	var typedefs strings.Builder
+	for _, ent := range prog.Entities {
+		if seenEntities[ent.Name] {
+			return "", fmt.Errorf("сущность %q объявлена более одного раза", ent.Name)
+		}
+		seenEntities[ent.Name] = true
+		mangledType := mangleType(ent.Name)
+		if other, exists := entityMangled[mangledType]; exists {
+			return "", fmt.Errorf("сущности %q и %q транслитерируются в одно и то же имя %q в C - переименуйте одну из них", other, ent.Name, mangledType)
+		}
+		entityMangled[mangledType] = ent.Name
+
+		code, err := generateEntityStruct(ent)
+		if err != nil {
+			return "", err
+		}
+		typedefs.WriteString(code)
+	}
+
 	hasEntryPoint := false
 	for _, fn := range prog.Functions {
 		if fn.Name == entryPointName {
@@ -271,6 +313,9 @@ func Generate(prog *ast.Program) (string, error) {
 		sb.WriteString(strConcatHelper)
 		sb.WriteString("\n")
 	}
+	if typedefs.Len() > 0 {
+		sb.WriteString(typedefs.String())
+	}
 	if protos.Len() > 0 {
 		sb.WriteString(protos.String())
 		sb.WriteString("\n")
@@ -308,6 +353,32 @@ func prototypeOf(fn *ast.FunctionDecl, sig funcSig) string {
 		cReturnType = sig.ReturnType.cType()
 	}
 	return fmt.Sprintf("%s %s(%s);\n", cReturnType, mangleName(fn.Name), cParamList(fn.Params, sig.ParamTypes))
+}
+
+// generateEntityStruct возвращает C typedef struct для ent.
+func generateEntityStruct(ent *ast.EntityDecl) (string, error) {
+	fieldMangled := map[string]string{}
+	var sb strings.Builder
+	sb.WriteString("typedef struct {\n")
+	if len(ent.Fields) == 0 {
+		// В C нет пустых структур - техническое поле-заглушка, пока у
+		// сущности ещё не появилось ни одного поля (методы - позже в шаге 4).
+		sb.WriteString("    char _rech_empty;\n")
+	}
+	for _, f := range ent.Fields {
+		typ, ok := typeFromName(f.Type)
+		if !ok {
+			return "", fmt.Errorf("сущность %q: поле %q имеет неизвестный тип %q", ent.Name, f.Name, f.Type)
+		}
+		mangled := mangleField(f.Name)
+		if other, exists := fieldMangled[mangled]; exists {
+			return "", fmt.Errorf("сущность %q: поля %q и %q транслитерируются в одно и то же имя %q в C - переименуйте одно из них", ent.Name, other, f.Name, mangled)
+		}
+		fieldMangled[mangled] = f.Name
+		fmt.Fprintf(&sb, "    %s %s;\n", typ.cType(), mangled)
+	}
+	fmt.Fprintf(&sb, "} %s;\n\n", mangleType(ent.Name))
+	return sb.String(), nil
 }
 
 const strConcatHelper = `static char *rech_str_concat(const char *a, const char *b) {

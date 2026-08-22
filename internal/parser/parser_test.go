@@ -222,6 +222,82 @@ func TestParseNaturalCallAnimacyDisambiguatesWhomVsWhat(t *testing.T) {
 	}
 }
 
+func TestParseEntityWithFields(t *testing.T) {
+	prog, err := parseSource(t, `
+сущность Пользователь
+{
+    имеет:
+        имя: Строка
+        возраст: Целое
+}
+функция главная { вывести "ок" }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if len(prog.Entities) != 1 {
+		t.Fatalf("ожидалась одна сущность, получено %d", len(prog.Entities))
+	}
+	ent := prog.Entities[0]
+	if ent.Name != "Пользователь" || len(ent.Fields) != 2 {
+		t.Fatalf("неожиданная сущность: %+v", ent)
+	}
+	if ent.Fields[0].Name != "имя" || ent.Fields[0].Type != "Строка" {
+		t.Fatalf("неожиданное первое поле: %+v", ent.Fields[0])
+	}
+	if ent.Fields[1].Name != "возраст" || ent.Fields[1].Type != "Целое" {
+		t.Fatalf("неожиданное второе поле: %+v", ent.Fields[1])
+	}
+}
+
+func TestParseClassIsSynonymForEntity(t *testing.T) {
+	prog, err := parseSource(t, `
+класс Пользователь
+{
+    имеет:
+        имя: Строка
+}
+функция главная { вывести "ок" }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if len(prog.Entities) != 1 || prog.Entities[0].Name != "Пользователь" {
+		t.Fatalf("\"класс\" должен разбираться как синоним \"сущность\": %+v", prog)
+	}
+}
+
+func TestParseFieldAtSameIndentAsHasEndsSection(t *testing.T) {
+	// Поле на той же глубине отступа, что и "имеет", уже не принадлежит
+	// секции (docs/GRAMMAR.md, "Секции внутри объявления сущности") -
+	// после пустой секции тут нет ничего валидного (методов ещё нет), так
+	// что ожидаем ошибку разбора, а не поле в EntityDecl.Fields.
+	_, err := parseSource(t, `
+сущность Пользователь
+{
+    имеет:
+    имя: Строка
+}
+функция главная { вывести "ок" }
+`)
+	if err == nil {
+		t.Fatalf("ожидалась ошибка - поле на уровне \"имеет\" не должно попасть в секцию")
+	}
+}
+
+func TestParseEmptyEntity(t *testing.T) {
+	prog, err := parseSource(t, `
+сущность Пустая {}
+функция главная { вывести "ок" }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if len(prog.Entities) != 1 || len(prog.Entities[0].Fields) != 0 {
+		t.Fatalf("неожиданный результат: %+v", prog.Entities)
+	}
+}
+
 func TestParseReturnWithoutValueStillWorks(t *testing.T) {
 	prog, err := parseSource(t, `
 функция главная {

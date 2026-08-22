@@ -13,12 +13,40 @@ type Node interface {
 	node()
 }
 
-// Program - корень дерева: список объявленных функций.
+// Program - корень дерева: список объявленных функций и сущностей.
 type Program struct {
 	Functions []*FunctionDecl
+	Entities  []*EntityDecl
 }
 
 func (*Program) node() {}
+
+// EntityDecl соответствует конструкции:
+//
+//	сущность Имя
+//	{
+//	    имеет:
+//	        поле: Тип
+//	        ...
+//	}
+//
+// ("класс" - синоним "сущность", docs/GRAMMAR.md). Methods добавятся в
+// оставшейся части шага 4 - на первой итерации сущность несёт только поля.
+type EntityDecl struct {
+	Name   string
+	Fields []Field
+	Line   int
+}
+
+func (*EntityDecl) node() {}
+
+// Field - одно поле сущности, объявленное под "имеет:". Type - имя типа,
+// как и у Param (проверка допустимости - в backend'е).
+type Field struct {
+	Name string
+	Type string
+	Line int
+}
 
 // FunctionDecl соответствует конструкции:
 //

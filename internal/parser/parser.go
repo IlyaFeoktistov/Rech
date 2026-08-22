@@ -3,7 +3,10 @@
 // Грамматика v0.1 (расширяется по этапам из docs/ROADMAP.md, подробный
 // EBNF-набросок - docs/GRAMMAR.md):
 //
-//	program     := { newline } { function { newline } }
+//	program     := { newline } { ( function | entity ) { newline } }
+//	entity      := ( "сущность" | "класс" ) IDENT newline "{" [ fields_section ] "}"
+//	fields_section := "имеет" ":" { field }
+//	field       := IDENT ":" IDENT
 //	function    := "функция" IDENT [ "(" [ params ] ")" ] [ ":" IDENT ] newline block
 //	params      := param { "," param }
 //	param       := IDENT ":" IDENT
@@ -238,17 +241,108 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 	prog := &ast.Program{}
 	p.skipNewlines()
 	for p.cur().Type != lexer.EOF {
-		fn, err := p.parseFunction()
-		if err != nil {
-			return nil, err
+		switch p.cur().Type {
+		case lexer.KwFunction:
+			fn, err := p.parseFunction()
+			if err != nil {
+				return nil, err
+			}
+			prog.Functions = append(prog.Functions, fn)
+		case lexer.KwEntity, lexer.KwClass:
+			ent, err := p.parseEntity()
+			if err != nil {
+				return nil, err
+			}
+			prog.Entities = append(prog.Entities, ent)
+		default:
+			return nil, fmt.Errorf("строка %d, столбец %d: на верхнем уровне программы ожидалась \"функция\" или \"сущность\"/\"класс\", получено %q",
+				p.cur().Line, p.cur().Col, p.cur().Value)
 		}
-		prog.Functions = append(prog.Functions, fn)
 		p.skipNewlines()
 	}
 	if len(prog.Functions) == 0 {
 		return nil, fmt.Errorf("программа не содержит ни одной функции")
 	}
 	return prog, nil
+}
+
+// parseEntity разбирает "сущность"/"класс" (синонимы) и её тело.
+func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
+	kw := p.advance() // "сущность" или "класс"
+	name, err := p.expect(lexer.IDENT)
+	if err != nil {
+		return nil, fmt.Errorf("после %q ожидалось имя сущности: %w", kw.Value, err)
+	}
+	p.skipNewlines()
+	if _, err := p.expect(lexer.LBRACE); err != nil {
+		return nil, err
+	}
+	p.skipSeparators()
+
+	var fields []ast.Field
+	if p.cur().Type == lexer.KwHas {
+		fields, err = p.parseFieldsSection()
+		if err != nil {
+			return nil, fmt.Errorf("сущность %q: %w", name.Value, err)
+		}
+	}
+
+	p.skipSeparators()
+	if _, err := p.expect(lexer.RBRACE); err != nil {
+		return nil, err
+	}
+	return &ast.EntityDecl{Name: name.Value, Fields: fields, Line: kw.Line}, nil
+}
+
+// parseFieldsSection разбирает "имеет:" и поля, отступленные относительно
+// самого слова "имеет" (docs/GRAMMAR.md, "Секции внутри объявления
+// сущности"): поле принадлежит секции, пока отступ (Col) его первого
+// токена строго больше Col метки "имеет"; иначе секция закончилась. Как и
+// lookahead на "иначе" в parseIfStmt, решение "продолжать секцию или нет"
+// принимается через непотребляющий peekPastNewlines() до того, как
+// разделитель инструкций будет съеден - иначе первый же разделитель после
+// последнего поля достался бы этой функции, а не следующему члену
+// сущности. Позиция парсера на входе - на "имеет".
+func (p *Parser) parseFieldsSection() ([]ast.Field, error) {
+	label, err := p.expect(lexer.KwHas)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := p.expect(lexer.COLON); err != nil {
+		return nil, fmt.Errorf("после \"имеет\" ожидалось \":\": %w", err)
+	}
+
+	var fields []ast.Field
+	for {
+		next := p.peekPastNewlines()
+		if next.Col <= label.Col || next.Type == lexer.RBRACE || next.Type == lexer.EOF {
+			break
+		}
+		if err := p.requireSeparator(); err != nil {
+			return nil, fmt.Errorf("перед полем: %w", err)
+		}
+		field, err := p.parseField()
+		if err != nil {
+			return nil, err
+		}
+		fields = append(fields, field)
+	}
+	return fields, nil
+}
+
+func (p *Parser) parseField() (ast.Field, error) {
+	name, err := p.expect(lexer.IDENT)
+	if err != nil {
+		return ast.Field{}, fmt.Errorf("ожидалось имя поля: %w", err)
+	}
+	if _, err := p.expect(lexer.COLON); err != nil {
+		return ast.Field{}, fmt.Errorf("после имени поля %q ожидалось \":\" и тип: %w", name.Value, err)
+	}
+	typeTok, err := p.expect(lexer.IDENT)
+	if err != nil {
+		return ast.Field{}, fmt.Errorf("после \":\" у поля %q ожидалось имя типа: %w", name.Value, err)
+	}
+	return ast.Field{Name: name.Value, Type: typeTok.Value, Line: name.Line}, nil
 }
 
 func (p *Parser) parseFunction() (*ast.FunctionDecl, error) {
