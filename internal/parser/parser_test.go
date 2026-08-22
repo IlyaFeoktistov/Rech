@@ -517,6 +517,45 @@ func TestParseGenericTypeNameInParamAndReturnType(t *testing.T) {
 	}
 }
 
+func TestParseForEachOverListResolvesPrepositionalCase(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная {
+    переменная список = новый Список<Целое>()
+    для x в списке {
+        вывести x
+    }
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	forEach, ok := prog.Functions[0].Body[1].(*ast.ForEachStmt)
+	if !ok {
+		t.Fatalf("ожидался ast.ForEachStmt, получено %+v", prog.Functions[0].Body[1])
+	}
+	coll, ok := forEach.Collection.(*ast.Identifier)
+	if !ok || coll.Name != "список" {
+		t.Fatalf("ожидалась ссылка на переменную \"список\" (лемма из \"списке\"), получено %+v", forEach.Collection)
+	}
+	if forEach.Var != "x" {
+		t.Fatalf("ожидалась переменная цикла %q, получено %q", "x", forEach.Var)
+	}
+}
+
+func TestParseForEachUnrecognizedWordformFails(t *testing.T) {
+	_, err := parseSource(t, `
+функция главная {
+    переменная список = новый Список<Целое>()
+    для x в чтототам {
+        вывести x
+    }
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "не распознано как существительное в предложном падеже") {
+		t.Fatalf("ожидалась ошибка про неопознанную словоформу коллекции, получено: %v", err)
+	}
+}
+
 func TestParseNaturalCallMixedTaggedAndPositional(t *testing.T) {
 	// Пример из обсуждения: "кого пользователь: Пользователь" (падежная
 	// роль) + "права: Права" (без роли, только позиционно). "пользователя"

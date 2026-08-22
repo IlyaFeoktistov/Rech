@@ -19,6 +19,7 @@
 //	if_stmt     := "если" expr block [ "иначе" block ]
 //	while_stmt  := "пока" expr block
 //	for_stmt    := "для" IDENT "от" expr "до" expr block
+//	             | "для" IDENT "в" NOUN_PREP block
 //	return_stmt := "вернуть" [ expr ]
 //	call_stmt   := call_expr
 //	call_expr   := IDENT "(" [ expr { "," expr } ] ")"
@@ -763,6 +764,9 @@ func (p *Parser) parseForStmt() (ast.Stmt, error) {
 	if err != nil {
 		return nil, fmt.Errorf("после \"для\" ожидалось имя переменной цикла: %w", err)
 	}
+	if p.cur().Type == lexer.KwIn {
+		return p.parseForEachStmt(kw, name)
+	}
 	if _, err := p.expect(lexer.KwFrom); err != nil {
 		return nil, fmt.Errorf("после имени переменной цикла ожидалось \"от\": %w", err)
 	}
@@ -784,6 +788,64 @@ func (p *Parser) parseForStmt() (ast.Stmt, error) {
 		return nil, err
 	}
 	return &ast.ForStmt{Var: name.Value, From: from, To: to, Body: body, Line: kw.Line}, nil
+}
+
+// parseForEachStmt разбирает цикл по коллекции (шаг 4.2.b):
+//
+//	для <имя> в <коллекция:P> { <тело> }
+//
+// Позиция парсера на входе - на "в" (kw и name уже разобраны parseForStmt).
+// Слово после "в" - существительное в предложном падеже (согласование с
+// предлогом, живее, чем голая словарная форма "в список"), резолвится в
+// переменную через resolvePrepositionalNoun - тот же механизм падежного
+// сопоставления, что и у аргументов естественного вызова (шаг 3.4), а не
+// совпадение текста.
+func (p *Parser) parseForEachStmt(kw lexer.Token, name lexer.Token) (ast.Stmt, error) {
+	p.advance() // "в"
+	collTok, err := p.expect(lexer.IDENT)
+	if err != nil {
+		return nil, fmt.Errorf("после \"в\" в цикле по коллекции ожидалось название коллекции (в предложном падеже): %w", err)
+	}
+	lemma, err := p.resolvePrepositionalNoun(collTok)
+	if err != nil {
+		return nil, err
+	}
+	p.registerNoun(name.Value)
+	p.skipNewlines()
+	body, err := p.parseBlock()
+	if err != nil {
+		return nil, err
+	}
+	return &ast.ForEachStmt{
+		Var:        name.Value,
+		Collection: &ast.Identifier{Name: lemma, Line: collTok.Line},
+		Body:       body,
+		Line:       kw.Line,
+	}, nil
+}
+
+// resolvePrepositionalNoun резолвит словоформу tok (существительное в
+// предложном падеже после предлога "в") в лемму уже объявленной переменной
+// через p.dict - тем же принципом, что и падежное сопоставление аргументов
+// естественного вызова (parseNaturalCall): словоформа, а не буквальное имя
+// переменной, поэтому "список" в "для x в списке" склоняется по-русски.
+func (p *Parser) resolvePrepositionalNoun(tok lexer.Token) (string, error) {
+	lemma := ""
+	for _, a := range p.dict.Analyze(tok.Value) {
+		if a.POS != morph.Noun || a.Tag.Case != morph.Prepositional {
+			continue
+		}
+		if lemma != "" && lemma != a.Lemma {
+			return "", fmt.Errorf("строка %d, столбец %d: словоформа %q неоднозначна как коллекция цикла - подходит нескольким переменным",
+				tok.Line, tok.Col, tok.Value)
+		}
+		lemma = a.Lemma
+	}
+	if lemma == "" {
+		return "", fmt.Errorf("строка %d, столбец %d: %q не распознано как существительное в предложном падеже (ожидалась переменная-коллекция после \"в\")",
+			tok.Line, tok.Col, tok.Value)
+	}
+	return lemma, nil
 }
 
 func (p *Parser) parseReturnStmt() (ast.Stmt, error) {

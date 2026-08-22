@@ -16,6 +16,40 @@ var nounGenderExceptions = map[string]struct {
 	"пароль":       {ClassFirstSoft, Masculine},
 }
 
+// nounFullExceptions - существительные с чередованием основы, не сводимым
+// ни к одному generic-классу склонения (BuildNounParadigm просто отбрасывает
+// суффикс именительного падежа и добавляет окончания - для этого нужна
+// готовая, вручную выписанная парадигма). Проверяется в Dictionary.RegisterNoun
+// раньше nounGenderExceptions и ClassifyByEnding - расширение, заранее
+// предусмотренное в docs/MORPHOLOGY.md ("Полностью готовая парадигма без
+// генератора"). Винительный падеж сюда не входит - его достраивает
+// fillAccusative по одушевлённости, как и для генератора.
+//
+// "список" - первое слово словаря примеров, которому это понадобилось (шаг
+// 4.2.b, цикл "для x в списке"): беглая "о" (список/списка, а не
+// "списока") и правило написания после заднеязычной "к" (им.п. мн.ч.
+// "списки", а не "спискы").
+var nounFullExceptions = map[string]struct {
+	Gender   Gender
+	Paradigm Paradigm
+}{
+	"список": {
+		Gender: Masculine,
+		Paradigm: Paradigm{
+			{Nominative, Singular}:    "список",
+			{Genitive, Singular}:      "списка",
+			{Dative, Singular}:        "списку",
+			{Instrumental, Singular}:  "списком",
+			{Prepositional, Singular}: "списке",
+			{Nominative, Plural}:      "списки",
+			{Genitive, Plural}:        "списков",
+			{Dative, Plural}:          "спискам",
+			{Instrumental, Plural}:    "списками",
+			{Prepositional, Plural}:   "списках",
+		},
+	},
+}
+
 // nounAnimacy - курируемый словарь одушевлённости для идентификаторов
 // программы и системных существительных. Одушевлённость не выводится ни из
 // окончания слова, ни из словаря OpenCorpora (см. Dictionary.RegisterNoun -

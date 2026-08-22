@@ -18,6 +18,14 @@ const (
 	ClassSecondSoft                        // компания (жен., мягкая, "-ия")
 	ClassNeuterHard                        // окно (сред., твёрдая, "-о")
 	ClassNeuterSoft                        // сообщение (сред., мягкая, "-ие")
+
+	// ClassIrregular - слово зарегистрировано по готовой парадигме
+	// (nounFullExceptions в exceptions.go), не generic-классом склонения -
+	// у него есть чередование основы, не выводимое ни одним правилом ниже
+	// (см. docs/MORPHOLOGY.md, "Полностью готовая парадигма без генератора").
+	// classTable для него не заполнена - BuildNounParadigm с этим классом не
+	// вызывается.
+	ClassIrregular
 )
 
 // endings - окончания одного класса склонения: [единственное, множественное]
@@ -179,8 +187,24 @@ func BuildNounParadigm(nomSg string, class DeclensionClass, animacy Animacy) (Pa
 	fill(Instrumental, info.endings.instr)
 	fill(Prepositional, info.endings.prep)
 
-	if info.accSg != "" {
-		p[Tag{Accusative, Singular}] = stem + info.accSg
+	accSg := info.accSg
+	if accSg != "" {
+		accSg = stem + accSg
+	}
+	fillAccusative(p, animacy, accSg)
+	return p, nil
+}
+
+// fillAccusative достраивает винительный падеж (ед. и мн. число) в p по
+// одушевлённости - общее правило и для генератора (BuildNounParadigm), и
+// для готовых парадигм-исключений (nounFullExceptions, registerNounWithParadigm):
+// у одушевлённых совпадает с родительным, у неодушевлённых - с
+// именительным. accSg - готовая форма вин.п. ед.ч., если она не сводится ни
+// к одному из двух (женский род на "-а"/"-ия" независимо от одушевлённости,
+// classInfo.accSg) - пусто, если нужно применить обычное правило.
+func fillAccusative(p Paradigm, animacy Animacy, accSg string) {
+	if accSg != "" {
+		p[Tag{Accusative, Singular}] = accSg
 	} else if animacy == Animate {
 		p[Tag{Accusative, Singular}] = p[Tag{Genitive, Singular}]
 	} else {
@@ -195,5 +219,4 @@ func BuildNounParadigm(nomSg string, class DeclensionClass, animacy Animacy) (Pa
 	} else {
 		p[Tag{Accusative, Plural}] = p[Tag{Nominative, Plural}]
 	}
-	return p, nil
 }

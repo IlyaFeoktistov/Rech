@@ -179,6 +179,43 @@ func TestDictionaryRegisterNoun(t *testing.T) {
 	}
 }
 
+// TestDictionaryRegisterNounFullException проверяет "список" -
+// nounFullExceptions (беглая гласная + написание "и" после заднеязычной во
+// мн.ч.), первое слово, потребовавшее готовой парадигмы вместо генератора
+// (docs/MORPHOLOGY.md, "Полностью готовая парадигма без генератора").
+func TestDictionaryRegisterNounFullException(t *testing.T) {
+	d := NewDictionary()
+	if err := d.RegisterNoun("список", Inanimate); err != nil {
+		t.Fatalf("RegisterNoun(список): %v", err)
+	}
+
+	got := d.Analyze("списке")
+	if len(got) != 1 || got[0].Lemma != "список" || got[0].Tag != (Tag{Prepositional, Singular}) {
+		t.Errorf("Analyze(списке) = %v, ожидался предложный падеж ед.ч. леммы \"список\"", got)
+	}
+
+	// Беглая гласная: "списока" (генератор по умолчанию) не форма слова -
+	// а "списка" - да.
+	if got := d.Analyze("списока"); len(got) != 0 {
+		t.Errorf("Analyze(списока) = %v, ожидался пустой срез - это не форма \"список\"", got)
+	}
+	got = d.Analyze("списка")
+	if len(got) != 1 || got[0].Tag.Case != Genitive {
+		t.Errorf("Analyze(списка) = %v, ожидался родительный падеж", got)
+	}
+
+	// Неодушевлённое: винительный ед.ч. совпадает с именительным (достроен
+	// fillAccusative, не входит в готовую парадигму).
+	got = d.Analyze("список")
+	seen := map[Case]bool{}
+	for _, a := range got {
+		seen[a.Tag.Case] = true
+	}
+	if !seen[Nominative] || !seen[Accusative] {
+		t.Errorf("Analyze(список) = %v, ожидались именительный и винительный падежи", got)
+	}
+}
+
 func TestDictionaryRegisterVerb(t *testing.T) {
 	d := NewDictionary()
 	if err := RegisterSystemVerbs(d); err != nil {

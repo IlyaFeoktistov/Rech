@@ -2,6 +2,7 @@ package morph
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 )
 
@@ -72,6 +73,9 @@ func (d *Dictionary) addReverse(form string, a Analysis) {
 // использование"). Одушевлённость всегда передаётся явно - она не следует
 // из формы слова вообще, ни один из источников её не определяет.
 func (d *Dictionary) RegisterNoun(nomSg string, animacy Animacy) error {
+	if exc, ok := nounFullExceptions[nomSg]; ok {
+		return d.registerNounWithParadigm(nomSg, exc.Gender, animacy, exc.Paradigm)
+	}
 	if exc, ok := nounGenderExceptions[nomSg]; ok {
 		return d.RegisterNounExplicit(nomSg, exc.Class, exc.Gender, animacy)
 	}
@@ -107,6 +111,29 @@ func (d *Dictionary) RegisterNounExplicit(nomSg string, class DeclensionClass, g
 		Noun: &NounInfo{Class: class, Gender: gender, Animacy: animacy},
 	}
 	for tag, form := range paradigm {
+		d.addReverse(form, Analysis{Lemma: nomSg, POS: Noun, Tag: tag})
+	}
+	return nil
+}
+
+// registerNounWithParadigm регистрирует существительное по готовой,
+// вручную выписанной парадигме (nounFullExceptions) - винительный падеж, не
+// входящий в неё, достраивается по одушевлённости тем же правилом, что и
+// генератор (fillAccusative). Класс склонения - ClassIrregular: у слова нет
+// generic-класса, парадигма не выводима правилом.
+func (d *Dictionary) registerNounWithParadigm(nomSg string, gender Gender, animacy Animacy, paradigm Paradigm) error {
+	if _, exists := d.lemmas[nomSg]; exists {
+		return fmt.Errorf("лемма %q уже зарегистрирована", nomSg)
+	}
+	p := Paradigm{}
+	maps.Copy(p, paradigm)
+	fillAccusative(p, animacy, "")
+	d.lemmas[nomSg] = &Lemma{
+		Text: nomSg,
+		POS:  Noun,
+		Noun: &NounInfo{Class: ClassIrregular, Gender: gender, Animacy: animacy},
+	}
+	for tag, form := range p {
 		d.addReverse(form, Analysis{Lemma: nomSg, POS: Noun, Tag: tag})
 	}
 	return nil

@@ -623,3 +623,39 @@ func TestGenerateTwoListInstantiationsCoexist(t *testing.T) {
 		t.Fatalf("ожидались обе инстанциации Списка, получено:\n%s", out)
 	}
 }
+
+func TestGenerateForEachStmtOverList(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "числа", Value: &ast.NewExpr{Type: "Список<Целое>"}},
+		&ast.ForEachStmt{
+			Var:        "x",
+			Collection: &ast.Identifier{Name: "числа"},
+			Body:       []ast.Stmt{&ast.PrintStmt{Value: &ast.Identifier{Name: "x"}}},
+		},
+	}}
+	out, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "for (long long rech_fe_i_v_x = 0; rech_fe_i_v_x < v_chisla.len; rech_fe_i_v_x++) {") {
+		t.Fatalf("ожидался цикл по данным Списка, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "long long v_x = v_chisla.data[rech_fe_i_v_x];") {
+		t.Fatalf("ожидалось присваивание элемента переменной цикла, получено:\n%s", out)
+	}
+}
+
+func TestGenerateForEachStmtNonListError(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "число", Value: &ast.IntLiteral{Value: 5}},
+		&ast.ForEachStmt{
+			Var:        "x",
+			Collection: &ast.Identifier{Name: "число"},
+			Body:       []ast.Stmt{&ast.PrintStmt{Value: &ast.Identifier{Name: "x"}}},
+		},
+	}}
+	_, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
+	if err == nil || !strings.Contains(err.Error(), "ожидает переменную-Список<T>") {
+		t.Fatalf("ожидалась ошибка про несоответствие типа коллекции, получено: %v", err)
+	}
+}

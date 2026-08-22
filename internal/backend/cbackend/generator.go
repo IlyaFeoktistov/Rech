@@ -938,6 +938,32 @@ func generateStmt(sb *strings.Builder, ctx *genCtx, stmt ast.Stmt, depth int) er
 		fmt.Fprintf(sb, "%s}\n", ind)
 		return nil
 
+	case *ast.ForEachStmt:
+		collCode, collType, err := genExpr(ctx, s.Collection)
+		if err != nil {
+			return err
+		}
+		sig, ok := ctx.entities[collType.entity]
+		if collType.kind != kindEntity || !ok || !sig.IsList {
+			return fmt.Errorf("строка %d: цикл \"для %s в ...\" ожидает переменную-Список<T>, получен тип %s", s.Line, s.Var, collType)
+		}
+		ctx.pushScope()
+		if err := ctx.declare(s.Var, sig.ElemType); err != nil {
+			return err
+		}
+		varC := mangleVar(s.Var)
+		idxC := "rech_fe_i_" + varC
+		fmt.Fprintf(sb, "%sfor (long long %s = 0; %s < %s.len; %s++) {\n", ind, idxC, idxC, collCode, idxC)
+		fmt.Fprintf(sb, "%s%s %s = %s.data[%s];\n", indent(depth+1), sig.ElemType.cType(), varC, collCode, idxC)
+		for _, st := range s.Body {
+			if err := generateStmt(sb, ctx, st, depth+1); err != nil {
+				return err
+			}
+		}
+		ctx.popScope()
+		fmt.Fprintf(sb, "%s}\n", ind)
+		return nil
+
 	case *ast.ReturnStmt:
 		if s.Value == nil {
 			if ctx.hasReturnType {
@@ -1429,6 +1455,8 @@ func lineOf(n ast.Node) int {
 	case *ast.WhileStmt:
 		return v.Line
 	case *ast.ForStmt:
+		return v.Line
+	case *ast.ForEachStmt:
 		return v.Line
 	case *ast.ReturnStmt:
 		return v.Line

@@ -210,6 +210,26 @@ type ForStmt struct {
 func (*ForStmt) node() {}
 func (*ForStmt) stmt() {}
 
+// ForEachStmt соответствует циклу по коллекции (Список<T>, шаг 4.2.b):
+//
+//	для <имя> в <коллекция> { <тело> }
+//
+// Collection - Identifier, полученный разбором словоформы в предложном
+// падеже после "в" (согласование с предлогом) и обратной резолюцией через
+// морфологический словарь к лемме переменной (internal/parser,
+// resolvePrepositionalNoun) - тем же механизмом, что и падежное
+// сопоставление аргументов естественного вызова (шаг 3.4), а не голым
+// совпадением текста словоформы с именем переменной.
+type ForEachStmt struct {
+	Var        string
+	Collection Expr
+	Body       []Stmt
+	Line       int
+}
+
+func (*ForEachStmt) node() {}
+func (*ForEachStmt) stmt() {}
+
 // ReturnStmt соответствует инструкции:
 //
 //	вернуть
