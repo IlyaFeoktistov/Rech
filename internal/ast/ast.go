@@ -37,6 +37,7 @@ func (*Program) node() {}
 // ("класс" - синоним "сущность", docs/GRAMMAR.md).
 type EntityDecl struct {
 	Name    string
+	States  []StateDecl
 	Fields  []Field
 	Methods []*MethodDecl
 	Line    int
@@ -50,6 +51,22 @@ type Field struct {
 	Name string
 	Type string
 	Line int
+}
+
+// StateDecl - одно состояние, объявленное под "состояние:" (шаг 4.1,
+// упрощённая версия - см. docs/ROADMAP.md/GRAMMAR.md). Name - краткая
+// форма причастия/прилагательного ровно как написана в объявлении
+// ("авторизован") - именно её должна повторить инструкция "становится
+// <Name>" (BecomeStmt), без падежного согласования (это открытый вопрос,
+// не решённый на этом шаге). TypeName - производный тип, синтезированный
+// парсером при разборе сущности (полная форма по роду сущности + имя
+// сущности, "АвторизованныйПользователь") - готовая строка, как и у
+// generic-инстанциаций ("Список<Целое>"), backend не занимается
+// морфологией, только регистрирует TypeName как синоним типа сущности.
+type StateDecl struct {
+	Name     string
+	TypeName string
+	Line     int
 }
 
 // MethodDecl - метод сущности: как FunctionDecl (те же параметры/тип
@@ -166,6 +183,24 @@ type FieldAssign struct {
 
 func (*FieldAssign) node() {}
 func (*FieldAssign) stmt() {}
+
+// BecomeStmt соответствует инструкции смены состояния (шаг 4.1, упрощённая
+// версия):
+//
+//	receiver становится <состояние>
+//
+// State - краткая форма ровно как в StateDecl.Name (без падежного
+// согласования - открытый вопрос, docs/GRAMMAR.md). Receiver - тот же
+// класс выражений, что и у получателя вызова метода (переменная/"этот"/
+// доступ к полю) - проверяется в backend'е.
+type BecomeStmt struct {
+	Receiver Expr
+	State    string
+	Line     int
+}
+
+func (*BecomeStmt) node() {}
+func (*BecomeStmt) stmt() {}
 
 // IfStmt соответствует конструкции:
 //

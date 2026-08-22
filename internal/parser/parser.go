@@ -4,17 +4,19 @@
 // EBNF-набросок - docs/GRAMMAR.md):
 //
 //	program     := { newline } { ( function | entity ) { newline } }
-//	entity      := ( "сущность" | "класс" ) IDENT newline "{" [ fields_section ] "}"
+//	entity      := ( "сущность" | "класс" ) IDENT newline "{" [ states_section ] [ fields_section ] "}"
+//	states_section := "состояние" ":" { IDENT }        (* одна строка, шаг 4.1 *)
 //	fields_section := "имеет" ":" { field }
 //	field       := IDENT ":" IDENT
 //	function    := "функция" IDENT [ "(" [ params ] ")" ] [ ":" IDENT ] newline block
 //	params      := param { "," param }
 //	param       := IDENT ":" IDENT
 //	block       := "{" newline { statement } "}"
-//	statement   := var_decl | assign | field_assign | print_stmt | if_stmt | while_stmt | for_stmt | return_stmt | call_stmt
+//	statement   := var_decl | assign | field_assign | become_stmt | print_stmt | if_stmt | while_stmt | for_stmt | return_stmt | call_stmt
 //	var_decl    := "переменная" IDENT "=" expr
 //	assign      := IDENT "=" expr
 //	field_assign := IDENT "." IDENT "=" expr
+//	become_stmt := ( IDENT | "этот" ) "становится" IDENT   (* шаг 4.1, упрощённая версия *)
 //	print_stmt  := "вывести" expr
 //	if_stmt     := "если" expr block [ "иначе" block ]
 //	while_stmt  := "пока" expr block
@@ -39,6 +41,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
@@ -287,6 +290,15 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 	}
 	p.skipSeparators()
 
+	var states []ast.StateDecl
+	if p.cur().Type == lexer.KwState {
+		states, err = p.parseStatesSection(name.Value)
+		if err != nil {
+			return nil, fmt.Errorf("сущность %q: %w", name.Value, err)
+		}
+		p.skipSeparators()
+	}
+
 	var fields []ast.Field
 	if p.cur().Type == lexer.KwHas {
 		fields, err = p.parseFieldsSection()
@@ -309,7 +321,93 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 	if _, err := p.expect(lexer.RBRACE); err != nil {
 		return nil, err
 	}
-	return &ast.EntityDecl{Name: name.Value, Fields: fields, Methods: methods, Line: kw.Line}, nil
+	return &ast.EntityDecl{Name: name.Value, States: states, Fields: fields, Methods: methods, Line: kw.Line}, nil
+}
+
+// parseStatesSection разбирает "состояние:" и краткие формы состояний,
+// перечисленные через пробел на той же строке (шаг 4.1, упрощённая
+// версия) - в отличие от "имеет:", где каждое поле на своей строке с
+// отступом, здесь ровно одна строка, как во всех остальных
+// "перечислениях через пробел" в языке (docs/GRAMMAR.md). Для каждого
+// слова сразу синтезирует производный тип (StateDecl.TypeName) - полная
+// форма причастия по роду сущности entityName (morph.LongFormAdjective) +
+// само имя сущности ("авторизован" + "Пользователь" (муж.) ->
+// "авторизованныйПользователь" с большой буквы -> "АвторизованныйПользователь").
+// Если род сущности не определяется автоматически (morph.NounAgreement) -
+// явная ошибка, а не угаданная форма: в отличие от согласования
+// "новый"/"новая" у конструктора (checkNewKeywordAgreement), здесь нет
+// "любая форма принимается" запасного варианта - производному типу нужно
+// какое-то одно конкретное имя.
+func (p *Parser) parseStatesSection(entityName string) ([]ast.StateDecl, error) {
+	label, err := p.expect(lexer.KwState)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := p.expect(lexer.COLON); err != nil {
+		return nil, fmt.Errorf("после \"состояние\" ожидалось \":\": %w", err)
+	}
+	var words []lexer.Token
+	for p.cur().Type == lexer.IDENT && p.cur().Line == label.Line {
+		words = append(words, p.advance())
+	}
+	if len(words) == 0 {
+		return nil, fmt.Errorf("строка %d: после \"состояние:\" ожидалось хотя бы одно название состояния", label.Line)
+	}
+
+	gender, number, ok := morph.NounAgreement(entityName)
+	if !ok {
+		return nil, fmt.Errorf("строка %d: не удалось определить род сущности %q (окончание не классифицируется, слова нет в словаре OpenCorpora) - без рода нельзя вывести имя производного типа состояния",
+			label.Line, entityName)
+	}
+
+	states := make([]ast.StateDecl, len(words))
+	for i, w := range words {
+		long, err := morph.LongFormAdjective(w.Value, gender, number)
+		if err != nil {
+			return nil, fmt.Errorf("строка %d, столбец %d: состояние %q: %w", w.Line, w.Col, w.Value, err)
+		}
+		states[i] = ast.StateDecl{Name: w.Value, TypeName: capitalizeFirst(long) + entityName, Line: w.Line}
+	}
+	return states, nil
+}
+
+// capitalizeFirst делает первую букву s заглавной - для имени
+// производного типа состояния (parseStatesSection), синтезированного из
+// строчного прилагательного.
+func capitalizeFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	r := []rune(s)
+	r[0] = unicode.ToUpper(r[0])
+	return string(r)
+}
+
+// parseBecomeStmt разбирает переход состояния (шаг 4.1, упрощённая
+// версия): "<получатель> становится <состояние>". Получатель - тот же
+// класс, что и у присваивания полю (IDENT переменной или "этот",
+// parseFieldAssign) - структурно узнаётся по лукахеду в parseStatement, не
+// по типу. Позиция парсера на входе - на получателе.
+func (p *Parser) parseBecomeStmt() (ast.Stmt, error) {
+	receiverTok := p.advance()
+	var receiver ast.Expr
+	if receiverTok.Type == lexer.KwThis {
+		if !p.inMethodBody {
+			return nil, fmt.Errorf("строка %d, столбец %d: \"этот\" валиден только внутри тела метода", receiverTok.Line, receiverTok.Col)
+		}
+		receiver = &ast.ThisExpr{Line: receiverTok.Line}
+	} else {
+		receiver = &ast.Identifier{Name: receiverTok.Value, Line: receiverTok.Line}
+	}
+	kw, err := p.expect(lexer.KwBecomes)
+	if err != nil {
+		return nil, err
+	}
+	state, err := p.expect(lexer.IDENT)
+	if err != nil {
+		return nil, fmt.Errorf("после \"становится\" ожидалось название состояния: %w", err)
+	}
+	return &ast.BecomeStmt{Receiver: receiver, State: state.Value, Line: kw.Line}, nil
 }
 
 // parseMethod разбирает метод сущности: IDENT "(" [ params ] ")"
@@ -588,6 +686,9 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 		if p.peekAt(1).Type == lexer.DOT {
 			return p.parseDotStatement()
 		}
+		if p.peekAt(1).Type == lexer.KwBecomes {
+			return p.parseBecomeStmt()
+		}
 		if p.peekAt(1).Type == lexer.LPAREN {
 			call, err := p.parseCallExpr()
 			if err != nil {
@@ -608,7 +709,10 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 		if p.peekAt(1).Type == lexer.DOT {
 			return p.parseDotStatement()
 		}
-		return nil, fmt.Errorf("строка %d, столбец %d: \"этот\" в начале инструкции допустимо только с полем или методом (\"этот.поле = ...\"/\"этот.метод(...)\")",
+		if p.peekAt(1).Type == lexer.KwBecomes {
+			return p.parseBecomeStmt()
+		}
+		return nil, fmt.Errorf("строка %d, столбец %d: \"этот\" в начале инструкции допустимо только с полем, методом или переходом состояния (\"этот.поле = ...\"/\"этот.метод(...)\"/\"этот становится ...\")",
 			p.cur().Line, p.cur().Col)
 	default:
 		return nil, fmt.Errorf("строка %d, столбец %d: неожиданный токен %q в теле функции",

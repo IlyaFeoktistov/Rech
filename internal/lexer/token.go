@@ -55,10 +55,12 @@ const (
 	KwHas      // имеет
 	KwNew      // новый / новая / новое / новые
 	KwThis     // этот
+	KwState    // состояние (секция объявления состояний сущности, шаг 4.1)
+	KwBecomes  // становится (переход в другое состояние, шаг 4.1)
 )
 
 // keywords - таблица ключевых слов v0.1. Список сознательно узкий:
-// остальные слова из финальной идеи (может, состояние)
+// остальные слова из финальной идеи (может)
 // добавляются по мере реализации соответствующих этапов - см.
 // docs/ROADMAP.md.
 var keywords = map[string]TokenType{
@@ -87,6 +89,8 @@ var keywords = map[string]TokenType{
 	"новое":      KwNew,
 	"новые":      KwNew,
 	"этот":       KwThis,
+	"состояние":  KwState,
+	"становится": KwBecomes,
 }
 
 // Token - одна лексема с позицией в исходном файле (для сообщений об ошибках).
@@ -193,6 +197,10 @@ func (t TokenType) String() string {
 		return "новый"
 	case KwThis:
 		return "этот"
+	case KwState:
+		return "состояние"
+	case KwBecomes:
+		return "становится"
 	default:
 		return "UNKNOWN"
 	}

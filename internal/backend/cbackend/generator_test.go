@@ -737,3 +737,67 @@ func TestGenerateForEachStmtNonListError(t *testing.T) {
 		t.Fatalf("ожидалась ошибка про несоответствие типа коллекции, получено: %v", err)
 	}
 }
+
+// entityUserWithStates - как entityUser, но с "состояние:" (шаг 4.1) -
+// States здесь заполнен так, как это сделал бы парсер (StateDecl.TypeName
+// уже вычислен), потому что генератор сам морфологией не занимается.
+func entityUserWithStates() *ast.EntityDecl {
+	ent := entityUser()
+	ent.States = []ast.StateDecl{
+		{Name: "неавторизован", TypeName: "НеавторизованныйПользователь"},
+		{Name: "авторизован", TypeName: "АвторизованныйПользователь"},
+	}
+	return ent
+}
+
+func TestGenerateBecomeStmtValidState(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "пользователь", Value: &ast.NewExpr{
+			Type: "Пользователь",
+			Args: []ast.Expr{&ast.StringLiteral{Value: "Илья"}, &ast.IntLiteral{Value: 30}},
+		}},
+		&ast.BecomeStmt{Receiver: &ast.Identifier{Name: "пользователь"}, State: "авторизован"},
+	}}
+	_, err := Generate(&ast.Program{Entities: []*ast.EntityDecl{entityUserWithStates()}, Functions: []*ast.FunctionDecl{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
+func TestGenerateBecomeStmtUnknownStateFails(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "пользователь", Value: &ast.NewExpr{
+			Type: "Пользователь",
+			Args: []ast.Expr{&ast.StringLiteral{Value: "Илья"}, &ast.IntLiteral{Value: 30}},
+		}},
+		&ast.BecomeStmt{Receiver: &ast.Identifier{Name: "пользователь"}, State: "удалён"},
+	}}
+	_, err := Generate(&ast.Program{Entities: []*ast.EntityDecl{entityUserWithStates()}, Functions: []*ast.FunctionDecl{main}})
+	if err == nil || !strings.Contains(err.Error(), "не объявлено состояние") {
+		t.Fatalf("ожидалась ошибка про необъявленное состояние, получено: %v", err)
+	}
+}
+
+func TestGenerateDerivedStateTypeUsableAsParam(t *testing.T) {
+	fn := &ast.FunctionDecl{
+		Name:   "показать",
+		Params: []ast.Param{{Name: "пользователь", Type: "АвторизованныйПользователь"}},
+		Body:   []ast.Stmt{&ast.PrintStmt{Value: &ast.FieldAccess{Receiver: &ast.Identifier{Name: "пользователь"}, Field: "имя"}}},
+	}
+	out, err := Generate(&ast.Program{Entities: []*ast.EntityDecl{entityUserWithStates()}, Functions: []*ast.FunctionDecl{fn, mainFunc()}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "int rech_pokazat(rech_T_polzovatel v_polzovatel)") {
+		t.Fatalf("ожидалась сигнатура с C-типом базовой сущности (производный тип - псевдоним без своего C-представления), получено:\n%s", out)
+	}
+}
+
+func TestGenerateDerivedStateTypeNameCollisionFails(t *testing.T) {
+	other := &ast.EntityDecl{Name: "АвторизованныйПользователь"}
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{&ast.PrintStmt{Value: &ast.StringLiteral{Value: "ок"}}}}
+	_, err := Generate(&ast.Program{Entities: []*ast.EntityDecl{entityUserWithStates(), other}, Functions: []*ast.FunctionDecl{main}})
+	if err == nil || !strings.Contains(err.Error(), "производным типом состояния") {
+		t.Fatalf("ожидалась ошибка про коллизию производного типа состояния с именем сущности, получено: %v", err)
+	}
+}

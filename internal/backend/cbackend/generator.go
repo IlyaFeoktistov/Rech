@@ -203,6 +203,9 @@ func resolveType(ctx *genCtx, name string) (valueType, error) {
 	if _, exists := ctx.entities[name]; exists {
 		return entityType(name), nil
 	}
+	if base, exists := ctx.stateAliases[name]; exists {
+		return entityType(base), nil
+	}
 	template, argName, ok := parseGenericTypeName(name)
 	if !ok {
 		return typeUnknown, fmt.Errorf("неизвестный тип %q", name)
@@ -293,6 +296,20 @@ type genCtx struct {
 	// тел: methods[Сущность][Метод] (шаг 4.d).
 	methods map[string]map[string]funcSig
 
+	// stateAliases - производный тип состояния (шаг 4.1, упрощённая
+	// версия, "АвторизованныйПользователь") -> имя базовой сущности
+	// ("Пользователь"). resolveType резолвит алиас в entityType(базовой
+	// сущности) - НЕ в entityType(имени алиаса): производный тип не имеет
+	// собственного C-представления, это чисто компилятивный псевдоним
+	// (typestate без времени выполнения) - genNewExpr/genMethodCall/
+	// genFieldAccess после resolveType видят обычный valueType базовой
+	// сущности и не знают о существовании алиаса вообще. Отсюда и
+	// документированное ограничение шага: значение базовой сущности можно
+	// передать в параметр производного типа без прохождения "становится" -
+	// valueType у них равны, различие есть только по имени в исходнике, не
+	// в valueType; настоящая проверка перехода - шаг 5.
+	stateAliases map[string]string
+
 	// thisEntity - имя сущности, метод которой сейчас генерируется
 	// (generateMethod), "" - вне метода. Даёт genExpr(*ast.ThisExpr) тип
 	// значения "этот" без внешнего контекста.
@@ -353,7 +370,7 @@ func indent(depth int) string {
 
 // Generate возвращает исходник на C, соответствующий программе prog.
 func Generate(prog *ast.Program) (string, error) {
-	ctx := &genCtx{funcs: map[string]funcSig{}, entities: map[string]entitySig{}, methods: map[string]map[string]funcSig{}}
+	ctx := &genCtx{funcs: map[string]funcSig{}, entities: map[string]entitySig{}, methods: map[string]map[string]funcSig{}, stateAliases: map[string]string{}}
 
 	// funcMangled - устойчивое мангирование имён функций (шаг 3.5):
 	// мангл-имя -> оригинальное русское имя. Ловит коллизию двух РАЗНЫХ
@@ -376,6 +393,9 @@ func Generate(prog *ast.Program) (string, error) {
 			return "", fmt.Errorf("сущность %q объявлена более одного раза", ent.Name)
 		}
 		seenEntities[ent.Name] = true
+		if other, exists := ctx.stateAliases[ent.Name]; exists {
+			return "", fmt.Errorf("сущность %q: имя совпадает с производным типом состояния, уже занятым сущностью %q", ent.Name, other)
+		}
 		mangledType := mangleType(ent.Name)
 		if other, exists := entityMangled[mangledType]; exists {
 			return "", fmt.Errorf("сущности %q и %q транслитерируются в одно и то же имя %q в C - переименуйте одну из них", other, ent.Name, mangledType)
@@ -386,8 +406,29 @@ func Generate(prog *ast.Program) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		if len(ent.States) > 0 {
+			sig.States = map[string]bool{}
+			for _, st := range ent.States {
+				sig.States[st.Name] = true
+			}
+		}
 		ctx.entities[ent.Name] = sig
 		typedefs.WriteString(generateEntityStruct(ent, sig))
+
+		// Производные типы состояний (шаг 4.1) - псевдонимы, не отдельные
+		// сущности (resolveType резолвит их в entityType(ent.Name), см.
+		// genCtx.stateAliases) - но имя всё равно должно быть уникальным
+		// среди всех типов программы, иначе один из двух смыслов "имени X"
+		// был бы молча потерян.
+		for _, st := range ent.States {
+			if _, exists := ctx.entities[st.TypeName]; exists {
+				return "", fmt.Errorf("сущность %q: производный тип состояния %q совпадает с именем уже объявленной сущности", ent.Name, st.TypeName)
+			}
+			if other, exists := ctx.stateAliases[st.TypeName]; exists && other != ent.Name {
+				return "", fmt.Errorf("сущность %q: производный тип состояния %q уже используется сущностью %q", ent.Name, st.TypeName, other)
+			}
+			ctx.stateAliases[st.TypeName] = ent.Name
+		}
 
 		// Сигнатуры методов этой сущности (шаг 4.d) - устойчивое
 		// мангирование в рамках одной сущности (methodMangled): коллизия
@@ -584,6 +625,12 @@ type entitySig struct {
 
 	IsList   bool
 	ElemType valueType
+
+	// States - краткие формы, объявленные под "состояние:" (шаг 4.1,
+	// упрощённая версия) - используется только для проверки BecomeStmt
+	// ("получатель становится <состояние>" - состояние обязано быть
+	// объявлено у этой сущности). nil у сущностей без "состояние:".
+	States map[string]bool
 }
 
 // fieldIndex возвращает индекс поля name в sig, или -1, если такого поля
@@ -1005,6 +1052,25 @@ func generateStmt(sb *strings.Builder, ctx *genCtx, stmt ast.Stmt, depth int) er
 
 	case *ast.FieldAssign:
 		return generateFieldAssign(sb, ctx, s, ind)
+
+	case *ast.BecomeStmt:
+		_, receiverType, err := genExpr(ctx, s.Receiver)
+		if err != nil {
+			return err
+		}
+		if receiverType.kind != kindEntity {
+			return fmt.Errorf("строка %d: \"становится\" применимо только к сущности, получен тип %s", s.Line, receiverType)
+		}
+		sig := ctx.entities[receiverType.entity]
+		if !sig.States[s.State] {
+			return fmt.Errorf("строка %d: у сущности %q не объявлено состояние %q", s.Line, receiverType.entity, s.State)
+		}
+		// Шаг 4.1, упрощённая версия: у перехода состояния нет отдельного
+		// runtime-представления (typestate - гарантия компилятора, не флаг
+		// в структуре) - проверка только структурная (состояние объявлено),
+		// без потока выполнения (полная проверка - шаг 5). Поэтому в C-код
+		// эта инструкция ничего не эмитит.
+		return nil
 
 	case *ast.IfStmt:
 		cond, typ, err := genExpr(ctx, s.Cond)
@@ -1593,6 +1659,8 @@ func lineOf(n ast.Node) int {
 	case *ast.Assign:
 		return v.Line
 	case *ast.FieldAssign:
+		return v.Line
+	case *ast.BecomeStmt:
 		return v.Line
 	case *ast.IfStmt:
 		return v.Line

@@ -285,3 +285,32 @@ func TestFoldYo(t *testing.T) {
 		t.Errorf("вошёл и вошел разобрались по-разному: %v vs %v", withYo[0], withE[0])
 	}
 }
+
+func TestLongFormAdjective(t *testing.T) {
+	cases := []struct {
+		short  string
+		gender Gender
+		number Number
+		want   string
+	}{
+		{"авторизован", Masculine, Singular, "авторизованный"},
+		{"авторизован", Feminine, Singular, "авторизованная"},
+		{"авторизован", Neuter, Singular, "авторизованное"},
+		{"закрыт", Masculine, Singular, "закрытый"},
+		{"закрыт", Feminine, Singular, "закрытая"},
+	}
+	for _, c := range cases {
+		got, err := LongFormAdjective(c.short, c.gender, c.number)
+		if err != nil {
+			t.Errorf("LongFormAdjective(%q, %v, %v): %v", c.short, c.gender, c.number, err)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("LongFormAdjective(%q, %v, %v) = %q, ожидалось %q", c.short, c.gender, c.number, got, c.want)
+		}
+	}
+
+	if _, err := LongFormAdjective("мал", Masculine, Singular); err == nil {
+		t.Error("LongFormAdjective(мал, ...) - ожидалась ошибка (не причастие \"-н\"/\"-т\"), получено nil")
+	}
+}

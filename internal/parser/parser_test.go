@@ -277,6 +277,99 @@ func TestParseEntityWithFields(t *testing.T) {
 	}
 }
 
+func TestParseEntityStatesDerivesTypeName(t *testing.T) {
+	prog, err := parseSource(t, `
+сущность Пользователь
+{
+    состояние: неавторизован авторизован
+
+    имеет:
+        имя: Строка
+}
+функция главная { вывести "ок" }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	ent := prog.Entities[0]
+	if len(ent.States) != 2 {
+		t.Fatalf("ожидалось 2 состояния, получено %+v", ent.States)
+	}
+	if ent.States[0].Name != "неавторизован" || ent.States[0].TypeName != "НеавторизованныйПользователь" {
+		t.Fatalf("неожиданное первое состояние: %+v", ent.States[0])
+	}
+	if ent.States[1].Name != "авторизован" || ent.States[1].TypeName != "АвторизованныйПользователь" {
+		t.Fatalf("неожиданное второе состояние: %+v", ent.States[1])
+	}
+	if len(ent.Fields) != 1 || ent.Fields[0].Name != "имя" {
+		t.Fatalf("поля после \"состояние:\" не разобрались: %+v", ent.Fields)
+	}
+}
+
+func TestParseEntityStatesUnknownGenderFails(t *testing.T) {
+	_, err := parseSource(t, `
+сущность Мнофе
+{
+    состояние: авторизован
+}
+функция главная { вывести "ок" }
+`)
+	if err == nil || !strings.Contains(err.Error(), "не удалось определить род сущности") {
+		t.Fatalf("ожидалась ошибка про неопределимый род, получено: %v", err)
+	}
+}
+
+func TestParseBecomeStmt(t *testing.T) {
+	prog, err := parseSource(t, `
+сущность Пользователь
+{
+    состояние: неавторизован авторизован
+}
+функция главная {
+    переменная пользователь = новый Пользователь()
+    пользователь становится авторизован
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	become, ok := prog.Functions[0].Body[1].(*ast.BecomeStmt)
+	if !ok {
+		t.Fatalf("ожидался ast.BecomeStmt, получено %+v", prog.Functions[0].Body[1])
+	}
+	if id, ok := become.Receiver.(*ast.Identifier); !ok || id.Name != "пользователь" {
+		t.Fatalf("неожиданный получатель: %+v", become.Receiver)
+	}
+	if become.State != "авторизован" {
+		t.Fatalf("неожиданное состояние: %q", become.State)
+	}
+}
+
+func TestParseBecomeStmtWithThisInMethod(t *testing.T) {
+	prog, err := parseSource(t, `
+сущность Пользователь
+{
+    состояние: неавторизован авторизован
+
+    авторизовать()
+    {
+        этот становится авторизован
+    }
+}
+функция главная { вывести "ок" }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	become, ok := prog.Entities[0].Methods[0].Body[0].(*ast.BecomeStmt)
+	if !ok {
+		t.Fatalf("ожидался ast.BecomeStmt, получено %+v", prog.Entities[0].Methods[0].Body[0])
+	}
+	if _, ok := become.Receiver.(*ast.ThisExpr); !ok {
+		t.Fatalf("ожидался получатель \"этот\", получено %+v", become.Receiver)
+	}
+}
+
 func TestParseClassIsSynonymForEntity(t *testing.T) {
 	prog, err := parseSource(t, `
 класс Пользователь
