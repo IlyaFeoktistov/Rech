@@ -719,8 +719,25 @@ const panicHelper = `static void rech_panic(const char *msg) {
 // только методы.
 func synthesizeList(ctx *genCtx, name string, elem valueType) {
 	ctx.usesGenerics = true
+	ctx.genericsCode.WriteString(listCollectionCCode(name, elem.cType()))
+	ctx.entities[name] = entitySig{IsList: true, ElemType: elem}
+	ctx.methods[name] = map[string]funcSig{
+		"добавить":   {ParamTypes: []valueType{elem}},
+		"получить":   {ParamTypes: []valueType{typeInt}, ReturnType: elem, HasReturn: true},
+		"установить": {ParamTypes: []valueType{typeInt, elem}},
+		"длина":      {ReturnType: typeInt, HasReturn: true},
+		"пусто":      {ReturnType: typeBool, HasReturn: true},
+	}
+}
+
+// listCollectionCCode строит C-текст (typedef struct + функции) для
+// конкретной инстанциации "Список<T>" по одному только имени и C-типу
+// элемента - без зависимости от genCtx/valueType, чтобы его можно было
+// использовать и из IR-пути (cbackend.GenerateFromIR, шаг 5.c), где нет
+// genCtx вообще - там сигнатуры методов уже целиком в самих IR-узлах
+// (MethodCallExpr), этому коду для кодогенерации нужен только сам C-текст.
+func listCollectionCCode(name, elemC string) string {
 	structName := mangleType(name)
-	elemC := elem.cType()
 	add := mangleMethod(name, "добавить")
 	get := mangleMethod(name, "получить")
 	set := mangleMethod(name, "установить")
@@ -728,7 +745,7 @@ func synthesizeList(ctx *genCtx, name string, elem valueType) {
 	empty := mangleMethod(name, "пусто")
 	outOfRange := escapeCString(fmt.Sprintf("индекс вне границ у %s", name))
 
-	fmt.Fprintf(&ctx.genericsCode, `typedef struct {
+	return fmt.Sprintf(`typedef struct {
     %[1]s *data;
     long long len;
     long long cap;
@@ -766,15 +783,6 @@ static bool %[8]s(%[2]s *this_) {
 }
 
 `, elemC, structName, add, get, set, length, outOfRange, empty)
-
-	ctx.entities[name] = entitySig{IsList: true, ElemType: elem}
-	ctx.methods[name] = map[string]funcSig{
-		"добавить":   {ParamTypes: []valueType{elem}},
-		"получить":   {ParamTypes: []valueType{typeInt}, ReturnType: elem, HasReturn: true},
-		"установить": {ParamTypes: []valueType{typeInt, elem}},
-		"длина":      {ReturnType: typeInt, HasReturn: true},
-		"пусто":      {ReturnType: typeBool, HasReturn: true},
-	}
 }
 
 // synthesizeStack синтезирует C typedef struct + функции для конкретной
@@ -785,8 +793,20 @@ static bool %[8]s(%[2]s *this_) {
 // участвует в цикле "для x в списке" (шаг 4.2.b), это ей и не нужно.
 func synthesizeStack(ctx *genCtx, name string, elem valueType) {
 	ctx.usesGenerics = true
+	ctx.genericsCode.WriteString(stackCollectionCCode(name, elem.cType()))
+	ctx.entities[name] = entitySig{}
+	ctx.methods[name] = map[string]funcSig{
+		"положить": {ParamTypes: []valueType{elem}},
+		"снять":    {ReturnType: elem, HasReturn: true},
+		"верх":     {ReturnType: elem, HasReturn: true},
+		"длина":    {ReturnType: typeInt, HasReturn: true},
+		"пусто":    {ReturnType: typeBool, HasReturn: true},
+	}
+}
+
+// stackCollectionCCode - как listCollectionCCode, для "Стопка<T>" (LIFO).
+func stackCollectionCCode(name, elemC string) string {
 	structName := mangleType(name)
-	elemC := elem.cType()
 	push := mangleMethod(name, "положить")
 	pop := mangleMethod(name, "снять")
 	top := mangleMethod(name, "верх")
@@ -794,7 +814,7 @@ func synthesizeStack(ctx *genCtx, name string, elem valueType) {
 	empty := mangleMethod(name, "пусто")
 	onEmpty := escapeCString(fmt.Sprintf("нельзя снять/получить верх пустой %s", name))
 
-	fmt.Fprintf(&ctx.genericsCode, `typedef struct {
+	return fmt.Sprintf(`typedef struct {
     %[1]s *data;
     long long len;
     long long cap;
@@ -833,15 +853,6 @@ static bool %[8]s(%[2]s *this_) {
 }
 
 `, elemC, structName, push, pop, top, length, onEmpty, empty)
-
-	ctx.entities[name] = entitySig{}
-	ctx.methods[name] = map[string]funcSig{
-		"положить": {ParamTypes: []valueType{elem}},
-		"снять":    {ReturnType: elem, HasReturn: true},
-		"верх":     {ReturnType: elem, HasReturn: true},
-		"длина":    {ReturnType: typeInt, HasReturn: true},
-		"пусто":    {ReturnType: typeBool, HasReturn: true},
-	}
 }
 
 // synthesizeQueue синтезирует C typedef struct + функции для конкретной
@@ -856,8 +867,20 @@ static bool %[8]s(%[2]s *this_) {
 // "для x в списке" (только Список<T>, шаг 4.2.b).
 func synthesizeQueue(ctx *genCtx, name string, elem valueType) {
 	ctx.usesGenerics = true
+	ctx.genericsCode.WriteString(queueCollectionCCode(name, elem.cType()))
+	ctx.entities[name] = entitySig{}
+	ctx.methods[name] = map[string]funcSig{
+		"добавить": {ParamTypes: []valueType{elem}},
+		"извлечь":  {ReturnType: elem, HasReturn: true},
+		"первый":   {ReturnType: elem, HasReturn: true},
+		"длина":    {ReturnType: typeInt, HasReturn: true},
+		"пусто":    {ReturnType: typeBool, HasReturn: true},
+	}
+}
+
+// queueCollectionCCode - как listCollectionCCode, для "Очередь<T>" (FIFO).
+func queueCollectionCCode(name, elemC string) string {
 	structName := mangleType(name)
-	elemC := elem.cType()
 	add := mangleMethod(name, "добавить")
 	remove := mangleMethod(name, "извлечь")
 	first := mangleMethod(name, "первый")
@@ -865,7 +888,7 @@ func synthesizeQueue(ctx *genCtx, name string, elem valueType) {
 	empty := mangleMethod(name, "пусто")
 	onEmpty := escapeCString(fmt.Sprintf("нельзя извлечь/получить первый элемент пустой %s", name))
 
-	fmt.Fprintf(&ctx.genericsCode, `typedef struct {
+	return fmt.Sprintf(`typedef struct {
     %[1]s *data;
     long long len;
     long long cap;
@@ -908,15 +931,6 @@ static bool %[8]s(%[2]s *this_) {
 }
 
 `, elemC, structName, add, remove, first, length, onEmpty, empty)
-
-	ctx.entities[name] = entitySig{}
-	ctx.methods[name] = map[string]funcSig{
-		"добавить": {ParamTypes: []valueType{elem}},
-		"извлечь":  {ReturnType: elem, HasReturn: true},
-		"первый":   {ReturnType: elem, HasReturn: true},
-		"длина":    {ReturnType: typeInt, HasReturn: true},
-		"пусто":    {ReturnType: typeBool, HasReturn: true},
-	}
 }
 
 func generateFunction(sb *strings.Builder, ctx *genCtx, fn *ast.FunctionDecl) error {

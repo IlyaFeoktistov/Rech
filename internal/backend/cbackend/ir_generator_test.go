@@ -229,6 +229,77 @@ func mainFuncIR() *ir.Function {
 	return &ir.Function{Name: "главная", Body: []ir.Stmt{&ir.PrintStmt{Value: &ir.StringLiteral{Value: "ок"}}}}
 }
 
+func TestGenerateFromIRListGenericAndForEach(t *testing.T) {
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "числа", Value: &ir.NewExpr{Entity: "Список<Целое>"}},
+		&ir.ExprStmt{MethodCall: &ir.MethodCallExpr{
+			Receiver: &ir.Identifier{Name: "числа", Type: ir.EntityType("Список<Целое>")},
+			Entity:   "Список<Целое>", Method: "добавить",
+			Args: []ir.Expr{&ir.IntLiteral{Value: 5}},
+		}},
+		&ir.ForEachStmt{
+			Var:        "x",
+			Collection: &ir.Identifier{Name: "числа", Type: ir.EntityType("Список<Целое>")},
+			ElemType:   ir.TypeInt,
+			Body:       []ir.Stmt{&ir.PrintStmt{Value: &ir.Identifier{Name: "x", Type: ir.TypeInt}}},
+		},
+	}}
+	prog := &ir.Program{
+		Functions: []*ir.Function{main},
+		Generics:  []ir.GenericInstantiation{{Name: "Список<Целое>", Template: "Список", ElemType: ir.TypeInt}},
+	}
+	out, err := GenerateFromIR(prog)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "#include <stdlib.h>") || !strings.Contains(out, "static void rech_panic(") {
+		t.Fatalf("ожидались stdlib.h и rech_panic (нужны generic-коллекциям), получено:\n%s", out)
+	}
+	if !strings.Contains(out, "} rech_T_spisok_of_celoe;") {
+		t.Fatalf("ожидался typedef struct для Список<Целое>, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "rech_M_spisok_of_celoe_dobavit(&(v_chisla), 5LL);") {
+		t.Fatalf("ожидался вызов добавить, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "for (long long rech_fe_i_v_x = 0; rech_fe_i_v_x < v_chisla.len; rech_fe_i_v_x++) {") {
+		t.Fatalf("ожидался цикл по данным Списка, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "long long v_x = v_chisla.data[rech_fe_i_v_x];") {
+		t.Fatalf("ожидалось присваивание элемента переменной цикла, получено:\n%s", out)
+	}
+}
+
+func TestGenerateFromIRStackAndQueueGenerics(t *testing.T) {
+	prog := &ir.Program{
+		Functions: []*ir.Function{{Name: "главная", Body: []ir.Stmt{&ir.PrintStmt{Value: &ir.StringLiteral{Value: "ок"}}}}},
+		Generics: []ir.GenericInstantiation{
+			{Name: "Стопка<Строка>", Template: "Стопка", ElemType: ir.TypeString},
+			{Name: "Очередь<Логическое>", Template: "Очередь", ElemType: ir.TypeBool},
+		},
+	}
+	out, err := GenerateFromIR(prog)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "rech_T_stopka_of_stroka") {
+		t.Fatalf("ожидалась инстанциация Стопки, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "rech_T_ochered_of_logicheskoe") {
+		t.Fatalf("ожидалась инстанциация Очереди, получено:\n%s", out)
+	}
+}
+
+func TestGenerateFromIRUnknownGenericTemplateFails(t *testing.T) {
+	prog := &ir.Program{
+		Functions: []*ir.Function{{Name: "главная", Body: nil}},
+		Generics:  []ir.GenericInstantiation{{Name: "Мешок<Целое>", Template: "Мешок", ElemType: ir.TypeInt}},
+	}
+	_, err := GenerateFromIR(prog)
+	if err == nil || !strings.Contains(err.Error(), "неизвестный generic-шаблон") {
+		t.Fatalf("ожидалась ошибка про неизвестный шаблон, получено: %v", err)
+	}
+}
+
 func TestGenerateFromIRMissingEntryPointFails(t *testing.T) {
 	prog := &ir.Program{Functions: []*ir.Function{
 		{Name: "чтототам", Body: nil},

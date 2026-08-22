@@ -12,6 +12,7 @@ package semantic
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
@@ -40,6 +41,16 @@ type entitySig struct {
 	// упрощённая версия) - для проверки BecomeStmt ("получатель становится
 	// <состояние>"). nil у сущностей без "состояние:".
 	States map[string]bool
+
+	// IsList/ElemType - заполнены только для синтезированных инстанциаций
+	// встроенных generic-коллекций (шаг 4.2, resolveTypeName) - IsList
+	// true только у "Список<T>" (единственная коллекция, участвующая в
+	// цикле "для x в списке"), ElemType - у всех трёх (Список/Стопка/
+	// Очередь), чтобы Analyze мог собрать Program.Generics в конце без
+	// повторного разбора имени. У обычных пользовательских сущностей -
+	// нулевые значения.
+	IsList   bool
+	ElemType ir.Type
 }
 
 func (s entitySig) fieldIndex(name string) int {
@@ -68,15 +79,16 @@ type ctx struct {
 	funcs      map[string]funcSig
 	entities   map[string]entitySig
 	methods    map[string]map[string]funcSig
+	aliases    map[string]string
 	thisEntity string
 	scopes     []scope
 	returnType ir.Type
 	hasReturn  bool
 }
 
-func newCtx(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, thisEntity string, returnType ir.Type, hasReturn bool) *ctx {
+func newCtx(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, thisEntity string, returnType ir.Type, hasReturn bool) *ctx {
 	return &ctx{
-		funcs: funcs, entities: entities, methods: methods, thisEntity: thisEntity,
+		funcs: funcs, entities: entities, methods: methods, aliases: aliases, thisEntity: thisEntity,
 		scopes: []scope{{}}, returnType: returnType, hasReturn: hasReturn,
 	}
 }
@@ -115,9 +127,9 @@ func (c *ctx) lookup(name string) (ir.Type, bool) {
 // тип состояния (aliases - "АвторизованныйПользователь" -> "Пользователь",
 // шаг 4.1, см. collectEntities) - резолвится в тип БАЗОВОЙ сущности, не в
 // собственный тип: производный тип - псевдоним без своего
-// представления, как и в cbackend (genCtx.stateAliases). Generic-
-// коллекции (шаг 4.2) сюда пока не перенесены.
-func resolveTypeName(entities map[string]entitySig, aliases map[string]string, name string) (ir.Type, error) {
+// представления, как и в cbackend (genCtx.stateAliases), - или встроенная
+// generic-коллекция (шаг 4.2, resolveGenericTypeName).
+func resolveTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, name string) (ir.Type, error) {
 	switch name {
 	case "Строка":
 		return ir.TypeString, nil
@@ -134,50 +146,154 @@ func resolveTypeName(entities map[string]entitySig, aliases map[string]string, n
 	if base, ok := aliases[name]; ok {
 		return ir.EntityType(base), nil
 	}
-	return ir.TypeUnknown, fmt.Errorf("неизвестный тип %q", name)
+	return resolveGenericTypeName(entities, methods, aliases, name)
+}
+
+// parseGenericTypeName разбирает закодированную парсером строку вида
+// "Список<Целое>" на (шаблон, аргумент) - тот же формат, что и
+// cbackend.parseGenericTypeName (AST-путь) - IR не должен знать про
+// cbackend, поэтому не переиспользует ту функцию напрямую, но формат
+// строки - общий инвариант всего компилятора (parser.parseTypeName).
+func parseGenericTypeName(name string) (template, arg string, ok bool) {
+	i := strings.IndexByte(name, '<')
+	if i < 0 || !strings.HasSuffix(name, ">") {
+		return "", "", false
+	}
+	return name[:i], name[i+1 : len(name)-1], true
+}
+
+// genericMethodSigs - сигнатуры методов встроенного generic-шаблона
+// (шаг 4.2) для конкретного типа элемента elem - курируемый список, как и
+// genericTemplates в cbackend (AST-путь), только здесь сигнатуры, а не
+// C-код (C-код синтезирует cbackend.GenerateFromIR по Program.Generics,
+// переиспользуя cbackend.listCollectionCCode/stackCollectionCCode/
+// queueCollectionCCode - ту же реализацию, что и у AST-пути).
+func genericMethodSigs(template string, elem ir.Type) (map[string]funcSig, bool) {
+	switch template {
+	case "Список":
+		return map[string]funcSig{
+			"добавить":   {Params: []ir.Type{elem}},
+			"получить":   {Params: []ir.Type{ir.TypeInt}, ReturnType: elem, HasReturn: true},
+			"установить": {Params: []ir.Type{ir.TypeInt, elem}},
+			"длина":      {ReturnType: ir.TypeInt, HasReturn: true},
+			"пусто":      {ReturnType: ir.TypeBool, HasReturn: true},
+		}, true
+	case "Стопка":
+		return map[string]funcSig{
+			"положить": {Params: []ir.Type{elem}},
+			"снять":    {ReturnType: elem, HasReturn: true},
+			"верх":     {ReturnType: elem, HasReturn: true},
+			"длина":    {ReturnType: ir.TypeInt, HasReturn: true},
+			"пусто":    {ReturnType: ir.TypeBool, HasReturn: true},
+		}, true
+	case "Очередь":
+		return map[string]funcSig{
+			"добавить": {Params: []ir.Type{elem}},
+			"извлечь":  {ReturnType: elem, HasReturn: true},
+			"первый":   {ReturnType: elem, HasReturn: true},
+			"длина":    {ReturnType: ir.TypeInt, HasReturn: true},
+			"пусто":    {ReturnType: ir.TypeBool, HasReturn: true},
+		}, true
+	default:
+		return nil, false
+	}
+}
+
+// resolveGenericTypeName - как cbackend.resolveType (AST-путь): при первой
+// встрече конкретной инстанциации builtin-коллекции ("Список<Целое>")
+// синтезирует её сигнатуру (entitySig/funcSig) и регистрирует в entities/
+// methods (мемоизация - синтез только один раз, дальше просто найдётся в
+// карте) - дальше остальной internal/semantic обращается с ней как с
+// обычной сущностью, не зная, пользовательская она или встроенная.
+func resolveGenericTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, name string) (ir.Type, error) {
+	template, argName, ok := parseGenericTypeName(name)
+	if !ok {
+		return ir.TypeUnknown, fmt.Errorf("неизвестный тип %q", name)
+	}
+	elem, err := resolveTypeName(entities, methods, aliases, argName)
+	if err != nil {
+		return ir.TypeUnknown, fmt.Errorf("тип элемента %q в %q: %w", argName, name, err)
+	}
+	if elem.Kind == ir.KindEntity {
+		return ir.TypeUnknown, fmt.Errorf("%q: элементы встроенных коллекций поддерживаются только для Строка/Целое/Число/Логическое, не для сущностей", name)
+	}
+	sigs, ok := genericMethodSigs(template, elem)
+	if !ok {
+		return ir.TypeUnknown, fmt.Errorf("неизвестный generic-тип %q", template)
+	}
+	if _, exists := entities[name]; !exists {
+		entities[name] = entitySig{IsList: template == "Список", ElemType: elem}
+		methods[name] = sigs
+	}
+	return ir.EntityType(name), nil
 }
 
 // Analyze производит IR из AST. Покрытие на данный момент - шаги 0-4
 // (`вывести`, переменные/арифметика, если/пока/для, функции с параметрами
-// и типом результата, вызов, сущности/поля/конструктор/методы/"этот") и
-// шаг 4.1 (состояния, упрощённая версия) - см. internal/ir, package doc.
-// Расширяется вместе с internal/backend/cbackend.GenerateFromIR подшаг за
-// подшагом, шаг 5.
+// и типом результата, вызов, сущности/поля/конструктор/методы/"этот"),
+// шаг 4.1 (состояния, упрощённая версия) и шаг 4.2 (встроенные generic-
+// коллекции) - см. internal/ir, package doc. Расширяется вместе с
+// internal/backend/cbackend.GenerateFromIR подшаг за подшагом, шаг 5.
 func Analyze(prog *ast.Program) (*ir.Program, error) {
 	entities, methods, aliases, err := collectEntities(prog)
 	if err != nil {
 		return nil, err
 	}
-	funcs, err := collectFuncSigs(entities, aliases, prog)
+	funcs, err := collectFuncSigs(entities, methods, aliases, prog)
 	if err != nil {
 		return nil, err
 	}
 
 	out := &ir.Program{}
 	for _, ent := range prog.Entities {
-		irEnt, err := analyzeEntity(funcs, entities, methods, ent)
+		irEnt, err := analyzeEntity(funcs, entities, methods, aliases, ent)
 		if err != nil {
 			return nil, fmt.Errorf("сущность %q: %w", ent.Name, err)
 		}
 		out.Entities = append(out.Entities, irEnt)
 	}
 	for _, fn := range prog.Functions {
-		irFn, err := analyzeFunction(funcs, entities, methods, fn)
+		irFn, err := analyzeFunction(funcs, entities, methods, aliases, fn)
 		if err != nil {
 			return nil, fmt.Errorf("функция %q: %w", fn.Name, err)
 		}
 		out.Functions = append(out.Functions, irFn)
+	}
+
+	// entities может по ходу анализа (в т. ч. внутри тел функций/методов -
+	// analyzeNewExpr) пополниться инстанциациями generic-коллекций
+	// (resolveGenericTypeName) - собираем их в Program.Generics здесь, в
+	// конце, а не по одной в момент появления, чтобы не тащить
+	// накопитель через всю рекурсию analyzeExpr. Ключ содержит "<" ровно
+	// у синтезированных инстанциаций - обычное имя сущности/типа этот
+	// символ никогда не содержит (не входит в алфавит идентификаторов
+	// Rech). Сортировка по имени - только для детерминированного порядка
+	// вывода (map по природе неупорядочен), семантически не важна.
+	names := make([]string, 0, len(entities))
+	for name := range entities {
+		if strings.Contains(name, "<") {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		template, _, _ := parseGenericTypeName(name)
+		out.Generics = append(out.Generics, ir.GenericInstantiation{
+			Name:     name,
+			Template: template,
+			ElemType: entities[name].ElemType,
+		})
 	}
 	return out, nil
 }
 
 // collectFuncSigs - предварительный проход: сигнатуры всех функций
 // программы, до анализа любого тела (нужно для вызовов вперёд/взаимной
-// рекурсии - как и в cbackend.Generate). entities/aliases уже полностью
-// собраны (collectEntities) - функция может ссылаться на любую сущность
-// или производный тип состояния, независимо от того, где та объявлена в
-// файле относительно функции.
-func collectFuncSigs(entities map[string]entitySig, aliases map[string]string, prog *ast.Program) (map[string]funcSig, error) {
+// рекурсии - как и в cbackend.Generate). entities/methods/aliases уже
+// полностью собраны (collectEntities) - функция может ссылаться на любую
+// сущность, производный тип состояния или generic-коллекцию, независимо
+// от того, где та объявлена в файле относительно функции.
+func collectFuncSigs(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, prog *ast.Program) (map[string]funcSig, error) {
 	funcs := map[string]funcSig{}
 	for _, fn := range prog.Functions {
 		if _, exists := funcs[fn.Name]; exists {
@@ -185,7 +301,7 @@ func collectFuncSigs(entities map[string]entitySig, aliases map[string]string, p
 		}
 		params := make([]ir.Type, len(fn.Params))
 		for i, p := range fn.Params {
-			typ, err := resolveTypeName(entities, aliases, p.Type)
+			typ, err := resolveTypeName(entities, methods, aliases, p.Type)
 			if err != nil {
 				return nil, fmt.Errorf("функция %q: параметр %q: %w", fn.Name, p.Name, err)
 			}
@@ -193,7 +309,7 @@ func collectFuncSigs(entities map[string]entitySig, aliases map[string]string, p
 		}
 		sig := funcSig{Params: params}
 		if fn.ReturnType != "" {
-			typ, err := resolveTypeName(entities, aliases, fn.ReturnType)
+			typ, err := resolveTypeName(entities, methods, aliases, fn.ReturnType)
 			if err != nil {
 				return nil, fmt.Errorf("функция %q: тип результата: %w", fn.Name, err)
 			}
@@ -229,7 +345,7 @@ func collectEntities(prog *ast.Program) (map[string]entitySig, map[string]map[st
 			if sig.fieldIndex(f.Name) != -1 {
 				return nil, nil, nil, fmt.Errorf("сущность %q: поле %q объявлено более одного раза", ent.Name, f.Name)
 			}
-			typ, err := resolveTypeName(entities, aliases, f.Type)
+			typ, err := resolveTypeName(entities, methods, aliases, f.Type)
 			if err != nil {
 				return nil, nil, nil, fmt.Errorf("сущность %q: поле %q: %w", ent.Name, f.Name, err)
 			}
@@ -258,7 +374,7 @@ func collectEntities(prog *ast.Program) (map[string]entitySig, map[string]map[st
 			}
 			params := make([]ir.Type, len(m.Params))
 			for i, p := range m.Params {
-				typ, err := resolveTypeName(entities, aliases, p.Type)
+				typ, err := resolveTypeName(entities, methods, aliases, p.Type)
 				if err != nil {
 					return nil, nil, nil, fmt.Errorf("сущность %q: метод %q: параметр %q: %w", ent.Name, m.Name, p.Name, err)
 				}
@@ -266,7 +382,7 @@ func collectEntities(prog *ast.Program) (map[string]entitySig, map[string]map[st
 			}
 			msig := funcSig{Params: params}
 			if m.ReturnType != "" {
-				typ, err := resolveTypeName(entities, aliases, m.ReturnType)
+				typ, err := resolveTypeName(entities, methods, aliases, m.ReturnType)
 				if err != nil {
 					return nil, nil, nil, fmt.Errorf("сущность %q: метод %q: тип результата: %w", ent.Name, m.Name, err)
 				}
@@ -279,7 +395,7 @@ func collectEntities(prog *ast.Program) (map[string]entitySig, map[string]map[st
 	return entities, methods, aliases, nil
 }
 
-func analyzeEntity(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, ent *ast.EntityDecl) (*ir.Entity, error) {
+func analyzeEntity(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, ent *ast.EntityDecl) (*ir.Entity, error) {
 	sig := entities[ent.Name]
 	fields := make([]ir.Field, len(sig.FieldNames))
 	for i, name := range sig.FieldNames {
@@ -287,7 +403,7 @@ func analyzeEntity(funcs map[string]funcSig, entities map[string]entitySig, meth
 	}
 	irMethods := make([]*ir.Method, len(ent.Methods))
 	for i, m := range ent.Methods {
-		irM, err := analyzeMethod(funcs, entities, methods, ent.Name, m)
+		irM, err := analyzeMethod(funcs, entities, methods, aliases, ent.Name, m)
 		if err != nil {
 			return nil, fmt.Errorf("метод %q: %w", m.Name, err)
 		}
@@ -296,9 +412,9 @@ func analyzeEntity(funcs map[string]funcSig, entities map[string]entitySig, meth
 	return &ir.Entity{Name: ent.Name, Fields: fields, Methods: irMethods}, nil
 }
 
-func analyzeMethod(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, entityName string, m *ast.MethodDecl) (*ir.Method, error) {
+func analyzeMethod(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, entityName string, m *ast.MethodDecl) (*ir.Method, error) {
 	sig := methods[entityName][m.Name]
-	sc := newCtx(funcs, entities, methods, entityName, sig.ReturnType, sig.HasReturn)
+	sc := newCtx(funcs, entities, methods, aliases, entityName, sig.ReturnType, sig.HasReturn)
 	params := make([]ir.Param, len(m.Params))
 	for i, p := range m.Params {
 		params[i] = ir.Param{Name: p.Name, Type: sig.Params[i]}
@@ -322,9 +438,9 @@ func analyzeMethod(funcs map[string]funcSig, entities map[string]entitySig, meth
 	}, nil
 }
 
-func analyzeFunction(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, fn *ast.FunctionDecl) (*ir.Function, error) {
+func analyzeFunction(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, fn *ast.FunctionDecl) (*ir.Function, error) {
 	sig := funcs[fn.Name]
-	sc := newCtx(funcs, entities, methods, "", sig.ReturnType, sig.HasReturn)
+	sc := newCtx(funcs, entities, methods, aliases, "", sig.ReturnType, sig.HasReturn)
 	params := make([]ir.Param, len(fn.Params))
 	for i, p := range fn.Params {
 		params[i] = ir.Param{Name: p.Name, Type: sig.Params[i]}
@@ -476,6 +592,28 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			return nil, err
 		}
 		return &ir.ForStmt{Var: s.Var, From: from, To: to, Body: body}, nil
+
+	case *ast.ForEachStmt:
+		collection, err := analyzeExpr(sc, s.Collection)
+		if err != nil {
+			return nil, err
+		}
+		typ := ir.TypeOf(collection)
+		sig := sc.entities[typ.Entity]
+		if typ.Kind != ir.KindEntity || !sig.IsList {
+			return nil, fmt.Errorf("строка %d: цикл \"для %s в ...\" ожидает переменную-Список<T>, получен тип %s", s.Line, s.Var, typ)
+		}
+		sc.push()
+		if err := sc.declare(s.Var, sig.ElemType); err != nil {
+			sc.pop()
+			return nil, fmt.Errorf("строка %d: %w", s.Line, err)
+		}
+		body, err := analyzeBlock(sc, s.Body)
+		sc.pop()
+		if err != nil {
+			return nil, err
+		}
+		return &ir.ForEachStmt{Var: s.Var, Collection: collection, ElemType: sig.ElemType, Body: body}, nil
 
 	case *ast.ReturnStmt:
 		if s.Value == nil {
@@ -654,7 +792,18 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 	sig, ok := sc.entities[e.Type]
 	if !ok {
-		return nil, fmt.Errorf("строка %d: сущность %q не объявлена", e.Line, e.Type)
+		// Не пользовательская сущность и ещё не встречавшаяся generic-
+		// инстанциация (шаг 4.2) - resolveTypeName при необходимости
+		// синтезирует её и зарегистрирует в sc.entities/sc.methods, как и
+		// resolveType в cbackend (AST-путь); если e.Type в принципе не
+		// тип - вернёт понятную ошибку.
+		if _, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, e.Type); err != nil {
+			return nil, fmt.Errorf("строка %d: %w", e.Line, err)
+		}
+		sig, ok = sc.entities[e.Type]
+		if !ok {
+			return nil, fmt.Errorf("строка %d: сущность %q не объявлена", e.Line, e.Type)
+		}
 	}
 	args := make([]ir.Expr, len(sig.FieldNames))
 	if e.FieldNames != nil {

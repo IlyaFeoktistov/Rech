@@ -4,8 +4,9 @@
 // ровно то же подмножество, что и internal/semantic.Analyze на данный
 // момент - шаги 0-4 (`вывести <строка>`, переменные/арифметика,
 // если/пока/для, функции с параметрами/типом результата и их вызов,
-// сущности/поля/конструктор/методы/"этот"). Расширяется вместе с
-// покрытием internal/semantic,
+// сущности/поля/конструктор/методы/"этот"), шаг 4.1 (состояния) и шаг 4.2
+// (встроенные generic-коллекции, цикл "для x в списке") - полное покрытие
+// текущего языка. Расширяется вместе с покрытием internal/semantic,
 // вертикальным срезом за срезом (см. package doc internal/ir), а не
 // отдельно от него - не имеет смысла генерировать код для IR-узла, которого
 // семантический анализ ещё не производит.
@@ -55,6 +56,29 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 		typedefs.WriteString(generateIREntityStruct(ent))
 	}
 
+	// genericsCode - typedef struct + функции для встроенных generic-
+	// коллекций (шаг 4.2), использованных в программе - переиспользует
+	// cbackend.listCollectionCCode/stackCollectionCCode/queueCollectionCCode,
+	// ту же реализацию (growable array), что и AST-путь (synthesizeList/
+	// synthesizeStack/synthesizeQueue) - IR-путь не хранит собственных
+	// сигнатур методов для них, MethodCallExpr уже несёт всё нужное для
+	// вызова, эта функция только про C-текст самого типа.
+	var genericsCode strings.Builder
+	usesGenerics := len(prog.Generics) > 0
+	for _, g := range prog.Generics {
+		elemC := fromIRType(g.ElemType).cType()
+		switch g.Template {
+		case "Список":
+			genericsCode.WriteString(listCollectionCCode(g.Name, elemC))
+		case "Стопка":
+			genericsCode.WriteString(stackCollectionCCode(g.Name, elemC))
+		case "Очередь":
+			genericsCode.WriteString(queueCollectionCCode(g.Name, elemC))
+		default:
+			return "", fmt.Errorf("неизвестный generic-шаблон %q", g.Template)
+		}
+	}
+
 	var protos strings.Builder
 	for _, ent := range prog.Entities {
 		for _, m := range ent.Methods {
@@ -99,13 +123,23 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	if ctx.usesConcat || ctx.usesStrCmp {
 		sb.WriteString("#include <string.h>\n")
 	}
+	if ctx.usesConcat || usesGenerics {
+		sb.WriteString("#include <stdlib.h>\n")
+	}
 	sb.WriteString("\n")
 	if ctx.usesConcat {
 		sb.WriteString(strConcatHelper)
 		sb.WriteString("\n")
 	}
+	if usesGenerics {
+		sb.WriteString(panicHelper)
+		sb.WriteString("\n")
+	}
 	if typedefs.Len() > 0 {
 		sb.WriteString(typedefs.String())
+	}
+	if genericsCode.Len() > 0 {
+		sb.WriteString(genericsCode.String())
 	}
 	if protos.Len() > 0 {
 		sb.WriteString(protos.String())
@@ -320,6 +354,23 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 		}
 		varC := mangleVar(s.Var)
 		fmt.Fprintf(sb, "%sfor (long long %s = %s; %s <= %s; %s++) {\n", ind, varC, fromCode, varC, toCode, varC)
+		for _, st := range s.Body {
+			if err := generateIRStmt(sb, ctx, st, depth+1); err != nil {
+				return err
+			}
+		}
+		fmt.Fprintf(sb, "%s}\n", ind)
+		return nil
+
+	case *ir.ForEachStmt:
+		collCode, _, err := generateIRExpr(ctx, s.Collection)
+		if err != nil {
+			return err
+		}
+		varC := mangleVar(s.Var)
+		idxC := "rech_fe_i_" + varC
+		fmt.Fprintf(sb, "%sfor (long long %s = 0; %s < %s.len; %s++) {\n", ind, idxC, idxC, collCode, idxC)
+		fmt.Fprintf(sb, "%s%s %s = %s.data[%s];\n", indent(depth+1), fromIRType(s.ElemType).cType(), varC, collCode, idxC)
 		for _, st := range s.Body {
 			if err := generateIRStmt(sb, ctx, st, depth+1); err != nil {
 				return err

@@ -604,11 +604,75 @@ func TestAnalyzeBecomeUndeclaredStateFails(t *testing.T) {
 	}
 }
 
-func TestAnalyzeUnsupportedStmtFails(t *testing.T) {
-	toks, err := lexer.New(`
+func TestAnalyzeListConstructorMethodsAndForEach(t *testing.T) {
+	irProg := parseProgram(t, `
 функция главная
 {
     переменная числа = новый Список<Целое>()
+    числа.добавить(5)
+    для x в числах
+    {
+        вывести x
+    }
+}
+`)
+	main := irProg.Functions[0]
+	varDecl := main.Body[0].(*ir.VarDecl)
+	if ir.TypeOf(varDecl.Value) != ir.EntityType("Список<Целое>") {
+		t.Fatalf("ожидался тип \"Список<Целое>\", получено %v", ir.TypeOf(varDecl.Value))
+	}
+	exprStmt, ok := main.Body[1].(*ir.ExprStmt)
+	if !ok || exprStmt.MethodCall == nil || exprStmt.MethodCall.Method != "добавить" {
+		t.Fatalf("ожидался вызов метода \"добавить\", получено %+v", main.Body[1])
+	}
+	forEach, ok := main.Body[2].(*ir.ForEachStmt)
+	if !ok || forEach.Var != "x" || forEach.ElemType != ir.TypeInt {
+		t.Fatalf("ожидался *ir.ForEachStmt с переменной типа Целое, получено %+v", main.Body[2])
+	}
+
+	if len(irProg.Generics) != 1 || irProg.Generics[0].Name != "Список<Целое>" || irProg.Generics[0].Template != "Список" || irProg.Generics[0].ElemType != ir.TypeInt {
+		t.Fatalf("ожидалась одна инстанциация \"Список<Целое>\", получено %+v", irProg.Generics)
+	}
+}
+
+func TestAnalyzeStackAndQueueGenerics(t *testing.T) {
+	irProg := parseProgram(t, `
+функция главная
+{
+    переменная стопка = новая Стопка<Строка>()
+    стопка.положить("x")
+    переменная очередь = новая Очередь<Логическое>()
+    очередь.добавить(истина)
+    вывести стопка.снять()
+    вывести очередь.извлечь()
+}
+`)
+	if len(irProg.Generics) != 2 {
+		t.Fatalf("ожидалось 2 инстанциации, получено %+v", irProg.Generics)
+	}
+	byName := map[string]ir.GenericInstantiation{}
+	for _, g := range irProg.Generics {
+		byName[g.Name] = g
+	}
+	if g, ok := byName["Стопка<Строка>"]; !ok || g.Template != "Стопка" || g.ElemType != ir.TypeString {
+		t.Fatalf("неожиданная инстанциация Стопки: %+v", byName["Стопка<Строка>"])
+	}
+	if g, ok := byName["Очередь<Логическое>"]; !ok || g.Template != "Очередь" || g.ElemType != ir.TypeBool {
+		t.Fatalf("неожиданная инстанциация Очереди: %+v", byName["Очередь<Логическое>"])
+	}
+}
+
+func TestAnalyzeCollectionEntityElementFails(t *testing.T) {
+	toks, err := lexer.New(`
+сущность Пользователь
+{
+    имеет:
+        имя: Строка
+}
+функция главная
+{
+    переменная x = новый Пользователь("Илья")
+    переменная список = новый Список<Пользователь>()
 }
 `).Tokenize()
 	if err != nil {
@@ -619,7 +683,32 @@ func TestAnalyzeUnsupportedStmtFails(t *testing.T) {
 		t.Fatalf("парсер: %v", err)
 	}
 	_, err = Analyze(prog)
-	if err == nil || !strings.Contains(err.Error(), "не объявлена") {
-		t.Fatalf("ожидалась ошибка про неподдержанные generic-коллекции, получено: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "не для сущностей") {
+		t.Fatalf("ожидалась ошибка про недопустимый элемент-сущность, получено: %v", err)
 	}
 }
+
+func TestAnalyzeForEachNonListFails(t *testing.T) {
+	toks, err := lexer.New(`
+функция главная
+{
+    переменная число = 5
+    для x в числе
+    {
+        вывести x
+    }
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
+	if err == nil || !strings.Contains(err.Error(), "ожидает переменную-Список<T>") {
+		t.Fatalf("ожидалась ошибка про несоответствие типа коллекции, получено: %v", err)
+	}
+}
+
