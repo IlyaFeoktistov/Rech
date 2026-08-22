@@ -37,7 +37,6 @@ package parser
 import (
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
@@ -452,12 +451,14 @@ func (p *Parser) parseParams() ([]ast.Param, error) {
 			if err != nil {
 				return nil, err
 			}
-			c, _ := morph.CaseOfParamName(param.Name)
-			if prev, exists := seenCases[c]; exists {
-				return nil, fmt.Errorf("строка %d: параметр %q дублирует падежную роль параметра %q - у каждого падежа может быть только один параметр",
-					param.Line, param.Name, prev)
+			if param.CaseWord != "" {
+				c, _ := morph.CaseOfParamName(param.CaseWord)
+				if prev, exists := seenCases[c]; exists {
+					return nil, fmt.Errorf("строка %d: параметр %q дублирует падежную роль параметра %q - у каждого падежа может быть только один параметр",
+						param.Line, param.Name, prev)
+				}
+				seenCases[c] = param.Name
 			}
-			seenCases[c] = param.Name
 			params = append(params, param)
 			if p.cur().Type != lexer.COMMA {
 				break
@@ -498,14 +499,30 @@ func (p *Parser) parseTypeName() (string, error) {
 	return fmt.Sprintf("%s<%s>", name.Value, arg), nil
 }
 
+// parseParam разбирает параметр в одной из двух форм:
+//
+//	падеж: Тип             - падежное слово одновременно и роль, и имя
+//	падеж имя: Тип         - падежная роль отдельно от отображаемого имени
+//	имя: Тип               - без падежной роли, только позиционный параметр
+//
+// Различаются лукахедом: если первое слово - падежное (morph.CaseOfParamName)
+// и следом идёт ещё один IDENT (а не ":"), это двусловная форма; иначе
+// первое слово - и есть Name (падежное или нет).
 func (p *Parser) parseParam() (ast.Param, error) {
-	name, err := p.expect(lexer.IDENT)
+	first, err := p.expect(lexer.IDENT)
 	if err != nil {
 		return ast.Param{}, fmt.Errorf("ожидалось имя параметра: %w", err)
 	}
-	if _, ok := morph.CaseOfParamName(name.Value); !ok {
-		return ast.Param{}, fmt.Errorf("строка %d, столбец %d: имя параметра должно быть одним из падежных вопросительных слов (%s), получено %q",
-			name.Line, name.Col, strings.Join(morph.ParamNames, ", "), name.Value)
+	caseWord := ""
+	name := first
+	if _, ok := morph.CaseOfParamName(first.Value); ok {
+		caseWord = first.Value
+		if p.cur().Type == lexer.IDENT {
+			name, err = p.expect(lexer.IDENT)
+			if err != nil {
+				return ast.Param{}, err
+			}
+		}
 	}
 	if _, err := p.expect(lexer.COLON); err != nil {
 		return ast.Param{}, fmt.Errorf("после имени параметра %q ожидалось \":\" и тип: %w", name.Value, err)
@@ -514,7 +531,7 @@ func (p *Parser) parseParam() (ast.Param, error) {
 	if err != nil {
 		return ast.Param{}, fmt.Errorf("после \":\" у параметра %q ожидалось имя типа: %w", name.Value, err)
 	}
-	return ast.Param{Name: name.Value, Type: typeName, Line: name.Line}, nil
+	return ast.Param{Name: name.Value, CaseWord: caseWord, Type: typeName, Line: first.Line}, nil
 }
 
 func (p *Parser) parseBlock() ([]ast.Stmt, error) {
@@ -863,41 +880,62 @@ var naturalCallPrepositions = map[lexer.TokenType]bool{
 // Ограничения этой реализации (docs/SPEC.md): аргумент - всегда IDENT,
 // ссылающийся на уже объявленную переменную (лемма из p.dict), не литерал;
 // вся фраза - в одной строке (без продолжения по отступу).
+// parseNaturalCall разбирает естественный вызов - вызов функции без скобок.
+// Каждый параметр получает ровно один аргумент-словоформу; связывание -
+// в два прохода (docs/SPEC.md, "Вызов функции (естественный синтаксис)"):
+//
+//  1. Падежное сопоставление - только для параметров с падежной ролью
+//     (Param.CaseWord != ""), как и раньше: словоформа должна грамматически
+//     подходить по падежу (и по одушевлённости для кого/что) ещё не
+//     занятому помеченному параметру.
+//  2. Аргументы, не занявшие место на проходе 1 (в порядке, в котором они
+//     написаны), заполняют по порядку объявления оставшиеся параметры БЕЗ
+//     падежной роли - падеж для них не важен, берётся буквальный текст
+//     словоформы как имя переменной (без обращения к словарю/лемме).
+//
+// Параметр с падежной ролью, не получивший подходящий по падежу аргумент
+// на проходе 1, не подбирается "на что осталось" на проходе 2 - это
+// осталось бы ошибкой пользователя (неверная словоформа), а не поводом
+// угадывать.
 func (p *Parser) parseNaturalCall(params []ast.Param) (*ast.CallExpr, error) {
 	name := p.advance() // имя функции
-	args := make([]ast.Expr, len(params))
-	filled := make([]bool, len(params))
-	remaining := len(params)
 
-	for remaining > 0 {
+	tokens := make([]lexer.Token, len(params))
+	for i := range tokens {
 		if naturalCallPrepositions[p.cur().Type] {
 			p.advance() // декоративный предлог
 		}
 		argTok, err := p.expect(lexer.IDENT)
 		if err != nil {
-			return nil, fmt.Errorf("в естественном вызове %q: не хватает аргументов (не заполнено ещё %d): %w", name.Value, remaining, err)
+			return nil, fmt.Errorf("в естественном вызове %q: не хватает аргументов (не заполнено ещё %d): %w", name.Value, len(params)-i, err)
 		}
+		tokens[i] = argTok
+	}
 
+	args := make([]ast.Expr, len(params))
+	filled := make([]bool, len(params))
+	tokenUsed := make([]bool, len(tokens))
+
+	// Проход 1: падежное сопоставление для параметров с падежной ролью.
+	for ti, argTok := range tokens {
 		analyses := p.dict.Analyze(argTok.Value)
 		if len(analyses) == 0 {
-			return nil, fmt.Errorf("строка %d, столбец %d: словоформа %q не опознана - естественный вызов понимает только ссылки на уже объявленные переменные",
-				argTok.Line, argTok.Col, argTok.Value)
+			continue // не опознано словарём - может ещё подойти на проходе 2
 		}
-
 		matchIdx := -1
 		matchLemma := ""
 		for i, param := range params {
-			if filled[i] {
+			if filled[i] || param.CaseWord == "" {
 				continue
 			}
-			paramCase, _ := morph.CaseOfParamName(param.Name)
+			paramCase, _ := morph.CaseOfParamName(param.CaseWord)
 			for _, a := range analyses {
 				if a.POS != morph.Noun || a.Tag.Case != paramCase {
 					continue
 				}
 				if paramCase == morph.Accusative {
 					lemma, ok := p.dict.Lookup(a.Lemma)
-					if !ok || lemma.Noun == nil || (lemma.Noun.Animacy == morph.Animate) != morph.IsAnimateParamName(param.Name) {
+					if !ok || lemma.Noun == nil || (lemma.Noun.Animacy == morph.Animate) != morph.IsAnimateParamName(param.CaseWord) {
 						continue
 					}
 				}
@@ -908,14 +946,49 @@ func (p *Parser) parseNaturalCall(params []ast.Param) (*ast.CallExpr, error) {
 				matchIdx, matchLemma = i, a.Lemma
 			}
 		}
-		if matchIdx == -1 {
-			return nil, fmt.Errorf("строка %d, столбец %d: словоформа %q не подходит по падежу ни одному ещё не заполненному параметру вызова %q",
-				argTok.Line, argTok.Col, argTok.Value, name.Value)
+		if matchIdx != -1 {
+			args[matchIdx] = &ast.Identifier{Name: matchLemma, Line: argTok.Line}
+			filled[matchIdx] = true
+			tokenUsed[ti] = true
 		}
-		args[matchIdx] = &ast.Identifier{Name: matchLemma, Line: argTok.Line}
-		filled[matchIdx] = true
-		remaining--
 	}
+
+	// Проход 2: оставшиеся токены по порядку - в оставшиеся параметры без
+	// падежной роли, по порядку объявления.
+	ti := 0
+	for i, param := range params {
+		if filled[i] || param.CaseWord != "" {
+			continue
+		}
+		for ti < len(tokenUsed) && tokenUsed[ti] {
+			ti++
+		}
+		if ti >= len(tokens) {
+			break // не хватило аргументов - разберётся общая проверка ниже
+		}
+		args[i] = &ast.Identifier{Name: tokens[ti].Value, Line: tokens[ti].Line}
+		filled[i] = true
+		tokenUsed[ti] = true
+		ti++
+	}
+
+	for i, param := range params {
+		if !filled[i] {
+			if param.CaseWord != "" {
+				return nil, fmt.Errorf("строка %d, столбец %d: не удалось подобрать по падежу аргумент для параметра %q вызова %q",
+					name.Line, name.Col, param.Name, name.Value)
+			}
+			return nil, fmt.Errorf("строка %d, столбец %d: не хватает аргументов для параметра %q вызова %q",
+				name.Line, name.Col, param.Name, name.Value)
+		}
+	}
+	for i, used := range tokenUsed {
+		if !used {
+			return nil, fmt.Errorf("строка %d, столбец %d: словоформа %q лишняя в вызове %q",
+				tokens[i].Line, tokens[i].Col, tokens[i].Value, name.Value)
+		}
+	}
+
 	return &ast.CallExpr{Callee: name.Value, Args: args, Line: name.Line}, nil
 }
 

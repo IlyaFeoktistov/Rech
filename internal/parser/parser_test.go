@@ -60,13 +60,40 @@ func TestParseFunctionParamsAndReturnType(t *testing.T) {
 	}
 }
 
-func TestParseFunctionInvalidParamName(t *testing.T) {
-	_, err := parseSource(t, `
+func TestParseFunctionArbitraryParamNameWithoutCaseRole(t *testing.T) {
+	// Параметр без падежной роли (одно слово, не входящее в список из
+	// шести) - обычный, только позиционный параметр. Раньше это было
+	// ошибкой компиляции - решение отменено по итогам обсуждения с
+	// пользователем: жёсткий потолок в 6 параметров на функцию снят,
+	// осмысленные имена параметров разрешены.
+	prog, err := parseSource(t, `
 функция сложить(х: Целое): Целое { вернуть х }
 функция главная { вывести "ок" }
 `)
-	if err == nil || !strings.Contains(err.Error(), "падежных вопросительных слов") {
-		t.Fatalf("ожидалась ошибка про падежные имена параметров, получено: %v", err)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	param := prog.Functions[0].Params[0]
+	if param.Name != "х" || param.CaseWord != "" {
+		t.Fatalf("ожидался параметр без падежной роли с именем \"х\", получено %+v", param)
+	}
+}
+
+func TestParseFunctionTwoWordParamCaseAndName(t *testing.T) {
+	// "падеж имя: Тип" - падежная роль отдельно от отображаемого имени.
+	prog, err := parseSource(t, `
+функция оформить(кого пользователь: Строка, права: Строка) { вывести пользователь }
+функция главная { вывести "ок" }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	params := prog.Functions[0].Params
+	if params[0].Name != "пользователь" || params[0].CaseWord != "кого" {
+		t.Fatalf("ожидался параметр \"пользователь\" с ролью \"кого\", получено %+v", params[0])
+	}
+	if params[1].Name != "права" || params[1].CaseWord != "" {
+		t.Fatalf("ожидался параметр \"права\" без падежной роли, получено %+v", params[1])
 	}
 }
 
@@ -204,7 +231,7 @@ func TestParseNaturalCallUnrecognizedWordform(t *testing.T) {
 функция поприветствовать(кого: Строка) { вывести кого }
 функция главная { поприветствовать чтототам }
 `)
-	if err == nil || !strings.Contains(err.Error(), "не опознана") {
+	if err == nil || !strings.Contains(err.Error(), "не удалось подобрать по падежу") {
 		t.Fatalf("ожидалась ошибка про неопознанную словоформу, получено: %v", err)
 	}
 }
@@ -217,7 +244,7 @@ func TestParseNaturalCallAnimacyDisambiguatesWhomVsWhat(t *testing.T) {
     обработать систему
 }
 `)
-	if err == nil || !strings.Contains(err.Error(), "не подходит по падежу") {
+	if err == nil || !strings.Contains(err.Error(), "не удалось подобрать по падежу") {
 		t.Fatalf("ожидалась ошибка про несовпадение по падежу/одушевлённости, получено: %v", err)
 	}
 }
@@ -487,6 +514,60 @@ func TestParseGenericTypeNameInParamAndReturnType(t *testing.T) {
 	}
 	if fn.ReturnType != "Список<Целое>" {
 		t.Fatalf("ожидался тип результата \"Список<Целое>\", получено %q", fn.ReturnType)
+	}
+}
+
+func TestParseNaturalCallMixedTaggedAndPositional(t *testing.T) {
+	// Пример из обсуждения: "кого пользователь: Пользователь" (падежная
+	// роль) + "права: Права" (без роли, только позиционно). "пользователя"
+	// связывается по падежу с "пользователь"; "админ" не подходит по
+	// падежу ни одному ещё не занятому помеченному параметру (свободных
+	// таких уже нет), поэтому достаётся оставшемуся непомеченному "права"
+	// по остатку/позиции.
+	prog, err := parseSource(t, `
+сущность Пользователь
+{
+    имеет:
+        имя: Строка
+}
+сущность Права
+{
+    имеет:
+        уровень: Целое
+}
+функция оформить(кого пользователь: Пользователь, права: Права) { вывести пользователь.имя }
+функция главная {
+    переменная пользователь = создать Пользователь("Илья")
+    переменная админ = создать Права(1)
+    оформить пользователя админ
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	stmt := prog.Functions[1].Body[2].(*ast.ExprStmt)
+	call := stmt.Call
+	if call == nil || len(call.Args) != 2 {
+		t.Fatalf("ожидался вызов \"создать\" с двумя аргументами, получено %+v", stmt)
+	}
+	if id, ok := call.Args[0].(*ast.Identifier); !ok || id.Name != "пользователь" {
+		t.Fatalf("ожидался первым аргументом \"пользователь\" (падежная роль \"кого\"), получено %+v", call.Args[0])
+	}
+	if id, ok := call.Args[1].(*ast.Identifier); !ok || id.Name != "админ" {
+		t.Fatalf("ожидался вторым аргументом \"админ\" (по остатку/позиции), получено %+v", call.Args[1])
+	}
+}
+
+func TestParseNaturalCallNotEnoughArgumentsAfterBothPasses(t *testing.T) {
+	_, err := parseSource(t, `
+функция оформить(кого: Строка, права: Строка) { вывести кого }
+функция главная {
+    переменная пользователь = "Илья"
+    оформить пользователя
+}
+`)
+	if err == nil {
+		t.Fatalf("ожидалась ошибка про нехватку аргументов")
 	}
 }
 
