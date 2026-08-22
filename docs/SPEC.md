@@ -140,10 +140,11 @@ field          := IDENT ":" IDENT
 block          := "{" { sep } [ statement { sep statement } [ sep ] ] "}"
 sep            := ( newline | ";" ) { newline | ";" }
 
-statement      := var_decl | assign | print_stmt
+statement      := var_decl | assign | field_assign | print_stmt
                 | if_stmt | while_stmt | for_stmt | return_stmt | call_stmt
 var_decl       := "переменная" IDENT "=" expr
 assign         := IDENT "=" expr
+field_assign   := IDENT "." IDENT "=" expr
 print_stmt     := "вывести" expr
 if_stmt        := "если" expr block [ "иначе" block ]
 while_stmt     := "пока" expr block
@@ -322,13 +323,15 @@ new_expr       := "создать" IDENT "(" [ expr { "," expr } ] ")"
   метода (в работе, см. [docs/GRAMMAR.md](GRAMMAR.md)): его мутация видна
   после возврата из метода, иначе будущий typestate (`этот становится
   авторизованным`) не имел бы смысла.
-- Присваивание полю (`receiver.поле = значение`), методы и `этот` - в
-  работе, см. [docs/GRAMMAR.md](GRAMMAR.md), "Доступ к полям, `этот` и
-  конструктор".
+- `receiver.поле = значение` - присваивание полю; тип значения должен точно
+  совпадать с объявленным типом поля (без неявных преобразований, как и
+  везде). `receiver` в этом шаге - только переменная сущностного типа
+  (`этот.поле = ...` внутри метода - в работе, см.
+  [docs/GRAMMAR.md](GRAMMAR.md), "Доступ к полям, `этот` и конструктор").
 
 ## 7. Что дальше
 
-Присваивание полю, методы, `Список<T>` и всё остальное - в работе. План по
-шагам - [docs/ROADMAP.md](ROADMAP.md), черновик синтаксиса для
-незавершённых шагов - [docs/GRAMMAR.md](GRAMMAR.md), дизайн морфологического
-движка - [docs/MORPHOLOGY.md](MORPHOLOGY.md).
+Методы, `этот`, `Список<T>` и всё остальное - в работе. План по шагам -
+[docs/ROADMAP.md](ROADMAP.md), черновик синтаксиса для незавершённых шагов -
+[docs/GRAMMAR.md](GRAMMAR.md), дизайн морфологического движка -
+[docs/MORPHOLOGY.md](MORPHOLOGY.md).

@@ -317,6 +317,53 @@ func TestGenerateFieldAccessOnNonEntity(t *testing.T) {
 	}
 }
 
+func TestGenerateFieldAssign(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "p", Value: &ast.NewExpr{Type: "Пользователь", Args: []ast.Expr{&ast.StringLiteral{Value: "x"}, &ast.IntLiteral{Value: 30}}}},
+		&ast.FieldAssign{Receiver: &ast.Identifier{Name: "p"}, Field: "возраст", Value: &ast.IntLiteral{Value: 31}},
+	}}
+	out, err := Generate(&ast.Program{Entities: []*ast.EntityDecl{entityUser()}, Functions: []*ast.FunctionDecl{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "v_p.f_vozrast = 31LL;") {
+		t.Fatalf("ожидалось присваивание полю, получено:\n%s", out)
+	}
+}
+
+func TestGenerateFieldAssignTypeMismatch(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "p", Value: &ast.NewExpr{Type: "Пользователь", Args: []ast.Expr{&ast.StringLiteral{Value: "x"}, &ast.IntLiteral{Value: 30}}}},
+		&ast.FieldAssign{Receiver: &ast.Identifier{Name: "p"}, Field: "возраст", Value: &ast.StringLiteral{Value: "текст"}},
+	}}
+	_, err := Generate(&ast.Program{Entities: []*ast.EntityDecl{entityUser()}, Functions: []*ast.FunctionDecl{main}})
+	if err == nil || !strings.Contains(err.Error(), "нельзя присвоить") {
+		t.Fatalf("ожидалась ошибка несовпадения типа, получено: %v", err)
+	}
+}
+
+func TestGenerateFieldAssignUnknownField(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "p", Value: &ast.NewExpr{Type: "Пользователь", Args: []ast.Expr{&ast.StringLiteral{Value: "x"}, &ast.IntLiteral{Value: 30}}}},
+		&ast.FieldAssign{Receiver: &ast.Identifier{Name: "p"}, Field: "несуществующее", Value: &ast.IntLiteral{Value: 1}},
+	}}
+	_, err := Generate(&ast.Program{Entities: []*ast.EntityDecl{entityUser()}, Functions: []*ast.FunctionDecl{main}})
+	if err == nil || !strings.Contains(err.Error(), "нет поля") {
+		t.Fatalf("ожидалась ошибка про несуществующее поле, получено: %v", err)
+	}
+}
+
+func TestGenerateFieldAssignOnNonEntity(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "x", Value: &ast.IntLiteral{Value: 1}},
+		&ast.FieldAssign{Receiver: &ast.Identifier{Name: "x"}, Field: "поле", Value: &ast.IntLiteral{Value: 1}},
+	}}
+	_, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
+	if err == nil || !strings.Contains(err.Error(), "не сущность") {
+		t.Fatalf("ожидалась ошибка про присваивание полю не-сущности, получено: %v", err)
+	}
+}
+
 func TestGenerateFunctionWithoutParamsUsesVoid(t *testing.T) {
 	fn := &ast.FunctionDecl{Name: "ничего", Body: []ast.Stmt{&ast.PrintStmt{Value: &ast.StringLiteral{Value: "x"}}}}
 	out, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{fn, mainFunc()}})

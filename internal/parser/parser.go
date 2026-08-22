@@ -11,9 +11,10 @@
 //	params      := param { "," param }
 //	param       := IDENT ":" IDENT
 //	block       := "{" newline { statement } "}"
-//	statement   := var_decl | assign | print_stmt | if_stmt | while_stmt | for_stmt | return_stmt | call_stmt
+//	statement   := var_decl | assign | field_assign | print_stmt | if_stmt | while_stmt | for_stmt | return_stmt | call_stmt
 //	var_decl    := "переменная" IDENT "=" expr
 //	assign      := IDENT "=" expr
+//	field_assign := IDENT "." IDENT "=" expr
 //	print_stmt  := "вывести" expr
 //	if_stmt     := "если" expr block [ "иначе" block ]
 //	while_stmt  := "пока" expr block
@@ -484,6 +485,9 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 		if p.peekAt(1).Type == lexer.ASSIGN {
 			return p.parseAssign()
 		}
+		if p.peekAt(1).Type == lexer.DOT && p.peekAt(3).Type == lexer.ASSIGN {
+			return p.parseFieldAssign()
+		}
 		if p.peekAt(1).Type == lexer.LPAREN {
 			call, err := p.parseCallExpr()
 			if err != nil {
@@ -548,6 +552,31 @@ func (p *Parser) parseAssign() (ast.Stmt, error) {
 		return nil, fmt.Errorf("в присваивании %q: %w", name.Value, err)
 	}
 	return &ast.Assign{Name: name.Value, Value: value, Line: name.Line}, nil
+}
+
+// parseFieldAssign разбирает "receiver.поле = выражение". Позиция парсера
+// на входе - на IDENT получателя. В шаге 4.c получатель - всегда
+// переменная (этот появится в 4.d вместе с методами).
+func (p *Parser) parseFieldAssign() (ast.Stmt, error) {
+	receiver := p.advance() // IDENT получателя
+	p.advance()             // "."
+	field, err := p.expect(lexer.IDENT)
+	if err != nil {
+		return nil, fmt.Errorf("после \".\" ожидалось имя поля: %w", err)
+	}
+	if _, err := p.expect(lexer.ASSIGN); err != nil {
+		return nil, err
+	}
+	value, err := p.parseExpr()
+	if err != nil {
+		return nil, fmt.Errorf("в присваивании полю %q.%q: %w", receiver.Value, field.Value, err)
+	}
+	return &ast.FieldAssign{
+		Receiver: &ast.Identifier{Name: receiver.Value, Line: receiver.Line},
+		Field:    field.Value,
+		Value:    value,
+		Line:     receiver.Line,
+	}, nil
 }
 
 func (p *Parser) parseIfStmt() (ast.Stmt, error) {

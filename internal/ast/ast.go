@@ -124,6 +124,25 @@ type Assign struct {
 func (*Assign) node() {}
 func (*Assign) stmt() {}
 
+// FieldAssign соответствует инструкции:
+//
+//	receiver.поле = выражение
+//
+// Отдельно от Assign (не переиспользует его), чтобы не усложнять уже
+// рабочую логику присваивания переменной. Receiver в шаге 4.c - всегда
+// *Identifier (получатель-переменная); "этот.поле = ..." внутри метода
+// появится в 4.d, когда Receiver сможет быть и *ThisExpr - тип поля Expr
+// оставлен общим уже сейчас, чтобы не переделывать этот узел ещё раз.
+type FieldAssign struct {
+	Receiver Expr
+	Field    string
+	Value    Expr
+	Line     int
+}
+
+func (*FieldAssign) node() {}
+func (*FieldAssign) stmt() {}
+
 // IfStmt соответствует конструкции:
 //
 //	если <условие> { <then> } [ иначе { <else> } ]

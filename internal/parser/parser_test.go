@@ -348,6 +348,31 @@ func TestParseFieldAccessChain(t *testing.T) {
 	}
 }
 
+func TestParseFieldAssign(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная {
+    переменная пользователь = 0
+    пользователь.возраст = 31
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	stmt, ok := prog.Functions[0].Body[1].(*ast.FieldAssign)
+	if !ok {
+		t.Fatalf("ожидался FieldAssign, получено %T", prog.Functions[0].Body[1])
+	}
+	if stmt.Field != "возраст" {
+		t.Fatalf("ожидалось поле \"возраст\", получено %q", stmt.Field)
+	}
+	if id, ok := stmt.Receiver.(*ast.Identifier); !ok || id.Name != "пользователь" {
+		t.Fatalf("ожидался получатель \"пользователь\", получено %+v", stmt.Receiver)
+	}
+	if _, ok := stmt.Value.(*ast.IntLiteral); !ok {
+		t.Fatalf("ожидалось значение-литерал, получено %+v", stmt.Value)
+	}
+}
+
 func TestParseReturnWithoutValueStillWorks(t *testing.T) {
 	prog, err := parseSource(t, `
 функция главная {

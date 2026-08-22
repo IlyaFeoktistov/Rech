@@ -402,6 +402,17 @@ type entitySig struct {
 	FieldTypes []valueType
 }
 
+// fieldIndex возвращает индекс поля name в sig, или -1, если такого поля
+// нет. Общий хелпер для FieldAccess (шаг 4.b) и FieldAssign (шаг 4.c).
+func (sig entitySig) fieldIndex(name string) int {
+	for i, n := range sig.FieldNames {
+		if n == name {
+			return i
+		}
+	}
+	return -1
+}
+
 // entitySignatureOf выводит entitySig из аннотаций типов полей ent и заодно
 // проверяет устойчивость мангирования имён полей (шаг 3.5, тот же принцип,
 // что и для функций/переменных/сущностей) - здесь, а не в
@@ -557,6 +568,9 @@ func generateStmt(sb *strings.Builder, ctx *genCtx, stmt ast.Stmt, depth int) er
 		}
 		fmt.Fprintf(sb, "%s%s = %s;\n", ind, mangleVar(s.Name), code)
 		return nil
+
+	case *ast.FieldAssign:
+		return generateFieldAssign(sb, ctx, s, ind)
 
 	case *ast.IfStmt:
 		cond, typ, err := genExpr(ctx, s.Cond)
@@ -808,12 +822,44 @@ func genFieldAccess(ctx *genCtx, e *ast.FieldAccess) (string, valueType, error) 
 		return "", typeUnknown, fmt.Errorf("строка %d: нельзя обратиться к полю %q - тип выражения %s, не сущность", e.Line, e.Field, typ)
 	}
 	sig := ctx.entities[typ.entity]
-	for i, name := range sig.FieldNames {
-		if name == e.Field {
-			return fmt.Sprintf("(%s).%s", code, mangleField(e.Field)), sig.FieldTypes[i], nil
-		}
+	i := sig.fieldIndex(e.Field)
+	if i == -1 {
+		return "", typeUnknown, fmt.Errorf("строка %d: у сущности %q нет поля %q", e.Line, typ.entity, e.Field)
 	}
-	return "", typeUnknown, fmt.Errorf("строка %d: у сущности %q нет поля %q", e.Line, typ.entity, e.Field)
+	return fmt.Sprintf("(%s).%s", code, mangleField(e.Field)), sig.FieldTypes[i], nil
+}
+
+// generateFieldAssign генерирует "receiver.поле = выражение". Получатель в
+// шаге 4.c ограничен переменной (уже объявленной, сущностного типа) -
+// этот появится в 4.d вместе с методами; для прочих получателей (пока
+// таких по грамматике и не бывает - парсер строит FieldAssign только из
+// IDENT) была бы понятная ошибка Rech, а не невнятная C-ошибка.
+func generateFieldAssign(sb *strings.Builder, ctx *genCtx, s *ast.FieldAssign, ind string) error {
+	receiverID, ok := s.Receiver.(*ast.Identifier)
+	if !ok {
+		return fmt.Errorf("строка %d: получателем присваивания полю может быть только переменная", s.Line)
+	}
+	receiverType, exists := ctx.lookup(receiverID.Name)
+	if !exists {
+		return fmt.Errorf("строка %d: переменная %q не объявлена - используйте \"переменная\" для объявления", s.Line, receiverID.Name)
+	}
+	if receiverType.kind != kindEntity {
+		return fmt.Errorf("строка %d: нельзя присвоить полю %q - тип %s не сущность", s.Line, s.Field, receiverType)
+	}
+	sig := ctx.entities[receiverType.entity]
+	i := sig.fieldIndex(s.Field)
+	if i == -1 {
+		return fmt.Errorf("строка %d: у сущности %q нет поля %q", s.Line, receiverType.entity, s.Field)
+	}
+	code, typ, err := genExpr(ctx, s.Value)
+	if err != nil {
+		return err
+	}
+	if typ != sig.FieldTypes[i] {
+		return fmt.Errorf("строка %d: полю %q типа %s нельзя присвоить значение типа %s", s.Line, s.Field, sig.FieldTypes[i], typ)
+	}
+	fmt.Fprintf(sb, "%s%s.%s = %s;\n", ind, mangleVar(receiverID.Name), mangleField(s.Field), code)
+	return nil
 }
 
 func genUnaryExpr(ctx *genCtx, e *ast.UnaryExpr) (string, valueType, error) {
@@ -945,6 +991,8 @@ func lineOf(n ast.Node) int {
 	case *ast.VarDecl:
 		return v.Line
 	case *ast.Assign:
+		return v.Line
+	case *ast.FieldAssign:
 		return v.Line
 	case *ast.IfStmt:
 		return v.Line
