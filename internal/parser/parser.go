@@ -204,7 +204,7 @@ func (p *Parser) collectFunctionSignatures() error {
 		}
 		if p.cur().Type == lexer.COLON {
 			p.advance()
-			if _, err := p.expect(lexer.IDENT); err != nil {
+			if _, err := p.parseTypeName(); err != nil {
 				return fmt.Errorf("после \":\" у функции %q ожидалось имя типа результата: %w", name.Value, err)
 			}
 		}
@@ -332,11 +332,11 @@ func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
 	returnType := ""
 	if p.cur().Type == lexer.COLON {
 		p.advance()
-		typeTok, err := p.expect(lexer.IDENT)
+		var err error
+		returnType, err = p.parseTypeName()
 		if err != nil {
 			return nil, fmt.Errorf("после \":\" у метода %q ожидалось имя типа результата: %w", name.Value, err)
 		}
-		returnType = typeTok.Value
 	}
 	p.skipNewlines()
 	prevInMethod := p.inMethodBody
@@ -393,11 +393,11 @@ func (p *Parser) parseField() (ast.Field, error) {
 	if _, err := p.expect(lexer.COLON); err != nil {
 		return ast.Field{}, fmt.Errorf("после имени поля %q ожидалось \":\" и тип: %w", name.Value, err)
 	}
-	typeTok, err := p.expect(lexer.IDENT)
+	typeName, err := p.parseTypeName()
 	if err != nil {
 		return ast.Field{}, fmt.Errorf("после \":\" у поля %q ожидалось имя типа: %w", name.Value, err)
 	}
-	return ast.Field{Name: name.Value, Type: typeTok.Value, Line: name.Line}, nil
+	return ast.Field{Name: name.Value, Type: typeName, Line: name.Line}, nil
 }
 
 func (p *Parser) parseFunction() (*ast.FunctionDecl, error) {
@@ -421,11 +421,11 @@ func (p *Parser) parseFunction() (*ast.FunctionDecl, error) {
 	returnType := ""
 	if p.cur().Type == lexer.COLON {
 		p.advance()
-		typeTok, err := p.expect(lexer.IDENT)
+		var err error
+		returnType, err = p.parseTypeName()
 		if err != nil {
 			return nil, fmt.Errorf("после \":\" у функции %q ожидалось имя типа результата: %w", name.Value, err)
 		}
-		returnType = typeTok.Value
 	}
 
 	if name.Value == entryPointName && (len(params) > 0 || returnType != "") {
@@ -471,6 +471,33 @@ func (p *Parser) parseParams() ([]ast.Param, error) {
 	return params, nil
 }
 
+// parseTypeName разбирает имя типа: IDENT [ "<" type_name ">" ] - обычное
+// имя (примитив или сущность) либо generic-инстанциация вроде
+// "Список<Целое>" (шаг 4.2). Кодируется в одну строку - AST продолжает
+// хранить тип как string везде (Param.Type, Field.Type, ReturnType,
+// NewExpr.Type), backend сам разбирает и резолвит эту строку
+// (internal/backend/cbackend, resolveType). "<"/">" - уже существующие
+// токены LT/GT (операторы сравнения) - неоднозначности с выражениями нет,
+// это отдельная синтаксическая позиция (сразу после имени типа).
+func (p *Parser) parseTypeName() (string, error) {
+	name, err := p.expect(lexer.IDENT)
+	if err != nil {
+		return "", err
+	}
+	if p.cur().Type != lexer.LT {
+		return name.Value, nil
+	}
+	p.advance() // "<"
+	arg, err := p.parseTypeName()
+	if err != nil {
+		return "", fmt.Errorf("в аргументе типа %q: %w", name.Value, err)
+	}
+	if _, err := p.expect(lexer.GT); err != nil {
+		return "", fmt.Errorf("после аргумента типа %q<%s> ожидалось \">\": %w", name.Value, arg, err)
+	}
+	return fmt.Sprintf("%s<%s>", name.Value, arg), nil
+}
+
 func (p *Parser) parseParam() (ast.Param, error) {
 	name, err := p.expect(lexer.IDENT)
 	if err != nil {
@@ -483,11 +510,11 @@ func (p *Parser) parseParam() (ast.Param, error) {
 	if _, err := p.expect(lexer.COLON); err != nil {
 		return ast.Param{}, fmt.Errorf("после имени параметра %q ожидалось \":\" и тип: %w", name.Value, err)
 	}
-	typeTok, err := p.expect(lexer.IDENT)
+	typeName, err := p.parseTypeName()
 	if err != nil {
 		return ast.Param{}, fmt.Errorf("после \":\" у параметра %q ожидалось имя типа: %w", name.Value, err)
 	}
-	return ast.Param{Name: name.Value, Type: typeTok.Value, Line: name.Line}, nil
+	return ast.Param{Name: name.Value, Type: typeName, Line: name.Line}, nil
 }
 
 func (p *Parser) parseBlock() ([]ast.Stmt, error) {
@@ -800,18 +827,18 @@ func (p *Parser) parseArgList() ([]ast.Expr, error) {
 // прямого дополнения отложено (docs/GRAMMAR.md).
 func (p *Parser) parseNewExpr() (ast.Expr, error) {
 	kw := p.advance() // "создать"
-	typeName, err := p.expect(lexer.IDENT)
+	typeName, err := p.parseTypeName()
 	if err != nil {
 		return nil, fmt.Errorf("после \"создать\" ожидалось имя сущности: %w", err)
 	}
 	if p.cur().Type != lexer.LPAREN {
-		return nil, fmt.Errorf("строка %d, столбец %d: после имени сущности %q ожидалось \"(\"", p.cur().Line, p.cur().Col, typeName.Value)
+		return nil, fmt.Errorf("строка %d, столбец %d: после имени сущности %q ожидалось \"(\"", p.cur().Line, p.cur().Col, typeName)
 	}
 	args, err := p.parseArgList()
 	if err != nil {
-		return nil, fmt.Errorf("в аргументах конструктора %q: %w", typeName.Value, err)
+		return nil, fmt.Errorf("в аргументах конструктора %q: %w", typeName, err)
 	}
-	return &ast.NewExpr{Type: typeName.Value, Args: args, Line: kw.Line}, nil
+	return &ast.NewExpr{Type: typeName, Args: args, Line: kw.Line}, nil
 }
 
 // naturalCallPrepositions - предлоги, разрешённые перед аргументом

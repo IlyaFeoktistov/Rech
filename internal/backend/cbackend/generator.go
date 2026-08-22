@@ -33,6 +33,13 @@ var translit = map[rune]string{
 	'н': "n", 'о': "o", 'п': "p", 'р': "r", 'с': "s", 'т': "t", 'у': "u",
 	'ф': "f", 'х': "h", 'ц': "c", 'ч': "ch", 'ш': "sh", 'щ': "sch", 'ъ': "",
 	'ы': "y", 'ь': "", 'э': "e", 'ю': "yu", 'я': "ya",
+
+	// Символы generic-инстанциации ("Список<Целое>", шаг 4.2) - имя типа с
+	// параметром кодируется как строка в AST (docs, "Синтаксис типа с
+	// параметром") и мангируется тем же transliterate, что и обычные имена;
+	// без этих записей "<"/">"/"," попали бы в C-идентификатор как есть,
+	// что невалидно.
+	'<': "_of_", '>': "", ',': "_",
 }
 
 func transliterate(name string) string {
@@ -157,6 +164,62 @@ func typeFromName(name string) (valueType, bool) {
 	return typeUnknown, false
 }
 
+// genericTemplates - встроенные generic-шаблоны (шаг 4.2), каждый - функция
+// синтеза C-структуры и методов для конкретной инстанциации. Курируемый
+// список (как SystemVerbs/naturalCallPrepositions в остальном компиляторе),
+// не механизм пользовательских generic-типов - тех в языке пока нет вообще.
+var genericTemplates = map[string]func(ctx *genCtx, name string, elem valueType){
+	"Список": synthesizeList,
+}
+
+// parseGenericTypeName разбирает закодированную парсером строку вида
+// "Список<Целое>" на (шаблон, аргумент) - обратная операция к
+// parser.parseTypeName. ok == false - name не generic-инстанциация (нет
+// "<...>"), тогда это либо примитив, либо неизвестное имя - решает
+// вызывающий код (resolveType).
+func parseGenericTypeName(name string) (template, arg string, ok bool) {
+	i := strings.IndexByte(name, '<')
+	if i < 0 || !strings.HasSuffix(name, ">") {
+		return "", "", false
+	}
+	return name[:i], name[i+1 : len(name)-1], true
+}
+
+// resolveType - единая точка резолюции имени типа (примитив, сущность или
+// generic-инстанциация builtin-коллекции, шаг 4.2), заменяет прямые вызовы
+// typeFromName везде, где раньше типы могли быть только примитивами
+// (signatureFromDecl, entitySignatureOf, genNewExpr). При первой встрече
+// конкретной инстанциации ("Список<Целое>") синтезирует её C-код в
+// ctx.genericsCode и регистрирует в ctx.entities/ctx.methods - дальше она
+// неотличима от обычной сущности для остального backend'а (genMethodCall,
+// genFieldAccess и т.д. читают ctx.entities/ctx.methods по имени, не зная,
+// пользовательская это сущность или встроенная коллекция).
+func resolveType(ctx *genCtx, name string) (valueType, error) {
+	if t, ok := typeFromName(name); ok {
+		return t, nil
+	}
+	if _, exists := ctx.entities[name]; exists {
+		return entityType(name), nil
+	}
+	template, argName, ok := parseGenericTypeName(name)
+	if !ok {
+		return typeUnknown, fmt.Errorf("неизвестный тип %q", name)
+	}
+	synth, ok := genericTemplates[template]
+	if !ok {
+		return typeUnknown, fmt.Errorf("неизвестный generic-тип %q", template)
+	}
+	elem, err := resolveType(ctx, argName)
+	if err != nil {
+		return typeUnknown, fmt.Errorf("тип элемента %q в %q: %w", argName, name, err)
+	}
+	if elem.kind == kindEntity {
+		return typeUnknown, fmt.Errorf("%q: элементы встроенных коллекций пока поддерживаются только для Строка/Целое/Число/Логическое, не для сущностей", name)
+	}
+	synth(ctx, name, elem)
+	return entityType(name), nil
+}
+
 func (t valueType) cType() string {
 	if t.kind == kindEntity {
 		return mangleType(t.entity)
@@ -201,8 +264,19 @@ type genCtx struct {
 	// через scopes отдельно - это не то же самое, что коллизия мангла.
 	mangledScopes []map[string]string
 
-	usesConcat bool
-	usesStrCmp bool
+	usesConcat   bool
+	usesStrCmp   bool
+	usesGenerics bool
+
+	// genericsCode - C-код (typedef struct + функции), синтезированный для
+	// встроенных generic-коллекций (Список/Стопка/Очередь, шаг 4.2) по мере
+	// того, как resolveType встречает новую конкретную инстанциацию
+	// ("Список<Целое>") - с мемоизацией по ctx.entities (та же карта, что
+	// и для обычных сущностей: коллизия имён исключена, "<>," не входят в
+	// алфавит идентификаторов Rech). Порядок появления записей в
+	// genericsCode не важен для корректности C - весь текст печатается
+	// одним блоком сразу после typedef'ов пользовательских сущностей.
+	genericsCode strings.Builder
 
 	// funcs - сигнатуры всех функций программы, собранные до генерации
 	// тел (см. funcSig). Не меняется во время генерации тел - только
@@ -306,7 +380,7 @@ func Generate(prog *ast.Program) (string, error) {
 		}
 		entityMangled[mangledType] = ent.Name
 
-		sig, err := entitySignatureOf(ent)
+		sig, err := entitySignatureOf(ctx, ent)
 		if err != nil {
 			return "", err
 		}
@@ -328,7 +402,7 @@ func Generate(prog *ast.Program) (string, error) {
 				return "", fmt.Errorf("сущность %q: методы %q и %q транслитерируются в одно и то же имя %q в C - переименуйте один из них", ent.Name, other, m.Name, mangledMethod)
 			}
 			methodMangled[mangledMethod] = m.Name
-			msig, err := methodSignatureOf(ent, m)
+			msig, err := methodSignatureOf(ctx, ent, m)
 			if err != nil {
 				return "", err
 			}
@@ -348,7 +422,7 @@ func Generate(prog *ast.Program) (string, error) {
 			return "", fmt.Errorf("функции %q и %q транслитерируются в одно и то же имя %q в C - переименуйте одну из них", other, fn.Name, mangleName(fn.Name))
 		}
 		funcMangled[mangleName(fn.Name)] = fn.Name
-		sig, err := signatureOf(fn)
+		sig, err := signatureOf(ctx, fn)
 		if err != nil {
 			return "", err
 		}
@@ -396,7 +470,7 @@ func Generate(prog *ast.Program) (string, error) {
 	if ctx.usesConcat || ctx.usesStrCmp {
 		sb.WriteString("#include <string.h>\n")
 	}
-	if ctx.usesConcat {
+	if ctx.usesConcat || ctx.usesGenerics {
 		sb.WriteString("#include <stdlib.h>\n")
 	}
 	sb.WriteString("\n")
@@ -404,8 +478,15 @@ func Generate(prog *ast.Program) (string, error) {
 		sb.WriteString(strConcatHelper)
 		sb.WriteString("\n")
 	}
+	if ctx.usesGenerics {
+		sb.WriteString(panicHelper)
+		sb.WriteString("\n")
+	}
 	if typedefs.Len() > 0 {
 		sb.WriteString(typedefs.String())
+	}
+	if ctx.genericsCode.Len() > 0 {
+		sb.WriteString(ctx.genericsCode.String())
 	}
 	if protos.Len() > 0 {
 		sb.WriteString(protos.String())
@@ -422,20 +503,20 @@ func Generate(prog *ast.Program) (string, error) {
 // MethodDecl - разные Go-типы без общего интерфейса, поэтому берём здесь
 // уже распакованные срезы/строку, а не сам узел AST). label - для текста
 // ошибки (имя функции или "Сущность.метод").
-func signatureFromDecl(label string, params []ast.Param, returnType string) (funcSig, error) {
+func signatureFromDecl(ctx *genCtx, label string, params []ast.Param, returnType string) (funcSig, error) {
 	paramTypes := make([]valueType, len(params))
 	for i, param := range params {
-		typ, ok := typeFromName(param.Type)
-		if !ok {
-			return funcSig{}, fmt.Errorf("%s: параметр %q имеет неизвестный тип %q", label, param.Name, param.Type)
+		typ, err := resolveType(ctx, param.Type)
+		if err != nil {
+			return funcSig{}, fmt.Errorf("%s: параметр %q имеет неизвестный тип %q: %w", label, param.Name, param.Type, err)
 		}
 		paramTypes[i] = typ
 	}
 	sig := funcSig{ParamTypes: paramTypes}
 	if returnType != "" {
-		typ, ok := typeFromName(returnType)
-		if !ok {
-			return funcSig{}, fmt.Errorf("%s: неизвестный тип результата %q", label, returnType)
+		typ, err := resolveType(ctx, returnType)
+		if err != nil {
+			return funcSig{}, fmt.Errorf("%s: неизвестный тип результата %q: %w", label, returnType, err)
 		}
 		sig.ReturnType = typ
 		sig.HasReturn = true
@@ -444,13 +525,13 @@ func signatureFromDecl(label string, params []ast.Param, returnType string) (fun
 }
 
 // signatureOf выводит funcSig из аннотаций типов в объявлении функции.
-func signatureOf(fn *ast.FunctionDecl) (funcSig, error) {
-	return signatureFromDecl(fmt.Sprintf("функция %q", fn.Name), fn.Params, fn.ReturnType)
+func signatureOf(ctx *genCtx, fn *ast.FunctionDecl) (funcSig, error) {
+	return signatureFromDecl(ctx, fmt.Sprintf("функция %q", fn.Name), fn.Params, fn.ReturnType)
 }
 
 // methodSignatureOf - то же самое для метода сущности (шаг 4.d).
-func methodSignatureOf(ent *ast.EntityDecl, m *ast.MethodDecl) (funcSig, error) {
-	return signatureFromDecl(fmt.Sprintf("сущность %q: метод %q", ent.Name, m.Name), m.Params, m.ReturnType)
+func methodSignatureOf(ctx *genCtx, ent *ast.EntityDecl, m *ast.MethodDecl) (funcSig, error) {
+	return signatureFromDecl(ctx, fmt.Sprintf("сущность %q: метод %q", ent.Name, m.Name), m.Params, m.ReturnType)
 }
 
 // combineParamList добавляет extraParam (скрытый первый параметр this_ у
@@ -489,9 +570,18 @@ func prototypeOfMethod(ent *ast.EntityDecl, m *ast.MethodDecl, sig funcSig) stri
 
 // entitySig - сигнатура сущности: поля в порядке объявления (для
 // конструктора и доступа к полю, шаг 4.b) с их типами.
+//
+// ElemType/IsList заполнены только для синтезированной инстанциации
+// "Список<T>" (шаг 4.2) - нулевые у обычных сущностей и у Стопки/Очереди.
+// Список - единственная из встроенных коллекций, которую можно перебрать
+// циклом "для x в список" (generateStmt, *ast.ForStmt), поэтому именно ему
+// нужно нести тип элемента там, где это увидит кодогенерация цикла.
 type entitySig struct {
 	FieldNames []string
 	FieldTypes []valueType
+
+	IsList   bool
+	ElemType valueType
 }
 
 // fieldIndex возвращает индекс поля name в sig, или -1, если такого поля
@@ -510,13 +600,13 @@ func (sig entitySig) fieldIndex(name string) int {
 // что и для функций/переменных/сущностей) - здесь, а не в
 // generateEntityStruct, чтобы сигнатура (нужна и NewExpr, и FieldAccess) не
 // зависела от того, генерируется ли typedef прямо сейчас.
-func entitySignatureOf(ent *ast.EntityDecl) (entitySig, error) {
+func entitySignatureOf(ctx *genCtx, ent *ast.EntityDecl) (entitySig, error) {
 	fieldMangled := map[string]string{}
 	var sig entitySig
 	for _, f := range ent.Fields {
-		typ, ok := typeFromName(f.Type)
-		if !ok {
-			return entitySig{}, fmt.Errorf("сущность %q: поле %q имеет неизвестный тип %q", ent.Name, f.Name, f.Type)
+		typ, err := resolveType(ctx, f.Type)
+		if err != nil {
+			return entitySig{}, fmt.Errorf("сущность %q: поле %q имеет неизвестный тип %q: %w", ent.Name, f.Name, f.Type, err)
 		}
 		mangled := mangleField(f.Name)
 		if other, exists := fieldMangled[mangled]; exists {
@@ -555,6 +645,88 @@ const strConcatHelper = `static char *rech_str_concat(const char *a, const char 
     return out;
 }
 `
+
+// panicHelper - аварийное завершение процесса с понятным сообщением (шаг
+// 4.2, встроенные коллекции): снять/извлечь с пустой Стопки/Очереди,
+// индекс вне границ у Списка. В языке ещё нет исключений (шаг 14) - это
+// осознанно временное, но безопасное поведение (аналог паники в Go/Rust),
+// которое естественно заменится на выброс исключения, когда шаг 14
+// появится - вызывающий Rech-код уже сейчас не может ни поймать, ни
+// проигнорировать эту ошибку, так что замена не будет ломать поведение
+// корректных программ.
+const panicHelper = `static void rech_panic(const char *msg) {
+    fprintf(stderr, "выполнение прервано: %s\n", msg);
+    exit(1);
+}
+`
+
+// synthesizeList синтезирует C typedef struct + функции для конкретной
+// инстанциации "Список<T>" (name, например "Список<Целое>") и регистрирует
+// её в ctx.entities/ctx.methods - дальше genMethodCall/genFieldAccess и
+// цикл "для x в список" (шаг 4.2.b) обращаются с ней как с обычной
+// сущностью. Внутреннее представление - growable array (data/len/cap,
+// realloc с удвоением ёмкости) - деталь реализации, не видна в Rech: у
+// сущности нет доступных из Rech полей (entitySig.FieldNames пустой),
+// только методы.
+func synthesizeList(ctx *genCtx, name string, elem valueType) {
+	ctx.usesGenerics = true
+	structName := mangleType(name)
+	elemC := elem.cType()
+	add := mangleMethod(name, "добавить")
+	get := mangleMethod(name, "получить")
+	set := mangleMethod(name, "установить")
+	length := mangleMethod(name, "длина")
+	empty := mangleMethod(name, "пусто")
+	outOfRange := escapeCString(fmt.Sprintf("индекс вне границ у %s", name))
+
+	fmt.Fprintf(&ctx.genericsCode, `typedef struct {
+    %[1]s *data;
+    long long len;
+    long long cap;
+} %[2]s;
+
+static void %[3]s(%[2]s *this_, %[1]s value) {
+    if (this_->len == this_->cap) {
+        this_->cap = this_->cap == 0 ? 4 : this_->cap * 2;
+        this_->data = realloc(this_->data, sizeof(%[1]s) * this_->cap);
+    }
+    this_->data[this_->len] = value;
+    this_->len++;
+}
+
+static %[1]s %[4]s(%[2]s *this_, long long index) {
+    if (index < 0 || index >= this_->len) {
+        rech_panic("%[7]s");
+    }
+    return this_->data[index];
+}
+
+static void %[5]s(%[2]s *this_, long long index, %[1]s value) {
+    if (index < 0 || index >= this_->len) {
+        rech_panic("%[7]s");
+    }
+    this_->data[index] = value;
+}
+
+static long long %[6]s(%[2]s *this_) {
+    return this_->len;
+}
+
+static bool %[8]s(%[2]s *this_) {
+    return this_->len == 0;
+}
+
+`, elemC, structName, add, get, set, length, outOfRange, empty)
+
+	ctx.entities[name] = entitySig{IsList: true, ElemType: elem}
+	ctx.methods[name] = map[string]funcSig{
+		"добавить":   {ParamTypes: []valueType{elem}},
+		"получить":   {ParamTypes: []valueType{typeInt}, ReturnType: elem, HasReturn: true},
+		"установить": {ParamTypes: []valueType{typeInt, elem}},
+		"длина":      {ReturnType: typeInt, HasReturn: true},
+		"пусто":      {ReturnType: typeBool, HasReturn: true},
+	}
+}
 
 func generateFunction(sb *strings.Builder, ctx *genCtx, fn *ast.FunctionDecl) error {
 	sig := ctx.funcs[fn.Name] // уже посчитана в Generate (signatureOf)
@@ -991,7 +1163,18 @@ func genMethodCall(ctx *genCtx, e *ast.MethodCallExpr) (string, funcSig, error) 
 func genNewExpr(ctx *genCtx, e *ast.NewExpr) (string, valueType, error) {
 	sig, ok := ctx.entities[e.Type]
 	if !ok {
-		return "", typeUnknown, fmt.Errorf("строка %d: сущность %q не объявлена", e.Line, e.Type)
+		// Не пользовательская сущность и ещё не встречавшаяся generic-
+		// инстанциация (шаг 4.2) - resolveType при необходимости синтезирует
+		// её (typedef struct + методы в ctx.genericsCode) и зарегистрирует в
+		// ctx.entities; если e.Type в принципе не тип (ни примитив, ни
+		// сущность, ни известный generic-шаблон) - вернёт понятную ошибку.
+		if _, err := resolveType(ctx, e.Type); err != nil {
+			return "", typeUnknown, fmt.Errorf("строка %d: %w", e.Line, err)
+		}
+		sig, ok = ctx.entities[e.Type]
+		if !ok {
+			return "", typeUnknown, fmt.Errorf("строка %d: сущность %q не объявлена", e.Line, e.Type)
+		}
 	}
 	if len(e.Args) != len(sig.FieldNames) {
 		return "", typeUnknown, fmt.Errorf("строка %d: конструктор %q ожидает значений полей: %d, передано: %d", e.Line, e.Type, len(sig.FieldNames), len(e.Args))

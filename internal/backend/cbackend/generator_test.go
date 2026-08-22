@@ -290,7 +290,7 @@ func TestGenerateNewExprUndeclaredEntity(t *testing.T) {
 		&ast.VarDecl{Name: "p", Value: &ast.NewExpr{Type: "Неизвестная"}},
 	}}
 	_, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
-	if err == nil || !strings.Contains(err.Error(), "не объявлена") {
+	if err == nil || !strings.Contains(err.Error(), "неизвестный тип") {
 		t.Fatalf("ожидалась ошибка про необъявленную сущность, получено: %v", err)
 	}
 }
@@ -477,5 +477,76 @@ func TestGenerateFunctionWithoutParamsUsesVoid(t *testing.T) {
 	}
 	if !strings.Contains(out, "int rech_nichego(void) {") {
 		t.Fatalf("ожидалась сигнатура с (void), получено:\n%s", out)
+	}
+}
+
+func TestGenerateListInstantiationAndMethods(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "числа", Value: &ast.NewExpr{Type: "Список<Целое>"}},
+		&ast.ExprStmt{MethodCall: &ast.MethodCallExpr{
+			Receiver: &ast.Identifier{Name: "числа"}, Method: "добавить", Args: []ast.Expr{&ast.IntLiteral{Value: 5}},
+		}},
+		&ast.PrintStmt{Value: &ast.MethodCallExpr{Receiver: &ast.Identifier{Name: "числа"}, Method: "получить", Args: []ast.Expr{&ast.IntLiteral{Value: 0}}}},
+	}}
+	out, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "typedef struct {") || !strings.Contains(out, "} rech_T_spisok_of_celoe;") {
+		t.Fatalf("ожидался typedef struct для Список<Целое>, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "rech_M_spisok_of_celoe_dobavit(&(v_chisla), 5LL)") {
+		t.Fatalf("ожидался вызов добавить с адресом получателя, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "static void rech_panic(") {
+		t.Fatalf("ожидался хелпер rech_panic (нужен для получить/установить), получено:\n%s", out)
+	}
+}
+
+func TestGenerateListWrongElementTypeArgument(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "числа", Value: &ast.NewExpr{Type: "Список<Целое>"}},
+		&ast.ExprStmt{MethodCall: &ast.MethodCallExpr{
+			Receiver: &ast.Identifier{Name: "числа"}, Method: "добавить", Args: []ast.Expr{&ast.StringLiteral{Value: "текст"}},
+		}},
+	}}
+	_, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
+	if err == nil || !strings.Contains(err.Error(), "должен быть типа") {
+		t.Fatalf("ожидалась ошибка несовпадения типа элемента, получено: %v", err)
+	}
+}
+
+func TestGenerateListElementEntityUnsupported(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "p", Value: &ast.NewExpr{Type: "Пользователь", Args: []ast.Expr{&ast.StringLiteral{Value: "x"}, &ast.IntLiteral{Value: 1}}}},
+		&ast.VarDecl{Name: "список", Value: &ast.NewExpr{Type: "Список<Пользователь>"}},
+	}}
+	_, err := Generate(&ast.Program{Entities: []*ast.EntityDecl{entityUser()}, Functions: []*ast.FunctionDecl{main}})
+	if err == nil || !strings.Contains(err.Error(), "только для Строка/Целое/Число/Логическое") {
+		t.Fatalf("ожидалась ошибка про неподдерживаемый элемент-сущность, получено: %v", err)
+	}
+}
+
+func TestGenerateUnknownGenericTemplate(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "x", Value: &ast.NewExpr{Type: "Мешок<Целое>"}},
+	}}
+	_, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
+	if err == nil || !strings.Contains(err.Error(), "неизвестный generic-тип") {
+		t.Fatalf("ожидалась ошибка про неизвестный generic-шаблон, получено: %v", err)
+	}
+}
+
+func TestGenerateTwoListInstantiationsCoexist(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "числа", Value: &ast.NewExpr{Type: "Список<Целое>"}},
+		&ast.VarDecl{Name: "слова", Value: &ast.NewExpr{Type: "Список<Строка>"}},
+	}}
+	out, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "rech_T_spisok_of_celoe") || !strings.Contains(out, "rech_T_spisok_of_stroka") {
+		t.Fatalf("ожидались обе инстанциации Списка, получено:\n%s", out)
 	}
 }

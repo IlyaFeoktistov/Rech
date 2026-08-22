@@ -457,6 +457,39 @@ func TestParseMethodRequiresParens(t *testing.T) {
 	}
 }
 
+func TestParseGenericTypeNameInNewExpr(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная {
+    переменная числа = создать Список<Целое>()
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	varDecl := prog.Functions[0].Body[0].(*ast.VarDecl)
+	newExpr, ok := varDecl.Value.(*ast.NewExpr)
+	if !ok || newExpr.Type != "Список<Целое>" {
+		t.Fatalf("ожидался NewExpr с типом \"Список<Целое>\", получено %+v", varDecl.Value)
+	}
+}
+
+func TestParseGenericTypeNameInParamAndReturnType(t *testing.T) {
+	prog, err := parseSource(t, `
+функция обработать(кого: Список<Строка>): Список<Целое> { вернуть кого }
+функция главная { вывести "ок" }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	fn := prog.Functions[0]
+	if fn.Params[0].Type != "Список<Строка>" {
+		t.Fatalf("ожидался тип параметра \"Список<Строка>\", получено %q", fn.Params[0].Type)
+	}
+	if fn.ReturnType != "Список<Целое>" {
+		t.Fatalf("ожидался тип результата \"Список<Целое>\", получено %q", fn.ReturnType)
+	}
+}
+
 func TestParseReturnWithoutValueStillWorks(t *testing.T) {
 	prog, err := parseSource(t, `
 функция главная {
