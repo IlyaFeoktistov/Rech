@@ -2,6 +2,7 @@ package interp
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
@@ -167,6 +168,9 @@ func arithmetic(op string, l, r Value) Value {
 	case "*":
 		return intValue(l.I * r.I)
 	case "/":
+		if r.I == 0 {
+			panicRuntime("%s", rtmsg.DivisionByZero)
+		}
 		return intValue(l.I / r.I)
 	}
 	return Value{}
@@ -358,6 +362,28 @@ func (in *Interp) evalCollectionMethod(obj *entityObj, e *ir.MethodCallExpr, env
 // (точность 6 значащих цифр, дефолт printf) для Число, "истина"/"ложь" для
 // Логическое - иначе сравнение вывода интерпретатора со скомпилированной
 // программой byte-for-byte не имело бы смысла.
+// formatFloatForPrint - как %g в сгенерированном C (printCall), включая
+// бесконечности: printf("%g", ...) печатает "inf"/"-inf", а
+// strconv.FormatFloat - "+Inf"/"-Inf" - без этой поправки печать
+// разошлась бы между интерпретатором и скомпилированной программой.
+// NaN печатается как "nan" без знака - у glibc есть свой (платформенно-
+// зависимый, не гарантированный ни C, ни IEEE 754) выбор знакового бита
+// для NaN, полученного как результат вычисления (например, 0.0/0.0) - это
+// деталь конкретной реализации libm, а не что-то, что язык обещает
+// воспроизводить побитово.
+func formatFloatForPrint(f float64) string {
+	switch {
+	case math.IsInf(f, 1):
+		return "inf"
+	case math.IsInf(f, -1):
+		return "-inf"
+	case math.IsNaN(f):
+		return "nan"
+	default:
+		return strconv.FormatFloat(f, 'g', 6, 64)
+	}
+}
+
 func (in *Interp) printValue(v Value) {
 	switch v.Type.Kind {
 	case ir.KindString:
@@ -365,7 +391,7 @@ func (in *Interp) printValue(v Value) {
 	case ir.KindInt:
 		fmt.Fprintln(in.out, strconv.FormatInt(v.I, 10))
 	case ir.KindFloat:
-		fmt.Fprintln(in.out, strconv.FormatFloat(v.F, 'g', 6, 64))
+		fmt.Fprintln(in.out, formatFloatForPrint(v.F))
 	case ir.KindBool:
 		if v.B {
 			fmt.Fprintln(in.out, "истина")

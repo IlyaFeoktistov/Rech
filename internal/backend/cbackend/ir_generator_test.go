@@ -225,6 +225,22 @@ func TestGenerateFromIRBecomeStmtEmitsNoCode(t *testing.T) {
 	}
 }
 
+func TestGenerateFromIRIntDivisionUsesCheckedHelper(t *testing.T) {
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.PrintStmt{Value: &ir.BinaryExpr{Op: "/", Left: &ir.IntLiteral{Value: 7}, Right: &ir.IntLiteral{Value: 2}, Type: ir.TypeInt}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "rech_int_div(7LL, 2LL)") {
+		t.Fatalf("ожидался вызов rech_int_div, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "static long long rech_int_div(") {
+		t.Fatalf("ожидалось определение rech_int_div, получено:\n%s", out)
+	}
+}
+
 func TestGenerateFromIRAssertStmt(t *testing.T) {
 	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
 		&ir.AssertStmt{Cond: &ir.BoolLiteral{Value: true}, Line: 4},

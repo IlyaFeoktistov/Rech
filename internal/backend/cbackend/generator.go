@@ -274,9 +274,14 @@ type genCtx struct {
 	usesStrCmp bool
 	// usesPanic - нужен ли rech_panic (helper аварийного завершения
 	// процесса): встроенные generic-коллекции (выход за границы/операция на
-	// пустой коллекции, шаг 4.2) и "утверждать" (ложное условие) - оба
-	// случая используют один и тот же helper.
+	// пустой коллекции, шаг 4.2), "утверждать" (ложное условие) и
+	// целочисленное деление на ноль - все случаи используют один и тот же
+	// helper.
 	usesPanic bool
+	// usesIntDiv - нужен ли rech_int_div (целочисленное "/" с проверкой на
+	// ноль, в отличие от "/" между Число, где деление на 0.0 - IEEE 754
+	// +-Inf/NaN, не ошибка, и генерируется как обычный оператор C).
+	usesIntDiv bool
 
 	// genericsCode - C-код (typedef struct + функции), синтезированный для
 	// встроенных generic-коллекций (Список/Стопка/Очередь, шаг 4.2) по мере
@@ -530,6 +535,10 @@ func Generate(prog *ast.Program) (string, error) {
 		sb.WriteString(panicHelper)
 		sb.WriteString("\n")
 	}
+	if ctx.usesIntDiv {
+		sb.WriteString(intDivHelper)
+		sb.WriteString("\n")
+	}
 	if typedefs.Len() > 0 {
 		sb.WriteString(typedefs.String())
 	}
@@ -713,6 +722,18 @@ var panicHelper = fmt.Sprintf(`static void rech_panic(const char *msg) {
     exit(1);
 }
 `, rtmsg.PanicPrefix)
+
+// intDivHelper - целочисленное "/" с проверкой делителя на ноль (без него
+// это UB в C - обычно SIGFPE, платформенно-зависимое поведение, а не
+// понятная ошибка) - требует rech_panic (usesPanic ставится вместе с
+// usesIntDiv, см. вызывающий код).
+var intDivHelper = fmt.Sprintf(`static long long rech_int_div(long long a, long long b) {
+    if (b == 0) {
+        rech_panic("%s");
+    }
+    return a / b;
+}
+`, rtmsg.DivisionByZero)
 
 // synthesizeList синтезирует C typedef struct + функции для конкретной
 // инстанциации "Список<T>" (name, например "Список<Целое>") и регистрирует
@@ -1596,9 +1617,9 @@ func genBinaryExpr(ctx *genCtx, e *ast.BinaryExpr) (string, valueType, error) {
 			ctx.usesConcat = true
 			return fmt.Sprintf("rech_str_concat(%s, %s)", lc, rc), typeString, nil
 		}
-		return genArithmetic(e, "+", lc, lt, rc, rt)
+		return genArithmetic(ctx, e, "+", lc, lt, rc, rt)
 	case "-", "*", "/":
-		return genArithmetic(e, e.Op, lc, lt, rc, rt)
+		return genArithmetic(ctx, e, e.Op, lc, lt, rc, rt)
 
 	case "==", "!=":
 		if lt == typeString && rt == typeString {
@@ -1635,7 +1656,7 @@ func genBinaryExpr(ctx *genCtx, e *ast.BinaryExpr) (string, valueType, error) {
 	}
 }
 
-func genArithmetic(e *ast.BinaryExpr, op string, lc string, lt valueType, rc string, rt valueType) (string, valueType, error) {
+func genArithmetic(ctx *genCtx, e *ast.BinaryExpr, op string, lc string, lt valueType, rc string, rt valueType) (string, valueType, error) {
 	if lt != typeInt && lt != typeFloat {
 		return "", typeUnknown, fmt.Errorf("строка %d: оператор %q не поддерживается для типа %s", e.Line, op, lt)
 	}
@@ -1650,6 +1671,11 @@ func genArithmetic(e *ast.BinaryExpr, op string, lc string, lt valueType, rc str
 			rc = fmt.Sprintf("((double)%s)", rc)
 		}
 		return fmt.Sprintf("(%s %s %s)", lc, op, rc), typeFloat, nil
+	}
+	if op == "/" {
+		ctx.usesPanic = true
+		ctx.usesIntDiv = true
+		return fmt.Sprintf("rech_int_div(%s, %s)", lc, rc), typeInt, nil
 	}
 	return fmt.Sprintf("(%s %s %s)", lc, op, rc), typeInt, nil
 }

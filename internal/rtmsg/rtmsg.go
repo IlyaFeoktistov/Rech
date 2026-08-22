@@ -33,3 +33,9 @@ func EmptyStackOp(typeName string) string {
 func EmptyQueueOp(typeName string) string {
 	return fmt.Sprintf("нельзя извлечь/получить первый элемент пустой %s", typeName)
 }
+
+// DivisionByZero - сообщение при делении Целое на ноль. Только для
+// целочисленного деления - деление Число (float64) на 0.0 по IEEE 754 даёт
+// +-Inf/NaN, не аварийное завершение, и одинаково ведёт себя в C и в Go, не
+// нуждается в отдельной проверке.
+const DivisionByZero = "деление на ноль"

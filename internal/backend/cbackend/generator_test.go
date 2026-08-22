@@ -778,6 +778,35 @@ func TestGenerateBecomeStmtUnknownStateFails(t *testing.T) {
 	}
 }
 
+func TestGenerateIntDivisionUsesCheckedHelper(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.PrintStmt{Value: &ast.BinaryExpr{Op: "/", Left: &ast.IntLiteral{Value: 7}, Right: &ast.IntLiteral{Value: 2}}},
+	}}
+	out, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "rech_int_div(7LL, 2LL)") {
+		t.Fatalf("ожидался вызов rech_int_div, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "static long long rech_int_div(") {
+		t.Fatalf("ожидалось определение rech_int_div, получено:\n%s", out)
+	}
+}
+
+func TestGenerateFloatDivisionDoesNotUseCheckedHelper(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.PrintStmt{Value: &ast.BinaryExpr{Op: "/", Left: &ast.FloatLiteral{Value: 7}, Right: &ast.FloatLiteral{Value: 2}}},
+	}}
+	out, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if strings.Contains(out, "rech_int_div") {
+		t.Fatalf("деление Число/Число не должно использовать целочисленный helper, получено:\n%s", out)
+	}
+}
+
 func TestGenerateAssertStmtValidCondition(t *testing.T) {
 	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
 		&ast.AssertStmt{Cond: &ast.BoolLiteral{Value: true}},

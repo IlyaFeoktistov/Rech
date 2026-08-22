@@ -132,6 +132,49 @@ func TestRunEntityValueSemanticsCopyOnAssign(t *testing.T) {
 // не решает сам, что делать с ошибкой выполнения программы Rech - это
 // нужно "rech test", чтобы продолжить проверку остальных тестов после
 // одного неудачного, а не завершить весь процесс.
+func TestRunIntDivisionByZeroReturnsErrorNotCrash(t *testing.T) {
+	toks, err := lexer.New(`
+функция главная
+{
+    вывести "до"
+    переменная а = 1 / 0
+    вывести а
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	irProg, err := semantic.Analyze(prog)
+	if err != nil {
+		t.Fatalf("семантический анализ: %v", err)
+	}
+	var buf bytes.Buffer
+	err = Run(irProg, &buf)
+	if err == nil || !strings.Contains(err.Error(), "деление на ноль") {
+		t.Fatalf("ожидалась ошибка про деление на ноль, получено: %v", err)
+	}
+	if buf.String() != "до\n" {
+		t.Fatalf("получили вывод %q", buf.String())
+	}
+}
+
+func TestRunFloatDivisionByZeroDoesNotPanic(t *testing.T) {
+	got := runSrc(t, `
+функция главная
+{
+    переменная а = 1.0 / 0.0
+    вывести а
+}
+`)
+	if got != "inf\n" {
+		t.Fatalf("получили %q", got)
+	}
+}
+
 func TestRunCollectionOutOfRangePanics(t *testing.T) {
 	toks, err := lexer.New(`
 функция главная

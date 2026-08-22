@@ -41,10 +41,13 @@ import (
 type irGenCtx struct {
 	usesConcat bool
 	usesStrCmp bool
-	// usesPanic - нужен ли rech_panic - "утверждать" с ложным условием
-	// (generic-коллекции сами по себе учтены отдельно через
-	// usesGenerics/prog.Generics в GenerateFromIR, не через этот флаг).
-	usesPanic  bool
+	// usesPanic - нужен ли rech_panic - "утверждать" с ложным условием и
+	// целочисленное деление на ноль (generic-коллекции сами по себе учтены
+	// отдельно через usesGenerics/prog.Generics в GenerateFromIR, не через
+	// этот флаг).
+	usesPanic bool
+	// usesIntDiv - нужен ли rech_int_div (см. cbackend.genArithmetic).
+	usesIntDiv bool
 	entities   map[string]*ir.Entity
 	thisEntity string
 }
@@ -138,6 +141,10 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	}
 	if usesGenerics || ctx.usesPanic {
 		sb.WriteString(panicHelper)
+		sb.WriteString("\n")
+	}
+	if ctx.usesIntDiv {
+		sb.WriteString(intDivHelper)
 		sb.WriteString("\n")
 	}
 	if typedefs.Len() > 0 {
@@ -498,10 +505,10 @@ func generateIRBinaryExpr(ctx *irGenCtx, e *ir.BinaryExpr) (string, valueType, e
 			ctx.usesConcat = true
 			return fmt.Sprintf("rech_str_concat(%s, %s)", lc, rc), typeString, nil
 		}
-		return generateIRArithmetic(e.Op, lc, lt, rc, rt)
+		return generateIRArithmetic(ctx, e.Op, lc, lt, rc, rt)
 
 	case "-", "*", "/":
-		return generateIRArithmetic(e.Op, lc, lt, rc, rt)
+		return generateIRArithmetic(ctx, e.Op, lc, lt, rc, rt)
 
 	case "==", "!=":
 		if lt == ir.TypeString && rt == ir.TypeString {
@@ -532,7 +539,7 @@ func generateIRBinaryExpr(ctx *irGenCtx, e *ir.BinaryExpr) (string, valueType, e
 // generateIRArithmetic - "+" (нестроковый)/"-"/"*"/"/": приведение
 // операнда к double при смешении Целое/Число - та же промоция, что и в
 // cbackend.genArithmetic (AST-путь).
-func generateIRArithmetic(op string, lc string, lt ir.Type, rc string, rt ir.Type) (string, valueType, error) {
+func generateIRArithmetic(ctx *irGenCtx, op string, lc string, lt ir.Type, rc string, rt ir.Type) (string, valueType, error) {
 	if lt == ir.TypeFloat || rt == ir.TypeFloat {
 		if lt == ir.TypeInt {
 			lc = fmt.Sprintf("((double)%s)", lc)
@@ -541,6 +548,11 @@ func generateIRArithmetic(op string, lc string, lt ir.Type, rc string, rt ir.Typ
 			rc = fmt.Sprintf("((double)%s)", rc)
 		}
 		return fmt.Sprintf("(%s %s %s)", lc, op, rc), typeFloat, nil
+	}
+	if op == "/" {
+		ctx.usesPanic = true
+		ctx.usesIntDiv = true
+		return fmt.Sprintf("rech_int_div(%s, %s)", lc, rc), typeInt, nil
 	}
 	return fmt.Sprintf("(%s %s %s)", lc, op, rc), typeInt, nil
 }
