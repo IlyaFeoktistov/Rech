@@ -96,7 +96,7 @@ func RunFile(path string) Result {
 		return Result{Path: path, Err: err}
 	}
 	var buf bytes.Buffer
-	if err := interp.Run(irProg, &buf); err != nil {
+	if err := interp.Run(irProg, &buf, os.Stdin); err != nil {
 		return Result{Path: path, Err: err, Stdout: buf.String()}
 	}
 	return Result{Path: path, Passed: true, Stdout: buf.String()}

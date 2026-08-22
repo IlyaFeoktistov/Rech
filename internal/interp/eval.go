@@ -44,10 +44,6 @@ func (in *Interp) evalExpr(e ir.Expr, env *Env, cc *callCtx) (Value, error) {
 		return in.evalBinary(e, env, cc)
 
 	case *ir.CallExpr:
-		fn, ok := in.funcs[e.Callee]
-		if !ok {
-			return Value{}, fmt.Errorf("функция %q не найдена во время исполнения", e.Callee)
-		}
 		args := make([]Value, len(e.Args))
 		for i, a := range e.Args {
 			v, err := in.evalExpr(a, env, cc)
@@ -55,6 +51,13 @@ func (in *Interp) evalExpr(e ir.Expr, env *Env, cc *callCtx) (Value, error) {
 				return Value{}, err
 			}
 			args[i] = v
+		}
+		if v, ok := in.evalBuiltinCall(e.Callee, args); ok {
+			return v, nil
+		}
+		fn, ok := in.funcs[e.Callee]
+		if !ok {
+			return Value{}, fmt.Errorf("функция %q не найдена во время исполнения", e.Callee)
 		}
 		return in.callFunction(fn, args)
 

@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/builtins"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
@@ -261,6 +262,37 @@ type funcSig struct {
 	Private bool
 }
 
+// builtinValueType переводит internal/builtins.Kind (общий для cbackend и
+// internal/semantic, ничего не знающий про конкретный valueType/ir.Type) в
+// valueType этого пакета.
+func builtinValueType(k builtins.Kind) valueType {
+	switch k {
+	case builtins.KindInt:
+		return typeInt
+	case builtins.KindFloat:
+		return typeFloat
+	case builtins.KindString:
+		return typeString
+	default:
+		return typeUnknown
+	}
+}
+
+// registerBuiltins заполняет ctx.funcs встроенными функциями шага 8
+// (internal/builtins - ввод консоли, базовая математика) до разбора
+// пользовательских функций программы, чтобы коллизия имени между
+// пользовательской функцией и встроенной ловилась явной проверкой (см.
+// Generate) той же формы, что и обычный дубль имени функции.
+func registerBuiltins(ctx *genCtx) {
+	for _, f := range builtins.All {
+		params := make([]valueType, len(f.Params))
+		for i, k := range f.Params {
+			params[i] = builtinValueType(k)
+		}
+		ctx.funcs[f.Name] = funcSig{ParamTypes: params, ReturnType: builtinValueType(f.ReturnKind), HasReturn: true}
+	}
+}
+
 // genCtx - состояние генерации одной функции: стек областей видимости
 // (шаг 2 - если/иначе/пока/для вводят вложенные блоки, как в C) и флаги
 // использованных runtime-хелперов (влияют на пролог файла).
@@ -287,6 +319,16 @@ type genCtx struct {
 	// ноль, в отличие от "/" между Число, где деление на 0.0 - IEEE 754
 	// +-Inf/NaN, не ошибка, и генерируется как обычный оператор C).
 	usesIntDiv bool
+	// usesMath - нужен ли <math.h> (встроенные функции шага 8: корень,
+	// степень, округлить, потолок, пол, модуль - internal/builtins).
+	usesMath bool
+	// usesConsoleInput - нужны ли rech_read_line/rech_read_int/
+	// rech_read_float (встроенные функции шага 8: прочитатьСтроку,
+	// прочитатьЦелое, прочитатьЧисло) - все три хелпера эмитятся вместе,
+	// если использован хоть один (rech_read_int/rech_read_float построены
+	// поверх rech_read_line). Подразумевает usesPanic (некорректный формат
+	// ввода/конец ввода - тот же rech_panic, что и везде).
+	usesConsoleInput bool
 
 	// genericsCode - C-код (typedef struct + функции), синтезированный для
 	// встроенных generic-коллекций (Список/Стопка/Очередь, шаг 4.2) по мере
@@ -386,6 +428,7 @@ func indent(depth int) string {
 // Generate возвращает исходник на C, соответствующий программе prog.
 func Generate(prog *ast.Program) (string, error) {
 	ctx := &genCtx{funcs: map[string]funcSig{}, entities: map[string]entitySig{}, methods: map[string]map[string]funcSig{}, stateAliases: map[string]string{}}
+	registerBuiltins(ctx)
 
 	// funcMangled - устойчивое мангирование имён функций (шаг 3.5):
 	// мангл-имя -> оригинальное русское имя. Ловит коллизию двух РАЗНЫХ
@@ -474,6 +517,9 @@ func Generate(prog *ast.Program) (string, error) {
 			hasEntryPoint = true
 		}
 		if _, exists := ctx.funcs[fn.Name]; exists {
+			if _, isBuiltin := builtins.ByName(fn.Name); isBuiltin {
+				return "", fmt.Errorf("функция %q - зарезервированное имя встроенной функции (шаг 8), нельзя объявить свою функцию с этим именем", fn.Name)
+			}
 			return "", fmt.Errorf("функция %q объявлена более одного раза", fn.Name)
 		}
 		if other, exists := funcMangled[mangleName(fn.Name)]; exists {
@@ -525,11 +571,14 @@ func Generate(prog *ast.Program) (string, error) {
 	sb.WriteString("// Автоматически сгенерировано компилятором rech. Не редактировать руками.\n")
 	sb.WriteString("#include <stdio.h>\n")
 	sb.WriteString("#include <stdbool.h>\n")
-	if ctx.usesConcat || ctx.usesStrCmp {
+	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput {
 		sb.WriteString("#include <string.h>\n")
 	}
-	if ctx.usesConcat || ctx.usesPanic {
+	if ctx.usesConcat || ctx.usesPanic || ctx.usesConsoleInput {
 		sb.WriteString("#include <stdlib.h>\n")
+	}
+	if ctx.usesMath {
+		sb.WriteString("#include <math.h>\n")
 	}
 	sb.WriteString("\n")
 	if ctx.usesConcat {
@@ -542,6 +591,10 @@ func Generate(prog *ast.Program) (string, error) {
 	}
 	if ctx.usesIntDiv {
 		sb.WriteString(intDivHelper)
+		sb.WriteString("\n")
+	}
+	if ctx.usesConsoleInput {
+		sb.WriteString(readHelpers)
 		sb.WriteString("\n")
 	}
 	if typedefs.Len() > 0 {
@@ -751,6 +804,86 @@ var intDivHelper = fmt.Sprintf(`static long long rech_int_div(long long a, long 
     return a / b;
 }
 `, rtmsg.DivisionByZero)
+
+// readHelpers - прочитатьСтроку/прочитатьЦелое/прочитатьЧисло (шаг 8, без
+// FFI - стандартный ввод есть у любой программы). rech_read_line
+// намеренно не использует POSIX-only getline (шаг 8 явно требует
+// кроссплатформенности, docs/ROADMAP.md) - растущий буфer поверх обычного
+// fgets, доступного в любом C. Каждый вызов возвращает новый malloc'нутый
+// буфер (как rech_str_concat) - статический/переиспользуемый буфер был бы
+// багом: две переменные, каждая из своего вызова прочитатьСтроку, не
+// должны делить память. rech_read_int/rech_read_float построены поверх
+// rech_read_line - разбирают ровно всю строку (strtoll/strtod плюс
+// проверка, что *end == '\0', как и в других местах разбора чисел) и
+// паникуют с сообщением, включающим то, что реально ввёл пользователь -
+// формат сообщения (буквальные "\"%%s\"") должен совпадать с
+// rtmsg.ReadIntFormat/ReadFloatFormat (интерпретатор строит то же
+// сообщение через fmt.Sprintf с тем же шаблоном - см. internal/interp).
+var readHelpers = fmt.Sprintf(`static char *rech_read_line(void) {
+    size_t cap = 128, len = 0;
+    char *buf = malloc(cap);
+    for (;;) {
+        if (!fgets(buf + len, (int)(cap - len), stdin)) {
+            if (len == 0) {
+                rech_panic("%s");
+            }
+            break;
+        }
+        len += strlen(buf + len);
+        if (len > 0 && buf[len - 1] == '\n') {
+            break;
+        }
+        if (len + 1 >= cap) {
+            cap *= 2;
+            buf = realloc(buf, cap);
+        }
+    }
+    while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r')) {
+        buf[--len] = '\0';
+    }
+    return buf;
+}
+
+// rech_trim_line обрезает пробелы/табы с обоих концов line на месте -
+// ровно тот же набор символов, что и strings.Trim(line, " \t") на стороне
+// интерпретатора (internal/interp), чтобы "  42  " разбиралось одинаково в
+// обоих путях (strtoll/strtod сами пропускают ведущие пробелы, но не
+// завершающие - без этой обрезки "42 " с одним путём разошлось бы с другим).
+static char *rech_trim_line(char *line) {
+    while (*line == ' ' || *line == '\t') {
+        line++;
+    }
+    size_t len = strlen(line);
+    while (len > 0 && (line[len - 1] == ' ' || line[len - 1] == '\t')) {
+        line[--len] = '\0';
+    }
+    return line;
+}
+
+static long long rech_read_int(void) {
+    char *line = rech_trim_line(rech_read_line());
+    char *end;
+    long long v = strtoll(line, &end, 10);
+    if (end == line || *end != '\0') {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "прочитатьЦелое: \"%%s\" не является целым числом", line);
+        rech_panic(msg);
+    }
+    return v;
+}
+
+static double rech_read_float(void) {
+    char *line = rech_trim_line(rech_read_line());
+    char *end;
+    double v = strtod(line, &end);
+    if (end == line || *end != '\0') {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "прочитатьЧисло: \"%%s\" не является числом", line);
+        rech_panic(msg);
+    }
+    return v;
+}
+`, rtmsg.ReadEOF)
 
 // synthesizeList синтезирует C typedef struct + функции для конкретной
 // инстанциации "Список<T>" (name, например "Список<Целое>") и регистрирует
@@ -1400,7 +1533,54 @@ func genCall(ctx *genCtx, e *ast.CallExpr) (string, funcSig, error) {
 		}
 		argCodes[i] = code
 	}
+	if code, ok := builtinCallCode(ctx, e.Callee, argCodes); ok {
+		return code, sig, nil
+	}
 	return fmt.Sprintf("%s(%s)", mangleName(e.Callee), strings.Join(argCodes, ", ")), sig, nil
+}
+
+// builtinCallCode генерирует C-вызов встроенной функции (internal/builtins,
+// шаг 8) - имя и типы аргументов уже проверены вызывающим кодом (genCall,
+// через ctx.funcs), здесь только выбор конкретного C-вызова и включение
+// нужных runtime-флагов (математика - <math.h>, ввод - rech_read_*, тоже
+// требует usesPanic - некорректный формат ввода/конец ввода паникуют).
+// ok == false - name не встроенная функция, вызывающий код использует
+// обычный путь (mangleName).
+func builtinCallCode(ctx *genCtx, name string, args []string) (string, bool) {
+	switch name {
+	case "корень":
+		ctx.usesMath = true
+		return fmt.Sprintf("sqrt(%s)", args[0]), true
+	case "степень":
+		ctx.usesMath = true
+		return fmt.Sprintf("pow(%s, %s)", args[0], args[1]), true
+	case "округлить":
+		ctx.usesMath = true
+		return fmt.Sprintf("(long long)llround(%s)", args[0]), true
+	case "потолок":
+		ctx.usesMath = true
+		return fmt.Sprintf("(long long)ceil(%s)", args[0]), true
+	case "пол":
+		ctx.usesMath = true
+		return fmt.Sprintf("(long long)floor(%s)", args[0]), true
+	case "модуль":
+		ctx.usesMath = true
+		return fmt.Sprintf("fabs(%s)", args[0]), true
+	case "прочитатьСтроку":
+		ctx.usesConsoleInput = true
+		ctx.usesPanic = true
+		return "rech_read_line()", true
+	case "прочитатьЦелое":
+		ctx.usesConsoleInput = true
+		ctx.usesPanic = true
+		return "rech_read_int()", true
+	case "прочитатьЧисло":
+		ctx.usesConsoleInput = true
+		ctx.usesPanic = true
+		return "rech_read_float()", true
+	default:
+		return "", false
+	}
 }
 
 // receiverAddressable - получатели, которые в сгенерированном C - lvalue:

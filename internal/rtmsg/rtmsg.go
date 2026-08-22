@@ -39,3 +39,21 @@ func EmptyQueueOp(typeName string) string {
 // +-Inf/NaN, не аварийное завершение, и одинаково ведёт себя в C и в Go, не
 // нуждается в отдельной проверке.
 const DivisionByZero = "деление на ноль"
+
+// ReadEOF - сообщение при попытке прочитатьСтроку/прочитатьЦелое/
+// прочитатьЧисло, когда стандартный ввод уже закончился (шаг 8).
+const ReadEOF = "не удалось прочитать: конец ввода"
+
+// ReadIntFormat - сообщение при прочитатьЦелое, если введённая строка - не
+// целое число. Кавычки вокруг input - буквальные "\"%s\"", не Go-verb %q
+// (который экранировал бы спецсимволы иначе, чем C printf "%s") - формат
+// должен совпадать байт-в-байт с cbackend (internal/backend/cbackend.
+// readHelpers, rech_read_int).
+func ReadIntFormat(input string) string {
+	return fmt.Sprintf("прочитатьЦелое: \"%s\" не является целым числом", input)
+}
+
+// ReadFloatFormat - то же самое для прочитатьЧисло.
+func ReadFloatFormat(input string) string {
+	return fmt.Sprintf("прочитатьЧисло: \"%s\" не является числом", input)
+}

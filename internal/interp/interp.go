@@ -30,6 +30,7 @@
 package interp
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 
@@ -165,15 +166,18 @@ func panicRuntime(format string, args ...any) {
 // Interp - состояние интерпретатора одной программы.
 type Interp struct {
 	out      io.Writer
+	stdin    *bufio.Reader
 	funcs    map[string]*ir.Function
 	entities map[string]*ir.Entity
 	generics map[string]ir.GenericInstantiation
 }
 
 // Run исполняет prog: находит "главная" и выполняет её тело, печатая
-// "вывести" в out. Возвращает error и в случае ошибки компиляции (в prog
-// нет точки входа - не должно происходить, если prog прошёл internal/
-// semantic.Analyze, но Run не полагается на это слепо), и в случае ошибки
+// "вывести" в out и читая прочитатьСтроку/прочитатьЦелое/прочитатьЧисло
+// (шаг 8, internal/builtins) из stdin. Возвращает error и в случае ошибки
+// компиляции (в prog нет точки входа - не должно происходить, если prog
+// прошёл internal/semantic.Analyze, но Run не полагается на это слепо), и
+// в случае ошибки
 // времени выполнения самой программы Rech (runtimeError/panicRuntime -
 // перехватывается здесь через recover, превращается в обычный error, а не
 // падает наружу как паника Go или завершает процесс сам - решение о
@@ -186,7 +190,7 @@ type Interp struct {
 // (например, если runtimeError по какой-то причине не покрыл случай) -
 // иначе один упавший файл в "rech test" завершал бы весь прогон вместо
 // того, чтобы считаться одним неудачным тестом.
-func Run(prog *ir.Program, out io.Writer) (err error) {
+func Run(prog *ir.Program, out io.Writer, stdin io.Reader) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if re, ok := r.(*runtimeError); ok {
@@ -199,6 +203,7 @@ func Run(prog *ir.Program, out io.Writer) (err error) {
 
 	in := &Interp{
 		out:      out,
+		stdin:    bufio.NewReader(stdin),
 		funcs:    map[string]*ir.Function{},
 		entities: map[string]*ir.Entity{},
 		generics: map[string]ir.GenericInstantiation{},

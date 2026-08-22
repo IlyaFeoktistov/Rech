@@ -113,6 +113,40 @@ func TestAnalyzeReassignTypeMismatchFails(t *testing.T) {
 	}
 }
 
+func TestAnalyzeBuiltinFunctionCallResolves(t *testing.T) {
+	irProg := parseProgram(t, `
+функция главная
+{
+    переменная x = корень(16.0)
+    вывести x
+}
+`)
+	if len(irProg.Functions) != 1 {
+		t.Fatalf("ожидалась 1 функция, получено %d", len(irProg.Functions))
+	}
+}
+
+func TestAnalyzeBuiltinNameCollisionFails(t *testing.T) {
+	toks, err := lexer.New(`
+функция корень(x: Целое): Целое
+{
+    вернуть x
+}
+функция главная { вывести 1 }
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
+	if err == nil || !strings.Contains(err.Error(), "зарезервированное имя встроенной функции") {
+		t.Fatalf("ожидалась ошибка про зарезервированное имя, получено: %v", err)
+	}
+}
+
 func TestAnalyzeUndeclaredVariableFails(t *testing.T) {
 	toks, err := lexer.New(`
 функция главная

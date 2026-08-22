@@ -807,6 +807,52 @@ func TestGenerateFloatDivisionDoesNotUseCheckedHelper(t *testing.T) {
 	}
 }
 
+func TestGenerateMathBuiltinCall(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.PrintStmt{Value: &ast.CallExpr{Callee: "корень", Args: []ast.Expr{&ast.FloatLiteral{Value: 16}}}},
+	}}
+	out, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "sqrt(16") {
+		t.Fatalf("ожидался вызов sqrt, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "#include <math.h>") {
+		t.Fatalf("ожидался #include <math.h>, получено:\n%s", out)
+	}
+}
+
+func TestGenerateConsoleInputBuiltinCall(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.PrintStmt{Value: &ast.CallExpr{Callee: "прочитатьСтроку"}},
+	}}
+	out, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "rech_read_line()") {
+		t.Fatalf("ожидался вызов rech_read_line, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "static char *rech_read_line(void)") {
+		t.Fatalf("ожидалось определение rech_read_line, получено:\n%s", out)
+	}
+}
+
+func TestGenerateBuiltinNameCollisionFails(t *testing.T) {
+	corень := &ast.FunctionDecl{
+		Name:       "корень",
+		Params:     []ast.Param{{Name: "x", Type: "Целое"}},
+		ReturnType: "Целое",
+		Body:       []ast.Stmt{&ast.ReturnStmt{Value: &ast.Identifier{Name: "x"}}},
+	}
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{&ast.PrintStmt{Value: &ast.IntLiteral{Value: 1}}}}
+	_, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{corень, main}})
+	if err == nil || !strings.Contains(err.Error(), "зарезервированное имя встроенной функции") {
+		t.Fatalf("ожидалась ошибка про зарезервированное имя, получено: %v", err)
+	}
+}
+
 func TestGenerateAssertStmtValidCondition(t *testing.T) {
 	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
 		&ast.AssertStmt{Cond: &ast.BoolLiteral{Value: true}},

@@ -27,7 +27,7 @@ func runSrc(t *testing.T, src string) string {
 		t.Fatalf("семантический анализ: %v", err)
 	}
 	var buf bytes.Buffer
-	if err := Run(irProg, &buf); err != nil {
+	if err := Run(irProg, &buf, strings.NewReader("")); err != nil {
 		t.Fatalf("исполнение: %v", err)
 	}
 	return buf.String()
@@ -155,7 +155,7 @@ func TestRunIntDivisionByZeroReturnsErrorNotCrash(t *testing.T) {
 		t.Fatalf("семантический анализ: %v", err)
 	}
 	var buf bytes.Buffer
-	err = Run(irProg, &buf)
+	err = Run(irProg, &buf, strings.NewReader(""))
 	if err == nil || !strings.Contains(err.Error(), "деление на ноль") {
 		t.Fatalf("ожидалась ошибка про деление на ноль, получено: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestRunCollectionOutOfRangePanics(t *testing.T) {
 		t.Fatalf("семантический анализ: %v", err)
 	}
 	var buf bytes.Buffer
-	err = Run(irProg, &buf)
+	err = Run(irProg, &buf, strings.NewReader(""))
 	if err == nil {
 		t.Fatal("ожидалась ошибка времени выполнения (индекс вне границ)")
 	}
@@ -241,7 +241,7 @@ func TestRunAssertFailsWithLineNumber(t *testing.T) {
 		t.Fatalf("семантический анализ: %v", err)
 	}
 	var buf bytes.Buffer
-	err = Run(irProg, &buf)
+	err = Run(irProg, &buf, strings.NewReader(""))
 	if err == nil {
 		t.Fatal("ожидалась ошибка - утверждение ложно")
 	}
@@ -341,5 +341,112 @@ func TestRunAndOrSymbolSynonyms(t *testing.T) {
 `)
 	if got != "ложь\nистина\n" {
 		t.Fatalf("получили %q", got)
+	}
+}
+
+func runSrcWithInput(t *testing.T, src, input string) string {
+	t.Helper()
+	toks, err := lexer.New(src).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	irProg, err := semantic.Analyze(prog)
+	if err != nil {
+		t.Fatalf("семантический анализ: %v", err)
+	}
+	var buf bytes.Buffer
+	if err := Run(irProg, &buf, strings.NewReader(input)); err != nil {
+		t.Fatalf("исполнение: %v", err)
+	}
+	return buf.String()
+}
+
+func TestRunMathBuiltins(t *testing.T) {
+	got := runSrc(t, `
+функция главная
+{
+    вывести корень(16.0)
+    вывести степень(2.0, 10.0)
+    вывести округлить(3.6)
+    вывести потолок(3.1)
+    вывести пол(3.9)
+    вывести модуль(-5.5)
+}
+`)
+	want := "4\n1024\n4\n4\n3\n5.5\n"
+	if got != want {
+		t.Fatalf("получили %q, ожидалось %q", got, want)
+	}
+}
+
+func TestRunConsoleInputBuiltins(t *testing.T) {
+	got := runSrcWithInput(t, `
+функция главная
+{
+    переменная имя = прочитатьСтроку()
+    переменная возраст = прочитатьЦелое()
+    переменная рост = прочитатьЧисло()
+    вывести имя
+    вывести возраст
+    вывести рост
+}
+`, "Аня\n30\n1.75\n")
+	want := "Аня\n30\n1.75\n"
+	if got != want {
+		t.Fatalf("получили %q, ожидалось %q", got, want)
+	}
+}
+
+func TestRunConsoleInputInvalidIntFormatPanics(t *testing.T) {
+	toks, err := lexer.New(`
+функция главная
+{
+    переменная х = прочитатьЦелое()
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	irProg, err := semantic.Analyze(prog)
+	if err != nil {
+		t.Fatalf("семантический анализ: %v", err)
+	}
+	var buf bytes.Buffer
+	err = Run(irProg, &buf, strings.NewReader("не число"))
+	if err == nil || !strings.Contains(err.Error(), "не является целым числом") {
+		t.Fatalf("ожидалась ошибка формата, получено: %v", err)
+	}
+}
+
+func TestRunConsoleInputEOFPanics(t *testing.T) {
+	toks, err := lexer.New(`
+функция главная
+{
+    переменная х = прочитатьСтроку()
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	irProg, err := semantic.Analyze(prog)
+	if err != nil {
+		t.Fatalf("семантический анализ: %v", err)
+	}
+	var buf bytes.Buffer
+	err = Run(irProg, &buf, strings.NewReader(""))
+	if err == nil || !strings.Contains(err.Error(), "конец ввода") {
+		t.Fatalf("ожидалась ошибка конца ввода, получено: %v", err)
 	}
 }

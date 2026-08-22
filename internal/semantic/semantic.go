@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/builtins"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
@@ -31,6 +32,36 @@ type funcSig struct {
 	// Private - видимость метода (шаг 4.3, ast.MethodDecl.Private); всегда
 	// false для обычных функций - у них нет понятия видимости.
 	Private bool
+}
+
+// builtinIRType переводит internal/builtins.Kind (общий для cbackend и
+// этого пакета, ничего не знающий про конкретный ir.Type/valueType) в
+// ir.Type.
+func builtinIRType(k builtins.Kind) ir.Type {
+	switch k {
+	case builtins.KindInt:
+		return ir.TypeInt
+	case builtins.KindFloat:
+		return ir.TypeFloat
+	case builtins.KindString:
+		return ir.TypeString
+	default:
+		return ir.Type{}
+	}
+}
+
+// registerBuiltinFuncs заполняет funcs встроенными функциями шага 8
+// (internal/builtins) - тот же список и тот же принцип регистрации, что и
+// cbackend.registerBuiltins (AST-путь) - до разбора пользовательских
+// функций программы.
+func registerBuiltinFuncs(funcs map[string]funcSig) {
+	for _, f := range builtins.All {
+		params := make([]ir.Type, len(f.Params))
+		for i, k := range f.Params {
+			params[i] = builtinIRType(k)
+		}
+		funcs[f.Name] = funcSig{Params: params, ReturnType: builtinIRType(f.ReturnKind), HasReturn: true}
+	}
 }
 
 // entitySig - сигнатура сущности: поля в порядке объявления (для
@@ -325,8 +356,12 @@ func Analyze(prog *ast.Program) (*ir.Program, error) {
 // от того, где та объявлена в файле относительно функции.
 func collectFuncSigs(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, prog *ast.Program) (map[string]funcSig, error) {
 	funcs := map[string]funcSig{}
+	registerBuiltinFuncs(funcs)
 	for _, fn := range prog.Functions {
 		if _, exists := funcs[fn.Name]; exists {
+			if _, isBuiltin := builtins.ByName(fn.Name); isBuiltin {
+				return nil, fmt.Errorf("функция %q - зарезервированное имя встроенной функции (шаг 8), нельзя объявить свою функцию с этим именем", fn.Name)
+			}
 			return nil, fmt.Errorf("функция %q объявлена более одного раза", fn.Name)
 		}
 		params := make([]ir.Type, len(fn.Params))

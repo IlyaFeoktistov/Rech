@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/builtins"
 )
 
 // builtinTypeBases - имена типов, встроенных в язык (не требуют ни
@@ -28,10 +29,16 @@ var builtinTypeBases = map[string]bool{
 
 // resolveBareName ищет name (имя функции или простого - не generic - типа)
 // в names (карта "как написано в файле" -> "итоговое, возможно
-// переименованное имя", см. link.go) - встроенные имена возвращаются как
-// есть, не найденное имя - ошибка ("не объявлено и не импортировано").
+// переименованное имя", см. link.go) - встроенные имена (типы из
+// builtinTypeBases, функции шага 8 из internal/builtins - ввод консоли,
+// математика) возвращаются как есть: они не объявлены ни в одном файле
+// Rech-программы и потому не участвуют в переименовании при линковке.
+// Не найденное имя - ошибка ("не объявлено и не импортировано").
 func resolveBareName(name string, names map[string]string) (string, error) {
 	if builtinTypeBases[name] {
+		return name, nil
+	}
+	if _, ok := builtins.ByName(name); ok {
 		return name, nil
 	}
 	resolved, ok := names[name]
