@@ -270,6 +270,38 @@ type CallExpr struct {
 func (*CallExpr) node() {}
 func (*CallExpr) expr() {}
 
+// NewExpr - конструктор сущности, дающий значение:
+//
+//	создать Тип(<арг>, ...)
+//
+// Args - позиционные значения полей, в порядке объявления в EntityDecl.Fields
+// (шаг 4 - только строгий синтаксис; падежное согласование имени типа как
+// прямого дополнения отложено, docs/GRAMMAR.md).
+type NewExpr struct {
+	Type string
+	Args []Expr
+	Line int
+}
+
+func (*NewExpr) node() {}
+func (*NewExpr) expr() {}
+
+// FieldAccess - чтение поля сущности:
+//
+//	receiver.поле
+//
+// Receiver - произвольное выражение (переменная, this и т.д.) - не только
+// IDENT, чтобы в будущем работали цепочки (`x.поле.поле`), даже если шаг 4
+// сам эти цепочки ещё не порождает.
+type FieldAccess struct {
+	Receiver Expr
+	Field    string
+	Line     int
+}
+
+func (*FieldAccess) node() {}
+func (*FieldAccess) expr() {}
+
 // BinaryExpr - бинарная операция. Op - один из:
 // "+" "-" "*" "/" "==" "!=" "<" ">" "<=" ">=" "и" "или".
 type BinaryExpr struct {

@@ -670,6 +670,39 @@ func (p *Parser) parseCallExpr() (*ast.CallExpr, error) {
 	return &ast.CallExpr{Callee: name.Value, Args: args, Line: name.Line}, nil
 }
 
+// parseNewExpr разбирает "создать" IDENT "(" [ expr {"," expr} ] ")" -
+// конструктор сущности (шаг 4). Только строгий синтаксис, аргументы
+// позиционные по порядку полей - падежное согласование имени типа как
+// прямого дополнения отложено (docs/GRAMMAR.md).
+func (p *Parser) parseNewExpr() (ast.Expr, error) {
+	kw := p.advance() // "создать"
+	typeName, err := p.expect(lexer.IDENT)
+	if err != nil {
+		return nil, fmt.Errorf("после \"создать\" ожидалось имя сущности: %w", err)
+	}
+	if _, err := p.expect(lexer.LPAREN); err != nil {
+		return nil, fmt.Errorf("после имени сущности %q ожидалось \"(\": %w", typeName.Value, err)
+	}
+	var args []ast.Expr
+	if p.cur().Type != lexer.RPAREN {
+		for {
+			arg, err := p.parseExpr()
+			if err != nil {
+				return nil, fmt.Errorf("в аргументах конструктора %q: %w", typeName.Value, err)
+			}
+			args = append(args, arg)
+			if p.cur().Type != lexer.COMMA {
+				break
+			}
+			p.advance() // ","
+		}
+	}
+	if _, err := p.expect(lexer.RPAREN); err != nil {
+		return nil, err
+	}
+	return &ast.NewExpr{Type: typeName.Value, Args: args, Line: kw.Line}, nil
+}
+
 // naturalCallPrepositions - предлоги, разрешённые перед аргументом
 // естественного вызова. Чисто декоративные (падеж определяет роль
 // аргумента, не предлог, docs/GRAMMAR.md) - парсер их просто пропускает,
@@ -870,7 +903,27 @@ func (p *Parser) parseUnary() (ast.Expr, error) {
 		}
 		return &ast.UnaryExpr{Op: "-", Operand: operand, Line: op.Line}, nil
 	}
-	return p.parsePrimary()
+	return p.parsePostfix()
+}
+
+// parsePostfix разбирает postfix := primary { "." IDENT }. Цикл (а не
+// одиночная проверка) уже сейчас поддерживает цепочки (`x.поле.поле`),
+// даже если шаг 4 сам их ещё не порождает - незачем переписывать этот
+// уровень грамматики, когда они понадобятся.
+func (p *Parser) parsePostfix() (ast.Expr, error) {
+	expr, err := p.parsePrimary()
+	if err != nil {
+		return nil, err
+	}
+	for p.cur().Type == lexer.DOT {
+		dot := p.advance()
+		field, err := p.expect(lexer.IDENT)
+		if err != nil {
+			return nil, fmt.Errorf("после \".\" ожидалось имя поля: %w", err)
+		}
+		expr = &ast.FieldAccess{Receiver: expr, Field: field.Value, Line: dot.Line}
+	}
+	return expr, nil
 }
 
 func (p *Parser) parsePrimary() (ast.Expr, error) {
@@ -905,6 +958,8 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 		}
 		p.advance()
 		return &ast.Identifier{Name: tok.Value, Line: tok.Line}, nil
+	case lexer.KwCreate:
+		return p.parseNewExpr()
 	case lexer.LPAREN:
 		p.advance()
 		inner, err := p.parseExpr()

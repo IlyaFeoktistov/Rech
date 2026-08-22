@@ -101,6 +101,9 @@ func (l *Lexer) next() (Token, error) {
 	case r == ':':
 		l.advance()
 		return Token{Type: COLON, Value: ":", Line: line, Col: col}, nil
+	case r == '.':
+		l.advance()
+		return Token{Type: DOT, Value: ".", Line: line, Col: col}, nil
 	case r == '+':
 		l.advance()
 		return Token{Type: PLUS, Value: "+", Line: line, Col: col}, nil

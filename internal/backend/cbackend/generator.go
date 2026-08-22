@@ -74,21 +74,52 @@ func mangleField(name string) string {
 	return "f_" + transliterate(name)
 }
 
-// valueType - тип значения выражения, выведенный во время генерации C-кода.
-type valueType int
+// valueTypeKind - "форма" значения: один из встроенных примитивов или
+// kindEntity (конкретная сущность, имя которой несёт само значение
+// valueType.entity - иначе структуре пришлось бы жить снаружи, в отдельном
+// реестре, доступном отовсюду, где сравниваются типы).
+type valueTypeKind int
 
 const (
-	typeUnknown valueType = iota
-	typeString
-	typeInt
-	typeFloat
-	typeBool
+	kindUnknown valueTypeKind = iota
+	kindString
+	kindInt
+	kindFloat
+	kindBool
+	kindEntity
 )
 
-// typeNames - единственное место, где типы Rech связаны с их написанием в
-// исходнике (литералы -> вывод типа в шаге 1, аннотации параметра/результата
-// в шаге 3). valueType.String() и typeFromName - две стороны одной и той же
-// таблицы, а не два независимых списка строк.
+// valueType - тип значения выражения, выведенный во время генерации C-кода.
+// Структура (не голое число), потому что с шага 4 типов больше, чем
+// фиксированный список примитивов - у сущностей есть имя, и оно должно
+// сохраняться в самом значении typeType, чтобы FieldAccess/NewExpr могли
+// сравнивать "тип этого значения" с "тип поля Х" без внешнего контекста.
+// Сравнение (==, !=), использование как ключа map - всё продолжает
+// работать, потому что структура с сравнимыми полями сравнима сама.
+type valueType struct {
+	kind   valueTypeKind
+	entity string // валиден только при kind == kindEntity - оригинальное имя сущности
+}
+
+var (
+	typeUnknown = valueType{kind: kindUnknown}
+	typeString  = valueType{kind: kindString}
+	typeInt     = valueType{kind: kindInt}
+	typeFloat   = valueType{kind: kindFloat}
+	typeBool    = valueType{kind: kindBool}
+)
+
+// entityType возвращает valueType, соответствующий значению сущности name.
+func entityType(name string) valueType {
+	return valueType{kind: kindEntity, entity: name}
+}
+
+// typeNames - единственное место, где ВСТРОЕННЫЕ типы Rech связаны с их
+// написанием в исходнике (литералы -> вывод типа в шаге 1, аннотации
+// параметра/результата в шаге 3). valueType.String() и typeFromName - две
+// стороны одной и той же таблицы для примитивов; сущности (шаг 4) в неё не
+// входят - имя сущности как имя типа разрешается через ctx.entities
+// (typeFromNameOrEntity), а не через эту таблицу.
 var typeNames = map[valueType]string{
 	typeString: "Строка",
 	typeInt:    "Целое",
@@ -97,17 +128,18 @@ var typeNames = map[valueType]string{
 }
 
 func (t valueType) String() string {
+	if t.kind == kindEntity {
+		return t.entity
+	}
 	if name, ok := typeNames[t]; ok {
 		return name
 	}
 	return "неизвестный тип"
 }
 
-// typeFromName маппит имя типа Rech (как оно написано в аннотации параметра
-// или типа результата, шаг 3) на valueType. Единственные типы, доступные до
-// появления сущностей (шаг 4), - те, что перечислены в typeNames; неизвестное
-// имя - ошибка компиляции на стороне вызывающего кода, а не здесь (эта
-// функция только сообщает "не знаю такого").
+// typeFromName маппит имя ВСТРОЕННОГО типа Rech (как оно написано в
+// аннотации параметра, поля или типа результата) на valueType - не знает
+// про сущности, см. typeFromNameOrEntity.
 func typeFromName(name string) (valueType, bool) {
 	for t, n := range typeNames {
 		if n == name {
@@ -118,6 +150,9 @@ func typeFromName(name string) (valueType, bool) {
 }
 
 func (t valueType) cType() string {
+	if t.kind == kindEntity {
+		return mangleType(t.entity)
+	}
 	switch t {
 	case typeString:
 		return "const char *"
@@ -165,6 +200,10 @@ type genCtx struct {
 	// тел (см. funcSig). Не меняется во время генерации тел - только
 	// читается при разборе вызовов.
 	funcs map[string]funcSig
+
+	// entities - сигнатуры всех сущностей программы (entitySig), собранные
+	// до генерации тел - по тем же причинам, что и funcs.
+	entities map[string]entitySig
 
 	// returnType/hasReturnType - тип результата функции, которая сейчас
 	// генерируется (сбрасывается в начале каждого generateFunction).
@@ -221,7 +260,7 @@ func indent(depth int) string {
 
 // Generate возвращает исходник на C, соответствующий программе prog.
 func Generate(prog *ast.Program) (string, error) {
-	ctx := &genCtx{funcs: map[string]funcSig{}}
+	ctx := &genCtx{funcs: map[string]funcSig{}, entities: map[string]entitySig{}}
 
 	// funcMangled - устойчивое мангирование имён функций (шаг 3.5):
 	// мангл-имя -> оригинальное русское имя. Ловит коллизию двух РАЗНЫХ
@@ -250,11 +289,12 @@ func Generate(prog *ast.Program) (string, error) {
 		}
 		entityMangled[mangledType] = ent.Name
 
-		code, err := generateEntityStruct(ent)
+		sig, err := entitySignatureOf(ent)
 		if err != nil {
 			return "", err
 		}
-		typedefs.WriteString(code)
+		ctx.entities[ent.Name] = sig
+		typedefs.WriteString(generateEntityStruct(ent, sig))
 	}
 
 	hasEntryPoint := false
@@ -355,30 +395,52 @@ func prototypeOf(fn *ast.FunctionDecl, sig funcSig) string {
 	return fmt.Sprintf("%s %s(%s);\n", cReturnType, mangleName(fn.Name), cParamList(fn.Params, sig.ParamTypes))
 }
 
-// generateEntityStruct возвращает C typedef struct для ent.
-func generateEntityStruct(ent *ast.EntityDecl) (string, error) {
+// entitySig - сигнатура сущности: поля в порядке объявления (для
+// конструктора и доступа к полю, шаг 4.b) с их типами.
+type entitySig struct {
+	FieldNames []string
+	FieldTypes []valueType
+}
+
+// entitySignatureOf выводит entitySig из аннотаций типов полей ent и заодно
+// проверяет устойчивость мангирования имён полей (шаг 3.5, тот же принцип,
+// что и для функций/переменных/сущностей) - здесь, а не в
+// generateEntityStruct, чтобы сигнатура (нужна и NewExpr, и FieldAccess) не
+// зависела от того, генерируется ли typedef прямо сейчас.
+func entitySignatureOf(ent *ast.EntityDecl) (entitySig, error) {
 	fieldMangled := map[string]string{}
-	var sb strings.Builder
-	sb.WriteString("typedef struct {\n")
-	if len(ent.Fields) == 0 {
-		// В C нет пустых структур - техническое поле-заглушка, пока у
-		// сущности ещё не появилось ни одного поля (методы - позже в шаге 4).
-		sb.WriteString("    char _rech_empty;\n")
-	}
+	var sig entitySig
 	for _, f := range ent.Fields {
 		typ, ok := typeFromName(f.Type)
 		if !ok {
-			return "", fmt.Errorf("сущность %q: поле %q имеет неизвестный тип %q", ent.Name, f.Name, f.Type)
+			return entitySig{}, fmt.Errorf("сущность %q: поле %q имеет неизвестный тип %q", ent.Name, f.Name, f.Type)
 		}
 		mangled := mangleField(f.Name)
 		if other, exists := fieldMangled[mangled]; exists {
-			return "", fmt.Errorf("сущность %q: поля %q и %q транслитерируются в одно и то же имя %q в C - переименуйте одно из них", ent.Name, other, f.Name, mangled)
+			return entitySig{}, fmt.Errorf("сущность %q: поля %q и %q транслитерируются в одно и то же имя %q в C - переименуйте одно из них", ent.Name, other, f.Name, mangled)
 		}
 		fieldMangled[mangled] = f.Name
-		fmt.Fprintf(&sb, "    %s %s;\n", typ.cType(), mangled)
+		sig.FieldNames = append(sig.FieldNames, f.Name)
+		sig.FieldTypes = append(sig.FieldTypes, typ)
+	}
+	return sig, nil
+}
+
+// generateEntityStruct возвращает C typedef struct для ent по уже
+// посчитанной sig (entitySignatureOf).
+func generateEntityStruct(ent *ast.EntityDecl, sig entitySig) string {
+	var sb strings.Builder
+	sb.WriteString("typedef struct {\n")
+	if len(sig.FieldNames) == 0 {
+		// В C нет пустых структур - техническое поле-заглушка, пока у
+		// сущности ещё не появилось ни одного поля.
+		sb.WriteString("    char _rech_empty;\n")
+	}
+	for i, name := range sig.FieldNames {
+		fmt.Fprintf(&sb, "    %s %s;\n", sig.FieldTypes[i].cType(), mangleField(name))
 	}
 	fmt.Fprintf(&sb, "} %s;\n\n", mangleType(ent.Name))
-	return sb.String(), nil
+	return sb.String()
 }
 
 const strConcatHelper = `static char *rech_str_concat(const char *a, const char *b) {
@@ -663,6 +725,12 @@ func genExpr(ctx *genCtx, expr ast.Expr) (string, valueType, error) {
 		}
 		return code, sig.ReturnType, nil
 
+	case *ast.NewExpr:
+		return genNewExpr(ctx, e)
+
+	case *ast.FieldAccess:
+		return genFieldAccess(ctx, e)
+
 	default:
 		return "", typeUnknown, fmt.Errorf("строка %d: выражение %T пока не поддерживается C backend'ом", lineOf(expr), expr)
 	}
@@ -693,6 +761,59 @@ func genCall(ctx *genCtx, e *ast.CallExpr) (string, funcSig, error) {
 		argCodes[i] = code
 	}
 	return fmt.Sprintf("%s(%s)", mangleName(e.Callee), strings.Join(argCodes, ", ")), sig, nil
+}
+
+// genNewExpr генерирует C99 compound literal для "создать Тип(...)" - без
+// отдельной сгенерированной C-функции-конструктора и без прототипа,
+// compound literal - валидное C-выражение, встраиваемое прямо в место
+// вызова (docs/ROADMAP.md, шаг 4). Аргументы - позиционные значения полей
+// в порядке объявления в "имеет:", как обычный вызов функции (без
+// падежного согласования имени типа - это отложено, docs/GRAMMAR.md).
+func genNewExpr(ctx *genCtx, e *ast.NewExpr) (string, valueType, error) {
+	sig, ok := ctx.entities[e.Type]
+	if !ok {
+		return "", typeUnknown, fmt.Errorf("строка %d: сущность %q не объявлена", e.Line, e.Type)
+	}
+	if len(e.Args) != len(sig.FieldNames) {
+		return "", typeUnknown, fmt.Errorf("строка %d: конструктор %q ожидает значений полей: %d, передано: %d", e.Line, e.Type, len(sig.FieldNames), len(e.Args))
+	}
+	parts := make([]string, len(e.Args))
+	for i, arg := range e.Args {
+		code, typ, err := genExpr(ctx, arg)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		if typ != sig.FieldTypes[i] {
+			return "", typeUnknown, fmt.Errorf("строка %d: поле %q сущности %q должно быть типа %s, получено %s", e.Line, sig.FieldNames[i], e.Type, sig.FieldTypes[i], typ)
+		}
+		parts[i] = fmt.Sprintf(".%s = %s", mangleField(sig.FieldNames[i]), code)
+	}
+	initList := strings.Join(parts, ", ")
+	if initList == "" {
+		// Сущность без полей - зануляем техническую заглушку структуры
+		// (generateEntityStruct), а не полагаемся на "{}" (расширение GNU,
+		// не входящее в стандартный C99).
+		initList = "0"
+	}
+	return fmt.Sprintf("(%s){%s}", mangleType(e.Type), initList), entityType(e.Type), nil
+}
+
+// genFieldAccess генерирует чтение поля сущности ("receiver.поле").
+func genFieldAccess(ctx *genCtx, e *ast.FieldAccess) (string, valueType, error) {
+	code, typ, err := genExpr(ctx, e.Receiver)
+	if err != nil {
+		return "", typeUnknown, err
+	}
+	if typ.kind != kindEntity {
+		return "", typeUnknown, fmt.Errorf("строка %d: нельзя обратиться к полю %q - тип выражения %s, не сущность", e.Line, e.Field, typ)
+	}
+	sig := ctx.entities[typ.entity]
+	for i, name := range sig.FieldNames {
+		if name == e.Field {
+			return fmt.Sprintf("(%s).%s", code, mangleField(e.Field)), sig.FieldTypes[i], nil
+		}
+	}
+	return "", typeUnknown, fmt.Errorf("строка %d: у сущности %q нет поля %q", e.Line, typ.entity, e.Field)
 }
 
 func genUnaryExpr(ctx *genCtx, e *ast.UnaryExpr) (string, valueType, error) {
@@ -836,6 +957,10 @@ func lineOf(n ast.Node) int {
 	case *ast.ExprStmt:
 		return v.Line
 	case *ast.CallExpr:
+		return v.Line
+	case *ast.NewExpr:
+		return v.Line
+	case *ast.FieldAccess:
 		return v.Line
 	case *ast.StringLiteral:
 		return v.Line

@@ -298,6 +298,56 @@ func TestParseEmptyEntity(t *testing.T) {
 	}
 }
 
+func TestParseNewExprAndFieldAccess(t *testing.T) {
+	prog, err := parseSource(t, `
+сущность Пользователь
+{
+    имеет:
+        имя: Строка
+}
+функция главная {
+    переменная пользователь = создать Пользователь("Илья")
+    вывести пользователь.имя
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	varDecl := prog.Functions[0].Body[0].(*ast.VarDecl)
+	newExpr, ok := varDecl.Value.(*ast.NewExpr)
+	if !ok || newExpr.Type != "Пользователь" || len(newExpr.Args) != 1 {
+		t.Fatalf("ожидался NewExpr для \"Пользователь\" с одним аргументом, получено %+v", varDecl.Value)
+	}
+	printStmt := prog.Functions[0].Body[1].(*ast.PrintStmt)
+	access, ok := printStmt.Value.(*ast.FieldAccess)
+	if !ok || access.Field != "имя" {
+		t.Fatalf("ожидался FieldAccess по полю \"имя\", получено %+v", printStmt.Value)
+	}
+	if id, ok := access.Receiver.(*ast.Identifier); !ok || id.Name != "пользователь" {
+		t.Fatalf("ожидался получатель \"пользователь\", получено %+v", access.Receiver)
+	}
+}
+
+func TestParseFieldAccessChain(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная {
+    переменная х = 1
+    вывести х.а.б
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	printStmt := prog.Functions[0].Body[1].(*ast.PrintStmt)
+	outer, ok := printStmt.Value.(*ast.FieldAccess)
+	if !ok || outer.Field != "б" {
+		t.Fatalf("ожидался внешний FieldAccess по полю \"б\", получено %+v", printStmt.Value)
+	}
+	if _, ok := outer.Receiver.(*ast.FieldAccess); !ok {
+		t.Fatalf("ожидался вложенный FieldAccess как получатель, получено %+v", outer.Receiver)
+	}
+}
+
 func TestParseReturnWithoutValueStillWorks(t *testing.T) {
 	prog, err := parseSource(t, `
 функция главная {

@@ -19,6 +19,7 @@ const (
 	SEMICOLON // ;
 	COMMA     // ,
 	COLON     // :
+	DOT       // .
 
 	ASSIGN // =
 	PLUS   // +
@@ -52,6 +53,7 @@ const (
 	KwEntity   // сущность
 	KwClass    // класс (синоним "сущность")
 	KwHas      // имеет
+	KwCreate   // создать
 )
 
 // keywords - таблица ключевых слов v0.1. Список сознательно узкий:
@@ -79,6 +81,7 @@ var keywords = map[string]TokenType{
 	"сущность":   KwEntity,
 	"класс":      KwClass,
 	"имеет":      KwHas,
+	"создать":    KwCreate,
 }
 
 // Token - одна лексема с позицией в исходном файле (для сообщений об ошибках).
@@ -117,6 +120,8 @@ func (t TokenType) String() string {
 		return ","
 	case COLON:
 		return ":"
+	case DOT:
+		return "."
 	case ASSIGN:
 		return "="
 	case PLUS:
@@ -179,6 +184,8 @@ func (t TokenType) String() string {
 		return "класс"
 	case KwHas:
 		return "имеет"
+	case KwCreate:
+		return "создать"
 	default:
 		return "UNKNOWN"
 	}
