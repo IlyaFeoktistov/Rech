@@ -6,15 +6,24 @@ import (
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
+	"github.com/IlyaFeoktistov/Rech/internal/morph"
 )
 
 func parseSource(t *testing.T, src string) (*ast.Program, error) {
+	t.Helper()
+	_, prog, err := parseSourceWithParser(t, src)
+	return prog, err
+}
+
+func parseSourceWithParser(t *testing.T, src string) (*Parser, *ast.Program, error) {
 	t.Helper()
 	toks, err := lexer.New(src).Tokenize()
 	if err != nil {
 		t.Fatalf("лексер: %v", err)
 	}
-	return New(toks).ParseProgram()
+	p := New(toks)
+	prog, err := p.ParseProgram()
+	return p, prog, err
 }
 
 func TestParseFunctionParamsAndReturnType(t *testing.T) {
@@ -116,6 +125,49 @@ func TestParseCallAsStatement(t *testing.T) {
 	stmt, ok := prog.Functions[0].Body[0].(*ast.ExprStmt)
 	if !ok || stmt.Call.Callee != "поздороваться" {
 		t.Fatalf("ожидался ExprStmt с вызовом \"поздороваться\", получено %+v", prog.Functions[0].Body[0])
+	}
+}
+
+func TestVariableRegisteredAsNounInDictionary(t *testing.T) {
+	p, _, err := parseSourceWithParser(t, `
+функция главная {
+    переменная пользователь = "Илья"
+    вывести пользователь
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	analyses := p.dict.Analyze("пользователя")
+	found := false
+	for _, a := range analyses {
+		if a.Lemma == "пользователь" && a.POS == morph.Noun && a.Tag.Case == morph.Accusative {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("ожидался разбор \"пользователя\" как винительного падежа леммы \"пользователь\", получено: %+v", analyses)
+	}
+}
+
+func TestVariableWithUnclassifiableNameIsNotRegistered(t *testing.T) {
+	// "чай" оканчивается на "-й" - в Фазе A движка (internal/morph) это
+	// неоднозначное окончание (ClassifyByEnding возвращает ok=false), слова
+	// нет ни в курируемых исключениях, ни в словаре OpenCorpora для "-й"
+	// (тот справочник подключён только для слов на "-ь") - поэтому
+	// RegisterNoun не может его классифицировать. Это ожидаемо: такая
+	// переменная просто недоступна для естественного вызова.
+	p, _, err := parseSourceWithParser(t, `
+функция главная {
+    переменная чай = "зелёный"
+    вывести чай
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if _, ok := p.dict.Lookup("чай"); ok {
+		t.Fatalf("слово с неоднозначным для Фазы A окончанием не должно регистрироваться как существительное")
 	}
 }
 

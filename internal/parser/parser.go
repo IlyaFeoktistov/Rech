@@ -50,10 +50,29 @@ const entryPointName = "главная"
 type Parser struct {
 	tokens []lexer.Token
 	pos    int
+
+	// dict накапливает переменные, объявленные по ходу разбора, как
+	// существительные морфологического движка (internal/morph) - имя
+	// переменной становится леммой (registerNoun). Это то, что позволит
+	// падежному сопоставлению аргументов естественного вызова опознавать
+	// словоформы вроде "пользователя" как аргумент-ссылку на переменную
+	// "пользователь" (оставшаяся часть шага 3, docs/ROADMAP.md).
+	dict *morph.Dictionary
 }
 
 func New(tokens []lexer.Token) *Parser {
-	return &Parser{tokens: tokens}
+	return &Parser{tokens: tokens, dict: morph.NewDictionary()}
+}
+
+// registerNoun лучшим образом пытается зарегистрировать имя переменной как
+// существительное в dict. Ошибку намеренно игнорирует - не всякий
+// идентификатор пригоден как русское существительное (однобуквенные имена
+// вроде "i", латиница, слова с окончанием, которое ClassifyByEnding не
+// берёт и которого нет в курируемых исключениях): такие переменные просто
+// не будут доступны для естественного вызова, только для строгого - это
+// не ошибка компиляции.
+func (p *Parser) registerNoun(name string) {
+	_ = p.dict.RegisterNoun(name, morph.AnimacyOf(name))
 }
 
 func (p *Parser) cur() lexer.Token {
@@ -330,6 +349,7 @@ func (p *Parser) parseVarDecl() (ast.Stmt, error) {
 	if err != nil {
 		return nil, fmt.Errorf("в инициализации переменной %q: %w", name.Value, err)
 	}
+	p.registerNoun(name.Value)
 	return &ast.VarDecl{Name: name.Value, Value: value, Line: kw.Line}, nil
 }
 
@@ -414,6 +434,7 @@ func (p *Parser) parseForStmt() (ast.Stmt, error) {
 	if err != nil {
 		return nil, fmt.Errorf("после \"до\" ожидалось выражение: %w", err)
 	}
+	p.registerNoun(name.Value)
 	p.skipNewlines()
 	body, err := p.parseBlock()
 	if err != nil {
