@@ -206,6 +206,29 @@ func TestGenerateFromIREntityFieldsConstructorMethodsAndThis(t *testing.T) {
 	}
 }
 
+func TestGenerateFromIRBecomeStmtEmitsNoCode(t *testing.T) {
+	entity := &ir.Entity{
+		Name:   "Пользователь",
+		Fields: []ir.Field{{Name: "имя", Type: ir.TypeString}},
+		Methods: []*ir.Method{
+			{Name: "авторизовать", Body: []ir.Stmt{
+				&ir.BecomeStmt{Receiver: &ir.ThisExpr{Entity: "Пользователь"}, State: "авторизован"},
+			}},
+		},
+	}
+	out, err := GenerateFromIR(&ir.Program{Entities: []*ir.Entity{entity}, Functions: []*ir.Function{mainFuncIR()}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "int rech_M_polzovatel_avtorizovat(rech_T_polzovatel *this_) {\n    return 0;\n}") {
+		t.Fatalf("ожидалось пустое тело метода (\"становится\" не эмитит код), получено:\n%s", out)
+	}
+}
+
+func mainFuncIR() *ir.Function {
+	return &ir.Function{Name: "главная", Body: []ir.Stmt{&ir.PrintStmt{Value: &ir.StringLiteral{Value: "ок"}}}}
+}
+
 func TestGenerateFromIRMissingEntryPointFails(t *testing.T) {
 	prog := &ir.Program{Functions: []*ir.Function{
 		{Name: "чтототам", Body: nil},

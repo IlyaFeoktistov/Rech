@@ -291,6 +291,12 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 		fmt.Fprintf(sb, "%s(%s).%s = %s;\n", ind, receiverCode, mangleField(s.Field), code)
 		return nil
 
+	case *ir.BecomeStmt:
+		// Шаг 4.1, упрощённая версия: состояние уже проверено семантическим
+		// анализом как объявленное - typestate чисто компилятивный на этом
+		// шаге, "становится" не эмитит C-код, как и в AST-пути.
+		return nil
+
 	case *ir.ExprStmt:
 		var call ir.Expr = s.Call
 		if s.MethodCall != nil {

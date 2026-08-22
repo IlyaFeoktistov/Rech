@@ -35,6 +35,11 @@ type funcSig struct {
 type entitySig struct {
 	FieldNames []string
 	FieldTypes []ir.Type
+
+	// States - краткие формы, объявленные под "состояние:" (шаг 4.1,
+	// упрощённая версия) - для проверки BecomeStmt ("получатель становится
+	// <состояние>"). nil у сущностей без "состояние:".
+	States map[string]bool
 }
 
 func (s entitySig) fieldIndex(name string) int {
@@ -103,12 +108,16 @@ func (c *ctx) lookup(name string) (ir.Type, bool) {
 }
 
 // resolveTypeName - единственное место, где имя типа Rech (строка из AST)
-// маппится на ir.Type: встроенные примитивы или уже собранная сущность
+// маппится на ir.Type: встроенные примитивы, уже собранная сущность
 // (entities - сигнатуры, собранные раньше по файлу, см. collectEntities;
 // сущность, объявленная позже в файле, чем место, где её имя встретилось
-// как тип - та же граница, что и в cbackend.resolveType). Generic-
+// как тип - та же граница, что и в cbackend.resolveType) или производный
+// тип состояния (aliases - "АвторизованныйПользователь" -> "Пользователь",
+// шаг 4.1, см. collectEntities) - резолвится в тип БАЗОВОЙ сущности, не в
+// собственный тип: производный тип - псевдоним без своего
+// представления, как и в cbackend (genCtx.stateAliases). Generic-
 // коллекции (шаг 4.2) сюда пока не перенесены.
-func resolveTypeName(entities map[string]entitySig, name string) (ir.Type, error) {
+func resolveTypeName(entities map[string]entitySig, aliases map[string]string, name string) (ir.Type, error) {
 	switch name {
 	case "Строка":
 		return ir.TypeString, nil
@@ -122,20 +131,24 @@ func resolveTypeName(entities map[string]entitySig, name string) (ir.Type, error
 	if _, ok := entities[name]; ok {
 		return ir.EntityType(name), nil
 	}
+	if base, ok := aliases[name]; ok {
+		return ir.EntityType(base), nil
+	}
 	return ir.TypeUnknown, fmt.Errorf("неизвестный тип %q", name)
 }
 
 // Analyze производит IR из AST. Покрытие на данный момент - шаги 0-4
 // (`вывести`, переменные/арифметика, если/пока/для, функции с параметрами
-// и типом результата, вызов, сущности/поля/конструктор/методы/"этот") -
-// см. internal/ir, package doc. Расширяется вместе с internal/backend/
-// cbackend.GenerateFromIR подшаг за подшагом, шаг 5.
+// и типом результата, вызов, сущности/поля/конструктор/методы/"этот") и
+// шаг 4.1 (состояния, упрощённая версия) - см. internal/ir, package doc.
+// Расширяется вместе с internal/backend/cbackend.GenerateFromIR подшаг за
+// подшагом, шаг 5.
 func Analyze(prog *ast.Program) (*ir.Program, error) {
-	entities, methods, err := collectEntities(prog)
+	entities, methods, aliases, err := collectEntities(prog)
 	if err != nil {
 		return nil, err
 	}
-	funcs, err := collectFuncSigs(entities, prog)
+	funcs, err := collectFuncSigs(entities, aliases, prog)
 	if err != nil {
 		return nil, err
 	}
@@ -160,10 +173,11 @@ func Analyze(prog *ast.Program) (*ir.Program, error) {
 
 // collectFuncSigs - предварительный проход: сигнатуры всех функций
 // программы, до анализа любого тела (нужно для вызовов вперёд/взаимной
-// рекурсии - как и в cbackend.Generate). entities уже полностью собраны
-// (collectEntities) - функция может ссылаться на любую сущность,
-// независимо от того, где та объявлена в файле относительно функции.
-func collectFuncSigs(entities map[string]entitySig, prog *ast.Program) (map[string]funcSig, error) {
+// рекурсии - как и в cbackend.Generate). entities/aliases уже полностью
+// собраны (collectEntities) - функция может ссылаться на любую сущность
+// или производный тип состояния, независимо от того, где та объявлена в
+// файле относительно функции.
+func collectFuncSigs(entities map[string]entitySig, aliases map[string]string, prog *ast.Program) (map[string]funcSig, error) {
 	funcs := map[string]funcSig{}
 	for _, fn := range prog.Functions {
 		if _, exists := funcs[fn.Name]; exists {
@@ -171,7 +185,7 @@ func collectFuncSigs(entities map[string]entitySig, prog *ast.Program) (map[stri
 		}
 		params := make([]ir.Type, len(fn.Params))
 		for i, p := range fn.Params {
-			typ, err := resolveTypeName(entities, p.Type)
+			typ, err := resolveTypeName(entities, aliases, p.Type)
 			if err != nil {
 				return nil, fmt.Errorf("функция %q: параметр %q: %w", fn.Name, p.Name, err)
 			}
@@ -179,7 +193,7 @@ func collectFuncSigs(entities map[string]entitySig, prog *ast.Program) (map[stri
 		}
 		sig := funcSig{Params: params}
 		if fn.ReturnType != "" {
-			typ, err := resolveTypeName(entities, fn.ReturnType)
+			typ, err := resolveTypeName(entities, aliases, fn.ReturnType)
 			if err != nil {
 				return nil, fmt.Errorf("функция %q: тип результата: %w", fn.Name, err)
 			}
@@ -191,55 +205,70 @@ func collectFuncSigs(entities map[string]entitySig, prog *ast.Program) (map[stri
 	return funcs, nil
 }
 
-// collectEntities - предварительный проход: поля и сигнатуры методов всех
-// сущностей программы, до анализа любого тела. Одним циклом по
-// prog.Entities, как и в cbackend.Generate - поле/параметр/тип результата
-// метода сущности N может ссылаться только на сущность, уже занесённую в
-// entities к этому моменту (объявленную раньше в файле, включая саму N) -
-// та же граница, что и в cbackend. Состояния (шаг 4.1) явно не поддержаны,
-// не тихий пропуск.
-func collectEntities(prog *ast.Program) (map[string]entitySig, map[string]map[string]funcSig, error) {
+// collectEntities - предварительный проход: поля, сигнатуры методов и
+// производные типы состояний (aliases - "АвторизованныйПользователь" ->
+// "Пользователь", шаг 4.1) всех сущностей программы, до анализа любого
+// тела. Одним циклом по prog.Entities, как и в cbackend.Generate -
+// поле/параметр/тип результата метода сущности N может ссылаться только
+// на сущность (или производный тип), уже занесённую к этому моменту
+// (объявленную раньше в файле, включая саму N) - та же граница, что и в
+// cbackend.
+func collectEntities(prog *ast.Program) (map[string]entitySig, map[string]map[string]funcSig, map[string]string, error) {
 	entities := map[string]entitySig{}
 	methods := map[string]map[string]funcSig{}
+	aliases := map[string]string{}
 	for _, ent := range prog.Entities {
 		if _, exists := entities[ent.Name]; exists {
-			return nil, nil, fmt.Errorf("сущность %q объявлена более одного раза", ent.Name)
+			return nil, nil, nil, fmt.Errorf("сущность %q объявлена более одного раза", ent.Name)
 		}
-		if len(ent.States) > 0 {
-			return nil, nil, fmt.Errorf("сущность %q: состояния пока не поддерживаются", ent.Name)
+		if other, exists := aliases[ent.Name]; exists {
+			return nil, nil, nil, fmt.Errorf("сущность %q: имя совпадает с производным типом состояния, уже занятым сущностью %q", ent.Name, other)
 		}
 		var sig entitySig
 		for _, f := range ent.Fields {
 			if sig.fieldIndex(f.Name) != -1 {
-				return nil, nil, fmt.Errorf("сущность %q: поле %q объявлено более одного раза", ent.Name, f.Name)
+				return nil, nil, nil, fmt.Errorf("сущность %q: поле %q объявлено более одного раза", ent.Name, f.Name)
 			}
-			typ, err := resolveTypeName(entities, f.Type)
+			typ, err := resolveTypeName(entities, aliases, f.Type)
 			if err != nil {
-				return nil, nil, fmt.Errorf("сущность %q: поле %q: %w", ent.Name, f.Name, err)
+				return nil, nil, nil, fmt.Errorf("сущность %q: поле %q: %w", ent.Name, f.Name, err)
 			}
 			sig.FieldNames = append(sig.FieldNames, f.Name)
 			sig.FieldTypes = append(sig.FieldTypes, typ)
+		}
+		if len(ent.States) > 0 {
+			sig.States = map[string]bool{}
+			for _, st := range ent.States {
+				sig.States[st.Name] = true
+				if _, exists := entities[st.TypeName]; exists {
+					return nil, nil, nil, fmt.Errorf("сущность %q: производный тип состояния %q совпадает с именем уже объявленной сущности", ent.Name, st.TypeName)
+				}
+				if other, exists := aliases[st.TypeName]; exists && other != ent.Name {
+					return nil, nil, nil, fmt.Errorf("сущность %q: производный тип состояния %q уже используется сущностью %q", ent.Name, st.TypeName, other)
+				}
+				aliases[st.TypeName] = ent.Name
+			}
 		}
 		entities[ent.Name] = sig
 
 		methods[ent.Name] = map[string]funcSig{}
 		for _, m := range ent.Methods {
 			if _, exists := methods[ent.Name][m.Name]; exists {
-				return nil, nil, fmt.Errorf("сущность %q: метод %q объявлен более одного раза", ent.Name, m.Name)
+				return nil, nil, nil, fmt.Errorf("сущность %q: метод %q объявлен более одного раза", ent.Name, m.Name)
 			}
 			params := make([]ir.Type, len(m.Params))
 			for i, p := range m.Params {
-				typ, err := resolveTypeName(entities, p.Type)
+				typ, err := resolveTypeName(entities, aliases, p.Type)
 				if err != nil {
-					return nil, nil, fmt.Errorf("сущность %q: метод %q: параметр %q: %w", ent.Name, m.Name, p.Name, err)
+					return nil, nil, nil, fmt.Errorf("сущность %q: метод %q: параметр %q: %w", ent.Name, m.Name, p.Name, err)
 				}
 				params[i] = typ
 			}
 			msig := funcSig{Params: params}
 			if m.ReturnType != "" {
-				typ, err := resolveTypeName(entities, m.ReturnType)
+				typ, err := resolveTypeName(entities, aliases, m.ReturnType)
 				if err != nil {
-					return nil, nil, fmt.Errorf("сущность %q: метод %q: тип результата: %w", ent.Name, m.Name, err)
+					return nil, nil, nil, fmt.Errorf("сущность %q: метод %q: тип результата: %w", ent.Name, m.Name, err)
 				}
 				msig.ReturnType = typ
 				msig.HasReturn = true
@@ -247,7 +276,7 @@ func collectEntities(prog *ast.Program) (map[string]entitySig, map[string]map[st
 			methods[ent.Name][m.Name] = msig
 		}
 	}
-	return entities, methods, nil
+	return entities, methods, aliases, nil
 }
 
 func analyzeEntity(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, ent *ast.EntityDecl) (*ir.Entity, error) {
@@ -352,14 +381,14 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 	case *ast.PrintStmt:
 		value, err := analyzeExpr(sc, s.Value)
 		if err != nil {
-			return nil, fmt.Errorf("строка %d: %w", s.Line, err)
+			return nil, err
 		}
 		return &ir.PrintStmt{Value: value}, nil
 
 	case *ast.VarDecl:
 		value, err := analyzeExpr(sc, s.Value)
 		if err != nil {
-			return nil, fmt.Errorf("строка %d: %w", s.Line, err)
+			return nil, err
 		}
 		if err := sc.declare(s.Name, ir.TypeOf(value)); err != nil {
 			return nil, fmt.Errorf("строка %d: %w", s.Line, err)
@@ -373,7 +402,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		}
 		value, err := analyzeExpr(sc, s.Value)
 		if err != nil {
-			return nil, fmt.Errorf("строка %d: %w", s.Line, err)
+			return nil, err
 		}
 		if typ := ir.TypeOf(value); typ != declared {
 			return nil, fmt.Errorf("строка %d: переменной %q типа %s нельзя присвоить значение типа %s", s.Line, s.Name, declared, typ)
@@ -383,7 +412,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 	case *ast.IfStmt:
 		cond, err := analyzeExpr(sc, s.Cond)
 		if err != nil {
-			return nil, fmt.Errorf("строка %d: %w", s.Line, err)
+			return nil, err
 		}
 		if typ := ir.TypeOf(cond); typ != ir.TypeBool {
 			return nil, fmt.Errorf("строка %d: условие \"если\" должно быть логическим, получено %s", s.Line, typ)
@@ -408,7 +437,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 	case *ast.WhileStmt:
 		cond, err := analyzeExpr(sc, s.Cond)
 		if err != nil {
-			return nil, fmt.Errorf("строка %d: %w", s.Line, err)
+			return nil, err
 		}
 		if typ := ir.TypeOf(cond); typ != ir.TypeBool {
 			return nil, fmt.Errorf("строка %d: условие \"пока\" должно быть логическим, получено %s", s.Line, typ)
@@ -424,14 +453,14 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 	case *ast.ForStmt:
 		from, err := analyzeExpr(sc, s.From)
 		if err != nil {
-			return nil, fmt.Errorf("строка %d: %w", s.Line, err)
+			return nil, err
 		}
 		if typ := ir.TypeOf(from); typ != ir.TypeInt {
 			return nil, fmt.Errorf("строка %d: граница диапазона после \"от\" должна быть целым числом, получено %s", s.Line, typ)
 		}
 		to, err := analyzeExpr(sc, s.To)
 		if err != nil {
-			return nil, fmt.Errorf("строка %d: %w", s.Line, err)
+			return nil, err
 		}
 		if typ := ir.TypeOf(to); typ != ir.TypeInt {
 			return nil, fmt.Errorf("строка %d: граница диапазона после \"до\" должна быть целым числом, получено %s", s.Line, typ)
@@ -460,7 +489,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		}
 		value, err := analyzeExpr(sc, s.Value)
 		if err != nil {
-			return nil, fmt.Errorf("строка %d: %w", s.Line, err)
+			return nil, err
 		}
 		if typ := ir.TypeOf(value); typ != sc.returnType {
 			return nil, fmt.Errorf("строка %d: функция объявлена с типом результата %s, но возвращается значение типа %s", s.Line, sc.returnType, typ)
@@ -487,7 +516,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		}
 		receiver, err := analyzeExpr(sc, s.Receiver)
 		if err != nil {
-			return nil, fmt.Errorf("строка %d: %w", s.Line, err)
+			return nil, err
 		}
 		typ := ir.TypeOf(receiver)
 		if typ.Kind != ir.KindEntity {
@@ -500,12 +529,27 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		}
 		value, err := analyzeExpr(sc, s.Value)
 		if err != nil {
-			return nil, fmt.Errorf("строка %d: %w", s.Line, err)
+			return nil, err
 		}
 		if vt := ir.TypeOf(value); vt != sig.FieldTypes[idx] {
 			return nil, fmt.Errorf("строка %d: полю %q типа %s нельзя присвоить значение типа %s", s.Line, s.Field, sig.FieldTypes[idx], vt)
 		}
 		return &ir.FieldAssign{Receiver: receiver, Field: s.Field, Value: value}, nil
+
+	case *ast.BecomeStmt:
+		receiver, err := analyzeExpr(sc, s.Receiver)
+		if err != nil {
+			return nil, err
+		}
+		typ := ir.TypeOf(receiver)
+		if typ.Kind != ir.KindEntity {
+			return nil, fmt.Errorf("строка %d: \"становится\" применимо только к сущности, получен тип %s", s.Line, typ)
+		}
+		sig := sc.entities[typ.Entity]
+		if !sig.States[s.State] {
+			return nil, fmt.Errorf("строка %d: у сущности %q не объявлено состояние %q", s.Line, typ.Entity, s.State)
+		}
+		return &ir.BecomeStmt{Receiver: receiver, State: s.State}, nil
 
 	default:
 		return nil, fmt.Errorf("инструкция %T не поддерживается", s)

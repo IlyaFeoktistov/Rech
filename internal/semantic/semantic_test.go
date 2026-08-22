@@ -537,13 +537,59 @@ func TestAnalyzeMethodCallOnTemporaryFails(t *testing.T) {
 	}
 }
 
-func TestAnalyzeUnsupportedStmtFails(t *testing.T) {
+func TestAnalyzeBecomeStmtAndDerivedType(t *testing.T) {
+	irProg := parseProgram(t, `
+сущность Пользователь
+{
+    состояние: неавторизован авторизован
+
+    имеет:
+        имя: Строка
+
+    авторизовать()
+    {
+        этот становится авторизован
+    }
+}
+функция показатьПрофиль(пользователь: АвторизованныйПользователь)
+{
+    вывести пользователь.имя
+}
+функция главная
+{
+    переменная пользователь = новый Пользователь("Илья")
+    пользователь.авторизовать()
+    показатьПрофиль(пользователь)
+}
+`)
+	entity := irProg.Entities[0]
+	become, ok := entity.Methods[0].Body[0].(*ir.BecomeStmt)
+	if !ok || become.State != "авторизован" {
+		t.Fatalf("ожидался *ir.BecomeStmt(\"авторизован\"), получено %+v", entity.Methods[0].Body[0])
+	}
+	if _, ok := become.Receiver.(*ir.ThisExpr); !ok {
+		t.Fatalf("ожидался получатель \"этот\", получено %+v", become.Receiver)
+	}
+
+	// АвторизованныйПользователь - псевдоним без своего представления:
+	// параметр разрешается в тип базовой сущности "Пользователь".
+	show := irProg.Functions[0]
+	if len(show.Params) != 1 || show.Params[0].Type != ir.EntityType("Пользователь") {
+		t.Fatalf("ожидался параметр типа \"Пользователь\" (псевдоним разрешён), получено %+v", show.Params)
+	}
+}
+
+func TestAnalyzeBecomeUndeclaredStateFails(t *testing.T) {
 	toks, err := lexer.New(`
 сущность Пользователь
 {
     состояние: неавторизован авторизован
 }
-функция главная { вывести "ок" }
+функция главная
+{
+    переменная пользователь = новый Пользователь()
+    пользователь становится удалён
+}
 `).Tokenize()
 	if err != nil {
 		t.Fatalf("лексер: %v", err)
@@ -553,7 +599,27 @@ func TestAnalyzeUnsupportedStmtFails(t *testing.T) {
 		t.Fatalf("парсер: %v", err)
 	}
 	_, err = Analyze(prog)
-	if err == nil || !strings.Contains(err.Error(), "не поддерживаются") {
-		t.Fatalf("ожидалась ошибка про неподдержанные состояния, получено: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "не объявлено состояние") {
+		t.Fatalf("ожидалась ошибка про необъявленное состояние, получено: %v", err)
+	}
+}
+
+func TestAnalyzeUnsupportedStmtFails(t *testing.T) {
+	toks, err := lexer.New(`
+функция главная
+{
+    переменная числа = новый Список<Целое>()
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
+	if err == nil || !strings.Contains(err.Error(), "не объявлена") {
+		t.Fatalf("ожидалась ошибка про неподдержанные generic-коллекции, получено: %v", err)
 	}
 }
