@@ -170,6 +170,7 @@ func typeFromName(name string) (valueType, bool) {
 // не механизм пользовательских generic-типов - тех в языке пока нет вообще.
 var genericTemplates = map[string]func(ctx *genCtx, name string, elem valueType){
 	"Список": synthesizeList,
+	"Стопка": synthesizeStack,
 }
 
 // parseGenericTypeName разбирает закодированную парсером строку вида
@@ -725,6 +726,73 @@ static bool %[8]s(%[2]s *this_) {
 		"установить": {ParamTypes: []valueType{typeInt, elem}},
 		"длина":      {ReturnType: typeInt, HasReturn: true},
 		"пусто":      {ReturnType: typeBool, HasReturn: true},
+	}
+}
+
+// synthesizeStack синтезирует C typedef struct + функции для конкретной
+// инстанциации "Стопка<T>" (шаг 4.2.c) - тот же growable array, что и у
+// synthesizeList (data/len/cap, realloc с удвоением ёмкости), но без
+// доступа по индексу: только с конца (LIFO). IsList у entitySig остаётся
+// false (нулевое значение) - в отличие от Список<T>, Стопка<T> не
+// участвует в цикле "для x в списке" (шаг 4.2.b), это ей и не нужно.
+func synthesizeStack(ctx *genCtx, name string, elem valueType) {
+	ctx.usesGenerics = true
+	structName := mangleType(name)
+	elemC := elem.cType()
+	push := mangleMethod(name, "положить")
+	pop := mangleMethod(name, "снять")
+	top := mangleMethod(name, "верх")
+	length := mangleMethod(name, "длина")
+	empty := mangleMethod(name, "пусто")
+	onEmpty := escapeCString(fmt.Sprintf("нельзя снять/получить верх пустой %s", name))
+
+	fmt.Fprintf(&ctx.genericsCode, `typedef struct {
+    %[1]s *data;
+    long long len;
+    long long cap;
+} %[2]s;
+
+static void %[3]s(%[2]s *this_, %[1]s value) {
+    if (this_->len == this_->cap) {
+        this_->cap = this_->cap == 0 ? 4 : this_->cap * 2;
+        this_->data = realloc(this_->data, sizeof(%[1]s) * this_->cap);
+    }
+    this_->data[this_->len] = value;
+    this_->len++;
+}
+
+static %[1]s %[4]s(%[2]s *this_) {
+    if (this_->len == 0) {
+        rech_panic("%[7]s");
+    }
+    this_->len--;
+    return this_->data[this_->len];
+}
+
+static %[1]s %[5]s(%[2]s *this_) {
+    if (this_->len == 0) {
+        rech_panic("%[7]s");
+    }
+    return this_->data[this_->len - 1];
+}
+
+static long long %[6]s(%[2]s *this_) {
+    return this_->len;
+}
+
+static bool %[8]s(%[2]s *this_) {
+    return this_->len == 0;
+}
+
+`, elemC, structName, push, pop, top, length, onEmpty, empty)
+
+	ctx.entities[name] = entitySig{}
+	ctx.methods[name] = map[string]funcSig{
+		"положить": {ParamTypes: []valueType{elem}},
+		"снять":    {ReturnType: elem, HasReturn: true},
+		"верх":     {ReturnType: elem, HasReturn: true},
+		"длина":    {ReturnType: typeInt, HasReturn: true},
+		"пусто":    {ReturnType: typeBool, HasReturn: true},
 	}
 }
 
