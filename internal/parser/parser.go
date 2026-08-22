@@ -8,7 +8,7 @@
 //	params      := param { "," param }
 //	param       := IDENT ":" IDENT
 //	block       := "{" newline { statement } "}"
-//	statement   := var_decl | assign | print_stmt | if_stmt | while_stmt | for_stmt | return_stmt
+//	statement   := var_decl | assign | print_stmt | if_stmt | while_stmt | for_stmt | return_stmt | call_stmt
 //	var_decl    := "переменная" IDENT "=" expr
 //	assign      := IDENT "=" expr
 //	print_stmt  := "вывести" expr
@@ -16,6 +16,8 @@
 //	while_stmt  := "пока" expr block
 //	for_stmt    := "для" IDENT "от" expr "до" expr block
 //	return_stmt := "вернуть" [ expr ]
+//	call_stmt   := call_expr
+//	call_expr   := IDENT "(" [ expr { "," expr } ] ")"
 //
 //	expr        := or_expr
 //	or_expr     := and_expr { "или" and_expr }
@@ -25,7 +27,7 @@
 //	additive    := multiplicative { ("+" | "-") multiplicative }
 //	multiplicative := unary { ("*" | "/") unary }
 //	unary       := "-" unary | primary
-//	primary     := INT | FLOAT | STRING | "истина" | "ложь" | IDENT | "(" expr ")"
+//	primary     := INT | FLOAT | STRING | "истина" | "ложь" | IDENT | call_expr | "(" expr ")"
 package parser
 
 import (
@@ -285,6 +287,13 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 		if p.peekAt(1).Type == lexer.ASSIGN {
 			return p.parseAssign()
 		}
+		if p.peekAt(1).Type == lexer.LPAREN {
+			call, err := p.parseCallExpr()
+			if err != nil {
+				return nil, err
+			}
+			return &ast.ExprStmt{Call: call, Line: call.Line}, nil
+		}
 		return nil, fmt.Errorf("строка %d, столбец %d: неожиданный токен %q в теле функции",
 			p.cur().Line, p.cur().Col, p.cur().Value)
 	default:
@@ -428,6 +437,31 @@ func (p *Parser) parseReturnStmt() (ast.Stmt, error) {
 		}
 		return &ast.ReturnStmt{Value: value, Line: kw.Line}, nil
 	}
+}
+
+// parseCallExpr разбирает "(" [ expr { "," expr } ] ")" вслед за именем
+// функции. Позиция парсера на входе - на IDENT (имени функции).
+func (p *Parser) parseCallExpr() (*ast.CallExpr, error) {
+	name := p.advance() // IDENT
+	p.advance()         // "("
+	var args []ast.Expr
+	if p.cur().Type != lexer.RPAREN {
+		for {
+			arg, err := p.parseExpr()
+			if err != nil {
+				return nil, fmt.Errorf("в аргументах вызова %q: %w", name.Value, err)
+			}
+			args = append(args, arg)
+			if p.cur().Type != lexer.COMMA {
+				break
+			}
+			p.advance() // ","
+		}
+	}
+	if _, err := p.expect(lexer.RPAREN); err != nil {
+		return nil, err
+	}
+	return &ast.CallExpr{Callee: name.Value, Args: args, Line: name.Line}, nil
 }
 
 func (p *Parser) parseExpr() (ast.Expr, error) {
@@ -582,6 +616,9 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 		p.advance()
 		return &ast.BoolLiteral{Value: false, Line: tok.Line}, nil
 	case lexer.IDENT:
+		if p.peekAt(1).Type == lexer.LPAREN {
+			return p.parseCallExpr()
+		}
 		p.advance()
 		return &ast.Identifier{Name: tok.Value, Line: tok.Line}, nil
 	case lexer.LPAREN:

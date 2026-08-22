@@ -132,7 +132,7 @@ block          := "{" { sep } [ statement { sep statement } [ sep ] ] "}"
 sep            := ( newline | ";" ) { newline | ";" }
 
 statement      := var_decl | assign | print_stmt
-                | if_stmt | while_stmt | for_stmt | return_stmt
+                | if_stmt | while_stmt | for_stmt | return_stmt | call_stmt
 var_decl       := "переменная" IDENT "=" expr
 assign         := IDENT "=" expr
 print_stmt     := "вывести" expr
@@ -140,6 +140,8 @@ if_stmt        := "если" expr block [ "иначе" block ]
 while_stmt     := "пока" expr block
 for_stmt       := "для" IDENT "от" expr "до" expr block
 return_stmt    := "вернуть" [ expr ]
+call_stmt      := call_expr
+call_expr      := IDENT "(" [ expr { "," expr } ] ")"
 
 expr           := or_expr
 or_expr        := and_expr { "или" and_expr }
@@ -149,7 +151,7 @@ comparison     := additive [ ("==" | "!=" | "<" | ">" | "<=" | ">=") additive ]
 additive       := multiplicative { ("+" | "-") multiplicative }
 multiplicative := unary { ("*" | "/") unary }
 unary          := "-" unary | primary
-primary        := INT | FLOAT | STRING | "истина" | "ложь" | IDENT | "(" expr ")"
+primary        := INT | FLOAT | STRING | "истина" | "ложь" | IDENT | call_expr | "(" expr ")"
 ```
 
 Программа должна содержать функцию `главная` - она становится точкой входа
@@ -179,6 +181,21 @@ primary        := INT | FLOAT | STRING | "истина" | "ложь" | IDENT | "
   (`если`/`иначе` с `вернуть` в обеих ветках как последняя пара инструкций
   функции этой проверкой не покрывается) - настоящая flow-sensitive проверка
   появится вместе с IR на шаге 5.
+
+### Вызов функции (строгий синтаксис)
+
+- `<имя>(<арг>, ...)` - вызов функции по имени с позиционными аргументами.
+  Как выражение - если у функции объявлен тип результата (иначе её нельзя
+  использовать там, где ожидается значение); как самостоятельная инструкция
+  (`call_stmt`) - для любой функции, результат в этом случае отбрасывается.
+- Число и типы аргументов должны точно совпадать с объявлением функции (без
+  неявных преобразований, как и везде в языке).
+- Функции можно вызывать друг друга независимо от порядка объявления в
+  файле, включая взаимную рекурсию - компилятор эмитит C-прототипы всех
+  функций до их тел.
+- Естественный вызов (`<имя> <аргумент> ...` без скобок, с падежным
+  сопоставлением аргументов параметрам) - в работе, см.
+  [docs/GRAMMAR.md](GRAMMAR.md).
 
 ## 5. Типы и семантика
 

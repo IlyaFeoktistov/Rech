@@ -89,6 +89,36 @@ func TestParseFunctionWithoutParamsStillWorks(t *testing.T) {
 	}
 }
 
+func TestParseCallExprAsExpression(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная {
+    переменная х = сложить(1, 2)
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	varDecl := prog.Functions[0].Body[0].(*ast.VarDecl)
+	call, ok := varDecl.Value.(*ast.CallExpr)
+	if !ok {
+		t.Fatalf("ожидался CallExpr, получено %T", varDecl.Value)
+	}
+	if call.Callee != "сложить" || len(call.Args) != 2 {
+		t.Fatalf("неожиданный вызов: %+v", call)
+	}
+}
+
+func TestParseCallAsStatement(t *testing.T) {
+	prog, err := parseSource(t, `функция главная { поздороваться() }`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	stmt, ok := prog.Functions[0].Body[0].(*ast.ExprStmt)
+	if !ok || stmt.Call.Callee != "поздороваться" {
+		t.Fatalf("ожидался ExprStmt с вызовом \"поздороваться\", получено %+v", prog.Functions[0].Body[0])
+	}
+}
+
 func TestParseReturnWithoutValueStillWorks(t *testing.T) {
 	prog, err := parseSource(t, `
 функция главная {

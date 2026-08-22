@@ -116,6 +116,18 @@ func (t valueType) cType() string {
 	}
 }
 
+// funcSig - сигнатура функции программы: типы параметров (по позиции,
+// совпадающей с FunctionDecl.Params) и тип результата, если он объявлен.
+// Собирается один раз в Generate до генерации тел функций - вызов функции
+// может встретиться раньше её объявления в исходнике (в т.ч. взаимная
+// рекурсия), поэтому проверка существования/сигнатуры не может ждать, пока
+// до объявления дойдёт очередь в generateFunction.
+type funcSig struct {
+	ParamTypes []valueType
+	ReturnType valueType
+	HasReturn  bool
+}
+
 // genCtx - состояние генерации одной функции: стек областей видимости
 // (шаг 2 - если/иначе/пока/для вводят вложенные блоки, как в C) и флаги
 // использованных runtime-хелперов (влияют на пролог файла).
@@ -123,6 +135,11 @@ type genCtx struct {
 	scopes     []map[string]valueType
 	usesConcat bool
 	usesStrCmp bool
+
+	// funcs - сигнатуры всех функций программы, собранные до генерации
+	// тел (см. funcSig). Не меняется во время генерации тел - только
+	// читается при разборе вызовов.
+	funcs map[string]funcSig
 
 	// returnType/hasReturnType - тип результата функции, которая сейчас
 	// генерируется (сбрасывается в начале каждого generateFunction).
@@ -169,20 +186,43 @@ func indent(depth int) string {
 
 // Generate возвращает исходник на C, соответствующий программе prog.
 func Generate(prog *ast.Program) (string, error) {
-	var body strings.Builder
-	ctx := &genCtx{}
+	ctx := &genCtx{funcs: map[string]funcSig{}}
 
 	hasEntryPoint := false
 	for _, fn := range prog.Functions {
 		if fn.Name == entryPointName {
 			hasEntryPoint = true
 		}
-		if err := generateFunction(&body, ctx, fn); err != nil {
+		if _, exists := ctx.funcs[fn.Name]; exists {
+			return "", fmt.Errorf("функция %q объявлена более одного раза", fn.Name)
+		}
+		sig, err := signatureOf(fn)
+		if err != nil {
 			return "", err
 		}
+		ctx.funcs[fn.Name] = sig
 	}
 	if !hasEntryPoint {
 		return "", fmt.Errorf("в программе не найдена функция %q - она служит точкой входа", entryPointName)
+	}
+
+	// Прототипы (forward declarations) для всех функций, кроме точки входа -
+	// иначе функции, вызывающие друг друга в порядке, отличном от порядка
+	// объявления в исходнике (включая взаимную рекурсию), не собрались бы в
+	// C: компилятору C нужно видеть сигнатуру функции до места вызова.
+	var protos strings.Builder
+	for _, fn := range prog.Functions {
+		if fn.Name == entryPointName {
+			continue
+		}
+		protos.WriteString(prototypeOf(fn, ctx.funcs[fn.Name]))
+	}
+
+	var body strings.Builder
+	for _, fn := range prog.Functions {
+		if err := generateFunction(&body, ctx, fn); err != nil {
+			return "", err
+		}
 	}
 
 	var sb strings.Builder
@@ -200,8 +240,43 @@ func Generate(prog *ast.Program) (string, error) {
 		sb.WriteString(strConcatHelper)
 		sb.WriteString("\n")
 	}
+	if protos.Len() > 0 {
+		sb.WriteString(protos.String())
+		sb.WriteString("\n")
+	}
 	sb.WriteString(body.String())
 	return sb.String(), nil
+}
+
+// signatureOf выводит funcSig из аннотаций типов в объявлении функции.
+func signatureOf(fn *ast.FunctionDecl) (funcSig, error) {
+	paramTypes := make([]valueType, len(fn.Params))
+	for i, param := range fn.Params {
+		typ, ok := typeFromName(param.Type)
+		if !ok {
+			return funcSig{}, fmt.Errorf("функция %q: параметр %q имеет неизвестный тип %q", fn.Name, param.Name, param.Type)
+		}
+		paramTypes[i] = typ
+	}
+	sig := funcSig{ParamTypes: paramTypes}
+	if fn.ReturnType != "" {
+		typ, ok := typeFromName(fn.ReturnType)
+		if !ok {
+			return funcSig{}, fmt.Errorf("функция %q: неизвестный тип результата %q", fn.Name, fn.ReturnType)
+		}
+		sig.ReturnType = typ
+		sig.HasReturn = true
+	}
+	return sig, nil
+}
+
+// prototypeOf формирует C forward declaration для fn.
+func prototypeOf(fn *ast.FunctionDecl, sig funcSig) string {
+	cReturnType := "int"
+	if sig.HasReturn {
+		cReturnType = sig.ReturnType.cType()
+	}
+	return fmt.Sprintf("%s %s(%s);\n", cReturnType, mangleName(fn.Name), cParamList(fn.Params, sig.ParamTypes))
 }
 
 const strConcatHelper = `static char *rech_str_concat(const char *a, const char *b) {
@@ -216,39 +291,29 @@ const strConcatHelper = `static char *rech_str_concat(const char *a, const char 
 
 func generateFunction(sb *strings.Builder, ctx *genCtx, fn *ast.FunctionDecl) error {
 	cName := mangleName(fn.Name)
+	sig := ctx.funcs[fn.Name] // уже посчитана в Generate (signatureOf)
 	ctx.scopes = nil
 	ctx.pushScope()
 
-	paramTypes := make([]valueType, len(fn.Params))
 	for i, param := range fn.Params {
-		typ, ok := typeFromName(param.Type)
-		if !ok {
-			return fmt.Errorf("функция %q: параметр %q имеет неизвестный тип %q", fn.Name, param.Name, param.Type)
-		}
-		paramTypes[i] = typ
 		// Свежая область видимости, а имена параметров - падежи, уникальность
 		// которых уже проверил парсер (parseParams) - declare не может
 		// вернуть false здесь.
-		ctx.declare(param.Name, typ)
+		ctx.declare(param.Name, sig.ParamTypes[i])
 	}
 
-	ctx.returnType = typeUnknown
-	ctx.hasReturnType = fn.ReturnType != ""
+	ctx.returnType = sig.ReturnType
+	ctx.hasReturnType = sig.HasReturn
 	cReturnType := "int"
 	if ctx.hasReturnType {
-		typ, ok := typeFromName(fn.ReturnType)
-		if !ok {
-			return fmt.Errorf("функция %q: неизвестный тип результата %q", fn.Name, fn.ReturnType)
-		}
-		ctx.returnType = typ
-		cReturnType = typ.cType()
+		cReturnType = sig.ReturnType.cType()
 		if !endsWithReturnValue(fn.Body) {
 			return fmt.Errorf("функция %q: с объявленным типом результата %s должна заканчиваться \"вернуть <значение>\" (полная проверка всех путей выполнения - шаг 5)", fn.Name, fn.ReturnType)
 		}
 	}
 
 	fmt.Fprintf(sb, "// %s\n", fn.Name)
-	fmt.Fprintf(sb, "%s %s(%s) {\n", cReturnType, cName, cParamList(fn.Params, paramTypes))
+	fmt.Fprintf(sb, "%s %s(%s) {\n", cReturnType, cName, cParamList(fn.Params, sig.ParamTypes))
 	for _, stmt := range fn.Body {
 		if err := generateStmt(sb, ctx, stmt, 1); err != nil {
 			return fmt.Errorf("функция %q: %w", fn.Name, err)
@@ -426,6 +491,14 @@ func generateStmt(sb *strings.Builder, ctx *genCtx, stmt ast.Stmt, depth int) er
 		fmt.Fprintf(sb, "%sreturn %s;\n", ind, code)
 		return nil
 
+	case *ast.ExprStmt:
+		code, _, err := genCall(ctx, s.Call)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(sb, "%s%s;\n", ind, code)
+		return nil
+
 	default:
 		return fmt.Errorf("строка %d: инструкция %T пока не поддерживается C backend'ом", lineOf(stmt), stmt)
 	}
@@ -478,9 +551,46 @@ func genExpr(ctx *genCtx, expr ast.Expr) (string, valueType, error) {
 	case *ast.BinaryExpr:
 		return genBinaryExpr(ctx, e)
 
+	case *ast.CallExpr:
+		code, sig, err := genCall(ctx, e)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		if !sig.HasReturn {
+			return "", typeUnknown, fmt.Errorf("строка %d: функция %q не имеет объявленного типа результата - её нельзя использовать как выражение", e.Line, e.Callee)
+		}
+		return code, sig.ReturnType, nil
+
 	default:
 		return "", typeUnknown, fmt.Errorf("строка %d: выражение %T пока не поддерживается C backend'ом", lineOf(expr), expr)
 	}
+}
+
+// genCall генерирует C-код вызова функции (общий для CallExpr-выражения и
+// ExprStmt-инструкции) и возвращает вместе с ним сигнатуру вызванной
+// функции - у выражения и инструкции разные требования к HasReturn
+// (выражению нужно значение, инструкция вправе его отбросить), поэтому это
+// решает уже вызывающая сторона, а не genCall.
+func genCall(ctx *genCtx, e *ast.CallExpr) (string, funcSig, error) {
+	sig, ok := ctx.funcs[e.Callee]
+	if !ok {
+		return "", funcSig{}, fmt.Errorf("строка %d: функция %q не объявлена", e.Line, e.Callee)
+	}
+	if len(e.Args) != len(sig.ParamTypes) {
+		return "", funcSig{}, fmt.Errorf("строка %d: функция %q ожидает аргументов: %d, передано: %d", e.Line, e.Callee, len(sig.ParamTypes), len(e.Args))
+	}
+	argCodes := make([]string, len(e.Args))
+	for i, arg := range e.Args {
+		code, typ, err := genExpr(ctx, arg)
+		if err != nil {
+			return "", funcSig{}, err
+		}
+		if typ != sig.ParamTypes[i] {
+			return "", funcSig{}, fmt.Errorf("строка %d: аргумент %d вызова %q должен быть типа %s, получен %s", e.Line, i+1, e.Callee, sig.ParamTypes[i], typ)
+		}
+		argCodes[i] = code
+	}
+	return fmt.Sprintf("%s(%s)", mangleName(e.Callee), strings.Join(argCodes, ", ")), sig, nil
 }
 
 func genUnaryExpr(ctx *genCtx, e *ast.UnaryExpr) (string, valueType, error) {
@@ -620,6 +730,10 @@ func lineOf(n ast.Node) int {
 	case *ast.ForStmt:
 		return v.Line
 	case *ast.ReturnStmt:
+		return v.Line
+	case *ast.ExprStmt:
+		return v.Line
+	case *ast.CallExpr:
 		return v.Line
 	case *ast.StringLiteral:
 		return v.Line
