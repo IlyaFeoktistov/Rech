@@ -24,6 +24,7 @@ import (
 
 	"github.com/IlyaFeoktistov/Rech/internal/compiler"
 	"github.com/IlyaFeoktistov/Rech/internal/interp"
+	"github.com/IlyaFeoktistov/Rech/internal/module"
 	"github.com/IlyaFeoktistov/Rech/internal/semantic"
 )
 
@@ -75,17 +76,18 @@ func Discover(root string) ([]string, error) {
 	return files, nil
 }
 
-// RunFile прогоняет один тестовый файл: разбор (тот же Frontend, что и у
-// компилятора - internal/compiler.NewFrontend - не дублировать проверку
-// UTF-8/NFC отдельно), семантический анализ, исполнение через interp.Run.
-// Ошибка компиляции (лексер/парсер/семантика) - тоже "тест не прошёл", не
-// отдельная категория - пользователю всё равно нужно увидеть, что не так.
+// RunFile прогоняет один тестовый файл: разбор с разрешением "использовать"
+// (тот же module.Load/Link, что и у компилятора - internal/compiler.Build -
+// не дублировать проверку UTF-8/NFC/видимости между файлами отдельно),
+// семантический анализ, исполнение через interp.Run. Ошибка компиляции
+// (лексер/парсер/семантика) - тоже "тест не прошёл", не отдельная
+// категория - пользователю всё равно нужно увидеть, что не так.
 func RunFile(path string) Result {
-	src, err := os.ReadFile(path)
+	loaded, err := module.Load(path, compiler.NewFrontend())
 	if err != nil {
 		return Result{Path: path, Err: err}
 	}
-	prog, err := compiler.NewFrontend().Parse(string(src))
+	prog, err := loaded.Link()
 	if err != nil {
 		return Result{Path: path, Err: err}
 	}

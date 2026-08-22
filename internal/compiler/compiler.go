@@ -11,31 +11,23 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
-
-	"golang.org/x/text/unicode/norm"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
+	"github.com/IlyaFeoktistov/Rech/internal/module"
 	"github.com/IlyaFeoktistov/Rech/internal/parser"
 )
 
-// sourceFileNameRe - разрешённый алфавит имени .rech-файла (без расширения):
-// строчные буквы (кириллица или латиница), цифры, "_". Никаких заглавных
-// букв - на файловых системах без учёта регистра (Windows, macOS по
-// умолчанию) "Файл.rech" и "файл.rech" - один и тот же файл, а на Linux -
-// два разных; единственный надёжный способ не подорваться на этом -
-// заглавные буквы в именах файлов не использовать вовсе. Правило и
-// мотивация - docs/GRAMMAR.md, раздел "Имена файлов и кодировка".
-var sourceFileNameRe = regexp.MustCompile(`^[a-zа-яё0-9_]+$`)
-
-// validateSourceFileName проверяет имя .rech-файла: расширение, алфавит и
-// форму Unicode NFC. Это уже сейчас единица импорта в будущей системе
-// модулей ("использовать X из "имя_файла""), поэтому имя файла должно быть
-// однозначным байт-в-байт, а не только "похожим на правильное".
+// validateSourceFileName проверяет имя .rech-файла: расширение и алфавит
+// имени (module.ValidSegmentName - строчные буквы/цифры/"_", форма Unicode
+// NFC; то же правило, которым разрешаются сегменты пути импорта, потому что
+// имя файла - это уже сейчас единица импорта в системе модулей
+// ("использовать X из "имя_файла""), а сегмент пути импорта - либо имя
+// файла, либо имя каталога с тем же ограничением по той же причине; см.
+// docs/GRAMMAR.md, раздел "Имена файлов и кодировка").
 func validateSourceFileName(path string) error {
 	base := filepath.Base(path)
 	ext := filepath.Ext(base)
@@ -43,14 +35,8 @@ func validateSourceFileName(path string) error {
 		return fmt.Errorf("файл должен иметь расширение .rech, получено %q", base)
 	}
 	name := strings.TrimSuffix(base, ext)
-	if name == "" {
-		return fmt.Errorf("имя файла не может быть пустым (получено %q)", base)
-	}
-	if !norm.NFC.IsNormalString(name) {
-		return fmt.Errorf("имя файла %q не в нормализованной форме Unicode NFC - переименуйте файл в редакторе/файловом менеджере с нормализацией NFC", name)
-	}
-	if !sourceFileNameRe.MatchString(name) {
-		return fmt.Errorf("имя файла %q должно состоять только из строчных букв (кириллица или латиница), цифр и \"_\" - например, имя_файла.rech", name)
+	if err := module.ValidSegmentName(name); err != nil {
+		return fmt.Errorf("имя файла %q: %w - например, имя_файла.rech", name, err)
 	}
 	return nil
 }
@@ -193,7 +179,11 @@ func (c *Compiler) compileProgram(prog *ast.Program, base string, keepC bool) (s
 	return binPath, nil
 }
 
-func (c *Compiler) parseFile(srcPath string) (*ast.Program, error) {
+// parseFileRaw разбирает ровно srcPath, без "использовать" (шаг 11) -
+// используется в режиме каталога (parseDir), где у файлов друг с другом и
+// так нет разделения видимости, поэтому подключать через них ещё и файлы
+// снаружи каталога было бы лишним смешением двух разных механизмов.
+func (c *Compiler) parseFileRaw(srcPath string) (*ast.Program, error) {
 	if err := validateSourceFileName(srcPath); err != nil {
 		return nil, err
 	}
@@ -202,6 +192,24 @@ func (c *Compiler) parseFile(srcPath string) (*ast.Program, error) {
 		return nil, fmt.Errorf("не удалось прочитать файл: %w", err)
 	}
 	return c.Frontend.Parse(string(srcBytes))
+}
+
+// parseFile разбирает srcPath как единицу компиляции верхнего уровня
+// (`rech build/run <файл>`) - в отличие от parseFileRaw, разрешает
+// "использовать" (шаг 11): рекурсивно загружает и линкует файлы, на которые
+// srcPath ссылается, в одну программу с контролем видимости между файлами
+// (module.Load/Program.Link, включая обнаружение циклических импортов) - у
+// файла без единого "использовать" результат не отличается от обычного
+// разбора одного файла.
+func (c *Compiler) parseFile(srcPath string) (*ast.Program, error) {
+	if err := validateSourceFileName(srcPath); err != nil {
+		return nil, err
+	}
+	prog, err := module.Load(srcPath, c.Frontend)
+	if err != nil {
+		return nil, err
+	}
+	return prog.Link()
 }
 
 // parseDir собирает все ".rech"-файлы прямо в dirPath (без рекурсии в
@@ -215,6 +223,11 @@ func (c *Compiler) parseFile(srcPath string) (*ast.Program, error) {
 // появления настоящих импортов). Дубли имён функций/сущностей между
 // файлами - та же ошибка компиляции, что и дубль внутри одного файла
 // (проверяется дальше по конвейеру, отдельной проверки здесь не нужно).
+// "использовать" (шаг 11) внутри файла каталога - явная ошибка, а не тихо
+// игнорируемая конструкция: смешивать "весь каталог - одна единица
+// компиляции" (без контроля видимости) с настоящими, управляемыми
+// импортами (с контролем видимости) для одних и тех же файлов было бы
+// путаницей, а не удобством.
 func (c *Compiler) parseDir(dirPath string) (*ast.Program, error) {
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
@@ -234,9 +247,12 @@ func (c *Compiler) parseDir(dirPath string) (*ast.Program, error) {
 
 	merged := &ast.Program{}
 	for _, name := range names {
-		prog, err := c.parseFile(filepath.Join(dirPath, name))
+		prog, err := c.parseFileRaw(filepath.Join(dirPath, name))
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", name, err)
+		}
+		if len(prog.Uses) > 0 {
+			return nil, fmt.Errorf("%s: \"использовать\" не поддерживается в режиме сборки каталога (rech build <каталог>) - соберите этот файл напрямую (rech build <файл>) или уберите импорт", name)
 		}
 		merged.Functions = append(merged.Functions, prog.Functions...)
 		merged.Entities = append(merged.Entities, prog.Entities...)

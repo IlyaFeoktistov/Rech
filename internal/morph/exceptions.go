@@ -48,6 +48,153 @@ var nounFullExceptions = map[string]struct {
 			{Prepositional, Plural}:   "списках",
 		},
 	},
+
+	// Десять "разносклоняемых" существительных на "-мя" (стандартный,
+	// закрытый список русской грамматики - средний род, вставка "-ен-" во
+	// всех косвенных падежах ед.ч. и во всей парадигме мн.ч., которую
+	// ClassifyByEnding (голое "-я" -> ClassSecondSoftPlain, женский род) не
+	// покрывает и не должен пытаться покрыть - это не общий случай слов на
+	// "-я", а полностью нерегулярный, фиксированный набор слов; см.
+	// docs/MORPHOLOGY.md).
+	//
+	// Множественное число дано только там, где оно реально употребимо
+	// ("имя"/"время"/"знамя"/"племя"/"семя"/"стремя") - для "пламя",
+	// "бремя", "вымя", "темя" оставлено только единственное число
+	// (в обычном употреблении это по сути singularia tantum: "пламя"
+	// неисчисляемо, "вымя"/"темя" анатомически по одному на особь) -
+	// обращение к множественному числу этих четырёх слов, если такое
+	// когда-нибудь понадобится программе, даст явную ошибку "форма не
+	// найдена", а не угаданную (и, возможно, неверную) форму.
+	"имя": {
+		Gender: Neuter,
+		Paradigm: Paradigm{
+			{Nominative, Singular}:    "имя",
+			{Genitive, Singular}:      "имени",
+			{Dative, Singular}:        "имени",
+			{Instrumental, Singular}:  "именем",
+			{Prepositional, Singular}: "имени",
+			{Nominative, Plural}:      "имена",
+			{Genitive, Plural}:        "имён",
+			{Dative, Plural}:          "именам",
+			{Instrumental, Plural}:    "именами",
+			{Prepositional, Plural}:   "именах",
+		},
+	},
+	"время": {
+		Gender: Neuter,
+		Paradigm: Paradigm{
+			{Nominative, Singular}:    "время",
+			{Genitive, Singular}:      "времени",
+			{Dative, Singular}:        "времени",
+			{Instrumental, Singular}:  "временем",
+			{Prepositional, Singular}: "времени",
+			{Nominative, Plural}:      "времена",
+			{Genitive, Plural}:        "времён",
+			{Dative, Plural}:          "временам",
+			{Instrumental, Plural}:    "временами",
+			{Prepositional, Plural}:   "временах",
+		},
+	},
+	"знамя": {
+		Gender: Neuter,
+		Paradigm: Paradigm{
+			{Nominative, Singular}:    "знамя",
+			{Genitive, Singular}:      "знамени",
+			{Dative, Singular}:        "знамени",
+			{Instrumental, Singular}:  "знаменем",
+			{Prepositional, Singular}: "знамени",
+			{Nominative, Plural}:      "знамёна",
+			{Genitive, Plural}:        "знамён",
+			{Dative, Plural}:          "знамёнам",
+			{Instrumental, Plural}:    "знамёнами",
+			{Prepositional, Plural}:   "знамёнах",
+		},
+	},
+	"племя": {
+		Gender: Neuter,
+		Paradigm: Paradigm{
+			{Nominative, Singular}:    "племя",
+			{Genitive, Singular}:      "племени",
+			{Dative, Singular}:        "племени",
+			{Instrumental, Singular}:  "племенем",
+			{Prepositional, Singular}: "племени",
+			{Nominative, Plural}:      "племена",
+			{Genitive, Plural}:        "племён",
+			{Dative, Plural}:          "племенам",
+			{Instrumental, Plural}:    "племенами",
+			{Prepositional, Plural}:   "племенах",
+		},
+	},
+	"семя": {
+		Gender: Neuter,
+		Paradigm: Paradigm{
+			{Nominative, Singular}:    "семя",
+			{Genitive, Singular}:      "семени",
+			{Dative, Singular}:        "семени",
+			{Instrumental, Singular}:  "семенем",
+			{Prepositional, Singular}: "семени",
+			{Nominative, Plural}:      "семена",
+			{Genitive, Plural}:        "семян",
+			{Dative, Plural}:          "семенам",
+			{Instrumental, Plural}:    "семенами",
+			{Prepositional, Plural}:   "семенах",
+		},
+	},
+	"стремя": {
+		Gender: Neuter,
+		Paradigm: Paradigm{
+			{Nominative, Singular}:    "стремя",
+			{Genitive, Singular}:      "стремени",
+			{Dative, Singular}:        "стремени",
+			{Instrumental, Singular}:  "стременем",
+			{Prepositional, Singular}: "стремени",
+			{Nominative, Plural}:      "стремена",
+			{Genitive, Plural}:        "стремян",
+			{Dative, Plural}:          "стременам",
+			{Instrumental, Plural}:    "стременами",
+			{Prepositional, Plural}:   "стременах",
+		},
+	},
+	"пламя": {
+		Gender: Neuter,
+		Paradigm: Paradigm{
+			{Nominative, Singular}:    "пламя",
+			{Genitive, Singular}:      "пламени",
+			{Dative, Singular}:        "пламени",
+			{Instrumental, Singular}:  "пламенем",
+			{Prepositional, Singular}: "пламени",
+		},
+	},
+	"бремя": {
+		Gender: Neuter,
+		Paradigm: Paradigm{
+			{Nominative, Singular}:    "бремя",
+			{Genitive, Singular}:      "бремени",
+			{Dative, Singular}:        "бремени",
+			{Instrumental, Singular}:  "бременем",
+			{Prepositional, Singular}: "бремени",
+		},
+	},
+	"вымя": {
+		Gender: Neuter,
+		Paradigm: Paradigm{
+			{Nominative, Singular}:    "вымя",
+			{Genitive, Singular}:      "вымени",
+			{Dative, Singular}:        "вымени",
+			{Instrumental, Singular}:  "выменем",
+			{Prepositional, Singular}: "вымени",
+		},
+	},
+	"темя": {
+		Gender: Neuter,
+		Paradigm: Paradigm{
+			{Nominative, Singular}:    "темя",
+			{Genitive, Singular}:      "темени",
+			{Dative, Singular}:        "темени",
+			{Instrumental, Singular}:  "теменем",
+			{Prepositional, Singular}: "темени",
+		},
+	},
 }
 
 // nounAnimacy - курируемый словарь одушевлённости для идентификаторов
@@ -87,13 +234,19 @@ var pluraleTantum = map[string]bool{
 // нашлось в словаре OpenCorpora через gomorphy) - вызывающий код не должен
 // в этом случае требовать согласования вовсе, а не угадывать форму.
 //
-// Не дублирует Dictionary.RegisterNoun - здесь нужен только род/число, не
-// полная парадигма словоформ, поэтому источники те же (курируемые
-// исключения -> ClassifyByEnding -> gomorphy), но без построения Paradigm.
+// Источники рода - те же и в том же порядке, что и у Dictionary.RegisterNoun
+// (nounFullExceptions -> nounGenderExceptions -> ClassifyByEnding ->
+// gomorphy), не дублирует сами данные - для слов вроде "имя" род берётся
+// прямо из nounFullExceptions (полная парадигма нужна RegisterNoun, но её
+// Gender ровно тот же, что нужен и здесь), а не заводится второй раз в
+// nounGenderExceptions.
 func NounAgreement(nomSg string) (gender Gender, number Number, ok bool) {
 	lower := strings.ToLower(nomSg)
 	if pluraleTantum[lower] {
 		return 0, Plural, true
+	}
+	if exc, found := nounFullExceptions[lower]; found {
+		return exc.Gender, Singular, true
 	}
 	if exc, found := nounGenderExceptions[lower]; found {
 		return exc.Gender, Singular, true

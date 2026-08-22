@@ -68,6 +68,11 @@ const (
 	KwState    // состояние (секция объявления состояний сущности, шаг 4.1)
 	KwBecomes  // становится (переход в другое состояние, шаг 4.1)
 	KwAssert   // утверждать (проверка условия, аварийно завершает при лжи)
+	KwPrivate  // приватный / приватная / приватное / приватные (шаг 4.3)
+	KwPublic   // публичный / публичная / публичное / публичные (шаг 4.3)
+	KwUse      // использовать (импорт, шаг 11)
+	KwOf       // из (предлог перед путём импорта, шаг 11)
+	KwAs       // как (переименование импортируемого имени, шаг 11)
 )
 
 // keywords - таблица ключевых слов v0.1. Список сознательно узкий:
@@ -75,34 +80,45 @@ const (
 // добавляются по мере реализации соответствующих этапов - см.
 // docs/ROADMAP.md.
 var keywords = map[string]TokenType{
-	"функция":    KwFunction,
-	"вывести":    KwPrint,
-	"переменная": KwVariable,
-	"и":          KwAnd,
-	"или":        KwOr,
-	"не":         KwNot,
-	"истина":     KwTrue,
-	"ложь":       KwFalse,
-	"если":       KwIf,
-	"иначе":      KwElse,
-	"пока":       KwWhile,
-	"для":        KwFor,
-	"от":         KwFrom,
-	"до":         KwTo,
-	"вернуть":    KwReturn,
-	"с":          KwWith,
-	"в":          KwIn,
-	"сущность":   KwEntity,
-	"класс":      KwClass,
-	"имеет":      KwHas,
-	"новый":      KwNew,
-	"новая":      KwNew,
-	"новое":      KwNew,
-	"новые":      KwNew,
-	"этот":       KwThis,
-	"состояние":  KwState,
-	"становится": KwBecomes,
-	"утверждать": KwAssert,
+	"функция":      KwFunction,
+	"вывести":      KwPrint,
+	"переменная":   KwVariable,
+	"и":            KwAnd,
+	"или":          KwOr,
+	"не":           KwNot,
+	"истина":       KwTrue,
+	"ложь":         KwFalse,
+	"если":         KwIf,
+	"иначе":        KwElse,
+	"пока":         KwWhile,
+	"для":          KwFor,
+	"от":           KwFrom,
+	"до":           KwTo,
+	"вернуть":      KwReturn,
+	"с":            KwWith,
+	"в":            KwIn,
+	"сущность":     KwEntity,
+	"класс":        KwClass,
+	"имеет":        KwHas,
+	"новый":        KwNew,
+	"новая":        KwNew,
+	"новое":        KwNew,
+	"новые":        KwNew,
+	"этот":         KwThis,
+	"состояние":    KwState,
+	"становится":   KwBecomes,
+	"утверждать":   KwAssert,
+	"приватный":    KwPrivate,
+	"приватная":    KwPrivate,
+	"приватное":    KwPrivate,
+	"приватные":    KwPrivate,
+	"публичный":    KwPublic,
+	"публичная":    KwPublic,
+	"публичное":    KwPublic,
+	"публичные":    KwPublic,
+	"использовать": KwUse,
+	"из":           KwOf,
+	"как":          KwAs,
 }
 
 // Token - одна лексема с позицией в исходном файле (для сообщений об ошибках).
@@ -231,6 +247,16 @@ func (t TokenType) String() string {
 		return "становится"
 	case KwAssert:
 		return "утверждать"
+	case KwPrivate:
+		return "приватный"
+	case KwPublic:
+		return "публичный"
+	case KwUse:
+		return "использовать"
+	case KwOf:
+		return "из"
+	case KwAs:
+		return "как"
 	default:
 		return "UNKNOWN"
 	}

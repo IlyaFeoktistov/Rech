@@ -27,6 +27,10 @@ type funcSig struct {
 	Params     []ir.Type
 	ReturnType ir.Type
 	HasReturn  bool
+
+	// Private - видимость метода (шаг 4.3, ast.MethodDecl.Private); всегда
+	// false для обычных функций - у них нет понятия видимости.
+	Private bool
 }
 
 // entitySig - сигнатура сущности: поля в порядке объявления (для
@@ -36,6 +40,11 @@ type funcSig struct {
 type entitySig struct {
 	FieldNames []string
 	FieldTypes []ir.Type
+
+	// FieldPrivate - видимость соответствующего поля (шаг 4.3, тот же индекс,
+	// что и FieldNames/FieldTypes); nil у сущностей без ни одного приватного
+	// поля.
+	FieldPrivate []bool
 
 	// States - краткие формы, объявленные под "состояние:" (шаг 4.1,
 	// упрощённая версия) - для проверки BecomeStmt ("получатель становится
@@ -51,6 +60,27 @@ type entitySig struct {
 	// нулевые значения.
 	IsList   bool
 	ElemType ir.Type
+}
+
+// checkFieldVisibility возвращает ошибку, если поле fieldName сущности
+// entityName приватное (шаг 4.3) и обращение происходит не изнутри метода
+// этой же сущности (sc.thisEntity != entityName) - см. одноимённый хелпер в
+// cbackend/generator.go (проверка структурно одна и та же, но не вынесена в
+// общий пакет - ir не должен знать про AST-путь, а cbackend/generator.go не
+// знает про internal/ir).
+func checkFieldVisibility(sc *ctx, entityName, fieldName string, private bool, line int) error {
+	if !private || sc.thisEntity == entityName {
+		return nil
+	}
+	return fmt.Errorf("строка %d: поле %q сущности %q приватное - доступ только из методов самой сущности", line, fieldName, entityName)
+}
+
+// checkMethodVisibility - то же самое для вызова приватного метода.
+func checkMethodVisibility(sc *ctx, entityName, methodName string, private bool, line int) error {
+	if !private || sc.thisEntity == entityName {
+		return nil
+	}
+	return fmt.Errorf("строка %d: метод %q сущности %q приватный - вызов только из методов самой сущности", line, methodName, entityName)
 }
 
 func (s entitySig) fieldIndex(name string) int {
@@ -351,6 +381,7 @@ func collectEntities(prog *ast.Program) (map[string]entitySig, map[string]map[st
 			}
 			sig.FieldNames = append(sig.FieldNames, f.Name)
 			sig.FieldTypes = append(sig.FieldTypes, typ)
+			sig.FieldPrivate = append(sig.FieldPrivate, f.Private)
 		}
 		if len(ent.States) > 0 {
 			sig.States = map[string]bool{}
@@ -380,7 +411,7 @@ func collectEntities(prog *ast.Program) (map[string]entitySig, map[string]map[st
 				}
 				params[i] = typ
 			}
-			msig := funcSig{Params: params}
+			msig := funcSig{Params: params, Private: m.Private}
 			if m.ReturnType != "" {
 				typ, err := resolveTypeName(entities, methods, aliases, m.ReturnType)
 				if err != nil {
@@ -682,6 +713,9 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if idx == -1 {
 			return nil, fmt.Errorf("строка %d: у сущности %q нет поля %q", s.Line, typ.Entity, s.Field)
 		}
+		if err := checkFieldVisibility(sc, typ.Entity, s.Field, sig.FieldPrivate[idx], s.Line); err != nil {
+			return nil, err
+		}
 		value, err := analyzeExpr(sc, s.Value)
 		if err != nil {
 			return nil, err
@@ -782,6 +816,9 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 		idx := sig.fieldIndex(e.Field)
 		if idx == -1 {
 			return nil, fmt.Errorf("строка %d: у сущности %q нет поля %q", e.Line, typ.Entity, e.Field)
+		}
+		if err := checkFieldVisibility(sc, typ.Entity, e.Field, sig.FieldPrivate[idx], e.Line); err != nil {
+			return nil, err
 		}
 		return &ir.FieldAccess{Receiver: receiver, Field: e.Field, Type: sig.FieldTypes[idx]}, nil
 
@@ -886,6 +923,9 @@ func analyzeMethodCallExpr(sc *ctx, e *ast.MethodCallExpr) (*ir.MethodCallExpr, 
 	sig, ok := sc.methods[typ.Entity][e.Method]
 	if !ok {
 		return nil, fmt.Errorf("строка %d: у сущности %q нет метода %q", e.Line, typ.Entity, e.Method)
+	}
+	if err := checkMethodVisibility(sc, typ.Entity, e.Method, sig.Private, e.Line); err != nil {
+		return nil, err
 	}
 	if len(e.Args) != len(sig.Params) {
 		return nil, fmt.Errorf("строка %d: метод %q ожидает аргументов: %d, передано: %d", e.Line, e.Method, len(sig.Params), len(e.Args))

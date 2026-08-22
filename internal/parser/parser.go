@@ -280,6 +280,12 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 				return nil, err
 			}
 			prog.Entities = append(prog.Entities, ent)
+		case lexer.KwUse:
+			use, err := p.parseUseDecl()
+			if err != nil {
+				return nil, err
+			}
+			prog.Uses = append(prog.Uses, use)
 		default:
 			stmt, err := p.parseStatement()
 			if err != nil {
@@ -338,7 +344,7 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 	}
 
 	var methods []*ast.MethodDecl
-	for p.cur().Type == lexer.IDENT {
+	for p.cur().Type == lexer.IDENT || p.cur().Type == lexer.KwPrivate || p.cur().Type == lexer.KwPublic {
 		m, err := p.parseMethod()
 		if err != nil {
 			return nil, fmt.Errorf("сущность %q: %w", name.Value, err)
@@ -351,6 +357,49 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 		return nil, err
 	}
 	return &ast.EntityDecl{Name: name.Value, States: states, Fields: fields, Methods: methods, Line: kw.Line}, nil
+}
+
+// parseUseDecl разбирает "использовать <имя> [как <псевдоним>], ... из
+// "<путь>"" (шаг 11, docs/ROADMAP.md) - список имён через запятую (перенос
+// строки сразу после запятой допустим, чтобы длинный список можно было
+// разбить на несколько строк), каждое опционально с "как <псевдоним>"
+// (переименование при импорте - единственный способ ввести два одноимённых
+// в исходных файлах импорта одновременно, не сталкиваясь друг с другом),
+// затем "из" и путь строковым литералом. Разрешение пути (относительно
+// каталога текущего файла), проверка существования импортируемых имён в
+// целевом файле и видимости - вне парсера, см. internal/module.
+func (p *Parser) parseUseDecl() (*ast.UseDecl, error) {
+	kw := p.advance() // "использовать"
+	var names []ast.UseName
+	for {
+		name, err := p.expect(lexer.IDENT)
+		if err != nil {
+			return nil, fmt.Errorf("после %q ожидалось имя: %w", kw.Value, err)
+		}
+		alias := name.Value
+		if p.cur().Type == lexer.KwAs {
+			p.advance() // "как"
+			aliasTok, err := p.expect(lexer.IDENT)
+			if err != nil {
+				return nil, fmt.Errorf("после \"как\" ожидался псевдоним: %w", err)
+			}
+			alias = aliasTok.Value
+		}
+		names = append(names, ast.UseName{Name: name.Value, Alias: alias, Line: name.Line})
+		if p.cur().Type != lexer.COMMA {
+			break
+		}
+		p.advance() // ","
+		p.skipNewlines()
+	}
+	if _, err := p.expect(lexer.KwOf); err != nil {
+		return nil, fmt.Errorf("после списка имён ожидалось \"из\": %w", err)
+	}
+	path, err := p.expect(lexer.STRING)
+	if err != nil {
+		return nil, fmt.Errorf("после \"из\" ожидался путь строковым литералом: %w", err)
+	}
+	return &ast.UseDecl{Names: names, Path: path.Value, Line: kw.Line}, nil
 }
 
 // parseStatesSection разбирает "состояние:" и краткие формы состояний,
@@ -439,12 +488,30 @@ func (p *Parser) parseBecomeStmt() (ast.Stmt, error) {
 	return &ast.BecomeStmt{Receiver: receiver, State: state.Value, Line: kw.Line}, nil
 }
 
-// parseMethod разбирает метод сущности: IDENT "(" [ params ] ")"
-// [ ":" IDENT ] block - как функцию, но без ключевого слова "функция" и со
-// скобками параметров обязательными (docs/GRAMMAR.md, "method"). Внутри
-// тела метода включается p.inMethodBody - это то, что делает "этот"
-// валидным (parsePrimary, parseFieldAssign).
+// parseMethod разбирает метод сущности: [приватный|публичный] IDENT "("
+// [ params ] ")" [ ":" IDENT ] block - как функцию, но без ключевого слова
+// "функция" и со скобками параметров обязательными (docs/GRAMMAR.md,
+// "method"). Внутри тела метода включается p.inMethodBody - это то, что
+// делает "этот" валидным (parsePrimary, parseFieldAssign).
+//
+// Модификатор видимости (шаг 4.3) у метода не согласуется по роду, в отличие
+// от поля (parseField) - у метода нет рода (называется глаголом), поэтому
+// допустима только форма мужского рода "приватный"/"публичный", любая другая
+// форма ("приватная" и т.п.) - ошибка компиляции, а не угаданное согласование.
 func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
+	var private bool
+	if p.cur().Type == lexer.KwPrivate || p.cur().Type == lexer.KwPublic {
+		tok := p.advance()
+		private = tok.Type == lexer.KwPrivate
+		want := "публичный"
+		if private {
+			want = "приватный"
+		}
+		if tok.Value != want {
+			return nil, fmt.Errorf("строка %d, столбец %d: у метода модификатор видимости не согласуется по роду (метод - не существительное) - нужна форма %q, получено %q",
+				tok.Line, tok.Col, want, tok.Value)
+		}
+	}
 	name, err := p.expect(lexer.IDENT)
 	if err != nil {
 		return nil, err
@@ -474,7 +541,7 @@ func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ast.MethodDecl{Name: name.Value, Params: params, ReturnType: returnType, Body: body, Line: name.Line}, nil
+	return &ast.MethodDecl{Name: name.Value, Params: params, ReturnType: returnType, Body: body, Private: private, Line: name.Line}, nil
 }
 
 // parseFieldsSection разбирает "имеет:" и поля, отступленные относительно
@@ -513,10 +580,26 @@ func (p *Parser) parseFieldsSection() ([]ast.Field, error) {
 	return fields, nil
 }
 
+// parseField разбирает одно поле, необязательно с модификатором видимости
+// (шаг 4.3) перед именем: "[приватный|публичный] имя: Тип". Модификатор
+// согласуется по роду с именем поля тем же принципом, что и "новый"/"новая"
+// у конструктора (см. visibilityKeywordFor/checkVisibilityAgreement) - без
+// модификатора поле публичное (Field.Private == false).
 func (p *Parser) parseField() (ast.Field, error) {
+	var visTok *lexer.Token
+	if p.cur().Type == lexer.KwPrivate || p.cur().Type == lexer.KwPublic {
+		tok := p.advance()
+		visTok = &tok
+	}
 	name, err := p.expect(lexer.IDENT)
 	if err != nil {
 		return ast.Field{}, fmt.Errorf("ожидалось имя поля: %w", err)
+	}
+	private := visTok != nil && visTok.Type == lexer.KwPrivate
+	if visTok != nil {
+		if err := checkVisibilityAgreement(*visTok, private, name.Value); err != nil {
+			return ast.Field{}, fmt.Errorf("поле %q: %w", name.Value, err)
+		}
 	}
 	if _, err := p.expect(lexer.COLON); err != nil {
 		return ast.Field{}, fmt.Errorf("после имени поля %q ожидалось \":\" и тип: %w", name.Value, err)
@@ -525,7 +608,46 @@ func (p *Parser) parseField() (ast.Field, error) {
 	if err != nil {
 		return ast.Field{}, fmt.Errorf("после \":\" у поля %q ожидалось имя типа: %w", name.Value, err)
 	}
-	return ast.Field{Name: name.Value, Type: typeName, Line: name.Line}, nil
+	return ast.Field{Name: name.Value, Type: typeName, Private: private, Line: name.Line}, nil
+}
+
+// visibilityKeywordFor возвращает форму модификатора видимости
+// ("приватный"/"публичный" и производные), согласованную с (gender, number) -
+// тот же принцип, что и newKeywordFor для конструктора.
+func visibilityKeywordFor(private bool, gender morph.Gender, number morph.Number) string {
+	stem := "публичн"
+	if private {
+		stem = "приватн"
+	}
+	if number == morph.Plural {
+		return stem + "ые"
+	}
+	switch gender {
+	case morph.Feminine:
+		return stem + "ая"
+	case morph.Neuter:
+		return stem + "ое"
+	default:
+		return stem + "ый"
+	}
+}
+
+// checkVisibilityAgreement проверяет, что фактически написанная форма
+// модификатора видимости поля (kw.Value) согласуется по роду/числу с
+// именем поля fieldName - permissive fallback, как и checkNewKeywordAgreement:
+// если morph.NounAgreement не смогла определить род/число имени поля,
+// подходит любая форма.
+func checkVisibilityAgreement(kw lexer.Token, private bool, fieldName string) error {
+	gender, number, ok := morph.NounAgreement(fieldName)
+	if !ok {
+		return nil
+	}
+	want := visibilityKeywordFor(private, gender, number)
+	if kw.Value != want {
+		return fmt.Errorf("строка %d, столбец %d: требует форму модификатора видимости %q, получено %q",
+			kw.Line, kw.Col, want, kw.Value)
+	}
+	return nil
 }
 
 func (p *Parser) parseFunction() (*ast.FunctionDecl, error) {

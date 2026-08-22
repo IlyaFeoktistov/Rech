@@ -254,6 +254,11 @@ type funcSig struct {
 	ParamTypes []valueType
 	ReturnType valueType
 	HasReturn  bool
+
+	// Private - видимость метода (шаг 4.3, MethodDecl.Private); всегда false
+	// для обычных функций (signatureOf их не проставляет - у функций нет
+	// понятия видимости, только у методов сущности).
+	Private bool
 }
 
 // genCtx - состояние генерации одной функции: стек областей видимости
@@ -588,7 +593,12 @@ func signatureOf(ctx *genCtx, fn *ast.FunctionDecl) (funcSig, error) {
 
 // methodSignatureOf - то же самое для метода сущности (шаг 4.d).
 func methodSignatureOf(ctx *genCtx, ent *ast.EntityDecl, m *ast.MethodDecl) (funcSig, error) {
-	return signatureFromDecl(ctx, fmt.Sprintf("сущность %q: метод %q", ent.Name, m.Name), m.Params, m.ReturnType)
+	sig, err := signatureFromDecl(ctx, fmt.Sprintf("сущность %q: метод %q", ent.Name, m.Name), m.Params, m.ReturnType)
+	if err != nil {
+		return funcSig{}, err
+	}
+	sig.Private = m.Private
+	return sig, nil
 }
 
 // combineParamList добавляет extraParam (скрытый первый параметр this_ у
@@ -637,6 +647,12 @@ type entitySig struct {
 	FieldNames []string
 	FieldTypes []valueType
 
+	// FieldPrivate - видимость соответствующего поля (шаг 4.3, тот же
+	// индекс, что и FieldNames/FieldTypes); nil у сущностей без единого
+	// приватного поля (все обычные проверки по факту сравнивают с false на
+	// нулевом значении bool, отдельно проверять nil не нужно).
+	FieldPrivate []bool
+
 	IsList   bool
 	ElemType valueType
 
@@ -678,6 +694,7 @@ func entitySignatureOf(ctx *genCtx, ent *ast.EntityDecl) (entitySig, error) {
 		fieldMangled[mangled] = f.Name
 		sig.FieldNames = append(sig.FieldNames, f.Name)
 		sig.FieldTypes = append(sig.FieldTypes, typ)
+		sig.FieldPrivate = append(sig.FieldPrivate, f.Private)
 	}
 	return sig, nil
 }
@@ -1430,6 +1447,9 @@ func genMethodCall(ctx *genCtx, e *ast.MethodCallExpr) (string, funcSig, error) 
 	if !ok {
 		return "", funcSig{}, fmt.Errorf("строка %d: у сущности %q нет метода %q", e.Line, receiverType.entity, e.Method)
 	}
+	if err := checkMethodVisibility(ctx, receiverType.entity, e.Method, sig.Private, e.Line); err != nil {
+		return "", funcSig{}, err
+	}
 	if len(e.Args) != len(sig.ParamTypes) {
 		return "", funcSig{}, fmt.Errorf("строка %d: метод %q ожидает аргументов: %d, передано: %d", e.Line, e.Method, len(sig.ParamTypes), len(e.Args))
 	}
@@ -1537,6 +1557,27 @@ func genNewExprLabeled(ctx *genCtx, e *ast.NewExpr, sig entitySig) ([]string, er
 	return parts, nil
 }
 
+// checkFieldVisibility возвращает ошибку, если поле fieldName сущности
+// entityName приватное (шаг 4.3) и обращение происходит не изнутри метода
+// этой же сущности (ctx.thisEntity != entityName) - область видимости
+// приватного поля ограничена самой сущностью (её методами), а не конкретным
+// экземпляром/получателем и не файлом, в котором она объявлена.
+func checkFieldVisibility(ctx *genCtx, entityName, fieldName string, private bool, line int) error {
+	if !private || ctx.thisEntity == entityName {
+		return nil
+	}
+	return fmt.Errorf("строка %d: поле %q сущности %q приватное - доступ только из методов самой сущности", line, fieldName, entityName)
+}
+
+// checkMethodVisibility - то же самое для вызова приватного метода
+// (genMethodCall).
+func checkMethodVisibility(ctx *genCtx, entityName, methodName string, private bool, line int) error {
+	if !private || ctx.thisEntity == entityName {
+		return nil
+	}
+	return fmt.Errorf("строка %d: метод %q сущности %q приватный - вызов только из методов самой сущности", line, methodName, entityName)
+}
+
 // genFieldAccess генерирует чтение поля сущности ("receiver.поле").
 func genFieldAccess(ctx *genCtx, e *ast.FieldAccess) (string, valueType, error) {
 	code, typ, err := genExpr(ctx, e.Receiver)
@@ -1550,6 +1591,9 @@ func genFieldAccess(ctx *genCtx, e *ast.FieldAccess) (string, valueType, error) 
 	i := sig.fieldIndex(e.Field)
 	if i == -1 {
 		return "", typeUnknown, fmt.Errorf("строка %d: у сущности %q нет поля %q", e.Line, typ.entity, e.Field)
+	}
+	if err := checkFieldVisibility(ctx, typ.entity, e.Field, sig.FieldPrivate[i], e.Line); err != nil {
+		return "", typeUnknown, err
 	}
 	return fmt.Sprintf("(%s).%s", code, mangleField(e.Field)), sig.FieldTypes[i], nil
 }
@@ -1574,6 +1618,9 @@ func generateFieldAssign(sb *strings.Builder, ctx *genCtx, s *ast.FieldAssign, i
 	i := sig.fieldIndex(s.Field)
 	if i == -1 {
 		return fmt.Errorf("строка %d: у сущности %q нет поля %q", s.Line, receiverType.entity, s.Field)
+	}
+	if err := checkFieldVisibility(ctx, receiverType.entity, s.Field, sig.FieldPrivate[i], s.Line); err != nil {
+		return err
 	}
 	code, typ, err := genExpr(ctx, s.Value)
 	if err != nil {

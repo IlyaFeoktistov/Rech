@@ -12,12 +12,13 @@ import (
 type DeclensionClass int
 
 const (
-	ClassFirstHard  DeclensionClass = iota // документ (муж., твёрдая, согласная)
-	ClassFirstSoft                         // пользователь (муж., мягкая, "-ь")
-	ClassSecondHard                        // система (жен., твёрдая, "-а")
-	ClassSecondSoft                        // компания (жен., мягкая, "-ия")
-	ClassNeuterHard                        // окно (сред., твёрдая, "-о")
-	ClassNeuterSoft                        // сообщение (сред., мягкая, "-ие")
+	ClassFirstHard       DeclensionClass = iota // документ (муж., твёрдая, согласная)
+	ClassFirstSoft                              // пользователь (муж., мягкая, "-ь")
+	ClassSecondHard                             // система (жен., твёрдая, "-а")
+	ClassSecondSoft                             // компания (жен., мягкая, "-ия")
+	ClassNeuterHard                             // окно (сред., твёрдая, "-о")
+	ClassNeuterSoft                             // сообщение (сред., мягкая, "-ие")
+	ClassSecondSoftPlain                        // земля (жен., мягкая, голое "-я", без предшествующей "и")
 
 	// ClassIrregular - слово зарегистрировано по готовой парадигме
 	// (nounFullExceptions в exceptions.go), не generic-классом склонения -
@@ -122,6 +123,26 @@ var classTable = map[DeclensionClass]classInfo{
 			prep:  [2]string{"ии", "иях"},
 		},
 	},
+	// ClassSecondSoftPlain - "земля"/"неделя"/"тётя": женский род, голое "-я"
+	// (не путать с ClassSecondSoft - "-ия", "компания" - у него своя,
+	// отличная парадигма, начинающаяся сразу с "и" во всех косвенных
+	// падежах). Как и у ClassSecondHard, родительный падеж мн.ч. - без
+	// добавленного окончания (bare-стем): верно для основ без беглой гласной
+	// ("недель" из "неделя"), но не для тех, кому беглая гласная нужна
+	// ("земля" -> "земель") - беглые гласные в целом вне Фазы A, тот же
+	// общий недостаток, что и у ClassSecondHard ("сестра" -> "сестёр").
+	ClassSecondSoftPlain: {
+		strip:  "я",
+		gender: Feminine,
+		endings: endings{
+			nom:   [2]string{"я", "и"},
+			gen:   [2]string{"и", ""},
+			dat:   [2]string{"е", "ям"},
+			instr: [2]string{"ей", "ями"},
+			prep:  [2]string{"е", "ях"},
+		},
+		accSg: "ю",
+	},
 }
 
 // GenderOf возвращает род, закреплённый за классом склонения.
@@ -136,12 +157,23 @@ func GenderOf(class DeclensionClass) Gender {
 // (отдельные подтипы, отложенные до Фазы B). В этом случае лемму нужно
 // зарегистрировать через Dictionary.RegisterNounExplicit или добавить в
 // словарь исключений (exceptions.go) - никогда не угадывается "на удачу".
+//
+// "-я" (голое, проверяется после "-ия" - иначе "-ия" никогда бы не
+// сработала, т.к. тоже оканчивается на "-я") - женский род,
+// ClassSecondSoftPlain ("земля"); default ниже - это именно "согласная
+// (иначе)", а не "что угодно не подошедшее выше", поэтому гласному "-я"
+// нужен свой явный case. Разносклоняемые "-мя"-слова (имя, время, пламя,
+// ...) сюда не попадают - у них не только другой род (средний), но и вся
+// парадигма нерегулярна ("имя"/"имени"/"именем", не "имя"/"и"/"ей" по этому
+// классу) - они регистрируются раньше, через nounFullExceptions.
 func ClassifyByEnding(nomSg string) (DeclensionClass, bool) {
 	switch {
 	case strings.HasSuffix(nomSg, "ие"):
 		return ClassNeuterSoft, true
 	case strings.HasSuffix(nomSg, "ия"):
 		return ClassSecondSoft, true
+	case strings.HasSuffix(nomSg, "я"):
+		return ClassSecondSoftPlain, true
 	case strings.HasSuffix(nomSg, "о"):
 		return ClassNeuterHard, true
 	case strings.HasSuffix(nomSg, "а"):
