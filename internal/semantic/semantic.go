@@ -17,34 +17,48 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
+// funcSig - сигнатура функции, собранная предварительным проходом
+// (collectFuncSigs) до анализа тел - функции могут вызывать друг друга
+// независимо от порядка объявления в файле (включая взаимную рекурсию),
+// как и в AST-пути (cbackend.funcSig, тот же принцип, отдельный тип - IR
+// не должен знать про cbackend).
+type funcSig struct {
+	Params     []ir.Type
+	ReturnType ir.Type
+	HasReturn  bool
+}
+
 // scope - символьная таблица одной области видимости: имя переменной ->
 // тип.
 type scope map[string]ir.Type
 
-// scopeStack - стек областей видимости одной функции (шаг 2 - если/пока/
-// для вводят вложенные блоки, как в cbackend, только здесь, а не в
-// backend'е - в этом и смысл шага 5). declare добавляет переменную в
-// самую внутреннюю область; lookup ищет от самой внутренней к внешним;
-// затенение (повторное имя во вложенном блоке) разрешено - declare
-// проверяет только текущую область, не внешние.
-type scopeStack struct {
-	scopes []scope
+// ctx - состояние анализа одной функции: стек областей видимости (шаг 2 -
+// если/пока/для вводят вложенные блоки, затенение разрешено - declare
+// проверяет только текущую область, не внешние) плюс сигнатуры всех
+// функций программы (для вызовов, шаг 3) и тип результата текущей
+// функции (для проверки "вернуть <значение>"). Аналог genCtx в cbackend,
+// только на уровне IR/семантики, не C.
+type ctx struct {
+	funcs      map[string]funcSig
+	scopes     []scope
+	returnType ir.Type
+	hasReturn  bool
 }
 
-func newScopeStack() *scopeStack {
-	return &scopeStack{scopes: []scope{{}}}
+func newCtx(funcs map[string]funcSig, returnType ir.Type, hasReturn bool) *ctx {
+	return &ctx{funcs: funcs, scopes: []scope{{}}, returnType: returnType, hasReturn: hasReturn}
 }
 
-func (s *scopeStack) push() {
-	s.scopes = append(s.scopes, scope{})
+func (c *ctx) push() {
+	c.scopes = append(c.scopes, scope{})
 }
 
-func (s *scopeStack) pop() {
-	s.scopes = s.scopes[:len(s.scopes)-1]
+func (c *ctx) pop() {
+	c.scopes = c.scopes[:len(c.scopes)-1]
 }
 
-func (s *scopeStack) declare(name string, typ ir.Type) error {
-	top := s.scopes[len(s.scopes)-1]
+func (c *ctx) declare(name string, typ ir.Type) error {
+	top := c.scopes[len(c.scopes)-1]
 	if _, exists := top[name]; exists {
 		return fmt.Errorf("переменная %q уже объявлена в этой области видимости", name)
 	}
@@ -52,8 +66,8 @@ func (s *scopeStack) declare(name string, typ ir.Type) error {
 	return nil
 }
 
-func (s *scopeStack) lookup(name string) (ir.Type, bool) {
-	for _, sc := range slices.Backward(s.scopes) {
+func (c *ctx) lookup(name string) (ir.Type, bool) {
+	for _, sc := range slices.Backward(c.scopes) {
 		if typ, ok := sc[name]; ok {
 			return typ, true
 		}
@@ -61,15 +75,37 @@ func (s *scopeStack) lookup(name string) (ir.Type, bool) {
 	return ir.TypeUnknown, false
 }
 
-// Analyze производит IR из AST. Покрытие на данный момент - шаг 0
-// (`вывести <строка>`), шаг 1 (переменные, арифметика, сравнения,
-// логические операторы) и шаг 2 (если/пока/для, блочная область
-// видимости) - см. internal/ir, package doc. Расширяется вместе с
-// internal/backend/cbackend.GenerateFromIR подшаг за подшагом, шаг 5.
+// resolveTypeName - единственное место, где имя типа Rech (строка из AST)
+// маппится на ir.Type. Только встроенные примитивы - сущности и generic-
+// коллекции (шаги 4, 4.2) в IR ещё не перенесены.
+func resolveTypeName(name string) (ir.Type, error) {
+	switch name {
+	case "Строка":
+		return ir.TypeString, nil
+	case "Целое":
+		return ir.TypeInt, nil
+	case "Число":
+		return ir.TypeFloat, nil
+	case "Логическое":
+		return ir.TypeBool, nil
+	default:
+		return ir.TypeUnknown, fmt.Errorf("тип %q пока не реализован в IR (шаг 5.b) - только Строка/Целое/Число/Логическое", name)
+	}
+}
+
+// Analyze производит IR из AST. Покрытие на данный момент - шаги 0-3
+// (`вывести`, переменные/арифметика, если/пока/для, функции с параметрами
+// и типом результата, вызов) - см. internal/ir, package doc. Расширяется
+// вместе с internal/backend/cbackend.GenerateFromIR подшаг за подшагом,
+// шаг 5.
 func Analyze(prog *ast.Program) (*ir.Program, error) {
+	funcs, err := collectFuncSigs(prog)
+	if err != nil {
+		return nil, err
+	}
 	out := &ir.Program{}
 	for _, fn := range prog.Functions {
-		irFn, err := analyzeFunction(fn)
+		irFn, err := analyzeFunction(funcs, fn)
 		if err != nil {
 			return nil, fmt.Errorf("функция %q: %w", fn.Name, err)
 		}
@@ -78,25 +114,80 @@ func Analyze(prog *ast.Program) (*ir.Program, error) {
 	return out, nil
 }
 
-func analyzeFunction(fn *ast.FunctionDecl) (*ir.Function, error) {
-	if len(fn.Params) > 0 {
-		return nil, fmt.Errorf("параметры функций пока не реализованы в IR (шаг 5.b)")
+// collectFuncSigs - предварительный проход: сигнатуры всех функций
+// программы, до анализа любого тела (нужно для вызовов вперёд/взаимной
+// рекурсии - как и в cbackend.Generate).
+func collectFuncSigs(prog *ast.Program) (map[string]funcSig, error) {
+	funcs := map[string]funcSig{}
+	for _, fn := range prog.Functions {
+		if _, exists := funcs[fn.Name]; exists {
+			return nil, fmt.Errorf("функция %q объявлена более одного раза", fn.Name)
+		}
+		params := make([]ir.Type, len(fn.Params))
+		for i, p := range fn.Params {
+			typ, err := resolveTypeName(p.Type)
+			if err != nil {
+				return nil, fmt.Errorf("функция %q: параметр %q: %w", fn.Name, p.Name, err)
+			}
+			params[i] = typ
+		}
+		sig := funcSig{Params: params}
+		if fn.ReturnType != "" {
+			typ, err := resolveTypeName(fn.ReturnType)
+			if err != nil {
+				return nil, fmt.Errorf("функция %q: тип результата: %w", fn.Name, err)
+			}
+			sig.ReturnType = typ
+			sig.HasReturn = true
+		}
+		funcs[fn.Name] = sig
 	}
-	if fn.ReturnType != "" {
-		return nil, fmt.Errorf("тип результата функции пока не реализован в IR (шаг 5.b)")
+	return funcs, nil
+}
+
+func analyzeFunction(funcs map[string]funcSig, fn *ast.FunctionDecl) (*ir.Function, error) {
+	sig := funcs[fn.Name]
+	sc := newCtx(funcs, sig.ReturnType, sig.HasReturn)
+	params := make([]ir.Param, len(fn.Params))
+	for i, p := range fn.Params {
+		params[i] = ir.Param{Name: p.Name, Type: sig.Params[i]}
+		if err := sc.declare(p.Name, sig.Params[i]); err != nil {
+			return nil, fmt.Errorf("строка %d: параметр %q: %w", p.Line, p.Name, err)
+		}
 	}
-	sc := newScopeStack()
 	body, err := analyzeBlock(sc, fn.Body)
 	if err != nil {
 		return nil, err
 	}
-	return &ir.Function{Name: fn.Name, Body: body}, nil
+	if sig.HasReturn && !endsWithReturnValue(body) {
+		return nil, fmt.Errorf("с объявленным типом результата %s должна заканчиваться \"вернуть <значение>\" (полная проверка всех путей выполнения - шаг 5)", sig.ReturnType)
+	}
+	return &ir.Function{
+		Name:       fn.Name,
+		Params:     params,
+		ReturnType: sig.ReturnType,
+		HasReturn:  sig.HasReturn,
+		Body:       body,
+	}, nil
+}
+
+// endsWithReturnValue - true, если последняя инструкция тела (верхнего
+// уровня, не внутри вложенных если/пока/для) - "вернуть <значение>". Как и
+// в AST-пути (cbackend.endsWithReturnValue) - простая синтаксическая
+// проверка, не flow-sensitive анализ всех путей выполнения (это шаг 5,
+// когда появится сам flow-sensitive слой - см. docs/ROADMAP.md).
+func endsWithReturnValue(body []ir.Stmt) bool {
+	if len(body) == 0 {
+		return false
+	}
+	last, ok := body[len(body)-1].(*ir.ReturnStmt)
+	return ok && last.Value != nil
 }
 
 // analyzeBlock анализирует список инструкций внутри уже открытой области
 // видимости - вызывающий код сам решает, нужно ли sc.push()/sc.pop()
 // вокруг вызова (тело функции - нет, тело если/пока/для - да).
-func analyzeBlock(sc *scopeStack, stmts []ast.Stmt) ([]ir.Stmt, error) {
+func analyzeBlock(sc *ctx, stmts []ast.Stmt) ([]ir.Stmt, error) {
 	body := make([]ir.Stmt, len(stmts))
 	for i, s := range stmts {
 		stmt, err := analyzeStmt(sc, s)
@@ -108,7 +199,7 @@ func analyzeBlock(sc *scopeStack, stmts []ast.Stmt) ([]ir.Stmt, error) {
 	return body, nil
 }
 
-func analyzeStmt(sc *scopeStack, s ast.Stmt) (ir.Stmt, error) {
+func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 	switch s := s.(type) {
 	case *ast.PrintStmt:
 		value, err := analyzeExpr(sc, s.Value)
@@ -210,17 +301,40 @@ func analyzeStmt(sc *scopeStack, s ast.Stmt) (ir.Stmt, error) {
 		return &ir.ForStmt{Var: s.Var, From: from, To: to, Body: body}, nil
 
 	case *ast.ReturnStmt:
-		if s.Value != nil {
-			return nil, fmt.Errorf("строка %d: возврат значения пока не реализован в IR (шаг 5.b) - функция без объявленного типа результата допускает только \"вернуть\" без значения", s.Line)
+		if s.Value == nil {
+			if sc.hasReturn {
+				return nil, fmt.Errorf("строка %d: функция с объявленным типом результата должна возвращать значение (\"вернуть <значение>\")", s.Line)
+			}
+			return &ir.ReturnStmt{}, nil
 		}
-		return &ir.ReturnStmt{}, nil
+		if !sc.hasReturn {
+			return nil, fmt.Errorf("строка %d: у функции не объявлен тип результата - используйте \"вернуть\" без значения", s.Line)
+		}
+		value, err := analyzeExpr(sc, s.Value)
+		if err != nil {
+			return nil, fmt.Errorf("строка %d: %w", s.Line, err)
+		}
+		if typ := ir.TypeOf(value); typ != sc.returnType {
+			return nil, fmt.Errorf("строка %d: функция объявлена с типом результата %s, но возвращается значение типа %s", s.Line, sc.returnType, typ)
+		}
+		return &ir.ReturnStmt{Value: value}, nil
+
+	case *ast.ExprStmt:
+		if s.MethodCall != nil {
+			return nil, fmt.Errorf("строка %d: вызов метода пока не реализован в IR (шаг 5.b)", s.Line)
+		}
+		call, err := analyzeCallExpr(sc, s.Call)
+		if err != nil {
+			return nil, err
+		}
+		return &ir.ExprStmt{Call: call}, nil
 
 	default:
 		return nil, fmt.Errorf("инструкция %T пока не реализована в IR (шаг 5.b)", s)
 	}
 }
 
-func analyzeExpr(sc *scopeStack, e ast.Expr) (ir.Expr, error) {
+func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 	switch e := e.(type) {
 	case *ast.StringLiteral:
 		return &ir.StringLiteral{Value: e.Value}, nil
@@ -247,12 +361,47 @@ func analyzeExpr(sc *scopeStack, e ast.Expr) (ir.Expr, error) {
 	case *ast.BinaryExpr:
 		return analyzeBinaryExpr(sc, e)
 
+	case *ast.CallExpr:
+		call, err := analyzeCallExpr(sc, e)
+		if err != nil {
+			return nil, err
+		}
+		if !call.HasReturn {
+			return nil, fmt.Errorf("строка %d: функция %q не имеет объявленного типа результата - её нельзя использовать как выражение", e.Line, e.Callee)
+		}
+		return call, nil
+
 	default:
 		return nil, fmt.Errorf("выражение %T пока не реализовано в IR (шаг 5.b)", e)
 	}
 }
 
-func analyzeUnaryExpr(sc *scopeStack, e *ast.UnaryExpr) (ir.Expr, error) {
+// analyzeCallExpr - общий разбор вызова функции для ExprStmt (результат
+// отбрасывается, HasReturn не важен) и для CallExpr-выражения (требует
+// HasReturn - проверяется вызывающей стороной, analyzeExpr).
+func analyzeCallExpr(sc *ctx, e *ast.CallExpr) (*ir.CallExpr, error) {
+	sig, ok := sc.funcs[e.Callee]
+	if !ok {
+		return nil, fmt.Errorf("строка %d: функция %q не объявлена", e.Line, e.Callee)
+	}
+	if len(e.Args) != len(sig.Params) {
+		return nil, fmt.Errorf("строка %d: функция %q ожидает аргументов: %d, передано: %d", e.Line, e.Callee, len(sig.Params), len(e.Args))
+	}
+	args := make([]ir.Expr, len(e.Args))
+	for i, a := range e.Args {
+		arg, err := analyzeExpr(sc, a)
+		if err != nil {
+			return nil, err
+		}
+		if typ := ir.TypeOf(arg); typ != sig.Params[i] {
+			return nil, fmt.Errorf("строка %d: аргумент %d вызова %q должен быть типа %s, получен %s", e.Line, i+1, e.Callee, sig.Params[i], typ)
+		}
+		args[i] = arg
+	}
+	return &ir.CallExpr{Callee: e.Callee, Args: args, Type: sig.ReturnType, HasReturn: sig.HasReturn}, nil
+}
+
+func analyzeUnaryExpr(sc *ctx, e *ast.UnaryExpr) (ir.Expr, error) {
 	operand, err := analyzeExpr(sc, e.Operand)
 	if err != nil {
 		return nil, err
@@ -274,7 +423,7 @@ func analyzeUnaryExpr(sc *scopeStack, e *ast.UnaryExpr) (ir.Expr, error) {
 	}
 }
 
-func analyzeBinaryExpr(sc *scopeStack, e *ast.BinaryExpr) (ir.Expr, error) {
+func analyzeBinaryExpr(sc *ctx, e *ast.BinaryExpr) (ir.Expr, error) {
 	left, err := analyzeExpr(sc, e.Left)
 	if err != nil {
 		return nil, err
@@ -325,7 +474,7 @@ func analyzeBinaryExpr(sc *scopeStack, e *ast.BinaryExpr) (ir.Expr, error) {
 // иначе (хотя бы один операнд Число) -> Число - та же промоция, что и в
 // cbackend.genArithmetic (шаг 1), только результат - тип в IR-узле, без
 // самого приведения ((double)...) - приведение операнда, если нужно,
-// решает backend при генерации кода конкретной платформы, glядя на Type
+// решает backend при генерации кода конкретной платформы, глядя на Type
 // каждого операнда и Type результата.
 func analyzeArithmetic(e *ast.BinaryExpr, left ir.Expr, lt ir.Type, right ir.Expr, rt ir.Type) (ir.Expr, error) {
 	if lt != ir.TypeInt && lt != ir.TypeFloat {

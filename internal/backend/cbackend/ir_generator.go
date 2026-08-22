@@ -2,9 +2,9 @@
 // путь к Generate(*ast.Program): пока не встроен в реальную компиляцию
 // (internal/compiler по-прежнему вызывает Generate напрямую), покрывает
 // ровно то же подмножество, что и internal/semantic.Analyze на данный
-// момент - шаг 0 (`вывести <строка>`), шаг 1 (переменные, арифметика,
-// сравнения, логика) и шаг 2 (если/пока/для). Расширяется вместе с
-// покрытием internal/semantic,
+// момент - шаги 0-3 (`вывести <строка>`, переменные/арифметика,
+// если/пока/для, функции с параметрами/типом результата и их вызов).
+// Расширяется вместе с покрытием internal/semantic,
 // вертикальным срезом за срезом (см. package doc internal/ir), а не
 // отдельно от него - не имеет смысла генерировать код для IR-узла, которого
 // семантический анализ ещё не производит.
@@ -38,20 +38,26 @@ type irGenCtx struct {
 // GenerateFromIR возвращает исходник на C, соответствующий программе prog.
 func GenerateFromIR(prog *ir.Program) (string, error) {
 	hasEntryPoint := false
-	var body strings.Builder
-	ctx := &irGenCtx{}
+	var protos strings.Builder
 	for _, fn := range prog.Functions {
 		if fn.Name == entryPointName {
 			hasEntryPoint = true
+			continue
 		}
+		fmt.Fprintf(&protos, "%s %s(%s);\n", cReturnTypeIR(fn), mangleName(fn.Name), cParamListIR(fn.Params))
+	}
+	if !hasEntryPoint {
+		return "", fmt.Errorf("в программе не найдена функция %q - она служит точкой входа", entryPointName)
+	}
+
+	var body strings.Builder
+	ctx := &irGenCtx{}
+	for _, fn := range prog.Functions {
 		fnCode, err := generateIRFunction(ctx, fn)
 		if err != nil {
 			return "", fmt.Errorf("функция %q: %w", fn.Name, err)
 		}
 		body.WriteString(fnCode)
-	}
-	if !hasEntryPoint {
-		return "", fmt.Errorf("в программе не найдена функция %q - она служит точкой входа", entryPointName)
 	}
 
 	var sb strings.Builder
@@ -66,19 +72,49 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 		sb.WriteString(strConcatHelper)
 		sb.WriteString("\n")
 	}
+	if protos.Len() > 0 {
+		sb.WriteString(protos.String())
+		sb.WriteString("\n")
+	}
 	sb.WriteString(body.String())
 	return sb.String(), nil
 }
 
+// cReturnTypeIR - C-тип результата функции: сама Type, если у функции
+// объявлен тип результата (fn.HasReturn), иначе "int" - технический 0 в
+// конце (не значение "результата"), чтобы int-функция не осталась без
+// return (для строгого C - undefined behavior), как и в AST-пути.
+func cReturnTypeIR(fn *ir.Function) string {
+	if fn.HasReturn {
+		return fromIRType(fn.ReturnType).cType()
+	}
+	return "int"
+}
+
+func cParamListIR(params []ir.Param) string {
+	if len(params) == 0 {
+		return "void"
+	}
+	parts := make([]string, len(params))
+	for i, p := range params {
+		parts[i] = fmt.Sprintf("%s %s", fromIRType(p.Type).cType(), mangleVar(p.Name))
+	}
+	return strings.Join(parts, ", ")
+}
+
 func generateIRFunction(ctx *irGenCtx, fn *ir.Function) (string, error) {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "int %s(void) {\n", mangleName(fn.Name))
+	fmt.Fprintf(&sb, "// %s\n", fn.Name)
+	fmt.Fprintf(&sb, "%s %s(%s) {\n", cReturnTypeIR(fn), mangleName(fn.Name), cParamListIR(fn.Params))
 	for _, s := range fn.Body {
 		if err := generateIRStmt(&sb, ctx, s, 1); err != nil {
 			return "", err
 		}
 	}
-	sb.WriteString("    return 0;\n}\n")
+	if !fn.HasReturn {
+		sb.WriteString("    return 0;\n")
+	}
+	sb.WriteString("}\n\n")
 	return sb.String(), nil
 }
 
@@ -146,7 +182,23 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 		return nil
 
 	case *ir.ReturnStmt:
-		fmt.Fprintf(sb, "%sreturn 0;\n", ind)
+		if s.Value == nil {
+			fmt.Fprintf(sb, "%sreturn 0;\n", ind)
+			return nil
+		}
+		code, _, err := generateIRExpr(ctx, s.Value)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(sb, "%sreturn %s;\n", ind, code)
+		return nil
+
+	case *ir.ExprStmt:
+		code, _, err := generateIRExpr(ctx, s.Call)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(sb, "%s%s;\n", ind, code)
 		return nil
 
 	case *ir.ForStmt:
@@ -198,6 +250,17 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 
 	case *ir.BinaryExpr:
 		return generateIRBinaryExpr(ctx, e)
+
+	case *ir.CallExpr:
+		argCodes := make([]string, len(e.Args))
+		for i, a := range e.Args {
+			code, _, err := generateIRExpr(ctx, a)
+			if err != nil {
+				return "", typeUnknown, err
+			}
+			argCodes[i] = code
+		}
+		return fmt.Sprintf("%s(%s)", mangleName(e.Callee), strings.Join(argCodes, ", ")), fromIRType(e.Type), nil
 
 	default:
 		return "", typeUnknown, fmt.Errorf("генерация C из IR: выражение %T пока не поддерживается", e)

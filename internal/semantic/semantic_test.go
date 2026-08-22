@@ -254,11 +254,62 @@ func TestAnalyzeIfConditionMustBeBool(t *testing.T) {
 	}
 }
 
-func TestAnalyzeUnsupportedStmtFails(t *testing.T) {
-	toks, err := lexer.New(`
+func TestAnalyzeFunctionCallWithParamsAndReturn(t *testing.T) {
+	irProg := parseProgram(t, `
+функция сложить(что: Целое, кем: Целое): Целое
+{
+    вернуть что + кем
+}
 функция главная
 {
-    главная()
+    вывести сложить(2, 3)
+}
+`)
+	sum := irProg.Functions[0]
+	if len(sum.Params) != 2 || sum.Params[0].Type != ir.TypeInt || !sum.HasReturn || sum.ReturnType != ir.TypeInt {
+		t.Fatalf("неожиданная сигнатура: %+v", sum)
+	}
+	ret, ok := sum.Body[0].(*ir.ReturnStmt)
+	if !ok || ret.Value == nil {
+		t.Fatalf("ожидался вернуть <значение>, получено %+v", sum.Body[0])
+	}
+
+	main := irProg.Functions[1]
+	print := main.Body[0].(*ir.PrintStmt)
+	call, ok := print.Value.(*ir.CallExpr)
+	if !ok || call.Callee != "сложить" || len(call.Args) != 2 || !call.HasReturn || call.Type != ir.TypeInt {
+		t.Fatalf("ожидался вызов \"сложить\" с 2 аргументами, получено %+v", print.Value)
+	}
+}
+
+func TestAnalyzeMutualRecursionForwardReference(t *testing.T) {
+	// "б" вызывается из "а" до того, как объявлена в файле - должно
+	// работать благодаря предварительному проходу collectFuncSigs.
+	irProg := parseProgram(t, `
+функция а(): Целое
+{
+    вернуть б()
+}
+функция б(): Целое
+{
+    вернуть 1
+}
+функция главная
+{
+    вывести а()
+}
+`)
+	if len(irProg.Functions) != 3 {
+		t.Fatalf("ожидалось 3 функции, получено %d", len(irProg.Functions))
+	}
+}
+
+func TestAnalyzeCallArgTypeMismatchFails(t *testing.T) {
+	toks, err := lexer.New(`
+функция что(x: Целое) { вывести x }
+функция главная
+{
+    что("текст")
 }
 `).Tokenize()
 	if err != nil {
@@ -269,7 +320,70 @@ func TestAnalyzeUnsupportedStmtFails(t *testing.T) {
 		t.Fatalf("парсер: %v", err)
 	}
 	_, err = Analyze(prog)
-	if err == nil || !strings.Contains(err.Error(), "не реализована в IR") {
-		t.Fatalf("ожидалась ошибка про неподдержанную инструкцию (вызов функции - шаг 3, ещё не перенесён), получено: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "должен быть типа") {
+		t.Fatalf("ожидалась ошибка про несовпадение типа аргумента, получено: %v", err)
+	}
+}
+
+func TestAnalyzeCallWithoutReturnAsValueFails(t *testing.T) {
+	toks, err := lexer.New(`
+функция ничего() { вывести "x" }
+функция главная
+{
+    вывести ничего()
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
+	if err == nil || !strings.Contains(err.Error(), "нельзя использовать как выражение") {
+		t.Fatalf("ожидалась ошибка про функцию без результата как значение, получено: %v", err)
+	}
+}
+
+func TestAnalyzeMissingFinalReturnFails(t *testing.T) {
+	toks, err := lexer.New(`
+функция х(): Целое
+{
+    вывести "не вернуть"
+}
+функция главная { вывести "ок" }
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
+	if err == nil || !strings.Contains(err.Error(), "должна заканчиваться") {
+		t.Fatalf("ожидалась ошибка про отсутствие \"вернуть <значение>\" в конце, получено: %v", err)
+	}
+}
+
+func TestAnalyzeUnsupportedStmtFails(t *testing.T) {
+	toks, err := lexer.New(`
+сущность T {}
+функция главная
+{
+    переменная t = новый T()
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
+	if err == nil || !strings.Contains(err.Error(), "не реализован") {
+		t.Fatalf("ожидалась ошибка про неподдержанную конструкцию (сущности - шаг 4, ещё не перенесён), получено: %v", err)
 	}
 }

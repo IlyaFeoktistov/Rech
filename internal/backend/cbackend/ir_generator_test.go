@@ -118,6 +118,39 @@ func TestGenerateFromIRIfWhileForReturn(t *testing.T) {
 	}
 }
 
+func TestGenerateFromIRFunctionWithParamsCallAndReturn(t *testing.T) {
+	sum := &ir.Function{
+		Name:       "сложить",
+		Params:     []ir.Param{{Name: "что", Type: ir.TypeInt}, {Name: "кем", Type: ir.TypeInt}},
+		ReturnType: ir.TypeInt,
+		HasReturn:  true,
+		Body: []ir.Stmt{&ir.ReturnStmt{Value: &ir.BinaryExpr{
+			Op: "+", Left: &ir.Identifier{Name: "что", Type: ir.TypeInt}, Right: &ir.Identifier{Name: "кем", Type: ir.TypeInt}, Type: ir.TypeInt,
+		}}},
+	}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.PrintStmt{Value: &ir.CallExpr{
+			Callee: "сложить", Args: []ir.Expr{&ir.IntLiteral{Value: 2}, &ir.IntLiteral{Value: 3}}, Type: ir.TypeInt, HasReturn: true,
+		}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{sum, main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "long long rech_slozhit(long long v_chto, long long v_kem);") {
+		t.Fatalf("ожидался прототип функции, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "long long rech_slozhit(long long v_chto, long long v_kem) {") {
+		t.Fatalf("ожидалось определение функции, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "return (v_chto + v_kem);") {
+		t.Fatalf("ожидался возврат значения, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "rech_slozhit(2LL, 3LL)") {
+		t.Fatalf("ожидался вызов функции, получено:\n%s", out)
+	}
+}
+
 func TestGenerateFromIRMissingEntryPointFails(t *testing.T) {
 	prog := &ir.Program{Functions: []*ir.Function{
 		{Name: "чтототам", Body: nil},

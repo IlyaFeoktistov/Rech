@@ -30,9 +30,24 @@ type Program struct {
 // Function - функция программы после семантического анализа. Name - имя
 // ровно как в Rech-исходнике (например, "главная") - маппинг на
 // C-специфичное имя (например, main) - решение backend'а, не IR.
+//
+// Строгий и естественный синтаксис вызова (docs/SPEC.md) уже неразличимы
+// на уровне AST (парсер раскладывает падежные аргументы естественного
+// вызова по позиции параметра, как и строгий) - Params здесь просто по
+// позиции, падежных ролей (ast.Param.CaseWord) IR не хранит вообще, они
+// нужны были только парсеру для сопоставления, не после него.
 type Function struct {
+	Name       string
+	Params     []Param
+	ReturnType Type
+	HasReturn  bool // false - нет объявленного типа результата
+	Body       []Stmt
+}
+
+// Param - один параметр функции/вызова по позиции.
+type Param struct {
 	Name string
-	Body []Stmt
+	Type Type
 }
 
 // Stmt - общий маркерный интерфейс инструкций IR (как ast.Stmt).
@@ -98,13 +113,39 @@ type ForStmt struct {
 
 func (*ForStmt) stmt() {}
 
-// ReturnStmt соответствует "вернуть" без значения (шаг 2 - досрочный выход
-// из функции; возврат значения появился только в шаге 3, у функции без
-// объявленного типа результата возможен только этот, безаргументный вид -
-// internal/semantic это проверяет).
-type ReturnStmt struct{}
+// ReturnStmt соответствует "вернуть [<выражение>]" - Value == nil у функции
+// без объявленного типа результата (только этот вид - шаг 2); с шага 3 у
+// функции с объявленным типом результата Value обязателен и его тип уже
+// проверен internal/semantic на совпадение с ReturnType функции.
+type ReturnStmt struct {
+	Value Expr
+}
 
 func (*ReturnStmt) stmt() {}
+
+// CallExpr - вызов функции по имени, аргументы уже разложены по позиции
+// параметра (см. package doc Function.Params) - строгий и естественный
+// синтаксис вызова уже неразличимы на этом уровне. Type/HasReturn - тип
+// результата вызванной функции, скопированный из её Function при
+// семантическом анализе (шаг 5.b), чтобы TypeOf не искал сигнатуру функции
+// заново.
+type CallExpr struct {
+	Callee    string
+	Args      []Expr
+	Type      Type
+	HasReturn bool
+}
+
+func (*CallExpr) expr() {}
+
+// ExprStmt - вызов функции как самостоятельная инструкция, результат
+// отбрасывается (в отличие от использования CallExpr как значения -
+// PrintStmt.Value, VarDecl.Value и т. п.).
+type ExprStmt struct {
+	Call *CallExpr
+}
+
+func (*ExprStmt) stmt() {}
 
 // Type - тип значения выражения IR, уже разрешённый семантическим анализом
 // (шаг 5.b) - в отличие от AST, где тип выводится заново на каждом
@@ -221,6 +262,8 @@ func TypeOf(e Expr) Type {
 	case *BinaryExpr:
 		return e.Type
 	case *UnaryExpr:
+		return e.Type
+	case *CallExpr:
 		return e.Type
 	default:
 		return TypeUnknown
