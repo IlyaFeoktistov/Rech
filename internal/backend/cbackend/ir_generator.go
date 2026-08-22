@@ -2,8 +2,9 @@
 // путь к Generate(*ast.Program): пока не встроен в реальную компиляцию
 // (internal/compiler по-прежнему вызывает Generate напрямую), покрывает
 // ровно то же подмножество, что и internal/semantic.Analyze на данный
-// момент - шаг 0 (`вывести <строка>`) и шаг 1 (переменные, арифметика,
-// сравнения, логика). Расширяется вместе с покрытием internal/semantic,
+// момент - шаг 0 (`вывести <строка>`), шаг 1 (переменные, арифметика,
+// сравнения, логика) и шаг 2 (если/пока/для). Расширяется вместе с
+// покрытием internal/semantic,
 // вертикальным срезом за срезом (см. package doc internal/ir), а не
 // отдельно от него - не имеет смысла генерировать код для IR-узла, которого
 // семантический анализ ещё не производит.
@@ -106,6 +107,65 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 			return err
 		}
 		fmt.Fprintf(sb, "%s%s = %s;\n", ind, mangleVar(s.Name), code)
+		return nil
+
+	case *ir.IfStmt:
+		cond, _, err := generateIRExpr(ctx, s.Cond)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(sb, "%sif (%s) {\n", ind, cond)
+		for _, st := range s.Then {
+			if err := generateIRStmt(sb, ctx, st, depth+1); err != nil {
+				return err
+			}
+		}
+		if s.Else != nil {
+			fmt.Fprintf(sb, "%s} else {\n", ind)
+			for _, st := range s.Else {
+				if err := generateIRStmt(sb, ctx, st, depth+1); err != nil {
+					return err
+				}
+			}
+		}
+		fmt.Fprintf(sb, "%s}\n", ind)
+		return nil
+
+	case *ir.WhileStmt:
+		cond, _, err := generateIRExpr(ctx, s.Cond)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(sb, "%swhile (%s) {\n", ind, cond)
+		for _, st := range s.Body {
+			if err := generateIRStmt(sb, ctx, st, depth+1); err != nil {
+				return err
+			}
+		}
+		fmt.Fprintf(sb, "%s}\n", ind)
+		return nil
+
+	case *ir.ReturnStmt:
+		fmt.Fprintf(sb, "%sreturn 0;\n", ind)
+		return nil
+
+	case *ir.ForStmt:
+		fromCode, _, err := generateIRExpr(ctx, s.From)
+		if err != nil {
+			return err
+		}
+		toCode, _, err := generateIRExpr(ctx, s.To)
+		if err != nil {
+			return err
+		}
+		varC := mangleVar(s.Var)
+		fmt.Fprintf(sb, "%sfor (long long %s = %s; %s <= %s; %s++) {\n", ind, varC, fromCode, varC, toCode, varC)
+		for _, st := range s.Body {
+			if err := generateIRStmt(sb, ctx, st, depth+1); err != nil {
+				return err
+			}
+		}
+		fmt.Fprintf(sb, "%s}\n", ind)
 		return nil
 
 	default:

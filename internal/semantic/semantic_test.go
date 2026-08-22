@@ -156,13 +156,88 @@ func TestAnalyzeLogicalAndComparison(t *testing.T) {
 	}
 }
 
-func TestAnalyzeUnsupportedStmtFails(t *testing.T) {
+func TestAnalyzeIfWhileForWithBlockScoping(t *testing.T) {
+	irProg := parseProgram(t, `
+функция главная
+{
+    переменная а = 7
+    если а > 5
+    {
+        переменная а = 100
+        вывести а
+    }
+    иначе
+    {
+        вывести а
+    }
+
+    переменная сумма = 0
+    для i от 1 до 3
+    {
+        сумма = сумма + i
+    }
+    вывести сумма
+    вернуть
+}
+`)
+	fn := irProg.Functions[0]
+	ifStmt, ok := fn.Body[1].(*ir.IfStmt)
+	if !ok {
+		t.Fatalf("ожидался *ir.IfStmt, получено %T", fn.Body[1])
+	}
+	if len(ifStmt.Then) != 2 || len(ifStmt.Else) != 1 {
+		t.Fatalf("неожиданная форма if: %+v", ifStmt)
+	}
+	// "переменная а = 100" внутри then затеняет внешнюю "а" - не ошибка.
+	innerVarDecl := ifStmt.Then[0].(*ir.VarDecl)
+	if innerVarDecl.Name != "а" {
+		t.Fatalf("ожидалось затенение имени \"а\" внутри then, получено %+v", innerVarDecl)
+	}
+
+	forStmt, ok := fn.Body[3].(*ir.ForStmt)
+	if !ok {
+		t.Fatalf("ожидался *ir.ForStmt, получено %T", fn.Body[3])
+	}
+	if forStmt.Var != "i" {
+		t.Fatalf("неожиданная переменная цикла: %q", forStmt.Var)
+	}
+
+	if _, ok := fn.Body[5].(*ir.ReturnStmt); !ok {
+		t.Fatalf("ожидался *ir.ReturnStmt, получено %T", fn.Body[5])
+	}
+}
+
+func TestAnalyzeVariableNotVisibleOutsideBlock(t *testing.T) {
 	toks, err := lexer.New(`
 функция главная
 {
     если истина
     {
-        вывести "да"
+        переменная x = 1
+    }
+    вывести x
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
+	if err == nil || !strings.Contains(err.Error(), "не объявлена") {
+		t.Fatalf("ожидалась ошибка про переменную, не видимую за пределами блока, получено: %v", err)
+	}
+}
+
+func TestAnalyzeIfConditionMustBeBool(t *testing.T) {
+	toks, err := lexer.New(`
+функция главная
+{
+    если 5
+    {
+        вывести "x"
     }
 }
 `).Tokenize()
@@ -174,7 +249,27 @@ func TestAnalyzeUnsupportedStmtFails(t *testing.T) {
 		t.Fatalf("парсер: %v", err)
 	}
 	_, err = Analyze(prog)
+	if err == nil || !strings.Contains(err.Error(), "должно быть логическим") {
+		t.Fatalf("ожидалась ошибка про нелогическое условие, получено: %v", err)
+	}
+}
+
+func TestAnalyzeUnsupportedStmtFails(t *testing.T) {
+	toks, err := lexer.New(`
+функция главная
+{
+    главная()
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
 	if err == nil || !strings.Contains(err.Error(), "не реализована в IR") {
-		t.Fatalf("ожидалась ошибка про неподдержанную инструкцию (шаг 2, если - ещё не перенесён), получено: %v", err)
+		t.Fatalf("ожидалась ошибка про неподдержанную инструкцию (вызов функции - шаг 3, ещё не перенесён), получено: %v", err)
 	}
 }

@@ -81,6 +81,43 @@ func TestGenerateFromIRIntFloatPromotion(t *testing.T) {
 	}
 }
 
+func TestGenerateFromIRIfWhileForReturn(t *testing.T) {
+	prog := &ir.Program{Functions: []*ir.Function{
+		{Name: "главная", Body: []ir.Stmt{
+			&ir.IfStmt{
+				Cond: &ir.BoolLiteral{Value: true},
+				Then: []ir.Stmt{&ir.PrintStmt{Value: &ir.StringLiteral{Value: "да"}}},
+				Else: []ir.Stmt{&ir.PrintStmt{Value: &ir.StringLiteral{Value: "нет"}}},
+			},
+			&ir.WhileStmt{
+				Cond: &ir.BoolLiteral{Value: false},
+				Body: []ir.Stmt{&ir.PrintStmt{Value: &ir.StringLiteral{Value: "x"}}},
+			},
+			&ir.ForStmt{
+				Var:  "i",
+				From: &ir.IntLiteral{Value: 1},
+				To:   &ir.IntLiteral{Value: 5},
+				Body: []ir.Stmt{&ir.PrintStmt{Value: &ir.Identifier{Name: "i", Type: ir.TypeInt}}},
+			},
+			&ir.ReturnStmt{},
+		}},
+	}}
+	out, err := GenerateFromIR(prog)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	for _, want := range []string{
+		"if (true) {", "} else {",
+		"while (false) {",
+		"for (long long v_i = 1LL; v_i <= 5LL; v_i++) {",
+		"return 0;",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ожидалось %q, получено:\n%s", want, out)
+		}
+	}
+}
+
 func TestGenerateFromIRMissingEntryPointFails(t *testing.T) {
 	prog := &ir.Program{Functions: []*ir.Function{
 		{Name: "чтототам", Body: nil},
