@@ -143,6 +143,39 @@ func TestGenerateDuplicateFunctionName(t *testing.T) {
 	}
 }
 
+func TestGenerateDuplicateFunctionMangling(t *testing.T) {
+	a := &ast.FunctionDecl{Name: "ёлка", Body: []ast.Stmt{&ast.PrintStmt{Value: &ast.StringLiteral{Value: "1"}}}}
+	b := &ast.FunctionDecl{Name: "елка", Body: []ast.Stmt{&ast.PrintStmt{Value: &ast.StringLiteral{Value: "2"}}}}
+	_, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{a, b, mainFunc()}})
+	if err == nil || !strings.Contains(err.Error(), "транслитерируются в одно и то же имя") {
+		t.Fatalf("ожидалась ошибка про коллизию мангл-имён функций, получено: %v", err)
+	}
+}
+
+func TestGenerateDuplicateVariableMangling(t *testing.T) {
+	fn := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "ёлка", Value: &ast.IntLiteral{Value: 1}},
+		&ast.VarDecl{Name: "елка", Value: &ast.IntLiteral{Value: 2}},
+	}}
+	_, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{fn}})
+	if err == nil || !strings.Contains(err.Error(), "транслитерируются в одно и то же имя") {
+		t.Fatalf("ожидалась ошибка про коллизию мангл-имён переменных, получено: %v", err)
+	}
+}
+
+func TestGenerateShadowingSameNameDifferentScopesStillWorks(t *testing.T) {
+	fn := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "а", Value: &ast.IntLiteral{Value: 1}},
+		&ast.IfStmt{
+			Cond: &ast.BoolLiteral{Value: true},
+			Then: []ast.Stmt{&ast.VarDecl{Name: "а", Value: &ast.IntLiteral{Value: 2}}},
+		},
+	}}
+	if _, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{fn}}); err != nil {
+		t.Fatalf("затенение того же имени во вложенной области не должно быть ошибкой: %v", err)
+	}
+}
+
 func TestGenerateFunctionWithoutParamsUsesVoid(t *testing.T) {
 	fn := &ast.FunctionDecl{Name: "ничего", Body: []ast.Stmt{&ast.PrintStmt{Value: &ast.StringLiteral{Value: "x"}}}}
 	out, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{fn, mainFunc()}})

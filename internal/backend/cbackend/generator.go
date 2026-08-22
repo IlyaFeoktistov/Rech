@@ -132,7 +132,16 @@ type funcSig struct {
 // (шаг 2 - если/иначе/пока/для вводят вложенные блоки, как в C) и флаги
 // использованных runtime-хелперов (влияют на пролог файла).
 type genCtx struct {
-	scopes     []map[string]valueType
+	scopes []map[string]valueType
+
+	// mangledScopes - параллельный scopes стек: мангл-имя переменной (см.
+	// mangleVar) -> оригинальное русское имя в той же области видимости.
+	// Устойчивое мангирование имён (шаг 3.5): ловит коллизию двух РАЗНЫХ
+	// имён, транслитерирующихся в одно и то же C-имя, явной ошибкой Rech.
+	// declare с одинаковым исходным именем в одной области уже ловится
+	// через scopes отдельно - это не то же самое, что коллизия мангла.
+	mangledScopes []map[string]string
+
 	usesConcat bool
 	usesStrCmp bool
 
@@ -151,23 +160,33 @@ type genCtx struct {
 
 func (ctx *genCtx) pushScope() {
 	ctx.scopes = append(ctx.scopes, map[string]valueType{})
+	ctx.mangledScopes = append(ctx.mangledScopes, map[string]string{})
 }
 
 func (ctx *genCtx) popScope() {
 	ctx.scopes = ctx.scopes[:len(ctx.scopes)-1]
+	ctx.mangledScopes = ctx.mangledScopes[:len(ctx.mangledScopes)-1]
 }
 
 // declare добавляет переменную в текущую (самую внутреннюю) область
-// видимости. Возвращает false, если переменная с этим именем уже объявлена
-// в этой же области - повторное объявление того же имени во вложенном
-// блоке разрешено (затенение, как в C).
-func (ctx *genCtx) declare(name string, typ valueType) bool {
+// видимости. Ошибка - если переменная с этим именем уже объявлена в этой
+// же области (повторное объявление того же имени во вложенном блоке
+// разрешено - затенение, как в C), или если её мангл-имя (mangleVar)
+// совпадает с мангл-именем уже объявленной в этой области переменной с
+// ДРУГИМ оригинальным именем (устойчивое мангирование, шаг 3.5).
+func (ctx *genCtx) declare(name string, typ valueType) error {
 	top := ctx.scopes[len(ctx.scopes)-1]
 	if _, exists := top[name]; exists {
-		return false
+		return fmt.Errorf("переменная %q уже объявлена в этой области видимости", name)
+	}
+	mangled := mangleVar(name)
+	topMangled := ctx.mangledScopes[len(ctx.mangledScopes)-1]
+	if other, exists := topMangled[mangled]; exists {
+		return fmt.Errorf("переменные %q и %q транслитерируются в одно и то же имя %q в C - переименуйте одну из них", other, name, mangled)
 	}
 	top[name] = typ
-	return true
+	topMangled[mangled] = name
+	return nil
 }
 
 // lookup ищет переменную от самой внутренней области видимости к внешним.
@@ -188,6 +207,14 @@ func indent(depth int) string {
 func Generate(prog *ast.Program) (string, error) {
 	ctx := &genCtx{funcs: map[string]funcSig{}}
 
+	// funcMangled - устойчивое мангирование имён функций (шаг 3.5):
+	// мангл-имя -> оригинальное русское имя. Ловит коллизию двух РАЗНЫХ
+	// имён, транслитерирующихся в одно и то же C-имя (например, из-за
+	// свёртки "ё"/"е" в translit), явной ошибкой Rech - а не тихим
+	// переопределением символа или невнятной ошибкой компилятора C о
+	// повторном определении.
+	funcMangled := map[string]string{}
+
 	hasEntryPoint := false
 	for _, fn := range prog.Functions {
 		if fn.Name == entryPointName {
@@ -196,6 +223,10 @@ func Generate(prog *ast.Program) (string, error) {
 		if _, exists := ctx.funcs[fn.Name]; exists {
 			return "", fmt.Errorf("функция %q объявлена более одного раза", fn.Name)
 		}
+		if other, exists := funcMangled[mangleName(fn.Name)]; exists {
+			return "", fmt.Errorf("функции %q и %q транслитерируются в одно и то же имя %q в C - переименуйте одну из них", other, fn.Name, mangleName(fn.Name))
+		}
+		funcMangled[mangleName(fn.Name)] = fn.Name
 		sig, err := signatureOf(fn)
 		if err != nil {
 			return "", err
@@ -298,7 +329,7 @@ func generateFunction(sb *strings.Builder, ctx *genCtx, fn *ast.FunctionDecl) er
 	for i, param := range fn.Params {
 		// Свежая область видимости, а имена параметров - падежи, уникальность
 		// которых уже проверил парсер (parseParams) - declare не может
-		// вернуть false здесь.
+		// вернуть ошибку здесь.
 		ctx.declare(param.Name, sig.ParamTypes[i])
 	}
 
@@ -373,8 +404,8 @@ func generateStmt(sb *strings.Builder, ctx *genCtx, stmt ast.Stmt, depth int) er
 		if err != nil {
 			return err
 		}
-		if !ctx.declare(s.Name, typ) {
-			return fmt.Errorf("строка %d: переменная %q уже объявлена в этой области видимости", s.Line, s.Name)
+		if err := ctx.declare(s.Name, typ); err != nil {
+			return fmt.Errorf("строка %d: %w", s.Line, err)
 		}
 		fmt.Fprintf(sb, "%s%s %s = %s;\n", ind, typ.cType(), mangleVar(s.Name), code)
 		return nil
