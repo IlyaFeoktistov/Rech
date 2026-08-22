@@ -1,0 +1,248 @@
+// Package interp - Interpreter backend поверх internal/ir (шаг 5, второй
+// backend рядом с cbackend.GenerateFromIR, см. package doc internal/ir и
+// docs/ROADMAP.md, раздел "Шаг 5"). Исполняет *ir.Program напрямую, без
+// генерации C и без вызова системного компилятора - быстрый цикл разработки
+// и тестирования языка (в частности, unit-тесты этого пакета не зависят от
+// настоящего cc, в отличие от сквозной проверки cbackend через реальный
+// компилятор).
+//
+// Покрывает то же подмножество языка, что и internal/semantic.Analyze на
+// момент написания - шаги 0-4, 4.1 (состояния), 4.2 (встроенные generic-
+// коллекции) - полное покрытие текущего языка, реализовано целиком в один
+// проход (а не вертикальными срезами, как IR и cbackend.GenerateFromIR):
+// в отличие от них, у Interpreter нет риска "спроектировать IR неправильно
+// по ходу" - IR уже полностью зафиксирован и проверен обоими другими
+// путями, поэтому здесь достаточно верификации по всем существующим
+// примерам разом, без пошагового наращивания.
+//
+// Семантика значений сущностей повторяет ту, что уже выбрана в cbackend:
+// сущности - значения (копируются при переменная/присваивание/передаче
+// аргумента/возврате), кроме получателя метода (мутация видна после
+// возврата - реализовано прямой передачей указателя на *entityObj, как
+// cbackend передаёт "Тип *this_"). Встроенные generic-коллекции (Список/
+// Стопка/Очередь) - единственное исключение: они физически представлены
+// растущим буфером (как growable array в сгенерированном C, structs с
+// полем-указателем), поэтому копирование значения такого типа копирует
+// сам объект-обёртку по ссылке (та же алиасинг-семантика, что даёт C при
+// копировании структуры "{T* data; long len; long cap}" - копируется
+// указатель, не буфер).
+package interp
+
+import (
+	"fmt"
+	"io"
+	"os"
+
+	"github.com/IlyaFeoktistov/Rech/internal/ir"
+)
+
+// entryPointName - точка входа программы (как entryPointName в cbackend,
+// не переиспользуем оттуда - разным backend'ам разрешено знать об этом
+// константу отдельно, они не зависят друг от друга).
+const entryPointName = "главная"
+
+// entityObj - представление значения сущности во время исполнения. Поля -
+// либо обычные (fields, у пользовательских сущностей), либо встроенная
+// generic-коллекция (coll) - ровно одно из двух заполнено.
+type entityObj struct {
+	typeName string
+	fields   map[string]Value
+	coll     *collection
+}
+
+// collection - буфер встроенной generic-коллекции (Список/Стопка/Очередь).
+// template - "Список"/"Стопка"/"Очередь", нужен только для сообщений об
+// ошибках (методы уже определяют поведение сами по своему имени).
+type collection struct {
+	template string
+	elems    []Value
+}
+
+// Value - значение во время исполнения. Структура (не interface{}) по тому
+// же принципу, что и ir.Type/valueType в cbackend - явное поле Type несёт
+// форму значения, не нужно приведение типа на каждом шаге.
+type Value struct {
+	Type ir.Type
+	I    int64
+	F    float64
+	S    string
+	B    bool
+	Obj  *entityObj // непусто только при Type.Kind == ir.KindEntity
+}
+
+func intValue(v int64) Value     { return Value{Type: ir.TypeInt, I: v} }
+func floatValue(v float64) Value { return Value{Type: ir.TypeFloat, F: v} }
+func stringValue(v string) Value { return Value{Type: ir.TypeString, S: v} }
+func boolValue(v bool) Value     { return Value{Type: ir.TypeBool, B: v} }
+
+// cloneValue - применяет значение-копирующую семантику сущностей (шаг 4,
+// docs/SPEC.md, "Сущности - значения") в момент "коммита" в новое хранилище
+// (переменная/параметр/поле/возврат) - навигация по цепочке чтения
+// (FieldAccess.Receiver, receiver вызова метода) саму по себе не клонирует,
+// иначе получатель метода не мог бы мутировать оригинал через "этот".
+// Generic-коллекции - исключение (см. package doc): та же обёртка
+// возвращается как есть, без глубокого клонирования буфера.
+func cloneValue(v Value) Value {
+	if v.Type.Kind != ir.KindEntity || v.Obj == nil || v.Obj.coll != nil {
+		return v
+	}
+	newFields := make(map[string]Value, len(v.Obj.fields))
+	for k, fv := range v.Obj.fields {
+		newFields[k] = cloneValue(fv)
+	}
+	return Value{Type: v.Type, Obj: &entityObj{typeName: v.Obj.typeName, fields: newFields}}
+}
+
+// Env - область видимости переменных (стек, как ctx.scopes в cbackend и
+// scopeStack в internal/semantic) - блоки если/пока/для заводят вложенный
+// Env, а не переиспользуют функцию целиком.
+type Env struct {
+	vars   map[string]Value
+	parent *Env
+}
+
+func newEnv(parent *Env) *Env {
+	return &Env{vars: map[string]Value{}, parent: parent}
+}
+
+func (e *Env) get(name string) (Value, bool) {
+	for cur := e; cur != nil; cur = cur.parent {
+		if v, ok := cur.vars[name]; ok {
+			return v, true
+		}
+	}
+	return Value{}, false
+}
+
+// set - присваивание уже объявленной переменной: находит область, где имя
+// объявлено, и обновляет его там (а не заводит новое в самой внутренней,
+// как declare) - соответствует "имя = выражение" (не "переменная имя = ...").
+func (e *Env) set(name string, v Value) {
+	for cur := e; cur != nil; cur = cur.parent {
+		if _, ok := cur.vars[name]; ok {
+			cur.vars[name] = v
+			return
+		}
+	}
+	e.vars[name] = v
+}
+
+func (e *Env) declare(name string, v Value) {
+	e.vars[name] = v
+}
+
+// callCtx - контекст вызова функции/метода: this - объект-получатель метода
+// (nil у свободной функции) - передаётся отдельно от Env, а не через него,
+// потому что не меняется внутри вложенных блоков одного вызова и не должен
+// наследоваться через границу вызова (новый вызов - новый callCtx).
+type callCtx struct {
+	this *entityObj
+}
+
+// panicRuntime - аварийное завершение процесса при ошибке времени
+// выполнения встроенной коллекции (индекс вне границ, снять/получить
+// верх/первый у пустой коллекции) - то же поведение, что и rech_panic в
+// сгенерированном C (docs/SPEC.md, раздел 8): сообщение на stderr, exit(1),
+// а не паника Go (которую пользователь программы Rech не должен видеть как
+// стектрейс интерпретатора).
+func panicRuntime(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, format+"\n", args...)
+	os.Exit(1)
+}
+
+// Interp - состояние интерпретатора одной программы.
+type Interp struct {
+	out      io.Writer
+	funcs    map[string]*ir.Function
+	entities map[string]*ir.Entity
+	generics map[string]ir.GenericInstantiation
+}
+
+// Run исполняет prog: находит "главная" и выполняет её тело, печатая
+// "вывести" в out. Ошибка - только если в prog нет точки входа (семантика
+// программы уже проверена internal/semantic до вызова Run - все остальные
+// ошибки этого пакета - panicRuntime, аварийное завершение процесса, как и
+// у сгенерированного C, а не error, потому что это ошибки уже
+// скомпилированной программы, не компиляции).
+func Run(prog *ir.Program, out io.Writer) error {
+	in := &Interp{
+		out:      out,
+		funcs:    map[string]*ir.Function{},
+		entities: map[string]*ir.Entity{},
+		generics: map[string]ir.GenericInstantiation{},
+	}
+	for _, fn := range prog.Functions {
+		in.funcs[fn.Name] = fn
+	}
+	for _, ent := range prog.Entities {
+		in.entities[ent.Name] = ent
+	}
+	for _, g := range prog.Generics {
+		in.generics[g.Name] = g
+	}
+	main, ok := in.funcs[entryPointName]
+	if !ok {
+		return fmt.Errorf("в программе не найдена функция %q - она служит точкой входа", entryPointName)
+	}
+	_, err := in.callFunction(main, nil)
+	return err
+}
+
+func (in *Interp) callFunction(fn *ir.Function, args []Value) (Value, error) {
+	env := newEnv(nil)
+	for i, p := range fn.Params {
+		env.declare(p.Name, cloneValue(args[i]))
+	}
+	ctrl, err := in.execBlock(fn.Body, env, &callCtx{})
+	if err != nil {
+		return Value{}, err
+	}
+	if ctrl.kind == ctrlReturn {
+		return ctrl.value, nil
+	}
+	return Value{}, nil
+}
+
+func (in *Interp) callMethod(m *ir.Method, this *entityObj, args []Value) (Value, error) {
+	env := newEnv(nil)
+	for i, p := range m.Params {
+		env.declare(p.Name, cloneValue(args[i]))
+	}
+	ctrl, err := in.execBlock(m.Body, env, &callCtx{this: this})
+	if err != nil {
+		return Value{}, err
+	}
+	if ctrl.kind == ctrlReturn {
+		return ctrl.value, nil
+	}
+	return Value{}, nil
+}
+
+type ctrlKind int
+
+const (
+	ctrlNone ctrlKind = iota
+	ctrlReturn
+)
+
+type ctrl struct {
+	kind  ctrlKind
+	value Value
+}
+
+// execBlock исполняет stmts по порядку; при встрече "вернуть" останавливает
+// выполнение и возвращает ctrlReturn, чтобы вызывающие (если/пока/для, а
+// затем сам вызов функции/метода) прервали исполнение немедленно, а не
+// только текущую итерацию/блок.
+func (in *Interp) execBlock(stmts []ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
+	for _, s := range stmts {
+		c, err := in.execStmt(s, env, cc)
+		if err != nil {
+			return ctrl{}, err
+		}
+		if c.kind == ctrlReturn {
+			return c, nil
+		}
+	}
+	return ctrl{}, nil
+}
