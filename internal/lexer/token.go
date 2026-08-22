@@ -17,6 +17,8 @@ const (
 	LPAREN    // (
 	RPAREN    // )
 	SEMICOLON // ;
+	COMMA     // ,
+	COLON     // :
 
 	ASSIGN // =
 	PLUS   // +
@@ -101,6 +103,10 @@ func (t TokenType) String() string {
 		return ")"
 	case SEMICOLON:
 		return ";"
+	case COMMA:
+		return ","
+	case COLON:
+		return ":"
 	case ASSIGN:
 		return "="
 	case PLUS:

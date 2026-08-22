@@ -88,17 +88,6 @@ program     := { top_level }
 top_level   := function | entity
 ```
 
-## Функции
-
-```
-function    := "функция" IDENT [ "(" [ params ] ")" ] [ ":" type ] block
-params      := param { "," param }
-param       := IDENT ":" type
-```
-
-Текущая форма (без параметров и без возвращаемого типа) - [docs/SPEC.md](SPEC.md).
-`[шаг 3]` добавляет параметры и возвращаемый тип.
-
 ## Сущности
 
 ```
@@ -125,17 +114,17 @@ method        := IDENT "(" [ params ] ")" [ ":" type ] block
 ## Инструкции
 
 ```
-statement   := become_stmt | call_stmt | gerund_stmt | return_with_value
+statement   := become_stmt | call_stmt | gerund_stmt
 become_stmt := "этот" "становится" STATE_ADJ
 ```
 
 `var_decl`, `assign`, `print_stmt`, `if_stmt`, `while_stmt`, `for_stmt` и
-`вернуть` без значения уже реализованы - [docs/SPEC.md](SPEC.md).
-`[шаг 3]`: `вернуть <выражение>` (когда у функций появится объявленный тип
-результата). `[шаг 4.1]`: `become_stmt`.
+`вернуть` (с необязательным значением) уже реализованы - [docs/SPEC.md](SPEC.md).
+`[шаг 4.1]`: `become_stmt`.
 
 `condition` и `call_stmt` могут быть как строгим вызовом (`X.метод(...)`),
 так и естественной фразой (`X метод ...` с падежными аргументами) - см. ниже.
+`call_stmt` для функций без методов сущности - `[шаг 3]`, см. ниже.
 
 ## Естественный вызов и падежное сопоставление `[шаг 3, движок - шаг 1.5]`
 

@@ -69,19 +69,36 @@ const (
 	typeBool
 )
 
+// typeNames - единственное место, где типы Rech связаны с их написанием в
+// исходнике (литералы -> вывод типа в шаге 1, аннотации параметра/результата
+// в шаге 3). valueType.String() и typeFromName - две стороны одной и той же
+// таблицы, а не два независимых списка строк.
+var typeNames = map[valueType]string{
+	typeString: "Строка",
+	typeInt:    "Целое",
+	typeFloat:  "Число",
+	typeBool:   "Логическое",
+}
+
 func (t valueType) String() string {
-	switch t {
-	case typeString:
-		return "Строка"
-	case typeInt:
-		return "Целое"
-	case typeFloat:
-		return "Число"
-	case typeBool:
-		return "Логическое"
-	default:
-		return "неизвестный тип"
+	if name, ok := typeNames[t]; ok {
+		return name
 	}
+	return "неизвестный тип"
+}
+
+// typeFromName маппит имя типа Rech (как оно написано в аннотации параметра
+// или типа результата, шаг 3) на valueType. Единственные типы, доступные до
+// появления сущностей (шаг 4), - те, что перечислены в typeNames; неизвестное
+// имя - ошибка компиляции на стороне вызывающего кода, а не здесь (эта
+// функция только сообщает "не знаю такого").
+func typeFromName(name string) (valueType, bool) {
+	for t, n := range typeNames {
+		if n == name {
+			return t, true
+		}
+	}
+	return typeUnknown, false
 }
 
 func (t valueType) cType() string {
@@ -106,6 +123,13 @@ type genCtx struct {
 	scopes     []map[string]valueType
 	usesConcat bool
 	usesStrCmp bool
+
+	// returnType/hasReturnType - тип результата функции, которая сейчас
+	// генерируется (сбрасывается в начале каждого generateFunction).
+	// hasReturnType == false - функция без объявленного типа результата
+	// (шаги 0-2), "вернуть" допустим только без значения.
+	returnType    valueType
+	hasReturnType bool
 }
 
 func (ctx *genCtx) pushScope() {
@@ -195,19 +219,77 @@ func generateFunction(sb *strings.Builder, ctx *genCtx, fn *ast.FunctionDecl) er
 	ctx.scopes = nil
 	ctx.pushScope()
 
+	paramTypes := make([]valueType, len(fn.Params))
+	for i, param := range fn.Params {
+		typ, ok := typeFromName(param.Type)
+		if !ok {
+			return fmt.Errorf("функция %q: параметр %q имеет неизвестный тип %q", fn.Name, param.Name, param.Type)
+		}
+		paramTypes[i] = typ
+		// Свежая область видимости, а имена параметров - падежи, уникальность
+		// которых уже проверил парсер (parseParams) - declare не может
+		// вернуть false здесь.
+		ctx.declare(param.Name, typ)
+	}
+
+	ctx.returnType = typeUnknown
+	ctx.hasReturnType = fn.ReturnType != ""
+	cReturnType := "int"
+	if ctx.hasReturnType {
+		typ, ok := typeFromName(fn.ReturnType)
+		if !ok {
+			return fmt.Errorf("функция %q: неизвестный тип результата %q", fn.Name, fn.ReturnType)
+		}
+		ctx.returnType = typ
+		cReturnType = typ.cType()
+		if !endsWithReturnValue(fn.Body) {
+			return fmt.Errorf("функция %q: с объявленным типом результата %s должна заканчиваться \"вернуть <значение>\" (полная проверка всех путей выполнения - шаг 5)", fn.Name, fn.ReturnType)
+		}
+	}
+
 	fmt.Fprintf(sb, "// %s\n", fn.Name)
-	fmt.Fprintf(sb, "int %s(void) {\n", cName)
+	fmt.Fprintf(sb, "%s %s(%s) {\n", cReturnType, cName, cParamList(fn.Params, paramTypes))
 	for _, stmt := range fn.Body {
 		if err := generateStmt(sb, ctx, stmt, 1); err != nil {
 			return fmt.Errorf("функция %q: %w", fn.Name, err)
 		}
 	}
-	// Функции в v0.1 не имеют объявленного типа результата (шаг 3), поэтому
-	// 0 в конце - не значение "результата", а просто способ не оставлять
-	// int-функцию без return (что для строгого C - undefined behavior).
-	sb.WriteString("    return 0;\n")
+	if !ctx.hasReturnType {
+		// Функция без объявленного типа результата (шаги 0-2), поэтому 0 в
+		// конце - не значение "результата", а просто способ не оставлять
+		// int-функцию без return (что для строгого C - undefined behavior).
+		sb.WriteString("    return 0;\n")
+	}
 	sb.WriteString("}\n\n")
 	return nil
+}
+
+// endsWithReturnValue - true, если последняя инструкция тела функции
+// (верхнего уровня, не внутри вложенных если/пока/для) - "вернуть
+// <значение>". Это простая синтаксическая проверка, а не flow-sensitive
+// анализ всех путей выполнения (это - шаг 5, docs/ROADMAP.md): она не ловит,
+// например, функцию, которая заканчивается "если ... { вернуть X } иначе {
+// вернуть Y }" - её тоже придётся переписать, пока не появится настоящий
+// анализ.
+func endsWithReturnValue(body []ast.Stmt) bool {
+	if len(body) == 0 {
+		return false
+	}
+	last, ok := body[len(body)-1].(*ast.ReturnStmt)
+	return ok && last.Value != nil
+}
+
+// cParamList формирует список параметров C-функции. types[i] - тип,
+// выведенный из аннотации params[i].Type (typeFromName), в том же порядке.
+func cParamList(params []ast.Param, types []valueType) string {
+	if len(params) == 0 {
+		return "void"
+	}
+	parts := make([]string, len(params))
+	for i, param := range params {
+		parts[i] = fmt.Sprintf("%s %s", types[i].cType(), mangleVar(param.Name))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func generateStmt(sb *strings.Builder, ctx *genCtx, stmt ast.Stmt, depth int) error {
@@ -324,7 +406,24 @@ func generateStmt(sb *strings.Builder, ctx *genCtx, stmt ast.Stmt, depth int) er
 		return nil
 
 	case *ast.ReturnStmt:
-		fmt.Fprintf(sb, "%sreturn 0;\n", ind)
+		if s.Value == nil {
+			if ctx.hasReturnType {
+				return fmt.Errorf("строка %d: функция с объявленным типом результата должна возвращать значение (\"вернуть <значение>\")", s.Line)
+			}
+			fmt.Fprintf(sb, "%sreturn 0;\n", ind)
+			return nil
+		}
+		if !ctx.hasReturnType {
+			return fmt.Errorf("строка %d: у функции не объявлен тип результата - используйте \"вернуть\" без значения", s.Line)
+		}
+		code, typ, err := genExpr(ctx, s.Value)
+		if err != nil {
+			return err
+		}
+		if typ != ctx.returnType {
+			return fmt.Errorf("строка %d: функция объявлена с типом результата %s, но возвращается значение типа %s", s.Line, ctx.returnType, typ)
+		}
+		fmt.Fprintf(sb, "%sreturn %s;\n", ind, code)
 		return nil
 
 	default:
