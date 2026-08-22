@@ -2,9 +2,14 @@
 //
 // Использование:
 //
-//	rech build <файл.rech>   - сгенерировать <файл>.c и собрать нативный бинарник <файл>
-//	rech run <файл.rech>     - собрать и сразу выполнить
-//	rech version             - напечатать версию компилятора
+//	rech build [--keep-c] <файл.rech>   - собрать нативный бинарник <файл>
+//	rech run [--keep-c] <файл.rech>     - собрать и сразу выполнить
+//	rech version                        - напечатать версию компилятора
+//
+// По умолчанию сгенерированный <файл>.c удаляется после успешной сборки -
+// это техническая заготовка, а не то, что нужно смотреть. --keep-c
+// оставляет его - пригодится, чтобы посмотреть, во что компилируется
+// программа.
 package main
 
 import (
@@ -28,22 +33,22 @@ func main() {
 		return
 	}
 
-	if len(os.Args) < 3 {
+	srcPath, keepC := parseBuildArgs(os.Args[2:])
+	if srcPath == "" {
 		usage()
 		os.Exit(2)
 	}
-	srcPath := os.Args[2]
 
 	comp := InitializeCompiler()
 
 	switch cmd {
 	case "build":
-		if _, err := comp.Build(srcPath); err != nil {
+		if _, err := comp.Build(srcPath, keepC); err != nil {
 			fmt.Fprintln(os.Stderr, "ошибка:", err)
 			os.Exit(1)
 		}
 	case "run":
-		binPath, err := comp.Build(srcPath)
+		binPath, err := comp.Build(srcPath, keepC)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "ошибка:", err)
 			os.Exit(1)
@@ -58,8 +63,21 @@ func main() {
 	}
 }
 
+// parseBuildArgs разбирает аргументы после "build"/"run": один флаг
+// --keep-c (в любом месте) и ровно один путь к .rech-файлу.
+func parseBuildArgs(args []string) (srcPath string, keepC bool) {
+	for _, a := range args {
+		if a == "--keep-c" {
+			keepC = true
+			continue
+		}
+		srcPath = a
+	}
+	return srcPath, keepC
+}
+
 func usage() {
-	fmt.Fprintln(os.Stderr, "использование: rech build|run <файл.rech> | rech version")
+	fmt.Fprintln(os.Stderr, "использование: rech build|run [--keep-c] <файл.rech> | rech version")
 }
 
 func runBinary(binPath string) error {

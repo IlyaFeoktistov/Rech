@@ -116,8 +116,12 @@ func NewCompiler(frontend Frontend, backend Backend, toolchain Toolchain) *Compi
 }
 
 // Build прогоняет srcPath через весь пайплайн и возвращает путь
-// к собранному бинарнику.
-func (c *Compiler) Build(srcPath string) (string, error) {
+// к собранному бинарнику. Сгенерированный .c удаляется после успешной
+// сборки бинарника, если keepC == false - по умолчанию это техническая
+// заготовка, а не то, что нужно смотреть; keepC == true (флаг --keep-c в
+// cmd/rech) оставляет его - удобно для примеров и для того, чтобы
+// посмотреть, во что компилируется программа.
+func (c *Compiler) Build(srcPath string, keepC bool) (string, error) {
 	if err := validateSourceFileName(srcPath); err != nil {
 		return "", err
 	}
@@ -146,6 +150,11 @@ func (c *Compiler) Build(srcPath string) (string, error) {
 	binPath := base
 	if err := c.Toolchain.CompileC(cPath, binPath); err != nil {
 		return "", err
+	}
+	if !keepC {
+		// Необязательная уборка - ошибка удаления не портит уже собранный
+		// бинарник, поэтому не возвращается вызывающему коду как ошибка сборки.
+		_ = os.Remove(cPath)
 	}
 	return binPath, nil
 }

@@ -15,7 +15,7 @@
 
 ## Пример
 
-`examples/привет.rech`:
+`examples/основы/привет.rech`:
 
 ```
 функция главная
@@ -24,13 +24,16 @@
 }
 ```
 
+Больше примеров, по темам, - в подпапках `examples/` (`основы/`,
+`функции/`, `сущности/`).
+
 ## Сборка и запуск
 
 Нужен установленный системный C-компилятор (`cc`, `clang` или `gcc` в `PATH`,
 либо переменная окружения `CC`).
 
 ```sh
-go run ./cmd/rech run examples/привет.rech
+go run ./cmd/rech run examples/основы/привет.rech
 ```
 
 Вывод:
@@ -42,10 +45,16 @@ go run ./cmd/rech run examples/привет.rech
 Отдельно собрать бинарник без запуска:
 
 ```sh
-go run ./cmd/rech build examples/привет.rech
+go run ./cmd/rech build examples/основы/привет.rech
 ```
 
-Компилятор сгенерирует `examples/привет.c` и соберёт `examples/привет`.
+Компилятор соберёт бинарник `examples/основы/привет`. Промежуточный
+`.c`-файл по умолчанию удаляется после успешной сборки - добавьте
+`--keep-c`, если хотите посмотреть, во что компилируется программа:
+
+```sh
+go run ./cmd/rech build --keep-c examples/основы/привет.rech
+```
 
 Имена `.rech`-файлов - только строчные буквы и `_` (`имя_файла.rech`, без
 заглавных букв) и обязательно в форме Unicode NFC - подробности и мотивация
@@ -65,7 +74,7 @@ internal/backend/cbackend/ - генерация C из AST
 internal/compiler/         - интерфейсы Frontend/Backend/Toolchain и их связывание
 internal/toolchain/        - вызов системного cc/clang/gcc
 internal/version/          - версия компилятора (см. `rech version`)
-examples/                  - примеры программ на Rech
+examples/                  - примеры программ на Rech, по тематическим подпапкам
 docs/SPEC.md               - спецификация того, что реализовано прямо сейчас
 docs/ROADMAP.md            - план развития языка по шагам
 docs/GRAMMAR.md            - черновик синтаксиса для того, что запланировано
