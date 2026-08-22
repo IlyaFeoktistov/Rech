@@ -74,6 +74,14 @@ func mangleField(name string) string {
 	return "f_" + transliterate(name)
 }
 
+// mangleMethod мангирует пару (сущность, метод) в имя C-функции. Отдельный
+// префикс (rech_M_, не rech_ у функций и не rech_T_ у типов) - в C
+// typedef-имена и имена функций делят один неймспейс, разные префиксы
+// структурно исключают коллизию метода с функцией/типом того же имени.
+func mangleMethod(entity, method string) string {
+	return "rech_M_" + transliterate(entity) + "_" + transliterate(method)
+}
+
 // valueTypeKind - "форма" значения: один из встроенных примитивов или
 // kindEntity (конкретная сущность, имя которой несёт само значение
 // valueType.entity - иначе структуре пришлось бы жить снаружи, в отдельном
@@ -205,6 +213,15 @@ type genCtx struct {
 	// до генерации тел - по тем же причинам, что и funcs.
 	entities map[string]entitySig
 
+	// methods - сигнатуры методов всех сущностей, собранные до генерации
+	// тел: methods[Сущность][Метод] (шаг 4.d).
+	methods map[string]map[string]funcSig
+
+	// thisEntity - имя сущности, метод которой сейчас генерируется
+	// (generateMethod), "" - вне метода. Даёт genExpr(*ast.ThisExpr) тип
+	// значения "этот" без внешнего контекста.
+	thisEntity string
+
 	// returnType/hasReturnType - тип результата функции, которая сейчас
 	// генерируется (сбрасывается в начале каждого generateFunction).
 	// hasReturnType == false - функция без объявленного типа результата
@@ -260,7 +277,7 @@ func indent(depth int) string {
 
 // Generate возвращает исходник на C, соответствующий программе prog.
 func Generate(prog *ast.Program) (string, error) {
-	ctx := &genCtx{funcs: map[string]funcSig{}, entities: map[string]entitySig{}}
+	ctx := &genCtx{funcs: map[string]funcSig{}, entities: map[string]entitySig{}, methods: map[string]map[string]funcSig{}}
 
 	// funcMangled - устойчивое мангирование имён функций (шаг 3.5):
 	// мангл-имя -> оригинальное русское имя. Ловит коллизию двух РАЗНЫХ
@@ -295,6 +312,28 @@ func Generate(prog *ast.Program) (string, error) {
 		}
 		ctx.entities[ent.Name] = sig
 		typedefs.WriteString(generateEntityStruct(ent, sig))
+
+		// Сигнатуры методов этой сущности (шаг 4.d) - устойчивое
+		// мангирование в рамках одной сущности (methodMangled): коллизия
+		// между сущностями структурно исключена мангл-именем самой сущности
+		// внутри mangleMethod, уже проверенным выше через entityMangled.
+		ctx.methods[ent.Name] = map[string]funcSig{}
+		methodMangled := map[string]string{}
+		for _, m := range ent.Methods {
+			if _, exists := ctx.methods[ent.Name][m.Name]; exists {
+				return "", fmt.Errorf("сущность %q: метод %q объявлен более одного раза", ent.Name, m.Name)
+			}
+			mangledMethod := mangleMethod(ent.Name, m.Name)
+			if other, exists := methodMangled[mangledMethod]; exists {
+				return "", fmt.Errorf("сущность %q: методы %q и %q транслитерируются в одно и то же имя %q в C - переименуйте один из них", ent.Name, other, m.Name, mangledMethod)
+			}
+			methodMangled[mangledMethod] = m.Name
+			msig, err := methodSignatureOf(ent, m)
+			if err != nil {
+				return "", err
+			}
+			ctx.methods[ent.Name][m.Name] = msig
+		}
 	}
 
 	hasEntryPoint := false
@@ -330,11 +369,23 @@ func Generate(prog *ast.Program) (string, error) {
 		}
 		protos.WriteString(prototypeOf(fn, ctx.funcs[fn.Name]))
 	}
+	for _, ent := range prog.Entities {
+		for _, m := range ent.Methods {
+			protos.WriteString(prototypeOfMethod(ent, m, ctx.methods[ent.Name][m.Name]))
+		}
+	}
 
 	var body strings.Builder
 	for _, fn := range prog.Functions {
 		if err := generateFunction(&body, ctx, fn); err != nil {
 			return "", err
+		}
+	}
+	for _, ent := range prog.Entities {
+		for _, m := range ent.Methods {
+			if err := generateMethod(&body, ctx, ent, m); err != nil {
+				return "", err
+			}
 		}
 	}
 
@@ -364,26 +415,55 @@ func Generate(prog *ast.Program) (string, error) {
 	return sb.String(), nil
 }
 
-// signatureOf выводит funcSig из аннотаций типов в объявлении функции.
-func signatureOf(fn *ast.FunctionDecl) (funcSig, error) {
-	paramTypes := make([]valueType, len(fn.Params))
-	for i, param := range fn.Params {
+// signatureFromDecl выводит funcSig из аннотаций типов параметров/типа
+// результата - общая логика для функций (signatureOf) и методов
+// (methodSignatureOf, шаг 4.d): у них одна и та же форма сигнатуры, разница
+// только в том, откуда берутся Params/ReturnType (FunctionDecl или
+// MethodDecl - разные Go-типы без общего интерфейса, поэтому берём здесь
+// уже распакованные срезы/строку, а не сам узел AST). label - для текста
+// ошибки (имя функции или "Сущность.метод").
+func signatureFromDecl(label string, params []ast.Param, returnType string) (funcSig, error) {
+	paramTypes := make([]valueType, len(params))
+	for i, param := range params {
 		typ, ok := typeFromName(param.Type)
 		if !ok {
-			return funcSig{}, fmt.Errorf("функция %q: параметр %q имеет неизвестный тип %q", fn.Name, param.Name, param.Type)
+			return funcSig{}, fmt.Errorf("%s: параметр %q имеет неизвестный тип %q", label, param.Name, param.Type)
 		}
 		paramTypes[i] = typ
 	}
 	sig := funcSig{ParamTypes: paramTypes}
-	if fn.ReturnType != "" {
-		typ, ok := typeFromName(fn.ReturnType)
+	if returnType != "" {
+		typ, ok := typeFromName(returnType)
 		if !ok {
-			return funcSig{}, fmt.Errorf("функция %q: неизвестный тип результата %q", fn.Name, fn.ReturnType)
+			return funcSig{}, fmt.Errorf("%s: неизвестный тип результата %q", label, returnType)
 		}
 		sig.ReturnType = typ
 		sig.HasReturn = true
 	}
 	return sig, nil
+}
+
+// signatureOf выводит funcSig из аннотаций типов в объявлении функции.
+func signatureOf(fn *ast.FunctionDecl) (funcSig, error) {
+	return signatureFromDecl(fmt.Sprintf("функция %q", fn.Name), fn.Params, fn.ReturnType)
+}
+
+// methodSignatureOf - то же самое для метода сущности (шаг 4.d).
+func methodSignatureOf(ent *ast.EntityDecl, m *ast.MethodDecl) (funcSig, error) {
+	return signatureFromDecl(fmt.Sprintf("сущность %q: метод %q", ent.Name, m.Name), m.Params, m.ReturnType)
+}
+
+// combineParamList добавляет extraParam (скрытый первый параметр this_ у
+// метода, шаг 4.d) перед остальными параметрами paramList (уже собранными
+// cParamList). extraParam == "" - обычная функция, без изменений.
+func combineParamList(extraParam, paramList string) string {
+	if extraParam == "" {
+		return paramList
+	}
+	if paramList == "void" {
+		return extraParam
+	}
+	return extraParam + ", " + paramList
 }
 
 // prototypeOf формирует C forward declaration для fn.
@@ -393,6 +473,18 @@ func prototypeOf(fn *ast.FunctionDecl, sig funcSig) string {
 		cReturnType = sig.ReturnType.cType()
 	}
 	return fmt.Sprintf("%s %s(%s);\n", cReturnType, mangleName(fn.Name), cParamList(fn.Params, sig.ParamTypes))
+}
+
+// prototypeOfMethod - то же самое для метода: C-сигнатура получает
+// дополнительный первый параметр "Тип *this_" (mangleType(ent.Name)).
+func prototypeOfMethod(ent *ast.EntityDecl, m *ast.MethodDecl, sig funcSig) string {
+	cReturnType := "int"
+	if sig.HasReturn {
+		cReturnType = sig.ReturnType.cType()
+	}
+	extraParam := fmt.Sprintf("%s *this_", mangleType(ent.Name))
+	paramList := combineParamList(extraParam, cParamList(m.Params, sig.ParamTypes))
+	return fmt.Sprintf("%s %s(%s);\n", cReturnType, mangleMethod(ent.Name, m.Name), paramList)
 }
 
 // entitySig - сигнатура сущности: поля в порядке объявления (для
@@ -465,12 +557,39 @@ const strConcatHelper = `static char *rech_str_concat(const char *a, const char 
 `
 
 func generateFunction(sb *strings.Builder, ctx *genCtx, fn *ast.FunctionDecl) error {
-	cName := mangleName(fn.Name)
 	sig := ctx.funcs[fn.Name] // уже посчитана в Generate (signatureOf)
+	fmt.Fprintf(sb, "// %s\n", fn.Name)
+	errLabel := fmt.Sprintf("функция %q", fn.Name)
+	return generateCallable(sb, ctx, mangleName(fn.Name), "", fn.Params, sig, fn.Body, errLabel)
+}
+
+// generateMethod генерирует C-функцию для метода сущности (шаг 4.d) -
+// как generateFunction, но с дополнительным первым C-параметром
+// "Тип *this_" (получатель - по указателю, чтобы мутация поля внутри
+// метода была видна вызывающему коду после возврата, docs/GRAMMAR.md) и с
+// ctx.thisEntity, включённым на время генерации тела - это то, что делает
+// "этот" внутри метода валидным выражением (genExpr, case *ast.ThisExpr).
+func generateMethod(sb *strings.Builder, ctx *genCtx, ent *ast.EntityDecl, m *ast.MethodDecl) error {
+	sig := ctx.methods[ent.Name][m.Name] // уже посчитана в Generate (methodSignatureOf)
+	fmt.Fprintf(sb, "// %s.%s\n", ent.Name, m.Name)
+	extraParam := fmt.Sprintf("%s *this_", mangleType(ent.Name))
+	errLabel := fmt.Sprintf("сущность %q: метод %q", ent.Name, m.Name)
+
+	ctx.thisEntity = ent.Name
+	defer func() { ctx.thisEntity = "" }()
+	return generateCallable(sb, ctx, mangleMethod(ent.Name, m.Name), extraParam, m.Params, sig, m.Body, errLabel)
+}
+
+// generateCallable - общая генерация C-функции для функции и метода:
+// пролог (сигнатура), проверка "заканчивается вернуть <значение>" у
+// типизированного результата, тело, эпилог. extraParam - дополнительный
+// первый C-параметр метода (this_) или "" для обычной функции.
+func generateCallable(sb *strings.Builder, ctx *genCtx, cName string, extraParam string, params []ast.Param, sig funcSig, body []ast.Stmt, errLabel string) error {
 	ctx.scopes = nil
+	ctx.mangledScopes = nil
 	ctx.pushScope()
 
-	for i, param := range fn.Params {
+	for i, param := range params {
 		// Свежая область видимости, а имена параметров - падежи, уникальность
 		// которых уже проверил парсер (parseParams) - declare не может
 		// вернуть ошибку здесь.
@@ -482,22 +601,21 @@ func generateFunction(sb *strings.Builder, ctx *genCtx, fn *ast.FunctionDecl) er
 	cReturnType := "int"
 	if ctx.hasReturnType {
 		cReturnType = sig.ReturnType.cType()
-		if !endsWithReturnValue(fn.Body) {
-			return fmt.Errorf("функция %q: с объявленным типом результата %s должна заканчиваться \"вернуть <значение>\" (полная проверка всех путей выполнения - шаг 5)", fn.Name, fn.ReturnType)
+		if !endsWithReturnValue(body) {
+			return fmt.Errorf("%s: с объявленным типом результата %s должна заканчиваться \"вернуть <значение>\" (полная проверка всех путей выполнения - шаг 5)", errLabel, sig.ReturnType)
 		}
 	}
 
-	fmt.Fprintf(sb, "// %s\n", fn.Name)
-	fmt.Fprintf(sb, "%s %s(%s) {\n", cReturnType, cName, cParamList(fn.Params, sig.ParamTypes))
-	for _, stmt := range fn.Body {
+	fmt.Fprintf(sb, "%s %s(%s) {\n", cReturnType, cName, combineParamList(extraParam, cParamList(params, sig.ParamTypes)))
+	for _, stmt := range body {
 		if err := generateStmt(sb, ctx, stmt, 1); err != nil {
-			return fmt.Errorf("функция %q: %w", fn.Name, err)
+			return fmt.Errorf("%s: %w", errLabel, err)
 		}
 	}
 	if !ctx.hasReturnType {
-		// Функция без объявленного типа результата (шаги 0-2), поэтому 0 в
-		// конце - не значение "результата", а просто способ не оставлять
-		// int-функцию без return (что для строгого C - undefined behavior).
+		// Функция/метод без объявленного типа результата, поэтому 0 в конце -
+		// не значение "результата", а просто способ не оставлять int-функцию
+		// без return (что для строгого C - undefined behavior).
 		sb.WriteString("    return 0;\n")
 	}
 	sb.WriteString("}\n\n")
@@ -670,7 +788,13 @@ func generateStmt(sb *strings.Builder, ctx *genCtx, stmt ast.Stmt, depth int) er
 		return nil
 
 	case *ast.ExprStmt:
-		code, _, err := genCall(ctx, s.Call)
+		var code string
+		var err error
+		if s.Call != nil {
+			code, _, err = genCall(ctx, s.Call)
+		} else {
+			code, _, err = genMethodCall(ctx, s.MethodCall)
+		}
 		if err != nil {
 			return err
 		}
@@ -745,6 +869,25 @@ func genExpr(ctx *genCtx, expr ast.Expr) (string, valueType, error) {
 	case *ast.FieldAccess:
 		return genFieldAccess(ctx, e)
 
+	case *ast.ThisExpr:
+		// "(*this_)" - разыменованный указатель this_ ведёт себя как
+		// lvalue сущностного типа, поэтому genFieldAccess/generateFieldAssign
+		// работают с ним через тот же "." (без отдельной ветки на "->") -
+		// парсер уже гарантирует, что ThisExpr встречается только внутри
+		// тела метода (p.inMethodBody), так что ctx.thisEntity здесь всегда
+		// заполнен.
+		return "(*this_)", entityType(ctx.thisEntity), nil
+
+	case *ast.MethodCallExpr:
+		code, sig, err := genMethodCall(ctx, e)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		if !sig.HasReturn {
+			return "", typeUnknown, fmt.Errorf("строка %d: метод %q не имеет объявленного типа результата - его нельзя использовать как выражение", e.Line, e.Method)
+		}
+		return code, sig.ReturnType, nil
+
 	default:
 		return "", typeUnknown, fmt.Errorf("строка %d: выражение %T пока не поддерживается C backend'ом", lineOf(expr), expr)
 	}
@@ -775,6 +918,68 @@ func genCall(ctx *genCtx, e *ast.CallExpr) (string, funcSig, error) {
 		argCodes[i] = code
 	}
 	return fmt.Sprintf("%s(%s)", mangleName(e.Callee), strings.Join(argCodes, ", ")), sig, nil
+}
+
+// receiverAddressable - получатели, которые в сгенерированном C - lvalue:
+// и для взятия адреса (передача в метод указателем this_), и для
+// присваивания полю (FieldAssign). Сознательно узкий список - переменная,
+// "этот", доступ к полю. Результат вызова функции/конструктора/другого
+// метода - нет (временное значение, в C нельзя ни взять его адрес, ни
+// присвоить его полю) - для них явная ошибка Rech лучше невнятной ошибки
+// компилятора C про "lvalue required".
+func receiverAddressable(e ast.Expr) bool {
+	switch e.(type) {
+	case *ast.Identifier, *ast.ThisExpr, *ast.FieldAccess:
+		return true
+	default:
+		return false
+	}
+}
+
+// genReceiverAddress генерирует адрес получателя вызова метода - указатель,
+// который метод получает как this_ (docs/GRAMMAR.md, "получатель метода
+// передаётся по указателю").
+func genReceiverAddress(ctx *genCtx, receiver ast.Expr) (string, valueType, error) {
+	if !receiverAddressable(receiver) {
+		return "", typeUnknown, fmt.Errorf("строка %d: получателем вызова метода может быть только переменная, поле или \"этот\"", lineOf(receiver))
+	}
+	code, typ, err := genExpr(ctx, receiver)
+	if err != nil {
+		return "", typeUnknown, err
+	}
+	return fmt.Sprintf("&(%s)", code), typ, nil
+}
+
+// genMethodCall генерирует C-код вызова метода (общий для MethodCallExpr-
+// выражения и ExprStmt-инструкции, как genCall - для обычных функций).
+func genMethodCall(ctx *genCtx, e *ast.MethodCallExpr) (string, funcSig, error) {
+	receiverCode, receiverType, err := genReceiverAddress(ctx, e.Receiver)
+	if err != nil {
+		return "", funcSig{}, err
+	}
+	if receiverType.kind != kindEntity {
+		return "", funcSig{}, fmt.Errorf("строка %d: нельзя вызвать метод %q - тип %s не сущность", e.Line, e.Method, receiverType)
+	}
+	sig, ok := ctx.methods[receiverType.entity][e.Method]
+	if !ok {
+		return "", funcSig{}, fmt.Errorf("строка %d: у сущности %q нет метода %q", e.Line, receiverType.entity, e.Method)
+	}
+	if len(e.Args) != len(sig.ParamTypes) {
+		return "", funcSig{}, fmt.Errorf("строка %d: метод %q ожидает аргументов: %d, передано: %d", e.Line, e.Method, len(sig.ParamTypes), len(e.Args))
+	}
+	argCodes := make([]string, len(e.Args)+1)
+	argCodes[0] = receiverCode
+	for i, arg := range e.Args {
+		code, typ, err := genExpr(ctx, arg)
+		if err != nil {
+			return "", funcSig{}, err
+		}
+		if typ != sig.ParamTypes[i] {
+			return "", funcSig{}, fmt.Errorf("строка %d: аргумент %d вызова метода %q должен быть типа %s, получен %s", e.Line, i+1, e.Method, sig.ParamTypes[i], typ)
+		}
+		argCodes[i+1] = code
+	}
+	return fmt.Sprintf("%s(%s)", mangleMethod(receiverType.entity, e.Method), strings.Join(argCodes, ", ")), sig, nil
 }
 
 // genNewExpr генерирует C99 compound literal для "создать Тип(...)" - без
@@ -835,13 +1040,12 @@ func genFieldAccess(ctx *genCtx, e *ast.FieldAccess) (string, valueType, error) 
 // таких по грамматике и не бывает - парсер строит FieldAssign только из
 // IDENT) была бы понятная ошибка Rech, а не невнятная C-ошибка.
 func generateFieldAssign(sb *strings.Builder, ctx *genCtx, s *ast.FieldAssign, ind string) error {
-	receiverID, ok := s.Receiver.(*ast.Identifier)
-	if !ok {
-		return fmt.Errorf("строка %d: получателем присваивания полю может быть только переменная", s.Line)
+	if !receiverAddressable(s.Receiver) {
+		return fmt.Errorf("строка %d: получателем присваивания полю может быть только переменная, поле или \"этот\"", s.Line)
 	}
-	receiverType, exists := ctx.lookup(receiverID.Name)
-	if !exists {
-		return fmt.Errorf("строка %d: переменная %q не объявлена - используйте \"переменная\" для объявления", s.Line, receiverID.Name)
+	receiverCode, receiverType, err := genExpr(ctx, s.Receiver)
+	if err != nil {
+		return err
 	}
 	if receiverType.kind != kindEntity {
 		return fmt.Errorf("строка %d: нельзя присвоить полю %q - тип %s не сущность", s.Line, s.Field, receiverType)
@@ -858,7 +1062,7 @@ func generateFieldAssign(sb *strings.Builder, ctx *genCtx, s *ast.FieldAssign, i
 	if typ != sig.FieldTypes[i] {
 		return fmt.Errorf("строка %d: полю %q типа %s нельзя присвоить значение типа %s", s.Line, s.Field, sig.FieldTypes[i], typ)
 	}
-	fmt.Fprintf(sb, "%s%s.%s = %s;\n", ind, mangleVar(receiverID.Name), mangleField(s.Field), code)
+	fmt.Fprintf(sb, "%s(%s).%s = %s;\n", ind, receiverCode, mangleField(s.Field), code)
 	return nil
 }
 
@@ -1009,6 +1213,10 @@ func lineOf(n ast.Node) int {
 	case *ast.NewExpr:
 		return v.Line
 	case *ast.FieldAccess:
+		return v.Line
+	case *ast.ThisExpr:
+		return v.Line
+	case *ast.MethodCallExpr:
 		return v.Line
 	case *ast.StringLiteral:
 		return v.Line

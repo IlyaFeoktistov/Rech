@@ -326,7 +326,7 @@ func TestGenerateFieldAssign(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, "v_p.f_vozrast = 31LL;") {
+	if !strings.Contains(out, "(v_p).f_vozrast = 31LL;") {
 		t.Fatalf("ожидалось присваивание полю, получено:\n%s", out)
 	}
 }
@@ -361,6 +361,111 @@ func TestGenerateFieldAssignOnNonEntity(t *testing.T) {
 	_, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
 	if err == nil || !strings.Contains(err.Error(), "не сущность") {
 		t.Fatalf("ожидалась ошибка про присваивание полю не-сущности, получено: %v", err)
+	}
+}
+
+func entityUserWithMethods() *ast.EntityDecl {
+	ent := entityUser()
+	ent.Methods = []*ast.MethodDecl{
+		{
+			Name: "состариться",
+			Body: []ast.Stmt{&ast.FieldAssign{
+				Receiver: &ast.ThisExpr{},
+				Field:    "возраст",
+				Value: &ast.BinaryExpr{
+					Op:    "+",
+					Left:  &ast.FieldAccess{Receiver: &ast.ThisExpr{}, Field: "возраст"},
+					Right: &ast.IntLiteral{Value: 1},
+				},
+			}},
+		},
+		{
+			Name:       "представиться",
+			ReturnType: "Строка",
+			Body:       []ast.Stmt{&ast.ReturnStmt{Value: &ast.FieldAccess{Receiver: &ast.ThisExpr{}, Field: "имя"}}},
+		},
+	}
+	return ent
+}
+
+func TestGenerateMethodMutatesViaThis(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "p", Value: &ast.NewExpr{Type: "Пользователь", Args: []ast.Expr{&ast.StringLiteral{Value: "x"}, &ast.IntLiteral{Value: 30}}}},
+		&ast.ExprStmt{MethodCall: &ast.MethodCallExpr{Receiver: &ast.Identifier{Name: "p"}, Method: "состариться"}},
+		&ast.PrintStmt{Value: &ast.MethodCallExpr{Receiver: &ast.Identifier{Name: "p"}, Method: "представиться"}},
+	}}
+	out, err := Generate(&ast.Program{Entities: []*ast.EntityDecl{entityUserWithMethods()}, Functions: []*ast.FunctionDecl{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "int rech_M_polzovatel_sostaritsya(rech_T_polzovatel *this_) {") {
+		t.Fatalf("ожидалась сигнатура метода с this_, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "((*this_)).f_vozrast = ((((*this_)).f_vozrast) + 1LL);") &&
+		!strings.Contains(out, "((*this_)).f_vozrast = (((*this_)).f_vozrast + 1LL);") {
+		t.Fatalf("ожидалась мутация поля через this_, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "rech_M_polzovatel_sostaritsya(&(v_p))") {
+		t.Fatalf("ожидался вызов метода с адресом получателя, получено:\n%s", out)
+	}
+}
+
+func TestGenerateMethodCallUnknownMethod(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "p", Value: &ast.NewExpr{Type: "Пользователь", Args: []ast.Expr{&ast.StringLiteral{Value: "x"}, &ast.IntLiteral{Value: 1}}}},
+		&ast.ExprStmt{MethodCall: &ast.MethodCallExpr{Receiver: &ast.Identifier{Name: "p"}, Method: "несуществующий"}},
+	}}
+	_, err := Generate(&ast.Program{Entities: []*ast.EntityDecl{entityUser()}, Functions: []*ast.FunctionDecl{main}})
+	if err == nil || !strings.Contains(err.Error(), "нет метода") {
+		t.Fatalf("ожидалась ошибка про несуществующий метод, получено: %v", err)
+	}
+}
+
+func TestGenerateMethodCallWrongArgCount(t *testing.T) {
+	ent := entityUserWithMethods()
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "p", Value: &ast.NewExpr{Type: "Пользователь", Args: []ast.Expr{&ast.StringLiteral{Value: "x"}, &ast.IntLiteral{Value: 1}}}},
+		&ast.ExprStmt{MethodCall: &ast.MethodCallExpr{Receiver: &ast.Identifier{Name: "p"}, Method: "состариться", Args: []ast.Expr{&ast.IntLiteral{Value: 1}}}},
+	}}
+	_, err := Generate(&ast.Program{Entities: []*ast.EntityDecl{ent}, Functions: []*ast.FunctionDecl{main}})
+	if err == nil || !strings.Contains(err.Error(), "ожидает аргументов") {
+		t.Fatalf("ожидалась ошибка про число аргументов метода, получено: %v", err)
+	}
+}
+
+func TestGenerateMethodCallOnNonEntity(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "x", Value: &ast.IntLiteral{Value: 1}},
+		&ast.ExprStmt{MethodCall: &ast.MethodCallExpr{Receiver: &ast.Identifier{Name: "x"}, Method: "метод"}},
+	}}
+	_, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
+	if err == nil || !strings.Contains(err.Error(), "не сущность") {
+		t.Fatalf("ожидалась ошибка про вызов метода не-сущности, получено: %v", err)
+	}
+}
+
+func TestGenerateMethodCallReceiverMustBeAddressable(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.ExprStmt{MethodCall: &ast.MethodCallExpr{
+			Receiver: &ast.NewExpr{Type: "Пользователь", Args: []ast.Expr{&ast.StringLiteral{Value: "x"}, &ast.IntLiteral{Value: 1}}},
+			Method:   "состариться",
+		}},
+	}}
+	_, err := Generate(&ast.Program{Entities: []*ast.EntityDecl{entityUserWithMethods()}, Functions: []*ast.FunctionDecl{main}})
+	if err == nil || !strings.Contains(err.Error(), "получателем вызова метода") {
+		t.Fatalf("ожидалась ошибка про недопустимого получателя вызова метода, получено: %v", err)
+	}
+}
+
+func TestGenerateDuplicateMethodName(t *testing.T) {
+	ent := entityUser()
+	ent.Methods = []*ast.MethodDecl{
+		{Name: "метод", Body: []ast.Stmt{&ast.PrintStmt{Value: &ast.StringLiteral{Value: "1"}}}},
+		{Name: "метод", Body: []ast.Stmt{&ast.PrintStmt{Value: &ast.StringLiteral{Value: "2"}}}},
+	}
+	_, err := Generate(&ast.Program{Entities: []*ast.EntityDecl{ent}, Functions: []*ast.FunctionDecl{mainFunc()}})
+	if err == nil || !strings.Contains(err.Error(), "объявлен более одного раза") {
+		t.Fatalf("ожидалась ошибка про повторное объявление метода, получено: %v", err)
 	}
 }
 

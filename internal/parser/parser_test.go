@@ -373,6 +373,90 @@ func TestParseFieldAssign(t *testing.T) {
 	}
 }
 
+func TestParseMethodAndThis(t *testing.T) {
+	prog, err := parseSource(t, `
+сущность Пользователь
+{
+    имеет:
+        возраст: Целое
+
+    состариться()
+    {
+        этот.возраст = этот.возраст + 1
+    }
+}
+функция главная { вывести "ок" }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	ent := prog.Entities[0]
+	if len(ent.Methods) != 1 || ent.Methods[0].Name != "состариться" {
+		t.Fatalf("ожидался один метод \"состариться\", получено: %+v", ent.Methods)
+	}
+	assign := ent.Methods[0].Body[0].(*ast.FieldAssign)
+	if _, ok := assign.Receiver.(*ast.ThisExpr); !ok {
+		t.Fatalf("ожидался получатель ThisExpr, получено %+v", assign.Receiver)
+	}
+	bin := assign.Value.(*ast.BinaryExpr)
+	access, ok := bin.Left.(*ast.FieldAccess)
+	if !ok {
+		t.Fatalf("ожидался FieldAccess слева, получено %+v", bin.Left)
+	}
+	if _, ok := access.Receiver.(*ast.ThisExpr); !ok {
+		t.Fatalf("ожидался получатель ThisExpr у FieldAccess, получено %+v", access.Receiver)
+	}
+}
+
+func TestParseThisOutsideMethodFails(t *testing.T) {
+	_, err := parseSource(t, `функция главная { вывести этот.поле }`)
+	if err == nil || !strings.Contains(err.Error(), "валиден только внутри тела метода") {
+		t.Fatalf("ожидалась ошибка про \"этот\" вне метода, получено: %v", err)
+	}
+}
+
+func TestParseMethodCallAsExpressionAndStatement(t *testing.T) {
+	prog, err := parseSource(t, `
+сущность П
+{
+    имеет:
+        х: Целое
+}
+функция главная {
+    переменная p = создать П(1)
+    p.метод()
+    переменная y = p.другой(1, 2)
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	stmt, ok := prog.Functions[0].Body[1].(*ast.ExprStmt)
+	if !ok || stmt.MethodCall == nil || stmt.MethodCall.Method != "метод" {
+		t.Fatalf("ожидался ExprStmt с вызовом метода \"метод\", получено %+v", prog.Functions[0].Body[1])
+	}
+	varDecl := prog.Functions[0].Body[2].(*ast.VarDecl)
+	call, ok := varDecl.Value.(*ast.MethodCallExpr)
+	if !ok || call.Method != "другой" || len(call.Args) != 2 {
+		t.Fatalf("ожидался MethodCallExpr \"другой\" с двумя аргументами, получено %+v", varDecl.Value)
+	}
+}
+
+func TestParseMethodRequiresParens(t *testing.T) {
+	_, err := parseSource(t, `
+сущность П
+{
+    имеет:
+        х: Целое
+    метод: Целое
+}
+функция главная { вывести "ок" }
+`)
+	if err == nil || !strings.Contains(err.Error(), "ожидалось \"(\"") {
+		t.Fatalf("ожидалась ошибка про отсутствие скобок у метода, получено: %v", err)
+	}
+}
+
 func TestParseReturnWithoutValueStillWorks(t *testing.T) {
 	prog, err := parseSource(t, `
 функция главная {

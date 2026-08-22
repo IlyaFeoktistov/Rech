@@ -54,10 +54,11 @@ const (
 	KwClass    // класс (синоним "сущность")
 	KwHas      // имеет
 	KwCreate   // создать
+	KwThis     // этот
 )
 
 // keywords - таблица ключевых слов v0.1. Список сознательно узкий:
-// остальные слова из финальной идеи (может, создать, этот, состояние)
+// остальные слова из финальной идеи (может, состояние)
 // добавляются по мере реализации соответствующих этапов - см.
 // docs/ROADMAP.md.
 var keywords = map[string]TokenType{
@@ -82,6 +83,7 @@ var keywords = map[string]TokenType{
 	"класс":      KwClass,
 	"имеет":      KwHas,
 	"создать":    KwCreate,
+	"этот":       KwThis,
 }
 
 // Token - одна лексема с позицией в исходном файле (для сообщений об ошибках).
@@ -186,6 +188,8 @@ func (t TokenType) String() string {
 		return "имеет"
 	case KwCreate:
 		return "создать"
+	case KwThis:
+		return "этот"
 	default:
 		return "UNKNOWN"
 	}

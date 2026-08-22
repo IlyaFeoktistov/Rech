@@ -28,14 +28,18 @@ func (*Program) node() {}
 //	    имеет:
 //	        поле: Тип
 //	        ...
+//	    метод(<парам>: <Тип>, ...): <ТипВозврата>
+//	    {
+//	        <тело>
+//	    }
 //	}
 //
-// ("класс" - синоним "сущность", docs/GRAMMAR.md). Methods добавятся в
-// оставшейся части шага 4 - на первой итерации сущность несёт только поля.
+// ("класс" - синоним "сущность", docs/GRAMMAR.md).
 type EntityDecl struct {
-	Name   string
-	Fields []Field
-	Line   int
+	Name    string
+	Fields  []Field
+	Methods []*MethodDecl
+	Line    int
 }
 
 func (*EntityDecl) node() {}
@@ -46,6 +50,19 @@ type Field struct {
 	Name string
 	Type string
 	Line int
+}
+
+// MethodDecl - метод сущности: как FunctionDecl (те же параметры/тип
+// результата/тело), но без ключевого слова "функция" - объявляется прямо в
+// теле сущности (docs/GRAMMAR.md, "method"). Внутри тела метода доступно
+// зарезервированное слово "этот" (ThisExpr) - ссылка на объект, у которого
+// вызван метод.
+type MethodDecl struct {
+	Name       string
+	Params     []Param
+	ReturnType string
+	Body       []Stmt
+	Line       int
 }
 
 // FunctionDecl соответствует конструкции:
@@ -212,9 +229,12 @@ func (*ReturnStmt) stmt() {}
 // строгий и естественный вызов (docs/GRAMMAR.md) производят один и тот же
 // CallExpr, а ExprStmt - только тонкая обёртка вокруг него для позиции
 // инструкции.
+// Ровно одно из Call/MethodCall заполнено - строгий вызов функции или
+// вызов метода сущности (шаг 4.d) как самостоятельная инструкция.
 type ExprStmt struct {
-	Call *CallExpr
-	Line int
+	Call       *CallExpr
+	MethodCall *MethodCallExpr
+	Line       int
 }
 
 func (*ExprStmt) node() {}
@@ -320,6 +340,32 @@ type FieldAccess struct {
 
 func (*FieldAccess) node() {}
 func (*FieldAccess) expr() {}
+
+// ThisExpr - "этот": ссылка на объект, у которого вызван текущий метод.
+// Валидно только внутри тела метода (проверяется парсером - структурное,
+// не зависящее от типов свойство).
+type ThisExpr struct {
+	Line int
+}
+
+func (*ThisExpr) node() {}
+func (*ThisExpr) expr() {}
+
+// MethodCallExpr - вызов метода сущности, дающий значение:
+//
+//	receiver.метод(<арг>, ...)
+//
+// Только строгий синтаксис в шаге 4 - естественный вызов метода
+// (`receiver метод ...`) вне скоупа (docs/GRAMMAR.md).
+type MethodCallExpr struct {
+	Receiver Expr
+	Method   string
+	Args     []Expr
+	Line     int
+}
+
+func (*MethodCallExpr) node() {}
+func (*MethodCallExpr) expr() {}
 
 // BinaryExpr - бинарная операция. Op - один из:
 // "+" "-" "*" "/" "==" "!=" "<" ">" "<=" ">=" "и" "или".

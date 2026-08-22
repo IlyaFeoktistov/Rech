@@ -71,6 +71,12 @@ type Parser struct {
 	// очередь до объявления самой функции (которое может оказаться и
 	// раньше, и позже места вызова, как и для строгого вызова, шаг 3.2).
 	funcParams map[string][]ast.Param
+
+	// inMethodBody - true, пока парсер разбирает тело метода сущности
+	// (parseMethod). "этот" валиден только пока это поле true - структурное
+	// свойство (где мы сейчас в дереве разбора), не зависящее от типов,
+	// поэтому проверяется здесь, а не в backend'е.
+	inMethodBody bool
 }
 
 func New(tokens []lexer.Token) *Parser {
@@ -286,13 +292,61 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 		if err != nil {
 			return nil, fmt.Errorf("сущность %q: %w", name.Value, err)
 		}
+		p.skipSeparators()
 	}
 
-	p.skipSeparators()
+	var methods []*ast.MethodDecl
+	for p.cur().Type == lexer.IDENT {
+		m, err := p.parseMethod()
+		if err != nil {
+			return nil, fmt.Errorf("сущность %q: %w", name.Value, err)
+		}
+		methods = append(methods, m)
+		p.skipSeparators()
+	}
+
 	if _, err := p.expect(lexer.RBRACE); err != nil {
 		return nil, err
 	}
-	return &ast.EntityDecl{Name: name.Value, Fields: fields, Line: kw.Line}, nil
+	return &ast.EntityDecl{Name: name.Value, Fields: fields, Methods: methods, Line: kw.Line}, nil
+}
+
+// parseMethod разбирает метод сущности: IDENT "(" [ params ] ")"
+// [ ":" IDENT ] block - как функцию, но без ключевого слова "функция" и со
+// скобками параметров обязательными (docs/GRAMMAR.md, "method"). Внутри
+// тела метода включается p.inMethodBody - это то, что делает "этот"
+// валидным (parsePrimary, parseFieldAssign).
+func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
+	name, err := p.expect(lexer.IDENT)
+	if err != nil {
+		return nil, err
+	}
+	if p.cur().Type != lexer.LPAREN {
+		return nil, fmt.Errorf("строка %d, столбец %d: после имени метода %q ожидалось \"(\" (даже без параметров - \"()\")",
+			p.cur().Line, p.cur().Col, name.Value)
+	}
+	params, err := p.parseParams()
+	if err != nil {
+		return nil, fmt.Errorf("в списке параметров метода %q: %w", name.Value, err)
+	}
+	returnType := ""
+	if p.cur().Type == lexer.COLON {
+		p.advance()
+		typeTok, err := p.expect(lexer.IDENT)
+		if err != nil {
+			return nil, fmt.Errorf("после \":\" у метода %q ожидалось имя типа результата: %w", name.Value, err)
+		}
+		returnType = typeTok.Value
+	}
+	p.skipNewlines()
+	prevInMethod := p.inMethodBody
+	p.inMethodBody = true
+	body, err := p.parseBlock()
+	p.inMethodBody = prevInMethod
+	if err != nil {
+		return nil, err
+	}
+	return &ast.MethodDecl{Name: name.Value, Params: params, ReturnType: returnType, Body: body, Line: name.Line}, nil
 }
 
 // parseFieldsSection разбирает "имеет:" и поля, отступленные относительно
@@ -485,8 +539,8 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 		if p.peekAt(1).Type == lexer.ASSIGN {
 			return p.parseAssign()
 		}
-		if p.peekAt(1).Type == lexer.DOT && p.peekAt(3).Type == lexer.ASSIGN {
-			return p.parseFieldAssign()
+		if p.peekAt(1).Type == lexer.DOT {
+			return p.parseDotStatement()
 		}
 		if p.peekAt(1).Type == lexer.LPAREN {
 			call, err := p.parseCallExpr()
@@ -504,10 +558,37 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 		}
 		return nil, fmt.Errorf("строка %d, столбец %d: неожиданный токен %q в теле функции",
 			p.cur().Line, p.cur().Col, p.cur().Value)
+	case lexer.KwThis:
+		if p.peekAt(1).Type == lexer.DOT {
+			return p.parseDotStatement()
+		}
+		return nil, fmt.Errorf("строка %d, столбец %d: \"этот\" в начале инструкции допустимо только с полем или методом (\"этот.поле = ...\"/\"этот.метод(...)\")",
+			p.cur().Line, p.cur().Col)
 	default:
 		return nil, fmt.Errorf("строка %d, столбец %d: неожиданный токен %q в теле функции",
 			p.cur().Line, p.cur().Col, p.cur().Value)
 	}
+}
+
+// parseDotStatement разбирает инструкцию, начинающуюся с получателя (IDENT
+// или "этот"), за которым следует "." - либо присваивание полю
+// (receiver.поле = выражение), либо вызов метода как самостоятельная
+// инструкция (receiver.метод(...)). Позиция парсера на входе - на
+// получателе.
+func (p *Parser) parseDotStatement() (ast.Stmt, error) {
+	if p.peekAt(3).Type == lexer.ASSIGN {
+		return p.parseFieldAssign()
+	}
+	start := p.cur()
+	expr, err := p.parsePostfix()
+	if err != nil {
+		return nil, err
+	}
+	if call, ok := expr.(*ast.MethodCallExpr); ok {
+		return &ast.ExprStmt{MethodCall: call, Line: call.Line}, nil
+	}
+	return nil, fmt.Errorf("строка %d, столбец %d: доступ к полю сам по себе не является инструкцией - нужен вызов метода или присваивание",
+		start.Line, start.Col)
 }
 
 func (p *Parser) parsePrintStmt() (ast.Stmt, error) {
@@ -555,11 +636,19 @@ func (p *Parser) parseAssign() (ast.Stmt, error) {
 }
 
 // parseFieldAssign разбирает "receiver.поле = выражение". Позиция парсера
-// на входе - на IDENT получателя. В шаге 4.c получатель - всегда
-// переменная (этот появится в 4.d вместе с методами).
+// на входе - на получателе (IDENT переменной или "этот").
 func (p *Parser) parseFieldAssign() (ast.Stmt, error) {
-	receiver := p.advance() // IDENT получателя
-	p.advance()             // "."
+	receiverTok := p.advance() // IDENT получателя или "этот"
+	var receiver ast.Expr
+	if receiverTok.Type == lexer.KwThis {
+		if !p.inMethodBody {
+			return nil, fmt.Errorf("строка %d, столбец %d: \"этот\" валиден только внутри тела метода", receiverTok.Line, receiverTok.Col)
+		}
+		receiver = &ast.ThisExpr{Line: receiverTok.Line}
+	} else {
+		receiver = &ast.Identifier{Name: receiverTok.Value, Line: receiverTok.Line}
+	}
+	p.advance() // "."
 	field, err := p.expect(lexer.IDENT)
 	if err != nil {
 		return nil, fmt.Errorf("после \".\" ожидалось имя поля: %w", err)
@@ -569,14 +658,9 @@ func (p *Parser) parseFieldAssign() (ast.Stmt, error) {
 	}
 	value, err := p.parseExpr()
 	if err != nil {
-		return nil, fmt.Errorf("в присваивании полю %q.%q: %w", receiver.Value, field.Value, err)
+		return nil, fmt.Errorf("в присваивании полю %q: %w", field.Value, err)
 	}
-	return &ast.FieldAssign{
-		Receiver: &ast.Identifier{Name: receiver.Value, Line: receiver.Line},
-		Field:    field.Value,
-		Value:    value,
-		Line:     receiver.Line,
-	}, nil
+	return &ast.FieldAssign{Receiver: receiver, Field: field.Value, Value: value, Line: receiverTok.Line}, nil
 }
 
 func (p *Parser) parseIfStmt() (ast.Stmt, error) {
@@ -678,13 +762,24 @@ func (p *Parser) parseReturnStmt() (ast.Stmt, error) {
 // функции. Позиция парсера на входе - на IDENT (имени функции).
 func (p *Parser) parseCallExpr() (*ast.CallExpr, error) {
 	name := p.advance() // IDENT
-	p.advance()         // "("
+	args, err := p.parseArgList()
+	if err != nil {
+		return nil, fmt.Errorf("в аргументах вызова %q: %w", name.Value, err)
+	}
+	return &ast.CallExpr{Callee: name.Value, Args: args, Line: name.Line}, nil
+}
+
+// parseArgList разбирает "(" [ expr { "," expr } ] ")" - список аргументов,
+// общий для строгого вызова функции, конструктора и вызова метода. Позиция
+// парсера на входе - на "(".
+func (p *Parser) parseArgList() ([]ast.Expr, error) {
+	p.advance() // "("
 	var args []ast.Expr
 	if p.cur().Type != lexer.RPAREN {
 		for {
 			arg, err := p.parseExpr()
 			if err != nil {
-				return nil, fmt.Errorf("в аргументах вызова %q: %w", name.Value, err)
+				return nil, err
 			}
 			args = append(args, arg)
 			if p.cur().Type != lexer.COMMA {
@@ -696,7 +791,7 @@ func (p *Parser) parseCallExpr() (*ast.CallExpr, error) {
 	if _, err := p.expect(lexer.RPAREN); err != nil {
 		return nil, err
 	}
-	return &ast.CallExpr{Callee: name.Value, Args: args, Line: name.Line}, nil
+	return args, nil
 }
 
 // parseNewExpr разбирает "создать" IDENT "(" [ expr {"," expr} ] ")" -
@@ -709,25 +804,12 @@ func (p *Parser) parseNewExpr() (ast.Expr, error) {
 	if err != nil {
 		return nil, fmt.Errorf("после \"создать\" ожидалось имя сущности: %w", err)
 	}
-	if _, err := p.expect(lexer.LPAREN); err != nil {
-		return nil, fmt.Errorf("после имени сущности %q ожидалось \"(\": %w", typeName.Value, err)
+	if p.cur().Type != lexer.LPAREN {
+		return nil, fmt.Errorf("строка %d, столбец %d: после имени сущности %q ожидалось \"(\"", p.cur().Line, p.cur().Col, typeName.Value)
 	}
-	var args []ast.Expr
-	if p.cur().Type != lexer.RPAREN {
-		for {
-			arg, err := p.parseExpr()
-			if err != nil {
-				return nil, fmt.Errorf("в аргументах конструктора %q: %w", typeName.Value, err)
-			}
-			args = append(args, arg)
-			if p.cur().Type != lexer.COMMA {
-				break
-			}
-			p.advance() // ","
-		}
-	}
-	if _, err := p.expect(lexer.RPAREN); err != nil {
-		return nil, err
+	args, err := p.parseArgList()
+	if err != nil {
+		return nil, fmt.Errorf("в аргументах конструктора %q: %w", typeName.Value, err)
 	}
 	return &ast.NewExpr{Type: typeName.Value, Args: args, Line: kw.Line}, nil
 }
@@ -948,7 +1030,15 @@ func (p *Parser) parsePostfix() (ast.Expr, error) {
 		dot := p.advance()
 		field, err := p.expect(lexer.IDENT)
 		if err != nil {
-			return nil, fmt.Errorf("после \".\" ожидалось имя поля: %w", err)
+			return nil, fmt.Errorf("после \".\" ожидалось имя поля или метода: %w", err)
+		}
+		if p.cur().Type == lexer.LPAREN {
+			args, err := p.parseArgList()
+			if err != nil {
+				return nil, fmt.Errorf("в аргументах вызова метода %q: %w", field.Value, err)
+			}
+			expr = &ast.MethodCallExpr{Receiver: expr, Method: field.Value, Args: args, Line: dot.Line}
+			continue
 		}
 		expr = &ast.FieldAccess{Receiver: expr, Field: field.Value, Line: dot.Line}
 	}
@@ -989,6 +1079,12 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 		return &ast.Identifier{Name: tok.Value, Line: tok.Line}, nil
 	case lexer.KwCreate:
 		return p.parseNewExpr()
+	case lexer.KwThis:
+		p.advance()
+		if !p.inMethodBody {
+			return nil, fmt.Errorf("строка %d, столбец %d: \"этот\" валиден только внутри тела метода", tok.Line, tok.Col)
+		}
+		return &ast.ThisExpr{Line: tok.Line}, nil
 	case lexer.LPAREN:
 		p.advance()
 		inner, err := p.parseExpr()
