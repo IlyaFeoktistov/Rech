@@ -47,6 +47,8 @@ const (
 	KwFrom     // от
 	KwTo       // до
 	KwReturn   // вернуть
+	KwWith     // с (предлог творительного падежа в естественном вызове)
+	KwIn       // в (предлог предложного падежа в естественном вызове)
 )
 
 // keywords - таблица ключевых слов v0.1. Список сознательно узкий:
@@ -69,6 +71,8 @@ var keywords = map[string]TokenType{
 	"от":         KwFrom,
 	"до":         KwTo,
 	"вернуть":    KwReturn,
+	"с":          KwWith,
+	"в":          KwIn,
 }
 
 // Token - одна лексема с позицией в исходном файле (для сообщений об ошибках).
@@ -159,6 +163,10 @@ func (t TokenType) String() string {
 		return "до"
 	case KwReturn:
 		return "вернуть"
+	case KwWith:
+		return "с"
+	case KwIn:
+		return "в"
 	default:
 		return "UNKNOWN"
 	}

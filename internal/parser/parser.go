@@ -53,11 +53,20 @@ type Parser struct {
 
 	// dict накапливает переменные, объявленные по ходу разбора, как
 	// существительные морфологического движка (internal/morph) - имя
-	// переменной становится леммой (registerNoun). Это то, что позволит
+	// переменной становится леммой (registerNoun). Это то, что позволяет
 	// падежному сопоставлению аргументов естественного вызова опознавать
 	// словоформы вроде "пользователя" как аргумент-ссылку на переменную
-	// "пользователь" (оставшаяся часть шага 3, docs/ROADMAP.md).
+	// "пользователь".
 	dict *morph.Dictionary
+
+	// funcParams - параметры всех функций программы по имени, собранные
+	// предварительным проходом (collectFunctionSignatures) до разбора
+	// любого тела. Нужен, чтобы отличить, разбирая начало инструкции,
+	// естественный вызов (IDENT - это имя объявленной функции) от ссылки
+	// на переменную - иначе с этим нельзя определиться, пока не дойдёт
+	// очередь до объявления самой функции (которое может оказаться и
+	// раньше, и позже места вызова, как и для строгого вызова, шаг 3.2).
+	funcParams map[string][]ast.Param
 }
 
 func New(tokens []lexer.Token) *Parser {
@@ -149,8 +158,83 @@ func (p *Parser) requireSeparator() error {
 	return nil
 }
 
+// collectFunctionSignatures сканирует все объявления "функция ИМЯ(...)" во
+// всей программе, не разбирая тела (skipFunctionBody просто пропускает их
+// подсчётом фигурных скобок), и заполняет p.funcParams. Позиция парсера
+// восстанавливается в исходную после сканирования - это отдельный проход
+// перед настоящим разбором, а не часть его.
+//
+// Нужен для естественного вызова (parseNaturalCall): встретив в начале
+// инструкции IDENT, парсер должен уже знать, имя ли это объявленной
+// функции (тогда - естественный вызов) или ссылка на переменную, а
+// объявление этой функции в файле может быть как раньше, так и позже места
+// вызова (как и для строгого вызова, шаг 3.2).
+func (p *Parser) collectFunctionSignatures() error {
+	saved := p.pos
+	defer func() { p.pos = saved }()
+	p.pos = 0
+
+	sigs := map[string][]ast.Param{}
+	for p.cur().Type != lexer.EOF {
+		if p.cur().Type != lexer.KwFunction {
+			p.advance()
+			continue
+		}
+		p.advance() // "функция"
+		name, err := p.expect(lexer.IDENT)
+		if err != nil {
+			return fmt.Errorf("после \"функция\" ожидалось имя функции: %w", err)
+		}
+		var params []ast.Param
+		if p.cur().Type == lexer.LPAREN {
+			params, err = p.parseParams()
+			if err != nil {
+				return fmt.Errorf("в списке параметров функции %q: %w", name.Value, err)
+			}
+		}
+		if p.cur().Type == lexer.COLON {
+			p.advance()
+			if _, err := p.expect(lexer.IDENT); err != nil {
+				return fmt.Errorf("после \":\" у функции %q ожидалось имя типа результата: %w", name.Value, err)
+			}
+		}
+		sigs[name.Value] = params
+		if err := p.skipFunctionBody(); err != nil {
+			return err
+		}
+	}
+	p.funcParams = sigs
+	return nil
+}
+
+// skipFunctionBody пропускает тело функции подсчётом фигурных скобок, не
+// разбирая его - используется только в collectFunctionSignatures. Позиция
+// парсера на входе - сразу после сигнатуры функции (перед "{").
+func (p *Parser) skipFunctionBody() error {
+	p.skipNewlines()
+	if _, err := p.expect(lexer.LBRACE); err != nil {
+		return err
+	}
+	depth := 1
+	for depth > 0 {
+		switch p.cur().Type {
+		case lexer.LBRACE:
+			depth++
+		case lexer.RBRACE:
+			depth--
+		case lexer.EOF:
+			return fmt.Errorf("строка %d: не найдена закрывающая }", p.cur().Line)
+		}
+		p.advance()
+	}
+	return nil
+}
+
 // ParseProgram - точка входа парсера.
 func (p *Parser) ParseProgram() (*ast.Program, error) {
+	if err := p.collectFunctionSignatures(); err != nil {
+		return nil, err
+	}
 	prog := &ast.Program{}
 	p.skipNewlines()
 	for p.cur().Type != lexer.EOF {
@@ -308,6 +392,13 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 		}
 		if p.peekAt(1).Type == lexer.LPAREN {
 			call, err := p.parseCallExpr()
+			if err != nil {
+				return nil, err
+			}
+			return &ast.ExprStmt{Call: call, Line: call.Line}, nil
+		}
+		if params, ok := p.funcParams[p.cur().Value]; ok {
+			call, err := p.parseNaturalCall(params)
 			if err != nil {
 				return nil, err
 			}
@@ -481,6 +572,84 @@ func (p *Parser) parseCallExpr() (*ast.CallExpr, error) {
 	}
 	if _, err := p.expect(lexer.RPAREN); err != nil {
 		return nil, err
+	}
+	return &ast.CallExpr{Callee: name.Value, Args: args, Line: name.Line}, nil
+}
+
+// naturalCallPrepositions - предлоги, разрешённые перед аргументом
+// естественного вызова. Чисто декоративные (падеж определяет роль
+// аргумента, не предлог, docs/GRAMMAR.md) - парсер их просто пропускает,
+// не проверяя согласование с падежом следующего слова. Небольшой курируемый
+// список (как и всё в этом движке, а не попытка перечислить все предлоги
+// русского языка) - ровно то, что нужно каноническому примеру из
+// docs/GRAMMAR.md; расширяется по мере надобности.
+var naturalCallPrepositions = map[lexer.TokenType]bool{
+	lexer.KwWith: true,
+	lexer.KwIn:   true,
+}
+
+// parseNaturalCall разбирает естественный вызов - вызов функции без скобок,
+// с аргументами, которые связываются с параметрами по падежу словоформы
+// (docs/GRAMMAR.md, "Естественный вызов и падежное сопоставление"), а не по
+// порядку слов в предложении. Позиция парсера на входе - на имени функции
+// (IDENT), params - её параметры в порядке объявления (для построения
+// CallExpr.Args по позиции, а не по порядку слов).
+//
+// Ограничения этой реализации (docs/SPEC.md): аргумент - всегда IDENT,
+// ссылающийся на уже объявленную переменную (лемма из p.dict), не литерал;
+// вся фраза - в одной строке (без продолжения по отступу).
+func (p *Parser) parseNaturalCall(params []ast.Param) (*ast.CallExpr, error) {
+	name := p.advance() // имя функции
+	args := make([]ast.Expr, len(params))
+	filled := make([]bool, len(params))
+	remaining := len(params)
+
+	for remaining > 0 {
+		if naturalCallPrepositions[p.cur().Type] {
+			p.advance() // декоративный предлог
+		}
+		argTok, err := p.expect(lexer.IDENT)
+		if err != nil {
+			return nil, fmt.Errorf("в естественном вызове %q: не хватает аргументов (не заполнено ещё %d): %w", name.Value, remaining, err)
+		}
+
+		analyses := p.dict.Analyze(argTok.Value)
+		if len(analyses) == 0 {
+			return nil, fmt.Errorf("строка %d, столбец %d: словоформа %q не опознана - естественный вызов понимает только ссылки на уже объявленные переменные",
+				argTok.Line, argTok.Col, argTok.Value)
+		}
+
+		matchIdx := -1
+		matchLemma := ""
+		for i, param := range params {
+			if filled[i] {
+				continue
+			}
+			paramCase, _ := morph.CaseOfParamName(param.Name)
+			for _, a := range analyses {
+				if a.POS != morph.Noun || a.Tag.Case != paramCase {
+					continue
+				}
+				if paramCase == morph.Accusative {
+					lemma, ok := p.dict.Lookup(a.Lemma)
+					if !ok || lemma.Noun == nil || (lemma.Noun.Animacy == morph.Animate) != morph.IsAnimateParamName(param.Name) {
+						continue
+					}
+				}
+				if matchIdx != -1 && (matchIdx != i || matchLemma != a.Lemma) {
+					return nil, fmt.Errorf("строка %d, столбец %d: словоформа %q неоднозначна - подходит сразу нескольким незаполненным параметрам вызова %q",
+						argTok.Line, argTok.Col, argTok.Value, name.Value)
+				}
+				matchIdx, matchLemma = i, a.Lemma
+			}
+		}
+		if matchIdx == -1 {
+			return nil, fmt.Errorf("строка %d, столбец %d: словоформа %q не подходит по падежу ни одному ещё не заполненному параметру вызова %q",
+				argTok.Line, argTok.Col, argTok.Value, name.Value)
+		}
+		args[matchIdx] = &ast.Identifier{Name: matchLemma, Line: argTok.Line}
+		filled[matchIdx] = true
+		remaining--
 	}
 	return &ast.CallExpr{Callee: name.Value, Args: args, Line: name.Line}, nil
 }

@@ -171,6 +171,57 @@ func TestVariableWithUnclassifiableNameIsNotRegistered(t *testing.T) {
 	}
 }
 
+func TestParseNaturalCallOrderIndependent(t *testing.T) {
+	src := `
+функция поприветствовать(кого: Строка, где: Строка) { вывести кого }
+функция главная {
+    переменная пользователь = "Илья"
+    переменная система = "чат"
+    поприветствовать %s
+}
+`
+	for _, phrase := range []string{"пользователя в системе", "в системе пользователя", "пользователя системе"} {
+		prog, err := parseSource(t, strings.Replace(src, "%s", phrase, 1))
+		if err != nil {
+			t.Fatalf("фраза %q: неожиданная ошибка: %v", phrase, err)
+		}
+		stmt := prog.Functions[1].Body[2].(*ast.ExprStmt)
+		call := stmt.Call
+		if call.Callee != "поприветствовать" || len(call.Args) != 2 {
+			t.Fatalf("фраза %q: неожиданный вызов: %+v", phrase, call)
+		}
+		if id, ok := call.Args[0].(*ast.Identifier); !ok || id.Name != "пользователь" {
+			t.Fatalf("фраза %q: ожидался первым аргументом \"пользователь\" (параметр \"кого\"), получено %+v", phrase, call.Args[0])
+		}
+		if id, ok := call.Args[1].(*ast.Identifier); !ok || id.Name != "система" {
+			t.Fatalf("фраза %q: ожидался вторым аргументом \"система\" (параметр \"где\"), получено %+v", phrase, call.Args[1])
+		}
+	}
+}
+
+func TestParseNaturalCallUnrecognizedWordform(t *testing.T) {
+	_, err := parseSource(t, `
+функция поприветствовать(кого: Строка) { вывести кого }
+функция главная { поприветствовать чтототам }
+`)
+	if err == nil || !strings.Contains(err.Error(), "не опознана") {
+		t.Fatalf("ожидалась ошибка про неопознанную словоформу, получено: %v", err)
+	}
+}
+
+func TestParseNaturalCallAnimacyDisambiguatesWhomVsWhat(t *testing.T) {
+	_, err := parseSource(t, `
+функция обработать(кого: Строка) { вывести кого }
+функция главная {
+    переменная система = "чат"
+    обработать систему
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "не подходит по падежу") {
+		t.Fatalf("ожидалась ошибка про несовпадение по падежу/одушевлённости, получено: %v", err)
+	}
+}
+
 func TestParseReturnWithoutValueStillWorks(t *testing.T) {
 	prog, err := parseSource(t, `
 функция главная {
