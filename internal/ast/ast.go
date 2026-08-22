@@ -316,6 +316,7 @@ func (*ReturnStmt) stmt() {}
 type ExprStmt struct {
 	Call       *CallExpr
 	MethodCall *MethodCallExpr
+	IncDec     *IncDecExpr
 	Line       int
 }
 
@@ -478,3 +479,20 @@ type UnaryExpr struct {
 
 func (*UnaryExpr) node() {}
 func (*UnaryExpr) expr() {}
+
+// IncDecExpr соответствует "имя++"/"имя--" (постфикс, Prefix == false) или
+// "++имя"/"--имя" (префикс, Prefix == true) - применимо только к уже
+// объявленной переменной типа Целое/Число (не к полю сущности, не к
+// результату вызова - только простое имя переменной, как и Assign).
+// Полноценное выражение со значением (постфикс возвращает старое
+// значение, префикс - новое, как в C), а не только самостоятельная
+// инструкция - ExprStmt.IncDec покрывает форму "на своей строке".
+type IncDecExpr struct {
+	Name   string
+	Op     string // "++" | "--"
+	Prefix bool
+	Line   int
+}
+
+func (*IncDecExpr) node() {}
+func (*IncDecExpr) expr() {}

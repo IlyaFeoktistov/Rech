@@ -341,3 +341,32 @@ func TestGenerateFromIRMissingEntryPointFails(t *testing.T) {
 		t.Fatalf("ожидалась ошибка про отсутствие точки входа, получено: %v", err)
 	}
 }
+
+func TestGenerateFromIRBitwiseOperators(t *testing.T) {
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.PrintStmt{Value: &ir.BinaryExpr{Op: "|", Left: &ir.IntLiteral{Value: 6}, Right: &ir.IntLiteral{Value: 3}, Type: ir.TypeInt}},
+		&ir.PrintStmt{Value: &ir.UnaryExpr{Op: "~", Operand: &ir.IntLiteral{Value: 0}, Type: ir.TypeInt}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "(6LL | 3LL)") || !strings.Contains(out, "(~0LL)") {
+		t.Fatalf("ожидались побитовые C-операторы, получено:\n%s", out)
+	}
+}
+
+func TestGenerateFromIRIncDecExpr(t *testing.T) {
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "а", Value: &ir.IntLiteral{Value: 5}},
+		&ir.PrintStmt{Value: &ir.IncDecExpr{Name: "а", Op: "++", Prefix: false, Type: ir.TypeInt}},
+		&ir.ExprStmt{IncDec: &ir.IncDecExpr{Name: "а", Op: "--", Prefix: true, Type: ir.TypeInt}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "(v_a++)") || !strings.Contains(out, "(--v_a);") {
+		t.Fatalf("ожидались C-постфикс/префикс ++/--, получено:\n%s", out)
+	}
+}

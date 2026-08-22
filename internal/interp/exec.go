@@ -145,8 +145,11 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 
 	case *ir.ExprStmt:
 		var e ir.Expr = s.Call
-		if s.MethodCall != nil {
+		switch {
+		case s.MethodCall != nil:
 			e = s.MethodCall
+		case s.IncDec != nil:
+			e = s.IncDec
 		}
 		_, err := in.evalExpr(e, env, cc)
 		return ctrl{}, err

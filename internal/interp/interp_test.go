@@ -50,7 +50,9 @@ func TestRunAllExamplesMatchCompiledOutput(t *testing.T) {
 		"коллекции/очередь.rech":          "истина\n3\n1\n1\n2\n1\nложь\n",
 		"коллекции/список.rech":           "3\n10\n30\n99\nложь\n10\n99\n30\n",
 		"коллекции/стопка.rech":           "истина\n3\n3\n3\n2\n1\nложь\n",
-		"основы/выражения.rech":           "Привет, Илья!\n13\n7\n30\n3\n-10\n4\nистина\nистина\nложь\nложь\nистина\n11\n",
+		"основы/выражения.rech":           "Привет, Илья!\n13\n7\n30\n3\n-10\n4\nистина\nистина\nложь\nложь\nистина\nложь\nистина\n11\n",
+		"основы/побитовые.rech":           "7\n2\n5\n-1\n8\n8\n5\n",
+		"основы/инкремент.rech":           "5\n6\n7\n7\n8\n7\n1.5\n2.5\n",
 		"основы/привет.rech":              "Привет, мир!\n",
 		"основы/строки.rech":              "строка1\nстрока2\nколонка1\tколонка2\nон сказал \"привет\"\nпуть: C:\\rech\nистина\nистина\nxy\n",
 		"основы/управление.rech":          "больше пяти\n15\n120\nистина\n",
@@ -278,6 +280,66 @@ func TestRunMutualRecursion(t *testing.T) {
 }
 `)
 	if got != "истина\nложь\n" {
+		t.Fatalf("получили %q", got)
+	}
+}
+
+func TestRunBitwiseOperators(t *testing.T) {
+	got := runSrc(t, `
+функция главная
+{
+    вывести 6 | 3
+    вывести 6 & 3
+    вывести 6 ^ 3
+    вывести ~0
+    вывести 1 << 3
+    вывести 128 >> 4
+}
+`)
+	if got != "7\n2\n5\n-1\n8\n8\n" {
+		t.Fatalf("получили %q", got)
+	}
+}
+
+func TestRunIncDecExprPrefixAndPostfixValues(t *testing.T) {
+	got := runSrc(t, `
+функция главная
+{
+    переменная а = 5
+    вывести а++
+    вывести а
+    вывести ++а
+    вывести а
+}
+`)
+	if got != "5\n6\n7\n7\n" {
+		t.Fatalf("получили %q", got)
+	}
+}
+
+func TestRunIncDecOnFloatVariable(t *testing.T) {
+	got := runSrc(t, `
+функция главная
+{
+    переменная а = 1.5
+    вывести а++
+    вывести а
+}
+`)
+	if got != "1.5\n2.5\n" {
+		t.Fatalf("получили %q", got)
+	}
+}
+
+func TestRunAndOrSymbolSynonyms(t *testing.T) {
+	got := runSrc(t, `
+функция главная
+{
+    вывести истина && ложь
+    вывести истина || ложь
+}
+`)
+	if got != "ложь\nистина\n" {
 		t.Fatalf("получили %q", got)
 	}
 }

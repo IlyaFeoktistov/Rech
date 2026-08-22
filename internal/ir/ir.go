@@ -243,6 +243,7 @@ func (*CallExpr) expr() {}
 type ExprStmt struct {
 	Call       *CallExpr
 	MethodCall *MethodCallExpr
+	IncDec     *IncDecExpr
 }
 
 func (*ExprStmt) stmt() {}
@@ -368,6 +369,18 @@ type UnaryExpr struct {
 
 func (*UnaryExpr) expr() {}
 
+// IncDecExpr - "имя++"/"имя--"/"++имя"/"--имя" (см. ast.IncDecExpr) - Name
+// уже проверено семантическим анализом как объявленная переменная типа
+// Целое/Число, Type - её тип.
+type IncDecExpr struct {
+	Name   string
+	Op     string
+	Prefix bool
+	Type   Type
+}
+
+func (*IncDecExpr) expr() {}
+
 // NewExpr - конструктор сущности ("новый Тип(...)" в любой из форм -
 // позиционной или именованной, шаг 4.b) - Args уже разложены по позиции
 // поля (см. package doc Function.Params - тот же принцип), независимо от
@@ -445,6 +458,8 @@ func TypeOf(e Expr) Type {
 	case *ThisExpr:
 		return EntityType(e.Entity)
 	case *MethodCallExpr:
+		return e.Type
+	case *IncDecExpr:
 		return e.Type
 	default:
 		return TypeUnknown

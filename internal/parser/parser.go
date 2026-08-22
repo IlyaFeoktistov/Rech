@@ -710,6 +710,13 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 		return p.parseForStmt()
 	case lexer.KwReturn:
 		return p.parseReturnStmt()
+	case lexer.INCR, lexer.DECR:
+		expr, err := p.parsePrefixIncDec()
+		if err != nil {
+			return nil, err
+		}
+		incDec := expr.(*ast.IncDecExpr)
+		return &ast.ExprStmt{IncDec: incDec, Line: incDec.Line}, nil
 	case lexer.IDENT:
 		if p.peekAt(1).Type == lexer.ASSIGN {
 			return p.parseAssign()
@@ -719,6 +726,12 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 		}
 		if p.peekAt(1).Type == lexer.KwBecomes {
 			return p.parseBecomeStmt()
+		}
+		if p.peekAt(1).Type == lexer.INCR || p.peekAt(1).Type == lexer.DECR {
+			name := p.advance()
+			op := p.advance()
+			incDec := &ast.IncDecExpr{Name: name.Value, Op: op.Value, Prefix: false, Line: name.Line}
+			return &ast.ExprStmt{IncDec: incDec, Line: name.Line}, nil
 		}
 		if p.peekAt(1).Type == lexer.LPAREN {
 			call, err := p.parseCallExpr()
@@ -1344,17 +1357,91 @@ var comparisonOps = map[lexer.TokenType]string{
 }
 
 func (p *Parser) parseComparison() (ast.Expr, error) {
-	left, err := p.parseAdditive()
+	left, err := p.parseBitOr()
 	if err != nil {
 		return nil, err
 	}
 	if opStr, ok := comparisonOps[p.cur().Type]; ok {
 		op := p.advance()
-		right, err := p.parseAdditive()
+		right, err := p.parseBitOr()
 		if err != nil {
 			return nil, err
 		}
 		return &ast.BinaryExpr{Op: opStr, Left: left, Right: right, Line: op.Line}, nil
+	}
+	return left, nil
+}
+
+// parseBitOr/parseBitXor/parseBitAnd/parseShift - побитовые операторы
+// (только Целое, docs/SPEC.md) - вставлены между сравнениями и "+"/"-" в
+// том же относительном порядке, что и в C ("|" слабее "^" слабее "&"
+// слабее сдвигов слабее "+"/"-"), хотя сам верхний уровень (или/и/не)
+// у Rech стоит иначе, чем в C - это уже существующее, отдельное решение,
+// здесь не пересматривается.
+func (p *Parser) parseBitOr() (ast.Expr, error) {
+	left, err := p.parseBitXor()
+	if err != nil {
+		return nil, err
+	}
+	for p.cur().Type == lexer.BITOR {
+		op := p.advance()
+		right, err := p.parseBitXor()
+		if err != nil {
+			return nil, err
+		}
+		left = &ast.BinaryExpr{Op: "|", Left: left, Right: right, Line: op.Line}
+	}
+	return left, nil
+}
+
+func (p *Parser) parseBitXor() (ast.Expr, error) {
+	left, err := p.parseBitAnd()
+	if err != nil {
+		return nil, err
+	}
+	for p.cur().Type == lexer.BITXOR {
+		op := p.advance()
+		right, err := p.parseBitAnd()
+		if err != nil {
+			return nil, err
+		}
+		left = &ast.BinaryExpr{Op: "^", Left: left, Right: right, Line: op.Line}
+	}
+	return left, nil
+}
+
+func (p *Parser) parseBitAnd() (ast.Expr, error) {
+	left, err := p.parseShift()
+	if err != nil {
+		return nil, err
+	}
+	for p.cur().Type == lexer.BITAND {
+		op := p.advance()
+		right, err := p.parseShift()
+		if err != nil {
+			return nil, err
+		}
+		left = &ast.BinaryExpr{Op: "&", Left: left, Right: right, Line: op.Line}
+	}
+	return left, nil
+}
+
+func (p *Parser) parseShift() (ast.Expr, error) {
+	left, err := p.parseAdditive()
+	if err != nil {
+		return nil, err
+	}
+	for p.cur().Type == lexer.SHL || p.cur().Type == lexer.SHR {
+		op := p.advance()
+		right, err := p.parseAdditive()
+		if err != nil {
+			return nil, err
+		}
+		opStr := "<<"
+		if op.Type == lexer.SHR {
+			opStr = ">>"
+		}
+		left = &ast.BinaryExpr{Op: opStr, Left: left, Right: right, Line: op.Line}
 	}
 	return left, nil
 }
@@ -1400,15 +1487,38 @@ func (p *Parser) parseMultiplicative() (ast.Expr, error) {
 }
 
 func (p *Parser) parseUnary() (ast.Expr, error) {
-	if p.cur().Type == lexer.MINUS {
+	switch p.cur().Type {
+	case lexer.MINUS:
 		op := p.advance()
 		operand, err := p.parseUnary()
 		if err != nil {
 			return nil, err
 		}
 		return &ast.UnaryExpr{Op: "-", Operand: operand, Line: op.Line}, nil
+	case lexer.BITNOT:
+		op := p.advance()
+		operand, err := p.parseUnary()
+		if err != nil {
+			return nil, err
+		}
+		return &ast.UnaryExpr{Op: "~", Operand: operand, Line: op.Line}, nil
+	case lexer.INCR, lexer.DECR:
+		return p.parsePrefixIncDec()
 	}
 	return p.parsePostfix()
+}
+
+// parsePrefixIncDec разбирает "++имя"/"--имя" - операнд обязан быть простым
+// именем переменной (как у Assign), не произвольным унарным выражением -
+// "++(а)" или "++-а" не имеют смысла (++ не применим к результату другого
+// оператора), поэтому в отличие от "-"/"~" здесь нет рекурсии в parseUnary.
+func (p *Parser) parsePrefixIncDec() (ast.Expr, error) {
+	op := p.advance()
+	name, err := p.expect(lexer.IDENT)
+	if err != nil {
+		return nil, fmt.Errorf("после %q ожидалось имя переменной: %w", op.Value, err)
+	}
+	return &ast.IncDecExpr{Name: name.Value, Op: op.Value, Prefix: true, Line: op.Line}, nil
 }
 
 // parsePostfix разбирает postfix := primary { "." IDENT }. Цикл (а не
@@ -1468,6 +1578,11 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 	case lexer.IDENT:
 		if p.peekAt(1).Type == lexer.LPAREN {
 			return p.parseCallExpr()
+		}
+		if p.peekAt(1).Type == lexer.INCR || p.peekAt(1).Type == lexer.DECR {
+			p.advance()
+			op := p.advance()
+			return &ast.IncDecExpr{Name: tok.Value, Op: op.Value, Prefix: false, Line: tok.Line}, nil
 		}
 		p.advance()
 		return &ast.Identifier{Name: tok.Value, Line: tok.Line}, nil

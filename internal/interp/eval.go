@@ -37,6 +37,9 @@ func (in *Interp) evalExpr(e ir.Expr, env *Env, cc *callCtx) (Value, error) {
 	case *ir.UnaryExpr:
 		return in.evalUnary(e, env, cc)
 
+	case *ir.IncDecExpr:
+		return in.evalIncDec(e, env)
+
 	case *ir.BinaryExpr:
 		return in.evalBinary(e, env, cc)
 
@@ -89,9 +92,39 @@ func (in *Interp) evalUnary(e *ir.UnaryExpr, env *Env, cc *callCtx) (Value, erro
 		return intValue(-v.I), nil
 	case "не":
 		return boolValue(!v.B), nil
+	case "~":
+		return intValue(^v.I), nil
 	default:
 		return Value{}, fmt.Errorf("неизвестная унарная операция %q", e.Op)
 	}
+}
+
+// evalIncDec - "имя++"/"имя--"/"++имя"/"--имя": читает текущее значение
+// переменной, вычисляет новое (+-1, с учётом Целое/Число), записывает его
+// обратно и возвращает старое значение (постфикс) или новое (префикс) -
+// та же семантика, что и у "++"/"--" в C (cbackend.genIncDecExpr просто
+// переиспользует C-операторы напрямую - здесь, в отличие от C, нужно
+// явно прочитать/записать переменную самому).
+func (in *Interp) evalIncDec(e *ir.IncDecExpr, env *Env) (Value, error) {
+	v, ok := env.get(e.Name)
+	if !ok {
+		return Value{}, fmt.Errorf("переменная %q не найдена во время исполнения", e.Name)
+	}
+	delta := int64(1)
+	if e.Op == "--" {
+		delta = -1
+	}
+	var updated Value
+	if v.Type == ir.TypeFloat {
+		updated = floatValue(v.F + float64(delta))
+	} else {
+		updated = intValue(v.I + delta)
+	}
+	env.set(e.Name, updated)
+	if e.Prefix {
+		return updated, nil
+	}
+	return v, nil
 }
 
 // evalBinary - "и"/"или" вычисляются с коротким замыканием (как && / || в
@@ -139,6 +172,16 @@ func (in *Interp) evalBinary(e *ir.BinaryExpr, env *Env, cc *callCtx) (Value, er
 		return boolValue(!valuesEqual(l, r)), nil
 	case "<", ">", "<=", ">=":
 		return compareOrdered(e.Op, l, r), nil
+	case "&":
+		return intValue(l.I & r.I), nil
+	case "|":
+		return intValue(l.I | r.I), nil
+	case "^":
+		return intValue(l.I ^ r.I), nil
+	case "<<":
+		return intValue(l.I << uint64(r.I)), nil
+	case ">>":
+		return intValue(l.I >> uint64(r.I)), nil
 	default:
 		return Value{}, fmt.Errorf("неизвестная операция %q", e.Op)
 	}

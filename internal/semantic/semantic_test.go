@@ -749,3 +749,85 @@ func TestAnalyzeForEachNonListFails(t *testing.T) {
 		t.Fatalf("ожидалась ошибка про несоответствие типа коллекции, получено: %v", err)
 	}
 }
+
+func TestAnalyzeBitwiseOperators(t *testing.T) {
+	irProg := parseProgram(t, `
+функция главная
+{
+    переменная а = 6 | 3
+    переменная б = 6 & 3
+    переменная ц = 6 ^ 3
+    переменная г = 1 << 2
+    переменная д = 8 >> 1
+    переменная е = ~0
+}
+`)
+	main := irProg.Functions[0]
+	for i, want := range []ir.Type{ir.TypeInt, ir.TypeInt, ir.TypeInt, ir.TypeInt, ir.TypeInt, ir.TypeInt} {
+		decl := main.Body[i].(*ir.VarDecl)
+		if got := ir.TypeOf(decl.Value); got != want {
+			t.Fatalf("инструкция %d: ожидался тип %s, получено %s", i, want, got)
+		}
+	}
+}
+
+func TestAnalyzeBitwiseOnFloatFails(t *testing.T) {
+	toks, err := lexer.New(`
+функция главная
+{
+    переменная а = 1.0 | 2
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
+	if err == nil || !strings.Contains(err.Error(), "применим только к Целое") {
+		t.Fatalf("ожидалась ошибка про тип операнда, получено: %v", err)
+	}
+}
+
+func TestAnalyzeIncDecExprPostfixAndPrefix(t *testing.T) {
+	irProg := parseProgram(t, `
+функция главная
+{
+    переменная а = 5
+    вывести а++
+    вывести ++а
+}
+`)
+	main := irProg.Functions[0]
+	post := main.Body[1].(*ir.PrintStmt).Value.(*ir.IncDecExpr)
+	if post.Prefix || post.Op != "++" || post.Type != ir.TypeInt {
+		t.Fatalf("ожидался постфикс а++ типа Целое, получено %+v", post)
+	}
+	pre := main.Body[2].(*ir.PrintStmt).Value.(*ir.IncDecExpr)
+	if !pre.Prefix || pre.Op != "++" {
+		t.Fatalf("ожидался префикс ++а, получено %+v", pre)
+	}
+}
+
+func TestAnalyzeIncDecOnStringFails(t *testing.T) {
+	toks, err := lexer.New(`
+функция главная
+{
+    переменная а = "текст"
+    а++
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
+	if err == nil || !strings.Contains(err.Error(), "применим только к Целое/Число") {
+		t.Fatalf("ожидалась ошибка про тип переменной, получено: %v", err)
+	}
+}

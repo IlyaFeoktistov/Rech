@@ -354,8 +354,11 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 
 	case *ir.ExprStmt:
 		var call ir.Expr = s.Call
-		if s.MethodCall != nil {
+		switch {
+		case s.MethodCall != nil:
 			call = s.MethodCall
+		case s.IncDec != nil:
+			call = s.IncDec
 		}
 		code, _, err := generateIRExpr(ctx, call)
 		if err != nil {
@@ -428,6 +431,13 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 	case *ir.UnaryExpr:
 		return generateIRUnaryExpr(ctx, e)
 
+	case *ir.IncDecExpr:
+		name := mangleVar(e.Name)
+		if e.Prefix {
+			return fmt.Sprintf("(%s%s)", e.Op, name), fromIRType(e.Type), nil
+		}
+		return fmt.Sprintf("(%s%s)", name, e.Op), fromIRType(e.Type), nil
+
 	case *ir.BinaryExpr:
 		return generateIRBinaryExpr(ctx, e)
 
@@ -478,6 +488,8 @@ func generateIRUnaryExpr(ctx *irGenCtx, e *ir.UnaryExpr) (string, valueType, err
 		return fmt.Sprintf("(-%s)", code), typ, nil
 	case "не":
 		return fmt.Sprintf("(!%s)", code), typeBool, nil
+	case "~":
+		return fmt.Sprintf("(~%s)", code), typeInt, nil
 	default:
 		return "", typeUnknown, fmt.Errorf("генерация C из IR: неизвестная унарная операция %q", e.Op)
 	}
@@ -530,6 +542,9 @@ func generateIRBinaryExpr(ctx *irGenCtx, e *ir.BinaryExpr) (string, valueType, e
 			cOp = "||"
 		}
 		return fmt.Sprintf("(%s %s %s)", lc, cOp, rc), typeBool, nil
+
+	case "&", "|", "^", "<<", ">>":
+		return fmt.Sprintf("(%s %s %s)", lc, e.Op, rc), typeInt, nil
 
 	default:
 		return "", typeUnknown, fmt.Errorf("генерация C из IR: неизвестная операция %q", e.Op)

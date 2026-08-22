@@ -1250,10 +1250,13 @@ func generateStmt(sb *strings.Builder, ctx *genCtx, stmt ast.Stmt, depth int) er
 	case *ast.ExprStmt:
 		var code string
 		var err error
-		if s.Call != nil {
+		switch {
+		case s.Call != nil:
 			code, _, err = genCall(ctx, s.Call)
-		} else {
+		case s.MethodCall != nil:
 			code, _, err = genMethodCall(ctx, s.MethodCall)
+		default:
+			code, _, err = genIncDecExpr(ctx, s.IncDec)
 		}
 		if err != nil {
 			return err
@@ -1306,6 +1309,9 @@ func genExpr(ctx *genCtx, expr ast.Expr) (string, valueType, error) {
 			return "", typeUnknown, fmt.Errorf("строка %d: переменная %q не объявлена", e.Line, e.Name)
 		}
 		return mangleVar(e.Name), typ, nil
+
+	case *ast.IncDecExpr:
+		return genIncDecExpr(ctx, e)
 
 	case *ast.UnaryExpr:
 		return genUnaryExpr(ctx, e)
@@ -1580,6 +1586,27 @@ func generateFieldAssign(sb *strings.Builder, ctx *genCtx, s *ast.FieldAssign, i
 	return nil
 }
 
+// genIncDecExpr генерирует "имя++"/"имя--"/"++имя"/"--имя" - напрямую в
+// C-постфикс/префикс "++"/"--" (у него ровно та же семантика "старое/новое
+// значение как результат", возвращаемый и мутирующий один и тот же
+// lvalue), поэтому дополнительной логики не нужно. Применимо только к уже
+// объявленной переменной типа Целое/Число - не к полю сущности и не к
+// результату вызова (как и Assign - только простое имя).
+func genIncDecExpr(ctx *genCtx, e *ast.IncDecExpr) (string, valueType, error) {
+	typ, ok := ctx.lookup(e.Name)
+	if !ok {
+		return "", typeUnknown, fmt.Errorf("строка %d: переменная %q не объявлена", e.Line, e.Name)
+	}
+	if typ != typeInt && typ != typeFloat {
+		return "", typeUnknown, fmt.Errorf("строка %d: оператор %q применим только к Целое/Число, получено %s", e.Line, e.Op, typ)
+	}
+	name := mangleVar(e.Name)
+	if e.Prefix {
+		return fmt.Sprintf("(%s%s)", e.Op, name), typ, nil
+	}
+	return fmt.Sprintf("(%s%s)", name, e.Op), typ, nil
+}
+
 func genUnaryExpr(ctx *genCtx, e *ast.UnaryExpr) (string, valueType, error) {
 	code, typ, err := genExpr(ctx, e.Operand)
 	if err != nil {
@@ -1596,6 +1623,11 @@ func genUnaryExpr(ctx *genCtx, e *ast.UnaryExpr) (string, valueType, error) {
 			return "", typeUnknown, fmt.Errorf("строка %d: \"не\" применимо только к логическому значению, получен %s", e.Line, typ)
 		}
 		return fmt.Sprintf("(!%s)", code), typeBool, nil
+	case "~":
+		if typ != typeInt {
+			return "", typeUnknown, fmt.Errorf("строка %d: побитовый \"~\" применим только к Целое, получен %s", e.Line, typ)
+		}
+		return fmt.Sprintf("(~%s)", code), typeInt, nil
 	default:
 		return "", typeUnknown, fmt.Errorf("строка %d: неизвестная унарная операция %q", e.Line, e.Op)
 	}
@@ -1650,6 +1682,12 @@ func genBinaryExpr(ctx *genCtx, e *ast.BinaryExpr) (string, valueType, error) {
 			cOp = "||"
 		}
 		return fmt.Sprintf("(%s %s %s)", lc, cOp, rc), typeBool, nil
+
+	case "&", "|", "^", "<<", ">>":
+		if lt != typeInt || rt != typeInt {
+			return "", typeUnknown, fmt.Errorf("строка %d: побитовый оператор %q применим только к Целое, получены %s и %s", e.Line, e.Op, lt, rt)
+		}
+		return fmt.Sprintf("(%s %s %s)", lc, e.Op, rc), typeInt, nil
 
 	default:
 		return "", typeUnknown, fmt.Errorf("строка %d: неизвестная операция %q", e.Line, e.Op)
@@ -1732,6 +1770,8 @@ func lineOf(n ast.Node) int {
 	case *ast.ReturnStmt:
 		return v.Line
 	case *ast.ExprStmt:
+		return v.Line
+	case *ast.IncDecExpr:
 		return v.Line
 	case *ast.CallExpr:
 		return v.Line

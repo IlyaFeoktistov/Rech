@@ -33,6 +33,16 @@ const (
 	LE     // <=
 	GE     // >=
 
+	INCR // ++
+	DECR // --
+
+	BITAND // &  (побитовое И, только Целое)
+	BITOR  // |  (побитовое ИЛИ, только Целое)
+	BITXOR // ^  (побитовое исключающее ИЛИ, только Целое)
+	BITNOT // ~  (побитовое НЕ, унарное, только Целое)
+	SHL    // << (сдвиг влево, только Целое)
+	SHR    // >> (сдвиг вправо, только Целое)
+
 	KwFunction // функция
 	KwPrint    // вывести
 	KwVariable // переменная
@@ -155,6 +165,22 @@ func (t TokenType) String() string {
 		return "<="
 	case GE:
 		return ">="
+	case INCR:
+		return "++"
+	case DECR:
+		return "--"
+	case BITAND:
+		return "&"
+	case BITOR:
+		return "|"
+	case BITXOR:
+		return "^"
+	case BITNOT:
+		return "~"
+	case SHL:
+		return "<<"
+	case SHR:
+		return ">>"
 	case KwFunction:
 		return "функция"
 	case KwPrint:

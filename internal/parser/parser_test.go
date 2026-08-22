@@ -899,3 +899,61 @@ func TestParseFlatTopLevelStatementsConflictWithExplicitMainFails(t *testing.T) 
 		t.Fatalf("ожидалась ошибка про конфликт явной \"главная\" с верхнеуровневыми инструкциями, получено: %v", err)
 	}
 }
+
+func TestParseBitwiseOperatorsPrecedence(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная {
+    переменная а = 1 | 2 ^ 3 & 4 << 5
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	decl := prog.Functions[0].Body[0].(*ast.VarDecl)
+	bin, ok := decl.Value.(*ast.BinaryExpr)
+	if !ok || bin.Op != "|" {
+		t.Fatalf("ожидался верхний оператор \"|\" (самый слабый из побитовых), получено %+v", decl.Value)
+	}
+}
+
+func TestParseIncDecPrefixAndPostfixAsExpression(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная {
+    переменная а = 5
+    вывести а++
+    вывести ++а
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	post := prog.Functions[0].Body[1].(*ast.PrintStmt).Value.(*ast.IncDecExpr)
+	if post.Prefix || post.Op != "++" || post.Name != "а" {
+		t.Fatalf("ожидался постфикс а++, получено %+v", post)
+	}
+	pre := prog.Functions[0].Body[2].(*ast.PrintStmt).Value.(*ast.IncDecExpr)
+	if !pre.Prefix || pre.Op != "++" || pre.Name != "а" {
+		t.Fatalf("ожидался префикс ++а, получено %+v", pre)
+	}
+}
+
+func TestParseIncDecAsStatement(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная {
+    переменная а = 5
+    а++
+    --а
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	post := prog.Functions[0].Body[1].(*ast.ExprStmt).IncDec
+	if post == nil || post.Prefix || post.Op != "++" {
+		t.Fatalf("ожидался а++ как инструкция, получено %+v", prog.Functions[0].Body[1])
+	}
+	pre := prog.Functions[0].Body[2].(*ast.ExprStmt).IncDec
+	if pre == nil || !pre.Prefix || pre.Op != "--" {
+		t.Fatalf("ожидался --а как инструкция, получено %+v", prog.Functions[0].Body[2])
+	}
+}

@@ -856,3 +856,66 @@ func TestGenerateDerivedStateTypeNameCollisionFails(t *testing.T) {
 		t.Fatalf("ожидалась ошибка про коллизию производного типа состояния с именем сущности, получено: %v", err)
 	}
 }
+
+func TestGenerateBitwiseOperators(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.PrintStmt{Value: &ast.BinaryExpr{Op: "|", Left: &ast.IntLiteral{Value: 6}, Right: &ast.IntLiteral{Value: 3}}},
+		&ast.PrintStmt{Value: &ast.UnaryExpr{Op: "~", Operand: &ast.IntLiteral{Value: 0}}},
+	}}
+	out, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "(6LL | 3LL)") || !strings.Contains(out, "(~0LL)") {
+		t.Fatalf("ожидались побитовые C-операторы, получено:\n%s", out)
+	}
+}
+
+func TestGenerateBitwiseOnFloatFails(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.PrintStmt{Value: &ast.BinaryExpr{Op: "|", Left: &ast.FloatLiteral{Value: 1}, Right: &ast.IntLiteral{Value: 2}}},
+	}}
+	_, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
+	if err == nil || !strings.Contains(err.Error(), "применим только к Целое") {
+		t.Fatalf("ожидалась ошибка про тип операнда, получено: %v", err)
+	}
+}
+
+func TestGenerateIncDecExprPostfixAndPrefix(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "а", Value: &ast.IntLiteral{Value: 5}},
+		&ast.PrintStmt{Value: &ast.IncDecExpr{Name: "а", Op: "++", Prefix: false}},
+		&ast.PrintStmt{Value: &ast.IncDecExpr{Name: "а", Op: "--", Prefix: true}},
+	}}
+	out, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "(v_a++)") || !strings.Contains(out, "(--v_a)") {
+		t.Fatalf("ожидались C-постфикс/префикс ++/--, получено:\n%s", out)
+	}
+}
+
+func TestGenerateIncDecAsStatement(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "а", Value: &ast.IntLiteral{Value: 5}},
+		&ast.ExprStmt{IncDec: &ast.IncDecExpr{Name: "а", Op: "++", Prefix: false}},
+	}}
+	out, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "(v_a++);") {
+		t.Fatalf("ожидался а++ как самостоятельная инструкция, получено:\n%s", out)
+	}
+}
+
+func TestGenerateIncDecOnUndeclaredFails(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.ExprStmt{IncDec: &ast.IncDecExpr{Name: "а", Op: "++", Prefix: false}},
+	}}
+	_, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
+	if err == nil || !strings.Contains(err.Error(), "не объявлена") {
+		t.Fatalf("ожидалась ошибка про необъявленную переменную, получено: %v", err)
+	}
+}

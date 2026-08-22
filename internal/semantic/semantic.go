@@ -652,6 +652,13 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			}
 			return &ir.ExprStmt{MethodCall: call}, nil
 		}
+		if s.IncDec != nil {
+			incDec, err := analyzeIncDecExpr(sc, s.IncDec)
+			if err != nil {
+				return nil, err
+			}
+			return &ir.ExprStmt{IncDec: incDec.(*ir.IncDecExpr)}, nil
+		}
 		call, err := analyzeCallExpr(sc, s.Call)
 		if err != nil {
 			return nil, err
@@ -742,6 +749,9 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 
 	case *ast.UnaryExpr:
 		return analyzeUnaryExpr(sc, e)
+
+	case *ast.IncDecExpr:
+		return analyzeIncDecExpr(sc, e)
 
 	case *ast.BinaryExpr:
 		return analyzeBinaryExpr(sc, e)
@@ -936,9 +946,28 @@ func analyzeUnaryExpr(sc *ctx, e *ast.UnaryExpr) (ir.Expr, error) {
 			return nil, fmt.Errorf("строка %d: \"не\" применимо только к логическому значению, получен %s", e.Line, typ)
 		}
 		return &ir.UnaryExpr{Op: e.Op, Operand: operand, Type: ir.TypeBool}, nil
+	case "~":
+		if typ != ir.TypeInt {
+			return nil, fmt.Errorf("строка %d: побитовый \"~\" применим только к Целое, получен %s", e.Line, typ)
+		}
+		return &ir.UnaryExpr{Op: e.Op, Operand: operand, Type: ir.TypeInt}, nil
 	default:
 		return nil, fmt.Errorf("строка %d: неизвестная унарная операция %q", e.Line, e.Op)
 	}
+}
+
+// analyzeIncDecExpr - "имя++"/"имя--"/"++имя"/"--имя" - применимо только к
+// уже объявленной переменной типа Целое/Число, как и Assign (не к полю
+// сущности, не к результату вызова).
+func analyzeIncDecExpr(sc *ctx, e *ast.IncDecExpr) (ir.Expr, error) {
+	typ, ok := sc.lookup(e.Name)
+	if !ok {
+		return nil, fmt.Errorf("строка %d: переменная %q не объявлена", e.Line, e.Name)
+	}
+	if typ != ir.TypeInt && typ != ir.TypeFloat {
+		return nil, fmt.Errorf("строка %d: оператор %q применим только к Целое/Число, получено %s", e.Line, e.Op, typ)
+	}
+	return &ir.IncDecExpr{Name: e.Name, Op: e.Op, Prefix: e.Prefix, Type: typ}, nil
 }
 
 func analyzeBinaryExpr(sc *ctx, e *ast.BinaryExpr) (ir.Expr, error) {
@@ -982,6 +1011,12 @@ func analyzeBinaryExpr(sc *ctx, e *ast.BinaryExpr) (ir.Expr, error) {
 			return nil, fmt.Errorf("строка %d: оператор %q применим только к логическим значениям, получены %s и %s", e.Line, e.Op, lt, rt)
 		}
 		return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: ir.TypeBool}, nil
+
+	case "&", "|", "^", "<<", ">>":
+		if lt != ir.TypeInt || rt != ir.TypeInt {
+			return nil, fmt.Errorf("строка %d: побитовый оператор %q применим только к Целое, получены %s и %s", e.Line, e.Op, lt, rt)
+		}
+		return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: ir.TypeInt}, nil
 
 	default:
 		return nil, fmt.Errorf("строка %d: неизвестная операция %q", e.Line, e.Op)

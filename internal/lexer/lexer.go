@@ -106,9 +106,17 @@ func (l *Lexer) next() (Token, error) {
 		return Token{Type: DOT, Value: ".", Line: line, Col: col}, nil
 	case r == '+':
 		l.advance()
+		if l.peek() == '+' {
+			l.advance()
+			return Token{Type: INCR, Value: "++", Line: line, Col: col}, nil
+		}
 		return Token{Type: PLUS, Value: "+", Line: line, Col: col}, nil
 	case r == '-':
 		l.advance()
+		if l.peek() == '-' {
+			l.advance()
+			return Token{Type: DECR, Value: "--", Line: line, Col: col}, nil
+		}
 		return Token{Type: MINUS, Value: "-", Line: line, Col: col}, nil
 	case r == '*':
 		l.advance()
@@ -136,6 +144,10 @@ func (l *Lexer) next() (Token, error) {
 			l.advance()
 			return Token{Type: LE, Value: "<=", Line: line, Col: col}, nil
 		}
+		if l.peek() == '<' {
+			l.advance()
+			return Token{Type: SHL, Value: "<<", Line: line, Col: col}, nil
+		}
 		return Token{Type: LT, Value: "<", Line: line, Col: col}, nil
 	case r == '>':
 		l.advance()
@@ -143,7 +155,31 @@ func (l *Lexer) next() (Token, error) {
 			l.advance()
 			return Token{Type: GE, Value: ">=", Line: line, Col: col}, nil
 		}
+		if l.peek() == '>' {
+			l.advance()
+			return Token{Type: SHR, Value: ">>", Line: line, Col: col}, nil
+		}
 		return Token{Type: GT, Value: ">", Line: line, Col: col}, nil
+	case r == '&':
+		l.advance()
+		if l.peek() == '&' {
+			l.advance()
+			return Token{Type: KwAnd, Value: "&&", Line: line, Col: col}, nil
+		}
+		return Token{Type: BITAND, Value: "&", Line: line, Col: col}, nil
+	case r == '|':
+		l.advance()
+		if l.peek() == '|' {
+			l.advance()
+			return Token{Type: KwOr, Value: "||", Line: line, Col: col}, nil
+		}
+		return Token{Type: BITOR, Value: "|", Line: line, Col: col}, nil
+	case r == '^':
+		l.advance()
+		return Token{Type: BITXOR, Value: "^", Line: line, Col: col}, nil
+	case r == '~':
+		l.advance()
+		return Token{Type: BITNOT, Value: "~", Line: line, Col: col}, nil
 	case r == '"':
 		return l.readString(line, col)
 	case unicode.IsDigit(r):
