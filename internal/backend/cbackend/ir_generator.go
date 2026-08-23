@@ -141,7 +141,7 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	sb.WriteString("// Автоматически сгенерировано компилятором rech. Не редактировать руками.\n")
 	sb.WriteString("#include <stdio.h>\n")
 	sb.WriteString("#include <stdbool.h>\n")
-	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO {
+	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets {
 		sb.WriteString("#include <string.h>\n")
 	}
 	if ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO {
@@ -153,7 +153,11 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	// windows.h/shellapi.h - см. cbackend.Generate (AST-путь, тот же
 	// принцип без дублирования преамбулы: rech_init_console/rech_init_args
 	// нужны безусловно, файловый ввод-вывод - за MultiByteToWideChar).
-	sb.WriteString("#ifdef _WIN32\n#include <windows.h>\n#include <shellapi.h>\n#endif\n")
+	// WIN32_LEAN_AND_MEAN/winsock2.h - см. cbackend.Generate, usesSockets.
+	sb.WriteString("#ifdef _WIN32\n#define WIN32_LEAN_AND_MEAN\n#include <windows.h>\n#include <shellapi.h>\n#endif\n")
+	if ctx.usesSockets {
+		sb.WriteString("#ifdef _WIN32\n#include <winsock2.h>\n#include <ws2tcpip.h>\n#else\n#include <sys/socket.h>\n#include <netinet/in.h>\n#include <arpa/inet.h>\n#include <netdb.h>\n#include <unistd.h>\n#endif\n")
+	}
 	sb.WriteString("\n")
 	sb.WriteString(consoleInitHelper)
 	sb.WriteString("\n")
@@ -183,11 +187,20 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 		sb.WriteString(fileHelpers)
 		sb.WriteString("\n")
 	}
+	if ctx.usesSockets {
+		sb.WriteString(socketHelpers)
+		sb.WriteString("\n")
+	}
 	if typedefs.Len() > 0 {
 		sb.WriteString(typedefs.String())
 	}
 	if genericsCode.Len() > 0 {
 		sb.WriteString(genericsCode.String())
+	}
+	if ctx.usesHTTP {
+		// После typedefs - см. cbackend.Generate (AST-путь, тот же принцип).
+		sb.WriteString(httpHelpers)
+		sb.WriteString("\n")
 	}
 	if protos.Len() > 0 {
 		sb.WriteString(protos.String())
@@ -731,6 +744,8 @@ func fromIRType(t ir.Type) valueType {
 		return typeBool
 	case ir.KindFile:
 		return typeFile
+	case ir.KindSocket:
+		return typeSocket
 	case ir.KindEntity:
 		return entityType(t.Entity)
 	default:

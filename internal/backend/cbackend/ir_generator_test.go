@@ -449,6 +449,74 @@ func TestGenerateFromIRFileForEach(t *testing.T) {
 	}
 }
 
+func TestGenerateFromIRSocketBuiltinCalls(t *testing.T) {
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "слушатель", Value: &ir.CallExpr{Callee: "слушать_tcp", Args: []ir.Expr{&ir.IntLiteral{Value: 8080}}, Type: ir.TypeSocket, HasReturn: true}},
+		&ir.ExprStmt{Call: &ir.CallExpr{Callee: "отправить", Args: []ir.Expr{&ir.Identifier{Name: "слушатель", Type: ir.TypeSocket}, &ir.StringLiteral{Value: "привет"}}}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	for _, want := range []string{
+		"rech_listen_tcp(8080LL)",
+		`rech_send(v_slushatel, "привет")`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ожидалось %q в выводе, получено:\n%s", want, out)
+		}
+	}
+}
+
+// TestGenerateFromIRHTTPRequestBuiltinCall - "запрос" (шаг 9) поверх
+// встроенных сущностей "Запрос"/"Ответ" - в отличие от остальных builtin'ов
+// шага 8, они не резолвятся в AST-пути (cbackend.resolveType не знает про
+// них, см. package doc internal/semantic.registerHTTPEntity) - только
+// через internal/semantic.Analyze, поэтому здесь строится ir.Program
+// вручную, не через AST/Generate.
+func TestGenerateFromIRHTTPRequestBuiltinCall(t *testing.T) {
+	prog := &ir.Program{
+		Entities: []*ir.Entity{
+			{Name: "Запрос", Fields: []ir.Field{
+				{Name: "метод", Type: ir.TypeString}, {Name: "адрес", Type: ir.TypeString},
+				{Name: "порт", Type: ir.TypeInt}, {Name: "путь", Type: ir.TypeString},
+				{Name: "заголовки", Type: ir.TypeString}, {Name: "тело", Type: ir.TypeString},
+			}},
+			{Name: "Ответ", Fields: []ir.Field{
+				{Name: "код", Type: ir.TypeInt}, {Name: "заголовки", Type: ir.TypeString}, {Name: "тело", Type: ir.TypeString},
+			}},
+		},
+		Functions: []*ir.Function{{Name: "главная", Body: []ir.Stmt{
+			&ir.VarDecl{Name: "р", Value: &ir.NewExpr{Entity: "Запрос", Args: []ir.Expr{
+				&ir.StringLiteral{Value: "GET"}, &ir.StringLiteral{Value: "example.com"},
+				&ir.IntLiteral{Value: 80}, &ir.StringLiteral{Value: "/"},
+				&ir.StringLiteral{Value: ""}, &ir.StringLiteral{Value: ""},
+			}}},
+			&ir.VarDecl{Name: "о", Value: &ir.CallExpr{
+				Callee: "запрос", Args: []ir.Expr{&ir.Identifier{Name: "р", Type: ir.EntityType("Запрос")}},
+				Type: ir.EntityType("Ответ"), HasReturn: true,
+			}},
+			&ir.PrintStmt{Value: &ir.FieldAccess{
+				Receiver: &ir.Identifier{Name: "о", Type: ir.EntityType("Ответ")}, Field: "код", Type: ir.TypeInt,
+			}},
+		}}},
+	}
+	out, err := GenerateFromIR(prog)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	for _, want := range []string{
+		"rech_http_request(v_r)",
+		"static rech_T_otvet rech_http_request(rech_T_zapros req)",
+		"} rech_T_zapros;", "} rech_T_otvet;",
+		"static char *rech_recv_until_close(rech_socket_t s)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ожидалось %q в выводе, получено:\n%s", want, out)
+		}
+	}
+}
+
 func TestGenerateFromIRWholeFileBuiltinCalls(t *testing.T) {
 	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
 		&ir.PrintStmt{Value: &ir.CallExpr{Callee: "прочитать_файл", Args: []ir.Expr{&ir.StringLiteral{Value: "путь"}}, Type: ir.TypeString, HasReturn: true}},

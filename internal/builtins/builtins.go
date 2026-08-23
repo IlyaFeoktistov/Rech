@@ -28,6 +28,9 @@ const (
 	// C/Go-представлении (int/HANDLE/*os.File) - это решает каждый
 	// потребитель (cbackend/interp) сам.
 	KindFile
+	// KindSocket - непрозрачный дескриптор сетевого сокета (шаг 8, сетевые
+	// примитивы) - тот же принцип, что и KindFile.
+	KindSocket
 )
 
 // Func - сигнатура одной встроенной функции. HasReturn различает функцию со
@@ -112,6 +115,24 @@ var All = []Func{
 	// выше) невозможен вообще - "содержит(строка, образец)": есть ли
 	// образец где-то внутри строки.
 	{Name: "содержит", Params: []Kind{KindString, KindString}, ReturnKind: KindBool, HasReturn: true},
+
+	// Сетевые примитивы (шаг 8) - байты через TCP/UDP, не HTTP (шаг 9).
+	// "слушать_tcp"/"принять" - серверная сторона (bind+listen, затем один
+	// "принять" на каждое входящее соединение - блокирующий, как обычный
+	// accept). "подключиться_tcp"/"подключиться_udp" - клиентская сторона
+	// (в т.ч. для UDP - через connect() на datagram-сокете, что фиксирует
+	// адрес получателя и позволяет использовать те же "отправить"/
+	// "получить", что и у TCP, без отдельных функций sendto/recvfrom).
+	// Известное текущее ограничение: UDP-сервер, отвечающий произвольным
+	// отправителям (recvfrom/sendto без connect) - не реализован в этом
+	// срезе, только UDP-клиент с фиксированным адресатом.
+	{Name: "слушать_tcp", Params: []Kind{KindInt}, ReturnKind: KindSocket, HasReturn: true},
+	{Name: "принять", Params: []Kind{KindSocket}, ReturnKind: KindSocket, HasReturn: true},
+	{Name: "подключиться_tcp", Params: []Kind{KindString, KindInt}, ReturnKind: KindSocket, HasReturn: true},
+	{Name: "подключиться_udp", Params: []Kind{KindString, KindInt}, ReturnKind: KindSocket, HasReturn: true},
+	{Name: "отправить", Params: []Kind{KindSocket, KindString}, HasReturn: false},
+	{Name: "получить", Params: []Kind{KindSocket, KindInt}, ReturnKind: KindString, HasReturn: true},
+	{Name: "закрыть_сокет", Params: []Kind{KindSocket}, HasReturn: false},
 }
 
 // ByName ищет встроенную функцию по имени.
@@ -122,4 +143,36 @@ func ByName(name string) (Func, bool) {
 		}
 	}
 	return Func{}, false
+}
+
+// ReservedFuncNames - зарезервированные имена функций, не входящие в All -
+// для них Kind (только примитивы) недостаточен, чтобы описать сигнатуру:
+// "запрос" (HTTP-клиент, шаг 9) принимает и возвращает сущности (Запрос/
+// Ответ), не примитив. Регистрация самой сигнатуры и реализация - в каждом
+// потребителе отдельно (internal/semantic/internal/backend/cbackend/
+// internal/interp, см. их package doc), здесь - только имя, для коллизий
+// (internal/module.resolveBareName, internal/semantic - объявление
+// пользовательской функции/внешней функции с этим именем).
+var ReservedFuncNames = map[string]bool{
+	"запрос": true,
+}
+
+// ReservedEntityNames - зарезервированные имена сущностей (Запрос/Ответ,
+// шаг 9) - фиксированный набор полей, вводится компилятором автоматически
+// при первом использовании (см. internal/semantic.resolveTypeName), нельзя
+// объявить свою сущность с этим именем.
+var ReservedEntityNames = map[string]bool{
+	"Запрос": true,
+	"Ответ":  true,
+}
+
+// IsReservedName - true для обычной встроенной функции (All) или для имени
+// из ReservedFuncNames - общая проверка для internal/module
+// (resolveBareName - не требует "использовать") и internal/semantic
+// (коллизия имени пользовательской функции/внешней функции).
+func IsReservedName(name string) bool {
+	if _, ok := ByName(name); ok {
+		return true
+	}
+	return ReservedFuncNames[name]
 }

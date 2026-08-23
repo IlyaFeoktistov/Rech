@@ -285,6 +285,10 @@ const (
 	// KindFile - непрозрачный дескриптор открытого файла (шаг 8, файловый
 	// ввод-вывод) - без операторов, как и KindString.
 	KindFile
+	// KindSocket - непрозрачный дескриптор сетевого сокета (шаг 8, сетевые
+	// примитивы) - как и KindFile, без операторов, платформенно-разное
+	// представление (POSIX fd/Windows SOCKET) решает каждый потребитель сам.
+	KindSocket
 )
 
 // Type - тип значения выражения IR, уже разрешённый семантическим анализом
@@ -304,6 +308,7 @@ var (
 	TypeFloat   = Type{Kind: KindFloat}
 	TypeBool    = Type{Kind: KindBool}
 	TypeFile    = Type{Kind: KindFile}
+	TypeSocket  = Type{Kind: KindSocket}
 )
 
 // EntityType возвращает Type, соответствующий значению сущности name.
@@ -326,6 +331,8 @@ func (t Type) String() string {
 		return "Логическое"
 	case KindFile:
 		return "Файл"
+	case KindSocket:
+		return "Сокет"
 	default:
 		return "неизвестный тип"
 	}

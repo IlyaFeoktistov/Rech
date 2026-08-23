@@ -855,7 +855,7 @@ func TestGenerateFileBuiltinCalls(t *testing.T) {
 		"rech_open(\"путь\")", "rech_read(v_f, 10LL)", "rech_close(v_f);",
 		"rech_open_write(\"путь2\")", "rech_write(v_v, \"текст\");",
 		"typedef FILE *rech_file_t;",
-		"#ifdef _WIN32\n#include <windows.h>\n#include <shellapi.h>\n#endif",
+		"#ifdef _WIN32\n#define WIN32_LEAN_AND_MEAN\n#include <windows.h>\n#include <shellapi.h>\n#endif",
 		"_wfopen(", "fopen(path, mode)", "fread(buf,", "fwrite(s, 1, len, f)", "fclose(f);",
 		"static char *rech_read_line_from_file(rech_file_t f, bool *ok)",
 	} {
@@ -882,6 +882,34 @@ func TestGenerateWholeFileBuiltinCalls(t *testing.T) {
 		"static char *rech_read_whole_file(const char *path)",
 		"static void rech_write_file(const char *path, const char *content)",
 		"static void rech_append_file(const char *path, const char *content)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ожидалось %q в выводе, получено:\n%s", want, out)
+		}
+	}
+}
+
+func TestGenerateSocketBuiltinCalls(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "слушатель", Value: &ast.CallExpr{Callee: "слушать_tcp", Args: []ast.Expr{&ast.IntLiteral{Value: 8080}}}},
+		&ast.VarDecl{Name: "соединение", Value: &ast.CallExpr{Callee: "принять", Args: []ast.Expr{&ast.Identifier{Name: "слушатель"}}}},
+		&ast.VarDecl{Name: "клиент", Value: &ast.CallExpr{Callee: "подключиться_tcp", Args: []ast.Expr{&ast.StringLiteral{Value: "localhost"}, &ast.IntLiteral{Value: 8080}}}},
+		&ast.VarDecl{Name: "udp_клиент", Value: &ast.CallExpr{Callee: "подключиться_udp", Args: []ast.Expr{&ast.StringLiteral{Value: "localhost"}, &ast.IntLiteral{Value: 53}}}},
+		&ast.ExprStmt{Call: &ast.CallExpr{Callee: "отправить", Args: []ast.Expr{&ast.Identifier{Name: "клиент"}, &ast.StringLiteral{Value: "привет"}}}},
+		&ast.PrintStmt{Value: &ast.CallExpr{Callee: "получить", Args: []ast.Expr{&ast.Identifier{Name: "клиент"}, &ast.IntLiteral{Value: 1024}}}},
+		&ast.ExprStmt{Call: &ast.CallExpr{Callee: "закрыть_сокет", Args: []ast.Expr{&ast.Identifier{Name: "клиент"}}}},
+	}}
+	out, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	for _, want := range []string{
+		"rech_listen_tcp(8080LL)", "rech_accept(v_slushatel)",
+		`rech_connect_tcp("localhost", 8080LL)`, `rech_connect_udp("localhost", 53LL)`,
+		`rech_send(v_klient, "привет")`, "rech_recv(v_klient, 1024LL)", "rech_close_socket(v_klient)",
+		"typedef SOCKET rech_socket_t;", "typedef int rech_socket_t;",
+		"#include <winsock2.h>", "#include <sys/socket.h>",
+		"static rech_socket_t rech_listen_tcp(long long port)",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("ожидалось %q в выводе, получено:\n%s", want, out)

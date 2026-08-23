@@ -2,10 +2,13 @@ package interp
 
 import (
 	"bytes"
+	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 	"github.com/IlyaFeoktistov/Rech/internal/parser"
@@ -171,6 +174,178 @@ func TestRunWholeFileBuiltins(t *testing.T) {
 `)
 	if got != "первая\nвторая\n" {
 		t.Fatalf("получили %q, хотели \"первая\\nвторая\\n\"", got)
+	}
+}
+
+// TestRunSocketTCPServerRoundTrip - слушать_tcp/принять/получить/отправить/
+// закрыть_сокет через настоящий loopback-сокет ОС: серверная сторона -
+// Rech-программа через интерпретатор (в отдельной goroutine, т.к. "принять"
+// блокирует до входящего соединения - никакой конкурентности в самом
+// Rech, синхронизация целиком на уровне настоящего сокета ОС, не языка),
+// клиентская - обычный net.Dial (проверяет протокол снаружи, не только то,
+// что интерпретатор сам с собой согласен). Ретраи подключения - слушать_tcp
+// может ещё не успеть отработать в goroutine к моменту первой попытки
+// net.Dial (обычная гонка старта сервера, не специфична для Rech).
+func TestRunSocketTCPServerRoundTrip(t *testing.T) {
+	port := 18099
+	src := fmt.Sprintf(`
+функция главная
+{
+    переменная слушатель = слушать_tcp(%d)
+    переменная соединение = принять(слушатель)
+    переменная сообщение = получить(соединение, 1024)
+    отправить(соединение, "эхо: " + сообщение)
+    закрыть_сокет(соединение)
+    закрыть_сокет(слушатель)
+}
+`, port)
+	errCh := make(chan error, 1)
+	go func() {
+		toks, err := lexer.New(src).Tokenize()
+		if err != nil {
+			errCh <- err
+			return
+		}
+		prog, err := parser.New(toks).ParseProgram()
+		if err != nil {
+			errCh <- err
+			return
+		}
+		irProg, err := semantic.Analyze(prog)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		errCh <- Run(irProg, &bytes.Buffer{}, strings.NewReader(""))
+	}()
+
+	var conn net.Conn
+	var err error
+	for range 100 {
+		conn, err = net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		if err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("не удалось подключиться к серверу: %v", err)
+	}
+	defer conn.Close()
+
+	if _, err := conn.Write([]byte("привет")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	buf := make([]byte, 1024)
+	n, err := conn.Read(buf)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got, want := string(buf[:n]), "эхо: привет"; got != want {
+		t.Fatalf("получено %q, хотели %q", got, want)
+	}
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("сервер завершился с ошибкой: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("сервер не завершился за отведённое время")
+	}
+}
+
+// TestRunSocketClientConnects - подключиться_tcp/подключиться_udp с
+// клиентской стороны (сервер - обычный Go net, не Rech) - дополняет
+// TestRunSocketTCPServerRoundTrip выше (там Rech - сервер, Go - клиент;
+// здесь наоборот), чтобы обе клиентские функции были проверены реальным
+// сокетом, а не только слушать_tcp/принять.
+func TestRunSocketClientConnects(t *testing.T) {
+	tcpLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+	defer tcpLn.Close()
+	tcpPort := tcpLn.Addr().(*net.TCPAddr).Port
+	go func() {
+		c, err := tcpLn.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		buf := make([]byte, 64)
+		n, _ := c.Read(buf)
+		c.Write([]byte("tcp-ok:" + string(buf[:n])))
+	}()
+
+	udpConn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.ListenPacket: %v", err)
+	}
+	defer udpConn.Close()
+	udpPort := udpConn.LocalAddr().(*net.UDPAddr).Port
+	go func() {
+		buf := make([]byte, 64)
+		n, addr, err := udpConn.ReadFrom(buf)
+		if err != nil {
+			return
+		}
+		udpConn.WriteTo([]byte("udp-ok:"+string(buf[:n])), addr)
+	}()
+
+	got := runSrc(t, fmt.Sprintf(`
+функция главная
+{
+    переменная tcp = подключиться_tcp("127.0.0.1", %d)
+    отправить(tcp, "а")
+    вывести получить(tcp, 64)
+    закрыть_сокет(tcp)
+
+    переменная udp = подключиться_udp("127.0.0.1", %d)
+    отправить(udp, "б")
+    вывести получить(udp, 64)
+    закрыть_сокет(udp)
+}
+`, tcpPort, udpPort))
+	if got != "tcp-ok:а\nudp-ok:б\n" {
+		t.Fatalf("получено %q", got)
+	}
+}
+
+// TestRunHTTPRequestBuiltin - "запрос" (шаг 9, HTTP-клиент типа curl) через
+// настоящий TCP-сокет: сервер - обычный net.Listener, отвечающий
+// вручную-собранным HTTP-ответом (не net/http.Server - нужен полный
+// контроль над тем, что именно отправляется по проводу, включая
+// нестандартный статус-код и заголовок, чтобы проверить разбор построчно).
+func TestRunHTTPRequestBuiltin(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		buf := make([]byte, 4096)
+		c.Read(buf)
+		c.Write([]byte("HTTP/1.1 201 Created\r\nX-Test: yes\r\n\r\nсозданный ресурс"))
+	}()
+
+	got := runSrc(t, fmt.Sprintf(`
+функция главная
+{
+    переменная р = новый Запрос("POST", "127.0.0.1", %d, "/create", "X-Custom: 1", "данные")
+    переменная о = запрос(р)
+    вывести о.код
+    вывести о.тело
+}
+`, port))
+	if got != "201\nсозданный ресурс\n" {
+		t.Fatalf("получено %q", got)
 	}
 }
 

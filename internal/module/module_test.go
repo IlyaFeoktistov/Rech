@@ -65,8 +65,8 @@ func TestValidSegmentName(t *testing.T) {
 
 func TestLoadResolvesNestedPath(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "утилиты/http/коды_ответов.rech", "функция получить(): Целое\n{\n    вернуть 200\n}\n")
-	entry := writeFile(t, dir, "главный.rech", "использовать получить из \"утилиты/http/коды_ответов\"\n\nфункция главная\n{\n    вывести получить()\n}\n")
+	writeFile(t, dir, "утилиты/http/коды_ответов.rech", "функция взять(): Целое\n{\n    вернуть 200\n}\n")
+	entry := writeFile(t, dir, "главный.rech", "использовать взять из \"утилиты/http/коды_ответов\"\n\nфункция главная\n{\n    вывести взять()\n}\n")
 
 	prog, err := Load(entry, testFrontend{})
 	if err != nil {
@@ -118,8 +118,8 @@ func TestLinkRejectsUnimportedReference(t *testing.T) {
 
 func TestLinkManglesNonEntryDeclarations(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "утилиты.rech", "функция получить(): Целое\n{\n    вернуть 42\n}\n")
-	entry := writeFile(t, dir, "главный.rech", "использовать получить из \"утилиты\"\n\nфункция главная\n{\n    вывести получить()\n}\n")
+	writeFile(t, dir, "утилиты.rech", "функция взять(): Целое\n{\n    вернуть 42\n}\n")
+	entry := writeFile(t, dir, "главный.rech", "использовать взять из \"утилиты\"\n\nфункция главная\n{\n    вывести взять()\n}\n")
 
 	prog, err := Load(entry, testFrontend{})
 	if err != nil {
@@ -139,8 +139,8 @@ func TestLinkManglesNonEntryDeclarations(t *testing.T) {
 	if !contains(names, "главная") {
 		t.Errorf("входной модуль не должен переименовываться, получено %v", names)
 	}
-	if !contains(names, "Утилиты_получить") {
-		t.Errorf("ожидалось переименованное \"Утилиты_получить\", получено %v", names)
+	if !contains(names, "Утилиты_взять") {
+		t.Errorf("ожидалось переименованное \"Утилиты_взять\", получено %v", names)
 	}
 	// Вызов внутри "главная" должен ссылаться на переименованное имя, иначе
 	// cbackend/semantic не найдут функцию в слинкованной программе.
@@ -154,7 +154,7 @@ func TestLinkManglesNonEntryDeclarations(t *testing.T) {
 		t.Fatalf("не нашлось \"главная\" среди %v", names)
 	}
 	call := main.Body[0].(*ast.PrintStmt).Value.(*ast.CallExpr)
-	if call.Callee != "Утилиты_получить" {
+	if call.Callee != "Утилиты_взять" {
 		t.Errorf("вызов не переписан: %q", call.Callee)
 	}
 }
@@ -165,9 +165,9 @@ func contains(ss []string, s string) bool {
 
 func TestLinkNoCollisionBetweenUnrelatedFiles(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "один.rech", "функция получить(): Целое\n{\n    вернуть 1\n}\n")
-	writeFile(t, dir, "два.rech", "функция получить(): Целое\n{\n    вернуть 2\n}\n")
-	entry := writeFile(t, dir, "главный.rech", "использовать получить из \"один\"\n\nфункция главная\n{\n    вывести получить()\n}\n")
+	writeFile(t, dir, "один.rech", "функция взять(): Целое\n{\n    вернуть 1\n}\n")
+	writeFile(t, dir, "два.rech", "функция взять(): Целое\n{\n    вернуть 2\n}\n")
+	entry := writeFile(t, dir, "главный.rech", "использовать взять из \"один\"\n\nфункция главная\n{\n    вывести взять()\n}\n")
 
 	prog, err := Load(entry, testFrontend{})
 	if err != nil {
@@ -180,10 +180,10 @@ func TestLinkNoCollisionBetweenUnrelatedFiles(t *testing.T) {
 
 func TestLoadRejectsDuplicateImportWithoutAlias(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "а.rech", "функция получить(): Целое\n{\n    вернуть 1\n}\n")
-	writeFile(t, dir, "б.rech", "функция получить(): Целое\n{\n    вернуть 2\n}\n")
+	writeFile(t, dir, "а.rech", "функция взять(): Целое\n{\n    вернуть 1\n}\n")
+	writeFile(t, dir, "б.rech", "функция взять(): Целое\n{\n    вернуть 2\n}\n")
 	entry := writeFile(t, dir, "главный.rech",
-		"использовать получить из \"а\"\nиспользовать получить из \"б\"\n\nфункция главная\n{\n    вывести получить()\n}\n")
+		"использовать взять из \"а\"\nиспользовать взять из \"б\"\n\nфункция главная\n{\n    вывести взять()\n}\n")
 
 	_, err := Load(entry, testFrontend{})
 	if err == nil {
@@ -196,10 +196,10 @@ func TestLoadRejectsDuplicateImportWithoutAlias(t *testing.T) {
 
 func TestLinkRenamesOnImport(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "а.rech", "функция получить(): Целое\n{\n    вернуть 1\n}\n")
-	writeFile(t, dir, "б.rech", "функция получить(): Целое\n{\n    вернуть 2\n}\n")
+	writeFile(t, dir, "а.rech", "функция взять(): Целое\n{\n    вернуть 1\n}\n")
+	writeFile(t, dir, "б.rech", "функция взять(): Целое\n{\n    вернуть 2\n}\n")
 	entry := writeFile(t, dir, "главный.rech",
-		"использовать получить как получитьА из \"а\"\nиспользовать получить как получитьБ из \"б\"\n\nфункция главная\n{\n    вывести получитьА()\n    вывести получитьБ()\n}\n")
+		"использовать взять как взятьА из \"а\"\nиспользовать взять как взятьБ из \"б\"\n\nфункция главная\n{\n    вывести взятьА()\n    вывести взятьБ()\n}\n")
 
 	prog, err := Load(entry, testFrontend{})
 	if err != nil {

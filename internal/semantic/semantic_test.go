@@ -522,8 +522,11 @@ func TestAnalyzeEntityFieldsConstructorAndFieldAccess(t *testing.T) {
     пользователь.возраст = 31
 }
 `)
-	if len(irProg.Entities) != 1 {
-		t.Fatalf("ожидалась 1 сущность, получено %d", len(irProg.Entities))
+	// 1 пользовательская + "Запрос"/"Ответ" (шаг 9, HTTP-клиент) - Analyze
+	// добавляет их во все out.Entities всегда, не только когда программа
+	// вызывает "запрос" - см. package doc registerHTTPEntity.
+	if len(irProg.Entities) != 3 {
+		t.Fatalf("ожидалась 1 пользовательская сущность + 2 встроенных (Запрос/Ответ), получено %d", len(irProg.Entities))
 	}
 	entity := irProg.Entities[0]
 	if entity.Name != "Пользователь" || len(entity.Fields) != 2 {

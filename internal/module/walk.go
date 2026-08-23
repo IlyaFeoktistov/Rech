@@ -9,7 +9,9 @@ import (
 )
 
 // builtinTypeBases - имена типов, встроенных в язык (не требуют ни
-// объявления, ни импорта): четыре примитива и три generic-коллекции. У
+// объявления, ни импорта): четыре примитива, "Файл"/"Сокет" (шаг 8,
+// непрозрачные дескрипторы), "Запрос"/"Ответ" (шаг 9, HTTP-клиент,
+// internal/builtins.ReservedEntityNames) и три generic-коллекции. У
 // generic-инстанциации ("Список<Целое>") аргумент внутри "<...>" сейчас
 // может быть только примитивом (internal/backend/cbackend.resolveType -
 // "элементы встроенных коллекций пока поддерживаются только для
@@ -22,6 +24,10 @@ var builtinTypeBases = map[string]bool{
 	"Число":      true,
 	"Строка":     true,
 	"Логическое": true,
+	"Файл":       true,
+	"Сокет":      true,
+	"Запрос":     true,
+	"Ответ":      true,
 	"Список":     true,
 	"Стопка":     true,
 	"Очередь":    true,
@@ -38,7 +44,7 @@ func resolveBareName(name string, names map[string]string) (string, error) {
 	if builtinTypeBases[name] {
 		return name, nil
 	}
-	if _, ok := builtins.ByName(name); ok {
+	if builtins.IsReservedName(name) {
 		return name, nil
 	}
 	resolved, ok := names[name]

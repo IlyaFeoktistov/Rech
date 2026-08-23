@@ -19,6 +19,7 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 	"github.com/IlyaFeoktistov/Rech/internal/module"
 	"github.com/IlyaFeoktistov/Rech/internal/parser"
+	"github.com/IlyaFeoktistov/Rech/internal/semantic"
 )
 
 // validateSourceFileName проверяет имя .rech-файла: расширение и алфавит
@@ -82,11 +83,21 @@ func (defaultFrontend) Parse(src string) (*ast.Program, error) {
 
 type defaultBackend struct{}
 
-// NewBackend создаёт стандартный Backend v0.1 - транспиляцию в C.
+// NewBackend создаёт стандартный Backend - анализ через internal/semantic
+// (типы, встроенные проверки) с последующей транспиляцией IR в C. Раньше
+// генерация шла прямо по AST (cbackend.Generate, без semantic.Analyze) - это
+// означало, что проверки semantic (типы состояний и т.п.) защищали только
+// `rech test` (через interp), а не собранные бинарники. cbackend.Generate
+// сохранён только для тестов самого cbackend, из реального пайплайна сборки
+// удалён.
 func NewBackend() Backend { return defaultBackend{} }
 
 func (defaultBackend) Generate(prog *ast.Program) (string, error) {
-	return cbackend.Generate(prog)
+	irProg, err := semantic.Analyze(prog)
+	if err != nil {
+		return "", err
+	}
+	return cbackend.GenerateFromIR(irProg)
 }
 
 // Compiler связывает Frontend, Backend и Toolchain в единый пайплайн

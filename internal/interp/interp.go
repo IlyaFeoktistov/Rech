@@ -33,6 +33,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"net"
 	"os"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
@@ -72,6 +73,19 @@ type Value struct {
 	B    bool
 	Obj  *entityObj // непусто только при Type.Kind == ir.KindEntity
 	File *os.File   // непусто только при Type.Kind == ir.KindFile
+
+	// Listener/Conn - непрозрачный дескриптор сетевого сокета (шаг 8,
+	// сетевые примитивы), Type.Kind == ir.KindSocket - ровно одно из двух
+	// непусто: Listener - результат "слушать_tcp" (только "принять" имеет
+	// смысл), Conn - результат "принять"/"подключиться_tcp"/
+	// "подключиться_udp" (только "отправить"/"получить"/"закрыть_сокет").
+	// На уровне Rech-типа оба - один и тот же "Сокет" (компилятор не
+	// различает слушающий/подключённый сокет статически, как и cbackend не
+	// различает их на уровне rech_socket_t) - вызов не той операции здесь,
+	// в отличие от cbackend (где это ловит сама ОС кодом ошибки), ловится
+	// явной проверкой (см. evalBuiltinCall, rtmsg.SocketWrongKind).
+	Listener net.Listener
+	Conn     net.Conn
 }
 
 func intValue(v int64) Value     { return Value{Type: ir.TypeInt, I: v} }
@@ -79,6 +93,9 @@ func floatValue(v float64) Value { return Value{Type: ir.TypeFloat, F: v} }
 func stringValue(v string) Value { return Value{Type: ir.TypeString, S: v} }
 func boolValue(v bool) Value     { return Value{Type: ir.TypeBool, B: v} }
 func fileValue(f *os.File) Value { return Value{Type: ir.TypeFile, File: f} }
+
+func listenerValue(l net.Listener) Value { return Value{Type: ir.TypeSocket, Listener: l} }
+func connValue(c net.Conn) Value         { return Value{Type: ir.TypeSocket, Conn: c} }
 
 // cloneValue - применяет значение-копирующую семантику сущностей (шаг 4,
 // docs/SPEC.md, "Сущности - значения") в момент "коммита" в новое хранилище

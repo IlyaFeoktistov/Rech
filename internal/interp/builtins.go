@@ -1,12 +1,15 @@
 package interp
 
 import (
+	"fmt"
 	"io"
 	"math"
+	"net"
 	"os"
 	"strconv"
 	"strings"
 
+	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
@@ -111,6 +114,67 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return Value{}, true
 	case "содержит":
 		return boolValue(strings.Contains(args[0].S, args[1].S)), true
+	case "слушать_tcp":
+		l, err := net.Listen("tcp", fmt.Sprintf(":%d", args[0].I))
+		if err != nil {
+			panicRuntime("%s", rtmsg.SocketBindFailed)
+		}
+		return listenerValue(l), true
+	case "принять":
+		if args[0].Listener == nil {
+			panicRuntime("%s", rtmsg.SocketWrongKind)
+		}
+		c, err := args[0].Listener.Accept()
+		if err != nil {
+			panicRuntime("%s", rtmsg.SocketAcceptFailed)
+		}
+		return connValue(c), true
+	case "подключиться_tcp":
+		c, err := net.Dial("tcp", net.JoinHostPort(args[0].S, strconv.FormatInt(args[1].I, 10)))
+		if err != nil {
+			panicRuntime("%s", rtmsg.SocketConnectFailed)
+		}
+		return connValue(c), true
+	case "подключиться_udp":
+		c, err := net.Dial("udp", net.JoinHostPort(args[0].S, strconv.FormatInt(args[1].I, 10)))
+		if err != nil {
+			panicRuntime("%s", rtmsg.SocketConnectFailed)
+		}
+		return connValue(c), true
+	case "отправить":
+		if args[0].Conn == nil {
+			panicRuntime("%s", rtmsg.SocketWrongKind)
+		}
+		if _, err := io.WriteString(args[0].Conn, args[1].S); err != nil {
+			panicRuntime("%s", rtmsg.SocketSendFailed)
+		}
+		return Value{}, true
+	case "получить":
+		if args[0].Conn == nil {
+			panicRuntime("%s", rtmsg.SocketWrongKind)
+		}
+		max := args[1].I
+		if max <= 0 {
+			panicRuntime("%s", rtmsg.SocketRecvInvalidMax)
+		}
+		buf := make([]byte, max)
+		n, err := args[0].Conn.Read(buf)
+		if err != nil && err != io.EOF {
+			panicRuntime("%s", rtmsg.SocketRecvFailed)
+		}
+		return stringValue(string(buf[:n])), true
+	case "запрос":
+		return in.httpRequest(args[0]), true
+	case "закрыть_сокет":
+		switch {
+		case args[0].Conn != nil:
+			args[0].Conn.Close()
+		case args[0].Listener != nil:
+			args[0].Listener.Close()
+		default:
+			panicRuntime("%s", rtmsg.SocketWrongKind)
+		}
+		return Value{}, true
 	default:
 		return Value{}, false
 	}
@@ -156,4 +220,68 @@ func (in *Interp) readLine() string {
 		panicRuntime("%s", rtmsg.ReadEOF)
 	}
 	return strings.Trim(line, " \t\r\n")
+}
+
+// httpRequest - "запрос" (шаг 9, HTTP-клиент типа curl) - тот же простой
+// протокол, что и cbackend.rech_http_request (см. package doc там):
+// "Connection: close" в каждом запросе, ответ читается до закрытия
+// соединения (io.ReadAll), не по Content-Length/chunked - оба backend'а
+// должны разбирать ответ одинаково (в т.ч. одинаково НЕ уметь chunked),
+// иначе интерпретатор был бы незаметно "умнее" собранной программы для
+// одного и того же Rech-кода.
+func (in *Interp) httpRequest(req Value) Value {
+	f := req.Obj.fields
+	method, host, path, headers, body := f["метод"].S, f["адрес"].S, f["путь"].S, f["заголовки"].S, f["тело"].S
+	port := f["порт"].I
+
+	conn, err := net.Dial("tcp", net.JoinHostPort(host, strconv.FormatInt(port, 10)))
+	if err != nil {
+		panicRuntime("%s", rtmsg.SocketConnectFailed)
+	}
+	defer conn.Close()
+
+	hdrSep := ""
+	if headers != "" {
+		hdrSep = "\r\n"
+	}
+	head := fmt.Sprintf("%s %s HTTP/1.1\r\nHost: %s\r\n%s%sConnection: close\r\nContent-Length: %d\r\n\r\n",
+		method, path, host, headers, hdrSep, len(body))
+	if _, err := io.WriteString(conn, head+body); err != nil {
+		panicRuntime("%s", rtmsg.SocketSendFailed)
+	}
+	raw, err := io.ReadAll(conn)
+	if err != nil {
+		panicRuntime("%s", rtmsg.HTTPRecvFailed)
+	}
+	rawS := string(raw)
+
+	var code int64
+	if _, rest, ok := strings.Cut(rawS, " "); ok {
+		code = parseLeadingInt(rest)
+	}
+	respHeaders, respBody, ok := strings.Cut(rawS, "\r\n\r\n")
+	if !ok {
+		respHeaders, respBody = "", ""
+	}
+	return Value{Type: ir.EntityType("Ответ"), Obj: &entityObj{typeName: "Ответ", fields: map[string]Value{
+		"код":       intValue(code),
+		"заголовки": stringValue(respHeaders),
+		"тело":      stringValue(respBody),
+	}}}
+}
+
+// parseLeadingInt разбирает ведущее (возможно со знаком) десятичное число в
+// начале s, останавливаясь на первом не-цифровом символе - тот же принцип,
+// что и C strtoll (rech_http_request), не strconv.ParseInt (которому нужна
+// строка ЦЕЛИКОМ числом, "200 OK" не подходит).
+func parseLeadingInt(s string) int64 {
+	end := 0
+	if end < len(s) && (s[end] == '+' || s[end] == '-') {
+		end++
+	}
+	for end < len(s) && s[end] >= '0' && s[end] <= '9' {
+		end++
+	}
+	v, _ := strconv.ParseInt(s[:end], 10, 64)
+	return v
 }

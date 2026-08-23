@@ -32,6 +32,27 @@ type funcSig struct {
 	// Private - видимость метода (шаг 4.3, ast.MethodDecl.Private); всегда
 	// false для обычных функций - у них нет понятия видимости.
 	Private bool
+
+	// ParamStates - для параметра, объявленного производным типом
+	// состояния (шаг 4.1, "параметр: АвторизованныйПользователь"), краткая
+	// форма самого состояния ("авторизован") - тот же индекс, что и Params
+	// (Params[i] уже резолвлен в тип БАЗОВОЙ сущности, alias-имя потеряно,
+	// см. resolveTypeName - без этого поля flow-sensitive проверка шага 5
+	// не знала бы, какой именно переход состояния требует параметр).
+	// "" - параметр объявлен без производного типа состояния (обычный тип,
+	// в т.ч. обычная сущность без каких-либо требований к состоянию).
+	ParamStates []string
+
+	// GuaranteedThisStates - только для методов (funcSig как элемент
+	// methods[Сущность][Метод]): набор состояний, которые этот метод
+	// доказанно устанавливает на "этот" на всех путях выполнения (см.
+	// analyzeMethod) - используется analyzeMethodCallExpr, чтобы после
+	// вызова метода-транзиции (например, "получатель.авторизовать()")
+	// перенести доказанный переход на переменную-получателя вызывающей
+	// стороны. nil у обычных функций (никогда не заполняется) и у методов,
+	// ещё не проанализированных к моменту вызова (взаимная рекурсия
+	// методов - безопасный дефолт "ничего не доказано").
+	GuaranteedThisStates map[string]bool
 }
 
 // builtinIRType переводит internal/builtins.Kind (общий для cbackend и
@@ -49,6 +70,8 @@ func builtinIRType(k builtins.Kind) ir.Type {
 		return ir.TypeBool
 	case builtins.KindFile:
 		return ir.TypeFile
+	case builtins.KindSocket:
+		return ir.TypeSocket
 	default:
 		return ir.Type{}
 	}
@@ -149,21 +172,168 @@ type ctx struct {
 	scopes     []scope
 	returnType ir.Type
 	hasReturn  bool
+
+	// established - параллельный scopes стек: established[i][name] - набор
+	// кратких форм состояний (шаг 4.1), про которые на данный момент
+	// анализа ДОКАЗАНО, что переменная name (объявленная в scopes[i]) через
+	// них прошла ("получатель становится <состояние>", BecomeStmt). Это и
+	// есть flow-sensitive проверка typestate из шага 5: параметр,
+	// объявленный производным типом состояния (funcSig.ParamStates),
+	// принимает аргумент только если его established-набор содержит
+	// требуемое состояние - см. analyzeCallExpr/analyzeMethodCallExpr.
+	// Отсутствие записи - то же самое, что пустой набор (ничего не
+	// доказано) - тот же безопасный дефолт, что и everywhere else в этом
+	// анализе. Значение отслеживается только для простого идентификатора
+	// (случай "этот" - отдельно, thisEstablished ниже): поле сущности,
+	// результат вызова и любое другое выражение не отслеживаются вообще
+	// (getEstablished/establishedStatesOf возвращают nil) - осознанное
+	// текущее ограничение (доказательство только для локальных переменных
+	// и "этот", не межпроцедурное и не через поля), совместимое с любым
+	// будущим расширением "жёстче".
+	established []map[string]map[string]bool
+
+	// thisEstablished - тот же смысл, что established, но для "этот":
+	// получателя нет смысла держать в scopes/established (не переменная,
+	// не может быть переобъявлен/затенён в рамках одного метода), поэтому
+	// отдельное поле, без стека (метод не бывает вложен в другой метод).
+	thisEstablished map[string]bool
 }
 
 func newCtx(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, thisEntity string, returnType ir.Type, hasReturn bool) *ctx {
 	return &ctx{
 		funcs: funcs, entities: entities, methods: methods, aliases: aliases, thisEntity: thisEntity,
 		scopes: []scope{{}}, returnType: returnType, hasReturn: hasReturn,
+		established:     []map[string]map[string]bool{{}},
+		thisEstablished: map[string]bool{},
 	}
 }
 
 func (c *ctx) push() {
 	c.scopes = append(c.scopes, scope{})
+	c.established = append(c.established, map[string]map[string]bool{})
 }
 
 func (c *ctx) pop() {
 	c.scopes = c.scopes[:len(c.scopes)-1]
+	c.established = c.established[:len(c.established)-1]
+}
+
+// getEstablished возвращает набор доказанных состояний переменной name (см.
+// established) - ищет от самой внутренней области видимости к внешним, тем
+// же порядком, что и lookup (переменная резолвится в ту же область
+// видимости, что и её тип).
+func (c *ctx) getEstablished(name string) map[string]bool {
+	for i, sc := range slices.Backward(c.scopes) {
+		if _, ok := sc[name]; ok {
+			return c.established[i][name]
+		}
+	}
+	return nil
+}
+
+// setEstablished записывает набор доказанных состояний переменной name - в
+// ту же область видимости, где она объявлена (не обязательно текущую самую
+// внутреннюю - Assign может присваивать переменной из внешней области).
+// Молча ничего не делает, если name не найдено ни в одной области (не
+// должно происходить - вызывается только после успешного declare/lookup).
+func (c *ctx) setEstablished(name string, states map[string]bool) {
+	for i, sc := range slices.Backward(c.scopes) {
+		if _, ok := sc[name]; ok {
+			if c.established[i] == nil {
+				c.established[i] = map[string]map[string]bool{}
+			}
+			c.established[i][name] = states
+			return
+		}
+	}
+}
+
+// establishedStatesOf возвращает набор доказанных состояний для выражения
+// e, если оно - отслеживаемая форма (простой идентификатор или "этот"), nil
+// для всего остального (безопасный дефолт "ничего не доказано" - поле
+// сущности, результат вызова, "новый" и т.д.).
+func establishedStatesOf(sc *ctx, e ir.Expr) map[string]bool {
+	switch e := e.(type) {
+	case *ir.Identifier:
+		return sc.getEstablished(e.Name)
+	case *ir.ThisExpr:
+		return sc.thisEstablished
+	default:
+		return nil
+	}
+}
+
+// establishedForNewBinding - установленные состояния для переменной name
+// сразу после того, как ей присвоено значение value (Assign) или она
+// объявлена с ним (VarDecl, name - ещё не в scopes на момент вызова, чтобы
+// "переменная x = x.метод()" при затенении внешнего x резолвился в него, не
+// в себя). Обычные формы - через establishedStatesOf; особый случай -
+// "x = x.метод()"/"переменная x = x.метод()": получатель вызова метода
+// (Receiver) - это же самое имя name - в этом случае analyzeMethodCallExpr
+// уже (по-настоящему) перенёс постусловие метода на established[name] по
+// ходу вычисления value (получатель метода передаётся по ссылке, см.
+// funcSig.GuaranteedThisStates) - наследуем то, что там уже есть, а не
+// сбрасываем в nil только из-за того, что value как выражение (результат
+// вызова метода) сам по себе не отслеживаемая форма.
+func establishedForNewBinding(sc *ctx, name string, value ir.Expr) map[string]bool {
+	if mc, ok := value.(*ir.MethodCallExpr); ok {
+		if recv, ok := mc.Receiver.(*ir.Identifier); ok && recv.Name == name {
+			return sc.getEstablished(name)
+		}
+	}
+	return establishedStatesOf(sc, value)
+}
+
+// cloneStates - копия набора состояний (established хранит эти наборы по
+// значению карты, но карты в Go - ссылочный тип: без явного копирования
+// становится("X") у одной переменной мутировал бы набор, на который могла
+// ссылаться established-запись другой переменной/снапшота).
+func cloneStates(states map[string]bool) map[string]bool {
+	out := make(map[string]bool, len(states))
+	for s := range states {
+		out[s] = true
+	}
+	return out
+}
+
+// snapshotEstablished - глубокая копия established (или thisEstablished) -
+// нужна для слияния веток если/иначе (intersectEstablished) и для отката
+// эффекта тела цикла (пока/для/для-в) на переменные, объявленные до цикла -
+// см. соответствующие case в analyzeStmt.
+func snapshotEstablished(layers []map[string]map[string]bool) []map[string]map[string]bool {
+	out := make([]map[string]map[string]bool, len(layers))
+	for i, layer := range layers {
+		copyLayer := make(map[string]map[string]bool, len(layer))
+		for name, states := range layer {
+			copyLayer[name] = cloneStates(states)
+		}
+		out[i] = copyLayer
+	}
+	return out
+}
+
+// intersectEstablished - пересечение двух снапшотов established одной и той
+// же формы (одинаковое число слоёв - снимались при одной и той же глубине
+// стека областей видимости, до входа в ветку если/иначе): переменная после
+// "если/иначе" доказанно прошла состояние X только если прошла его НА ОБОИХ
+// путях выполнения - тот же принцип, что definite-assignment analysis.
+func intersectEstablished(a, b []map[string]map[string]bool) []map[string]map[string]bool {
+	out := make([]map[string]map[string]bool, len(a))
+	for i := range a {
+		layer := make(map[string]map[string]bool, len(a[i]))
+		for name, statesA := range a[i] {
+			statesB := b[i][name]
+			merged := map[string]bool{}
+			for s := range statesA {
+				if statesB[s] {
+					merged[s] = true
+				}
+			}
+			layer[name] = merged
+		}
+		out[i] = layer
+	}
+	return out
 }
 
 func (c *ctx) declare(name string, typ ir.Type) error {
@@ -206,6 +376,14 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 		return ir.TypeBool, nil
 	case "Файл":
 		return ir.TypeFile, nil
+	case "Сокет":
+		return ir.TypeSocket, nil
+	case "Запрос":
+		registerHTTPEntity(entities, "Запрос", httpRequestFields)
+		return ir.EntityType("Запрос"), nil
+	case "Ответ":
+		registerHTTPEntity(entities, "Ответ", httpResponseFields)
+		return ir.EntityType("Ответ"), nil
 	}
 	if _, ok := entities[name]; ok {
 		return ir.EntityType(name), nil
@@ -214,6 +392,48 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 		return ir.EntityType(base), nil
 	}
 	return resolveGenericTypeName(entities, methods, aliases, name)
+}
+
+// httpRequestFields/httpResponseFields - фиксированные поля встроенных
+// сущностей "Запрос"/"Ответ" (шаг 9, HTTP-клиент, добавлено по прямому
+// запросу пользователя - "функция запрос типа curl") - в этом порядке
+// (позиционный конструктор "новый Запрос(...)" следует ему) и без
+// падежного согласования (обычные имена полей). Заголовки - одна `Строка`
+// (каждый заголовок на своей строке, разделитель "\r\n"), не список пар
+// ключ/значение - в языке пока нет словаря/хеш-карты (docs/ROADMAP.md), а
+// заводить отдельный тип только для заголовков было бы преждевременно.
+var httpRequestFields = []ir.Field{
+	{Name: "метод", Type: ir.TypeString},
+	{Name: "адрес", Type: ir.TypeString},
+	{Name: "порт", Type: ir.TypeInt},
+	{Name: "путь", Type: ir.TypeString},
+	{Name: "заголовки", Type: ir.TypeString},
+	{Name: "тело", Type: ir.TypeString},
+}
+
+var httpResponseFields = []ir.Field{
+	{Name: "код", Type: ir.TypeInt},
+	{Name: "заголовки", Type: ir.TypeString},
+	{Name: "тело", Type: ir.TypeString},
+}
+
+// registerHTTPEntity - лениво синтезирует entitySig встроенной сущности
+// (мемоизация, как resolveGenericTypeName у generic-коллекций) - вызывается
+// при первой встрече имени "Запрос"/"Ответ" где угодно (параметр, поле,
+// тип результата, "новый Запрос(...)"), не только при вызове самой
+// "запрос" - пользователь может объявить свою функцию, принимающую/
+// возвращающую эти сущности, без единого вызова встроенной "запрос".
+func registerHTTPEntity(entities map[string]entitySig, name string, fields []ir.Field) {
+	if _, exists := entities[name]; exists {
+		return
+	}
+	sig := entitySig{}
+	for _, f := range fields {
+		sig.FieldNames = append(sig.FieldNames, f.Name)
+		sig.FieldTypes = append(sig.FieldTypes, f.Type)
+		sig.FieldPrivate = append(sig.FieldPrivate, false)
+	}
+	entities[name] = sig
 }
 
 // parseGenericTypeName разбирает закодированную парсером строку вида
@@ -302,11 +522,11 @@ func resolveGenericTypeName(entities map[string]entitySig, methods map[string]ma
 // коллекции) - см. internal/ir, package doc. Расширяется вместе с
 // internal/backend/cbackend.GenerateFromIR подшаг за подшагом, шаг 5.
 func Analyze(prog *ast.Program) (*ir.Program, error) {
-	entities, methods, aliases, err := collectEntities(prog)
+	entities, methods, aliases, aliasState, err := collectEntities(prog)
 	if err != nil {
 		return nil, err
 	}
-	funcs, externFuncs, err := collectFuncSigs(entities, methods, aliases, prog)
+	funcs, externFuncs, err := collectFuncSigs(entities, methods, aliases, aliasState, prog)
 	if err != nil {
 		return nil, err
 	}
@@ -319,6 +539,15 @@ func Analyze(prog *ast.Program) (*ir.Program, error) {
 		}
 		out.Entities = append(out.Entities, irEnt)
 	}
+	// "Запрос"/"Ответ" (шаг 9) - registerHTTPEntity в collectFuncSigs уже
+	// гарантировал их наличие в entities без AST-узла (нет ast.EntityDecl -
+	// собственный синтетический ir.Entity, без методов), поэтому
+	// cbackend.GenerateFromIR сгенерирует их typedef тем же общим циклом по
+	// Program.Entities, каким и для обычных пользовательских сущностей.
+	out.Entities = append(out.Entities,
+		&ir.Entity{Name: "Запрос", Fields: httpRequestFields},
+		&ir.Entity{Name: "Ответ", Fields: httpResponseFields},
+	)
 	for _, fn := range prog.Functions {
 		irFn, err := analyzeFunction(funcs, entities, methods, aliases, fn)
 		if err != nil {
@@ -360,25 +589,38 @@ func Analyze(prog *ast.Program) (*ir.Program, error) {
 // полностью собраны (collectEntities) - функция может ссылаться на любую
 // сущность, производный тип состояния или generic-коллекцию, независимо
 // от того, где та объявлена в файле относительно функции.
-func collectFuncSigs(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, prog *ast.Program) (map[string]funcSig, []*ir.ExternFuncDecl, error) {
+func collectFuncSigs(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, aliasState map[string]string, prog *ast.Program) (map[string]funcSig, []*ir.ExternFuncDecl, error) {
 	funcs := map[string]funcSig{}
 	registerBuiltinFuncs(funcs)
+	// "запрос" (шаг 9, HTTP-клиент) - не входит в internal/builtins.All:
+	// принимает и возвращает сущности (Запрос/Ответ), а Func.Params - только
+	// Kind (примитивы) - регистрируется отдельно, тем же принципом
+	// (зарезервированное имя, недоступное для собственной функции
+	// программы - см. builtins.ReservedFuncNames). registerHTTPEntity здесь,
+	// не только в resolveTypeName - "Запрос"/"Ответ" должны существовать
+	// сразу, даже если сама "запрос" в программе не вызывается, а только,
+	// например, объявлена пользовательская функция с параметром "Запрос".
+	registerHTTPEntity(entities, "Запрос", httpRequestFields)
+	registerHTTPEntity(entities, "Ответ", httpResponseFields)
+	funcs["запрос"] = funcSig{Params: []ir.Type{ir.EntityType("Запрос")}, ReturnType: ir.EntityType("Ответ"), HasReturn: true}
 	for _, fn := range prog.Functions {
 		if _, exists := funcs[fn.Name]; exists {
-			if _, isBuiltin := builtins.ByName(fn.Name); isBuiltin {
+			if builtins.IsReservedName(fn.Name) {
 				return nil, nil, fmt.Errorf("функция %q - зарезервированное имя встроенной функции, нельзя объявить свою функцию с этим именем", fn.Name)
 			}
 			return nil, nil, fmt.Errorf("функция %q объявлена более одного раза", fn.Name)
 		}
 		params := make([]ir.Type, len(fn.Params))
+		paramStates := make([]string, len(fn.Params))
 		for i, p := range fn.Params {
 			typ, err := resolveTypeName(entities, methods, aliases, p.Type)
 			if err != nil {
 				return nil, nil, fmt.Errorf("функция %q: параметр %q: %w", fn.Name, p.Name, err)
 			}
 			params[i] = typ
+			paramStates[i] = aliasState[p.Type]
 		}
-		sig := funcSig{Params: params}
+		sig := funcSig{Params: params, ParamStates: paramStates}
 		if fn.ReturnType != "" {
 			typ, err := resolveTypeName(entities, methods, aliases, fn.ReturnType)
 			if err != nil {
@@ -423,7 +665,7 @@ func collectExternFuncSigs(funcs map[string]funcSig, entities map[string]entityS
 	for _, ext := range prog.ExternFuncs {
 		label := fmt.Sprintf("внешняя функция %q", ext.Alias)
 		if _, exists := funcs[ext.Alias]; exists {
-			if _, isBuiltin := builtins.ByName(ext.Alias); isBuiltin {
+			if builtins.IsReservedName(ext.Alias) {
 				return nil, fmt.Errorf("%s - зарезервированное имя встроенной функции, нельзя объявить с этим именем", label)
 			}
 			return nil, fmt.Errorf("имя %q уже объявлено (как функция) - нельзя повторно объявить его как внешнюю функцию", ext.Alias)
@@ -468,25 +710,35 @@ func collectExternFuncSigs(funcs map[string]funcSig, entities map[string]entityS
 // на сущность (или производный тип), уже занесённую к этому моменту
 // (объявленную раньше в файле, включая саму N) - та же граница, что и в
 // cbackend.
-func collectEntities(prog *ast.Program) (map[string]entitySig, map[string]map[string]funcSig, map[string]string, error) {
+func collectEntities(prog *ast.Program) (map[string]entitySig, map[string]map[string]funcSig, map[string]string, map[string]string, error) {
 	entities := map[string]entitySig{}
 	methods := map[string]map[string]funcSig{}
 	aliases := map[string]string{}
+	// aliasState - производный тип состояния (то же ключевое множество, что
+	// и aliases) -> краткая форма самого состояния ("авторизован") - в
+	// отличие от aliases (-> базовая сущность, нужна для резолюции типа),
+	// это отдельная информация, нужная только для funcSig.ParamStates
+	// (какой конкретно переход обязан быть доказан, см. package doc ctx.
+	// established) - aliases сама по себе эту информацию не несёт.
+	aliasState := map[string]string{}
 	for _, ent := range prog.Entities {
+		if builtins.ReservedEntityNames[ent.Name] {
+			return nil, nil, nil, nil, fmt.Errorf("сущность %q - зарезервированное имя встроенной сущности (шаг 9, HTTP-клиент), нельзя объявить свою сущность с этим именем", ent.Name)
+		}
 		if _, exists := entities[ent.Name]; exists {
-			return nil, nil, nil, fmt.Errorf("сущность %q объявлена более одного раза", ent.Name)
+			return nil, nil, nil, nil, fmt.Errorf("сущность %q объявлена более одного раза", ent.Name)
 		}
 		if other, exists := aliases[ent.Name]; exists {
-			return nil, nil, nil, fmt.Errorf("сущность %q: имя совпадает с производным типом состояния, уже занятым сущностью %q", ent.Name, other)
+			return nil, nil, nil, nil, fmt.Errorf("сущность %q: имя совпадает с производным типом состояния, уже занятым сущностью %q", ent.Name, other)
 		}
 		var sig entitySig
 		for _, f := range ent.Fields {
 			if sig.fieldIndex(f.Name) != -1 {
-				return nil, nil, nil, fmt.Errorf("сущность %q: поле %q объявлено более одного раза", ent.Name, f.Name)
+				return nil, nil, nil, nil, fmt.Errorf("сущность %q: поле %q объявлено более одного раза", ent.Name, f.Name)
 			}
 			typ, err := resolveTypeName(entities, methods, aliases, f.Type)
 			if err != nil {
-				return nil, nil, nil, fmt.Errorf("сущность %q: поле %q: %w", ent.Name, f.Name, err)
+				return nil, nil, nil, nil, fmt.Errorf("сущность %q: поле %q: %w", ent.Name, f.Name, err)
 			}
 			sig.FieldNames = append(sig.FieldNames, f.Name)
 			sig.FieldTypes = append(sig.FieldTypes, typ)
@@ -497,12 +749,13 @@ func collectEntities(prog *ast.Program) (map[string]entitySig, map[string]map[st
 			for _, st := range ent.States {
 				sig.States[st.Name] = true
 				if _, exists := entities[st.TypeName]; exists {
-					return nil, nil, nil, fmt.Errorf("сущность %q: производный тип состояния %q совпадает с именем уже объявленной сущности", ent.Name, st.TypeName)
+					return nil, nil, nil, nil, fmt.Errorf("сущность %q: производный тип состояния %q совпадает с именем уже объявленной сущности", ent.Name, st.TypeName)
 				}
 				if other, exists := aliases[st.TypeName]; exists && other != ent.Name {
-					return nil, nil, nil, fmt.Errorf("сущность %q: производный тип состояния %q уже используется сущностью %q", ent.Name, st.TypeName, other)
+					return nil, nil, nil, nil, fmt.Errorf("сущность %q: производный тип состояния %q уже используется сущностью %q", ent.Name, st.TypeName, other)
 				}
 				aliases[st.TypeName] = ent.Name
+				aliasState[st.TypeName] = st.Name
 			}
 		}
 		entities[ent.Name] = sig
@@ -510,21 +763,23 @@ func collectEntities(prog *ast.Program) (map[string]entitySig, map[string]map[st
 		methods[ent.Name] = map[string]funcSig{}
 		for _, m := range ent.Methods {
 			if _, exists := methods[ent.Name][m.Name]; exists {
-				return nil, nil, nil, fmt.Errorf("сущность %q: метод %q объявлен более одного раза", ent.Name, m.Name)
+				return nil, nil, nil, nil, fmt.Errorf("сущность %q: метод %q объявлен более одного раза", ent.Name, m.Name)
 			}
 			params := make([]ir.Type, len(m.Params))
+			paramStates := make([]string, len(m.Params))
 			for i, p := range m.Params {
 				typ, err := resolveTypeName(entities, methods, aliases, p.Type)
 				if err != nil {
-					return nil, nil, nil, fmt.Errorf("сущность %q: метод %q: параметр %q: %w", ent.Name, m.Name, p.Name, err)
+					return nil, nil, nil, nil, fmt.Errorf("сущность %q: метод %q: параметр %q: %w", ent.Name, m.Name, p.Name, err)
 				}
 				params[i] = typ
+				paramStates[i] = aliasState[p.Type]
 			}
-			msig := funcSig{Params: params, Private: m.Private}
+			msig := funcSig{Params: params, ParamStates: paramStates, Private: m.Private}
 			if m.ReturnType != "" {
 				typ, err := resolveTypeName(entities, methods, aliases, m.ReturnType)
 				if err != nil {
-					return nil, nil, nil, fmt.Errorf("сущность %q: метод %q: тип результата: %w", ent.Name, m.Name, err)
+					return nil, nil, nil, nil, fmt.Errorf("сущность %q: метод %q: тип результата: %w", ent.Name, m.Name, err)
 				}
 				msig.ReturnType = typ
 				msig.HasReturn = true
@@ -532,7 +787,7 @@ func collectEntities(prog *ast.Program) (map[string]entitySig, map[string]map[st
 			methods[ent.Name][m.Name] = msig
 		}
 	}
-	return entities, methods, aliases, nil
+	return entities, methods, aliases, aliasState, nil
 }
 
 func analyzeEntity(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, ent *ast.EntityDecl) (*ir.Entity, error) {
@@ -561,6 +816,13 @@ func analyzeMethod(funcs map[string]funcSig, entities map[string]entitySig, meth
 		if err := sc.declare(p.Name, sig.Params[i]); err != nil {
 			return nil, fmt.Errorf("строка %d: параметр %q: %w", p.Line, p.Name, err)
 		}
+		if i < len(sig.ParamStates) && sig.ParamStates[i] != "" {
+			// Параметр объявлен производным типом состояния - вызывающая
+			// сторона уже обязана доказать переход (analyzeCallExpr/
+			// analyzeMethodCallExpr), внутри тела метода это доверяется
+			// без повторной проверки.
+			sc.setEstablished(p.Name, map[string]bool{sig.ParamStates[i]: true})
+		}
 	}
 	body, err := analyzeBlock(sc, m.Body)
 	if err != nil {
@@ -569,6 +831,23 @@ func analyzeMethod(funcs map[string]funcSig, entities map[string]entitySig, meth
 	if sig.HasReturn && !endsWithReturnValue(body) {
 		return nil, fmt.Errorf("с объявленным типом результата %s должен заканчиваться \"вернуть <значение>\"", sig.ReturnType)
 	}
+	// sc.thisEstablished сейчас - набор состояний, доказанно установленных
+	// на "этот" на ВСЕХ путях выполнения этого метода (if/else уже слиты
+	// пересечением, тело цикла - консервативно отброшено, см. package doc
+	// ctx.established) - то есть ровно постусловие метода. "этот" передаётся
+	// по ссылке (this_ - указатель в C, без cloneValue в интерпретаторе, в
+	// отличие от обычных параметров - см. package doc ir.Entity), поэтому,
+	// в отличие от обычных параметров, это постусловие можно безопасно
+	// перенести на переменную-получателя вызывающей стороны - см.
+	// analyzeMethodCallExpr, sig.GuaranteedThisStates. Записываем обратно в
+	// разделяемую methods (тот же экземпляр карты на весь Analyze) - методы,
+	// проанализированные раньше (эта же или более ранняя сущность), к
+	// моменту вызова УЖЕ несут здесь актуальное постусловие; для метода,
+	// который вызывается раньше, чем сам проанализирован (взаимная
+	// рекурсия методов), постусловие останется нулевым (безопасный дефолт
+	// "ничего не доказано" - не звук наоборот).
+	sig.GuaranteedThisStates = sc.thisEstablished
+	methods[entityName][m.Name] = sig
 	return &ir.Method{
 		Name:       m.Name,
 		Params:     params,
@@ -586,6 +865,9 @@ func analyzeFunction(funcs map[string]funcSig, entities map[string]entitySig, me
 		params[i] = ir.Param{Name: p.Name, Type: sig.Params[i]}
 		if err := sc.declare(p.Name, sig.Params[i]); err != nil {
 			return nil, fmt.Errorf("строка %d: параметр %q: %w", p.Line, p.Name, err)
+		}
+		if i < len(sig.ParamStates) && sig.ParamStates[i] != "" {
+			sc.setEstablished(p.Name, map[string]bool{sig.ParamStates[i]: true})
 		}
 	}
 	body, err := analyzeBlock(sc, fn.Body)
@@ -646,9 +928,15 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
+		// До sc.declare - иначе при затенении (переменная %s уже с этим же
+		// именем во внешней области) established читался бы уже с только
+		// что объявленной (пустой) внутренней переменной вместо той, на
+		// которую на самом деле ссылается value.
+		newEstablished := establishedForNewBinding(sc, s.Name, value)
 		if err := sc.declare(s.Name, ir.TypeOf(value)); err != nil {
 			return nil, fmt.Errorf("строка %d: %w", s.Line, err)
 		}
+		sc.setEstablished(s.Name, newEstablished)
 		return &ir.VarDecl{Name: s.Name, Value: value}, nil
 
 	case *ast.Assign:
@@ -663,6 +951,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if typ := ir.TypeOf(value); typ != declared {
 			return nil, fmt.Errorf("строка %d: переменной %q типа %s нельзя присвоить значение типа %s", s.Line, s.Name, declared, typ)
 		}
+		sc.setEstablished(s.Name, establishedForNewBinding(sc, s.Name, value))
 		return &ir.Assign{Name: s.Name, Value: value}, nil
 
 	case *ast.AssertStmt:
@@ -683,13 +972,22 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if typ := ir.TypeOf(cond); typ != ir.TypeBool {
 			return nil, fmt.Errorf("строка %d: условие \"если\" должно быть логическим, получено %s", s.Line, typ)
 		}
+		// Слияние established после "если/иначе" - переменная доказанно
+		// прошла состояние X дальше по коду только если прошла его НА ОБОИХ
+		// путях выполнения (intersectEstablished) - ветки анализируются от
+		// одного и того же снапшота (preIf), не одна поверх результата
+		// другой, иначе Else "видел" бы эффект Then.
+		preIf := snapshotEstablished(sc.established)
 		sc.push()
 		then, err := analyzeBlock(sc, s.Then)
 		sc.pop()
 		if err != nil {
 			return nil, err
 		}
+		postThen := snapshotEstablished(sc.established)
+		sc.established = preIf
 		var elseBody []ir.Stmt
+		postElse := preIf
 		if s.Else != nil {
 			sc.push()
 			elseBody, err = analyzeBlock(sc, s.Else)
@@ -697,7 +995,9 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			if err != nil {
 				return nil, err
 			}
+			postElse = snapshotEstablished(sc.established)
 		}
+		sc.established = intersectEstablished(postThen, postElse)
 		return &ir.IfStmt{Cond: cond, Then: then, Else: elseBody}, nil
 
 	case *ast.WhileStmt:
@@ -708,12 +1008,20 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if typ := ir.TypeOf(cond); typ != ir.TypeBool {
 			return nil, fmt.Errorf("строка %d: условие \"пока\" должно быть логическим, получено %s", s.Line, typ)
 		}
+		// "пока" может не выполниться ни разу - established, доказанное
+		// внутри тела, не гарантировано ПОСЛЕ цикла (консервативный откат к
+		// состоянию до цикла, а не fixed-point анализ по итерациям - см.
+		// package doc ctx.established); внутри самого тела, в пределах
+		// одного прохода, накопленные по ходу established всё ещё видны
+		// (обычный sc.push/analyzeBlock/sc.pop).
+		preLoop := snapshotEstablished(sc.established)
 		sc.push()
 		body, err := analyzeBlock(sc, s.Body)
 		sc.pop()
 		if err != nil {
 			return nil, err
 		}
+		sc.established = preLoop
 		return &ir.WhileStmt{Cond: cond, Body: body}, nil
 
 	case *ast.ForStmt:
@@ -731,6 +1039,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if typ := ir.TypeOf(to); typ != ir.TypeInt {
 			return nil, fmt.Errorf("строка %d: граница диапазона после \"до\" должна быть целым числом, получено %s", s.Line, typ)
 		}
+		preLoop := snapshotEstablished(sc.established)
 		sc.push()
 		if err := sc.declare(s.Var, ir.TypeInt); err != nil {
 			sc.pop()
@@ -741,6 +1050,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
+		sc.established = preLoop
 		return &ir.ForStmt{Var: s.Var, From: from, To: to, Body: body}, nil
 
 	case *ast.ForEachStmt:
@@ -754,6 +1064,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		// известной заранее длины. ElemType всегда Строка (сама строка
 		// файла), сигнатуры Список<T> здесь ни при чём.
 		if typ.Kind == ir.KindFile {
+			preLoop := snapshotEstablished(sc.established)
 			sc.push()
 			if err := sc.declare(s.Var, ir.TypeString); err != nil {
 				sc.pop()
@@ -764,12 +1075,14 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			if err != nil {
 				return nil, err
 			}
+			sc.established = preLoop
 			return &ir.ForEachStmt{Var: s.Var, Collection: collection, ElemType: ir.TypeString, Body: body}, nil
 		}
 		sig := sc.entities[typ.Entity]
 		if typ.Kind != ir.KindEntity || !sig.IsList {
 			return nil, fmt.Errorf("строка %d: цикл \"для %s в ...\" ожидает переменную-Список<T> или Файл, получен тип %s", s.Line, s.Var, typ)
 		}
+		preLoop := snapshotEstablished(sc.established)
 		sc.push()
 		if err := sc.declare(s.Var, sig.ElemType); err != nil {
 			sc.pop()
@@ -780,6 +1093,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
+		sc.established = preLoop
 		return &ir.ForEachStmt{Var: s.Var, Collection: collection, ElemType: sig.ElemType, Body: body}, nil
 
 	case *ast.ReturnStmt:
@@ -863,6 +1177,20 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		sig := sc.entities[typ.Entity]
 		if !sig.States[s.State] {
 			return nil, fmt.Errorf("строка %d: у сущности %q не объявлено состояние %q", s.Line, typ.Entity, s.State)
+		}
+		// Фиксируем доказанный переход - только для отслеживаемых форм
+		// получателя (простая переменная/"этот", см. package doc ctx.
+		// established); получатель-поле сущности молча не отслеживается
+		// (безопасный дефолт "ничего не доказано" дальше по коду).
+		switch r := receiver.(type) {
+		case *ir.Identifier:
+			next := cloneStates(sc.getEstablished(r.Name))
+			next[s.State] = true
+			sc.setEstablished(r.Name, next)
+		case *ir.ThisExpr:
+			next := cloneStates(sc.thisEstablished)
+			next[s.State] = true
+			sc.thisEstablished = next
 		}
 		return &ir.BecomeStmt{Receiver: receiver, State: s.State}, nil
 
@@ -1065,7 +1393,33 @@ func analyzeMethodCallExpr(sc *ctx, e *ast.MethodCallExpr) (*ir.MethodCallExpr, 
 		if t := ir.TypeOf(arg); t != sig.Params[i] {
 			return nil, fmt.Errorf("строка %d: аргумент %d вызова метода %q должен быть типа %s, получен %s", e.Line, i+1, e.Method, sig.Params[i], t)
 		}
+		if i < len(sig.ParamStates) && sig.ParamStates[i] != "" {
+			required := sig.ParamStates[i]
+			if !establishedStatesOf(sc, arg)[required] {
+				return nil, fmt.Errorf("строка %d: аргумент %d вызова метода %q требует значение, уже прошедшее переход в состояние %q - для этого выражения такой гарантии нет", e.Line, i+1, e.Method, required)
+			}
+		}
 		args[i] = arg
+	}
+	// Постусловие метода (sig.GuaranteedThisStates, см. analyzeMethod)
+	// переносится на переменную-получателя - safe только потому, что "этот"
+	// передаётся по ссылке (в отличие от обычных параметров, которые
+	// копируются, см. package doc funcSig.GuaranteedThisStates).
+	if len(sig.GuaranteedThisStates) > 0 {
+		switch r := receiver.(type) {
+		case *ir.Identifier:
+			next := cloneStates(sc.getEstablished(r.Name))
+			for st := range sig.GuaranteedThisStates {
+				next[st] = true
+			}
+			sc.setEstablished(r.Name, next)
+		case *ir.ThisExpr:
+			next := cloneStates(sc.thisEstablished)
+			for st := range sig.GuaranteedThisStates {
+				next[st] = true
+			}
+			sc.thisEstablished = next
+		}
 	}
 	return &ir.MethodCallExpr{Receiver: receiver, Entity: typ.Entity, Method: e.Method, Args: args, Type: sig.ReturnType, HasReturn: sig.HasReturn}, nil
 }
@@ -1089,6 +1443,12 @@ func analyzeCallExpr(sc *ctx, e *ast.CallExpr) (*ir.CallExpr, error) {
 		}
 		if typ := ir.TypeOf(arg); typ != sig.Params[i] {
 			return nil, fmt.Errorf("строка %d: аргумент %d вызова %q должен быть типа %s, получен %s", e.Line, i+1, e.Callee, sig.Params[i], typ)
+		}
+		if i < len(sig.ParamStates) && sig.ParamStates[i] != "" {
+			required := sig.ParamStates[i]
+			if !establishedStatesOf(sc, arg)[required] {
+				return nil, fmt.Errorf("строка %d: аргумент %d вызова %q требует значение, уже прошедшее переход в состояние %q - для этого выражения такой гарантии нет", e.Line, i+1, e.Callee, required)
+			}
 		}
 		args[i] = arg
 	}

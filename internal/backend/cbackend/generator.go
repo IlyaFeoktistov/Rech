@@ -108,6 +108,10 @@ const (
 	// ввод-вывод) - представление в C разное по платформе (int/HANDLE), см.
 	// valueType.cType и преамбулу typedef rech_file_t в Generate.
 	kindFile
+	// kindSocket - непрозрачный дескриптор сетевого сокета (шаг 8, сетевые
+	// примитивы) - тот же принцип, что и kindFile, см. typedef
+	// rech_socket_t в socketHelpers.
+	kindSocket
 )
 
 // valueType - тип значения выражения, выведенный во время генерации C-кода.
@@ -129,6 +133,7 @@ var (
 	typeFloat   = valueType{kind: kindFloat}
 	typeBool    = valueType{kind: kindBool}
 	typeFile    = valueType{kind: kindFile}
+	typeSocket  = valueType{kind: kindSocket}
 )
 
 // entityType возвращает valueType, соответствующий значению сущности name.
@@ -148,6 +153,7 @@ var typeNames = map[valueType]string{
 	typeFloat:  "Число",
 	typeBool:   "Логическое",
 	typeFile:   "Файл",
+	typeSocket: "Сокет",
 }
 
 func (t valueType) String() string {
@@ -248,6 +254,8 @@ func (t valueType) cType() string {
 		return "bool"
 	case typeFile:
 		return "rech_file_t"
+	case typeSocket:
+		return "rech_socket_t"
 	default:
 		return "void *"
 	}
@@ -285,6 +293,8 @@ func builtinValueType(k builtins.Kind) valueType {
 		return typeBool
 	case builtins.KindFile:
 		return typeFile
+	case builtins.KindSocket:
+		return typeSocket
 	default:
 		return typeUnknown
 	}
@@ -347,6 +357,19 @@ type builtinFlags struct {
 	// безусловно (см. argsGlobals), этот флаг - только про саму индексную
 	// функцию (нужен ей panicHelper).
 	usesArgs bool
+	// usesSockets - нужны ли rech_listen_tcp/rech_accept/rech_connect_tcp/
+	// rech_connect_udp/rech_send/rech_recv/rech_close_socket (встроенные
+	// функции шага 8: слушать_tcp/принять/подключиться_tcp/
+	// подключиться_udp/отправить/получить/закрыть_сокет) - платформенно-
+	// ветвящийся helper (BSD-сокеты против Winsock), плюс -lws2_32 на
+	// Windows (internal/toolchain). Подразумевает usesPanic.
+	usesSockets bool
+	// usesHTTP - нужен ли rech_http_request/rech_recv_until_close/rech_dup
+	// (встроенная функция шага 9: "запрос", HTTP-клиент типа curl) - строит
+	// HTTP/1.1-запрос и парсит ответ поверх уже существующих rech_connect_tcp/
+	// rech_send из socketHelpers, поэтому подразумевает usesSockets (и
+	// usesPanic - через них).
+	usesHTTP bool
 }
 
 // genCtx - состояние генерации одной функции: стек областей видимости
@@ -650,7 +673,7 @@ func Generate(prog *ast.Program) (string, error) {
 	sb.WriteString("// Автоматически сгенерировано компилятором rech. Не редактировать руками.\n")
 	sb.WriteString("#include <stdio.h>\n")
 	sb.WriteString("#include <stdbool.h>\n")
-	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO {
+	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets {
 		sb.WriteString("#include <string.h>\n")
 	}
 	if ctx.usesConcat || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO {
@@ -664,10 +687,18 @@ func Generate(prog *ast.Program) (string, error) {
 	// Windows превращается в мусор, консоль по умолчанию не в UTF-8, в
 	// отличие от Linux/macOS терминалов); при usesFileIO - ещё и за
 	// MultiByteToWideChar (fileHelpers.rech_utf8_to_wide). fcntl.h/
-	// unistd.h POSIX-ветке больше не нужны - файловый ввод-вывод теперь
-	// весь через стандартный C stdio (fopen/fread/fwrite/fclose/fgets), а
-	// не открытые системные вызовы (см. fileHelpers).
-	sb.WriteString("#ifdef _WIN32\n#include <windows.h>\n#include <shellapi.h>\n#endif\n")
+	// unistd.h POSIX-ветке больше не нужны для файлов - файловый ввод-
+	// вывод весь через стандартный C stdio (fopen/fread/fwrite/fclose/
+	// fgets), не открытые системные вызовы (см. fileHelpers); unistd.h всё
+	// же нужен POSIX-ветке при usesSockets (close), см. ниже.
+	// WIN32_LEAN_AND_MEAN - без него windows.h сам подключает устаревший
+	// winsock.h, который конфликтует с winsock2.h (usesSockets ниже) -
+	// определяется безусловно, а не только при usesSockets, чтобы порядок
+	// не зависел от того, что уже true к этому моменту генерации.
+	sb.WriteString("#ifdef _WIN32\n#define WIN32_LEAN_AND_MEAN\n#include <windows.h>\n#include <shellapi.h>\n#endif\n")
+	if ctx.usesSockets {
+		sb.WriteString("#ifdef _WIN32\n#include <winsock2.h>\n#include <ws2tcpip.h>\n#else\n#include <sys/socket.h>\n#include <netinet/in.h>\n#include <arpa/inet.h>\n#include <netdb.h>\n#include <unistd.h>\n#endif\n")
+	}
 	sb.WriteString("\n")
 	sb.WriteString(consoleInitHelper)
 	sb.WriteString("\n")
@@ -701,11 +732,21 @@ func Generate(prog *ast.Program) (string, error) {
 		sb.WriteString(fileHelpers)
 		sb.WriteString("\n")
 	}
+	if ctx.usesSockets {
+		sb.WriteString(socketHelpers)
+		sb.WriteString("\n")
+	}
 	if typedefs.Len() > 0 {
 		sb.WriteString(typedefs.String())
 	}
 	if ctx.genericsCode.Len() > 0 {
 		sb.WriteString(ctx.genericsCode.String())
+	}
+	if ctx.usesHTTP {
+		// После typedefs - rech_http_request принимает/возвращает Запрос/
+		// Ответ по значению, их typedef должен быть уже виден.
+		sb.WriteString(httpHelpers)
+		sb.WriteString("\n")
 	}
 	if protos.Len() > 0 {
 		sb.WriteString(protos.String())
@@ -1280,6 +1321,210 @@ static void rech_append_file(const char *path, const char *content) {
     rech_write_whole_file(path, content, "ab", L"ab", "дописать_в_файл");
 }
 `, rtmsg.ReadInvalidMax, rtmsg.ReadIOFailed, rtmsg.WriteIOFailed)
+
+// socketHelpers - сетевые примитивы (шаг 8): TCP-сервер (rech_listen_tcp +
+// rech_accept), TCP/UDP-клиент (rech_connect_tcp/rech_connect_udp - для UDP
+// через connect() на datagram-сокете, что фиксирует адрес получателя и
+// позволяет дальше использовать один и тот же send/recv, что и у TCP, без
+// отдельных sendto/recvfrom), rech_send/rech_recv/rech_close_socket.
+// rech_socket_t - int на POSIX, SOCKET на Windows (оба - непрозрачные
+// дескрипторы, как rech_file_t выше, только другого системного API).
+// Известное текущее ограничение (см. package doc internal/builtins.All) -
+// только клиентский UDP (connect), не полноценный UDP-сервер, отвечающий
+// произвольным отправителям (recvfrom/sendto без connect).
+var socketHelpers = fmt.Sprintf(`#ifdef _WIN32
+typedef SOCKET rech_socket_t;
+#define RECH_INVALID_SOCKET INVALID_SOCKET
+#else
+typedef int rech_socket_t;
+#define RECH_INVALID_SOCKET (-1)
+#endif
+
+static rech_socket_t rech_listen_tcp(long long port) {
+    rech_socket_t s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s == RECH_INVALID_SOCKET) {
+        rech_panic("%[1]s");
+    }
+    int yes = 1;
+    setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (const char *)&yes, sizeof(yes));
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = htons((unsigned short)port);
+    if (bind(s, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+        rech_panic("%[2]s");
+    }
+    if (listen(s, 16) != 0) {
+        rech_panic("%[3]s");
+    }
+    return s;
+}
+
+static rech_socket_t rech_accept(rech_socket_t s) {
+    rech_socket_t c = accept(s, NULL, NULL);
+    if (c == RECH_INVALID_SOCKET) {
+        rech_panic("%[4]s");
+    }
+    return c;
+}
+
+static rech_socket_t rech_connect(const char *host, long long port, int type) {
+    struct addrinfo hints, *res;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = type;
+    char portbuf[16];
+    snprintf(portbuf, sizeof(portbuf), "%%lld", port);
+    if (getaddrinfo(host, portbuf, &hints, &res) != 0) {
+        rech_panic("%[5]s");
+    }
+    rech_socket_t s = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if (s == RECH_INVALID_SOCKET) {
+        freeaddrinfo(res);
+        rech_panic("%[6]s");
+    }
+    if (connect(s, res->ai_addr, (int)res->ai_addrlen) != 0) {
+        freeaddrinfo(res);
+        rech_panic("%[7]s");
+    }
+    freeaddrinfo(res);
+    return s;
+}
+
+static rech_socket_t rech_connect_tcp(const char *host, long long port) {
+    return rech_connect(host, port, SOCK_STREAM);
+}
+
+static rech_socket_t rech_connect_udp(const char *host, long long port) {
+    return rech_connect(host, port, SOCK_DGRAM);
+}
+
+static void rech_send(rech_socket_t s, const char *data) {
+    size_t len = strlen(data);
+    size_t sent = 0;
+    while (sent < len) {
+        long long n = send(s, data + sent, (int)(len - sent), 0);
+        if (n <= 0) {
+            rech_panic("%[8]s");
+        }
+        sent += (size_t)n;
+    }
+}
+
+static char *rech_recv(rech_socket_t s, long long max) {
+    if (max <= 0) {
+        rech_panic("%[9]s");
+    }
+    char *buf = malloc((size_t)max + 1);
+    long long n = recv(s, buf, (int)max, 0);
+    if (n < 0) {
+        free(buf);
+        rech_panic("%[10]s");
+    }
+    buf[n] = '\0';
+    return buf;
+}
+
+static void rech_close_socket(rech_socket_t s) {
+#ifdef _WIN32
+    closesocket(s);
+#else
+    close(s);
+#endif
+}
+`, rtmsg.SocketCreateFailed, rtmsg.SocketBindFailed, rtmsg.SocketListenFailed, rtmsg.SocketAcceptFailed,
+	rtmsg.SocketResolveFailed, rtmsg.SocketConnectCreate, rtmsg.SocketConnectFailed, rtmsg.SocketSendFailed,
+	rtmsg.SocketRecvInvalidMax, rtmsg.SocketRecvFailed)
+
+// httpHelpers - "запрос" (шаг 9, HTTP-клиент типа curl): строит HTTP/1.1-
+// запрос и парсит ответ поверх уже существующих rech_connect_tcp/rech_send/
+// rech_close_socket (socketHelpers) - не отдельный сетевой механизм.
+// "Запрос"/"Ответ" - фиксированные встроенные сущности (internal/semantic.
+// registerHTTPEntity), их typedef уже эмитится общим циклом по
+// Program.Entities раньше этого блока - здесь только ссылки на их
+// mangleType/mangleField имена (вычисленные, не написанные вручную -
+// исключает ошибку транслитерации). "Connection: close" в каждом запросе -
+// вместо keep-alive/chunked transfer encoding, которые этот срез не
+// разбирает: ответ читается до закрытия соединения сервером
+// (rech_recv_until_close), не до предполагаемой длины - известное текущее
+// ограничение (см. package doc internal/builtins.ReservedFuncNames и
+// docs/ROADMAP.md) - сервер, отвечающий chunked без Content-Length,
+// распарсится неверно (тело останется как есть, без де-чанкинга).
+var httpHelpers = fmt.Sprintf(`static char *rech_dup(const char *s) {
+    size_t len = strlen(s);
+    char *out = malloc(len + 1);
+    memcpy(out, s, len + 1);
+    return out;
+}
+
+static char *rech_recv_until_close(rech_socket_t s) {
+    size_t cap = 4096, len = 0;
+    char *buf = malloc(cap);
+    for (;;) {
+        if (len + 1 >= cap) {
+            cap *= 2;
+            buf = realloc(buf, cap);
+        }
+        long long n = recv(s, buf + len, (int)(cap - len - 1), 0);
+        if (n < 0) {
+            free(buf);
+            rech_panic("%[10]s");
+        }
+        if (n == 0) {
+            break;
+        }
+        len += (size_t)n;
+    }
+    buf[len] = '\0';
+    return buf;
+}
+
+static %[7]s rech_http_request(%[8]s req) {
+    rech_socket_t s = rech_connect_tcp(req.%[3]s, req.%[5]s);
+    size_t body_len = strlen(req.%[6]s);
+    const char *hdr_sep = req.%[4]s[0] ? "\r\n" : "";
+    int need = snprintf(NULL, 0, "%%s %%s HTTP/1.1\r\nHost: %%s\r\n%%s%%sConnection: close\r\nContent-Length: %%lld\r\n\r\n",
+        req.%[1]s, req.%[2]s, req.%[3]s, req.%[4]s, hdr_sep, (long long)body_len);
+    char *head = malloc((size_t)need + 1);
+    snprintf(head, (size_t)need + 1, "%%s %%s HTTP/1.1\r\nHost: %%s\r\n%%s%%sConnection: close\r\nContent-Length: %%lld\r\n\r\n",
+        req.%[1]s, req.%[2]s, req.%[3]s, req.%[4]s, hdr_sep, (long long)body_len);
+    char *full = malloc((size_t)need + body_len + 1);
+    memcpy(full, head, (size_t)need);
+    memcpy(full + need, req.%[6]s, body_len);
+    full[need + body_len] = '\0';
+    free(head);
+    rech_send(s, full);
+    free(full);
+
+    char *raw = rech_recv_until_close(s);
+    rech_close_socket(s);
+
+    %[7]s resp;
+    long long code = 0;
+    const char *sp1 = strchr(raw, ' ');
+    if (sp1) {
+        code = strtoll(sp1 + 1, NULL, 10);
+    }
+    resp.%[9]s = code;
+    const char *body_sep = strstr(raw, "\r\n\r\n");
+    if (body_sep) {
+        size_t header_len = (size_t)(body_sep - raw);
+        char *headers = malloc(header_len + 1);
+        memcpy(headers, raw, header_len);
+        headers[header_len] = '\0';
+        resp.%[4]s = headers;
+        resp.%[6]s = rech_dup(body_sep + 4);
+    } else {
+        resp.%[4]s = rech_dup("");
+        resp.%[6]s = rech_dup("");
+    }
+    free(raw);
+    return resp;
+}
+`, mangleField("метод"), mangleField("путь"), mangleField("адрес"), mangleField("заголовки"),
+	mangleField("порт"), mangleField("тело"), mangleType("Ответ"), mangleType("Запрос"),
+	mangleField("код"), rtmsg.HTTPRecvFailed)
 
 // synthesizeList синтезирует C typedef struct + функции для конкретной
 // инстанциации "Список<T>" (name, например "Список<Целое>") и регистрирует
@@ -2053,6 +2298,38 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 		flags.usesFileIO = true
 		flags.usesPanic = true
 		return fmt.Sprintf("rech_append_file(%s, %s)", args[0], args[1]), true
+	case "слушать_tcp":
+		flags.usesSockets = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_listen_tcp(%s)", args[0]), true
+	case "принять":
+		flags.usesSockets = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_accept(%s)", args[0]), true
+	case "подключиться_tcp":
+		flags.usesSockets = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_connect_tcp(%s, %s)", args[0], args[1]), true
+	case "подключиться_udp":
+		flags.usesSockets = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_connect_udp(%s, %s)", args[0], args[1]), true
+	case "отправить":
+		flags.usesSockets = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_send(%s, %s)", args[0], args[1]), true
+	case "получить":
+		flags.usesSockets = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_recv(%s, %s)", args[0], args[1]), true
+	case "закрыть_сокет":
+		flags.usesSockets = true
+		return fmt.Sprintf("rech_close_socket(%s)", args[0]), true
+	case "запрос":
+		flags.usesHTTP = true
+		flags.usesSockets = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_http_request(%s)", args[0]), true
 	case "стандартный_ввод":
 		flags.usesFileIO = true
 		return "stdin", true
