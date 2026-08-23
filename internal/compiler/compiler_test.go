@@ -151,6 +151,32 @@ func TestBuildDirMergesAllRechFiles(t *testing.T) {
 	}
 }
 
+// TestBuildDirMergesEnums - регрессионный тест: parseDir строит merged
+// *ast.Program явным перечислением полей (см. тот же класс бага,
+// зафиксированный в internal/module.TestLinkPreservesEnums) - "Enums"
+// сначала не было в этом списке.
+func TestBuildDirMergesEnums(t *testing.T) {
+	dir := t.TempDir()
+	// "перечисление" без единой функции в том же файле не пройдёт общую
+	// (не специфичную для перечислений) проверку parser.ParseProgram "программа
+	// не содержит ни одной функции" - применяется отдельно к каждому файлу
+	// каталога до слияния, поэтому рядом нужна хотя бы одна функция.
+	writeSource(t, dir, "цвета.rech", "перечисление Цвет { Красный, Зелёный }\nфункция неважно() { вернуть }\n")
+	writeSource(t, dir, "главный.rech", "функция главная\n{\n    вывести Цвет.Зелёный\n}\n")
+
+	binPath, err := newTestCompiler().Build(dir, true)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	cContent, err := os.ReadFile(binPath + ".c")
+	if err != nil {
+		t.Fatalf("ожидался сохранённый .c: %v", err)
+	}
+	if !strings.Contains(string(cContent), "1LL") {
+		t.Fatalf("сгенерированный C не содержит разрешённое значение перечисления (Зелёный == 1):\n%s", cContent)
+	}
+}
+
 func TestBuildDirNoRechFilesFails(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := newTestCompiler().Build(dir, false); err == nil {

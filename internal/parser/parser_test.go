@@ -179,6 +179,74 @@ func TestParseExternFuncDeclCannotBeEntryPoint(t *testing.T) {
 	}
 }
 
+func TestParseEnumDeclAutoAndExplicitValues(t *testing.T) {
+	prog, err := parseSource(t, `
+перечисление Приоритет
+{
+    Низкий,
+    Средний = 5,
+    Высокий
+}
+функция главная { вывести Приоритет.Высокий }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if len(prog.Enums) != 1 {
+		t.Fatalf("ожидалось одно перечисление, получено: %d", len(prog.Enums))
+	}
+	enum := prog.Enums[0]
+	if enum.Name != "Приоритет" || len(enum.Members) != 3 {
+		t.Fatalf("неожиданное перечисление: %+v", enum)
+	}
+	want := map[string]int64{"Низкий": 0, "Средний": 5, "Высокий": 6}
+	for _, m := range enum.Members {
+		if want[m.Name] != m.Value {
+			t.Fatalf("член %q: ожидалось значение %d, получено %d", m.Name, want[m.Name], m.Value)
+		}
+	}
+}
+
+func TestParseEnumDeclRejectsDuplicateMember(t *testing.T) {
+	_, err := parseSource(t, `
+перечисление Цвет { Красный, Красный }
+функция главная { вывести 1 }
+`)
+	if err == nil || !strings.Contains(err.Error(), "объявлен более одного раза") {
+		t.Fatalf("ожидалась ошибка про дублирующийся член, получено: %v", err)
+	}
+}
+
+func TestParseEnumDeclRejectsEmpty(t *testing.T) {
+	_, err := parseSource(t, `
+перечисление Цвет { }
+функция главная { вывести 1 }
+`)
+	if err == nil || !strings.Contains(err.Error(), "хотя бы один член") {
+		t.Fatalf("ожидалась ошибка про пустое перечисление, получено: %v", err)
+	}
+}
+
+func TestParseConstDecl(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная
+{
+    константа порог = 10
+    вывести порог
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	decl, ok := prog.Functions[0].Body[0].(*ast.ConstDecl)
+	if !ok {
+		t.Fatalf("ожидался *ast.ConstDecl, получено %T", prog.Functions[0].Body[0])
+	}
+	if decl.Name != "порог" {
+		t.Fatalf("неожиданное имя константы: %q", decl.Name)
+	}
+}
+
 func TestParseExternFuncDeclRequiresFunctionKeyword(t *testing.T) {
 	_, err := parseSource(t, `внешняя sqrt(x: Число): Число`)
 	if err == nil {

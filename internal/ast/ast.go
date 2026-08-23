@@ -20,6 +20,7 @@ type Program struct {
 	Entities    []*EntityDecl
 	Uses        []*UseDecl
 	ExternFuncs []*ExternFuncDecl
+	Enums       []*EnumDecl
 }
 
 func (*Program) node() {}
@@ -131,6 +132,33 @@ type StateDecl struct {
 	Line     int
 }
 
+// EnumDecl - "перечисление <Имя> { Член1, Член2 = число, ... }" (шаг 12) -
+// верхнеуровневое объявление, как EntityDecl. Члены не несут собственного
+// типа (internal/semantic резолвит "Имя.Член" прямо в ir.IntLiteral во
+// время анализа - никакой отдельный ir.Kind/entitySig этой конструкции не
+// нужен, "перечисление логически хранится как Целое", см. docs/ROADMAP.md):
+// доступ - тем же синтаксисом, что и FieldAccess ("Имя.Член"), парсер не
+// различает их вообще (расширять грамматику не нужно) - разница видна
+// только семантическому анализу (получатель - объявленная переменная или
+// имя перечисления).
+type EnumDecl struct {
+	Name    string
+	Members []EnumMember
+	Line    int
+}
+
+func (*EnumDecl) node() {}
+
+// EnumMember - один член перечисления - Value уже вычислено парсером
+// (0 у первого члена без явного "= <целое>", дальше - предыдущее значение
+// + 1, как в C) - к моменту, когда до этого дойдёт internal/semantic,
+// разница между явным и автоматическим значением уже не имеет значения.
+type EnumMember struct {
+	Name  string
+	Value int64
+	Line  int
+}
+
 // MethodDecl - метод сущности: как FunctionDecl (те же параметры/тип
 // результата/тело), но без ключевого слова "функция" - объявляется прямо в
 // теле сущности (docs/GRAMMAR.md, "method"). Внутри тела метода доступно
@@ -221,6 +249,20 @@ type VarDecl struct {
 
 func (*VarDecl) node() {}
 func (*VarDecl) stmt() {}
+
+// ConstDecl - "константа <имя> = <значение>" (шаг 12) - как VarDecl, но
+// повторное присваивание этому имени (Assign) - ошибка компиляции
+// (internal/semantic), не времени выполнения; само значение вычисляется и
+// хранится тем же кодом, что и обычная переменная (internal/ir не отличает
+// их вообще - см. package doc internal/semantic).
+type ConstDecl struct {
+	Name  string
+	Value Expr
+	Line  int
+}
+
+func (*ConstDecl) node() {}
+func (*ConstDecl) stmt() {}
 
 // Assign соответствует инструкции присваивания уже объявленной переменной:
 //

@@ -11,6 +11,7 @@ package semantic
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -164,14 +165,33 @@ type scope map[string]ir.Type
 // парсер уже это гарантирует). Аналог genCtx в cbackend, только на уровне
 // IR/семантики, не C.
 type ctx struct {
-	funcs      map[string]funcSig
-	entities   map[string]entitySig
-	methods    map[string]map[string]funcSig
-	aliases    map[string]string
+	funcs    map[string]funcSig
+	entities map[string]entitySig
+	methods  map[string]map[string]funcSig
+	aliases  map[string]string
+	// enums - имя перечисления (шаг 12) -> имя члена -> значение (Целое,
+	// уже вычисленное - см. package doc ast.EnumDecl). Общая для всей
+	// программы карта (не меняется во время анализа тел, в отличие от
+	// entities/methods, которые могут пополняться generic-инстанциациями/
+	// встроенными сущностями Запрос/Ответ) - разрешение "Имя.Член" в
+	// analyzeExpr (*ast.FieldAccess) читает её напрямую, без резолюции
+	// типа: перечисление не является типом значения (оно логически хранится
+	// как Целое, docs/ROADMAP.md), только именованным набором констант.
+	enums      map[string]map[string]int64
 	thisEntity string
 	scopes     []scope
 	returnType ir.Type
 	hasReturn  bool
+
+	// consts - параллельный scopes стек (как established) - consts[i][name]
+	// == true, если переменная name (объявленная в scopes[i]) объявлена
+	// "константа", не "переменная" - Assign проверяет его перед тем, как
+	// разрешить переприсваивание (шаг 12: "попытка присвоить заново -
+	// ошибка компиляции"). В отличие от established, здесь не нужно
+	// пересечение по if/else или откат после цикла - это статическое
+	// свойство самого объявления (каким словом оно введено), не факт,
+	// который "устанавливается" по ходу потока управления.
+	consts []map[string]bool
 
 	// established - параллельный scopes стек: established[i][name] - набор
 	// кратких форм состояний (шаг 4.1), про которые на данный момент
@@ -199,23 +219,26 @@ type ctx struct {
 	thisEstablished map[string]bool
 }
 
-func newCtx(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, thisEntity string, returnType ir.Type, hasReturn bool) *ctx {
+func newCtx(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, enums map[string]map[string]int64, thisEntity string, returnType ir.Type, hasReturn bool) *ctx {
 	return &ctx{
-		funcs: funcs, entities: entities, methods: methods, aliases: aliases, thisEntity: thisEntity,
+		funcs: funcs, entities: entities, methods: methods, aliases: aliases, enums: enums, thisEntity: thisEntity,
 		scopes: []scope{{}}, returnType: returnType, hasReturn: hasReturn,
 		established:     []map[string]map[string]bool{{}},
 		thisEstablished: map[string]bool{},
+		consts:          []map[string]bool{{}},
 	}
 }
 
 func (c *ctx) push() {
 	c.scopes = append(c.scopes, scope{})
 	c.established = append(c.established, map[string]map[string]bool{})
+	c.consts = append(c.consts, map[string]bool{})
 }
 
 func (c *ctx) pop() {
 	c.scopes = c.scopes[:len(c.scopes)-1]
 	c.established = c.established[:len(c.established)-1]
+	c.consts = c.consts[:len(c.consts)-1]
 }
 
 // getEstablished возвращает набор доказанных состояний переменной name (см.
@@ -354,6 +377,28 @@ func (c *ctx) lookup(name string) (ir.Type, bool) {
 	return ir.TypeUnknown, false
 }
 
+// markConst помечает уже объявленную (declare уже вызван) переменную name
+// в самой внутренней области видимости как константу - вызывается сразу
+// после declare в analyzeStmt (*ast.ConstDecl), никогда отдельно.
+func (c *ctx) markConst(name string) {
+	c.consts[len(c.consts)-1][name] = true
+}
+
+// isConst - true, если name объявлено "константа", не "переменная". Ищет
+// область видимости через c.scopes (не напрямую через c.consts) - иначе
+// затенение (внутренняя "переменная x", внешняя "константа x") дало бы
+// неверный ответ: у внутренней области нет своей записи в consts вообще
+// (markConst не вызывался), поиск бы провалился дальше и нашёл внешнюю
+// константу, хотя x в этой области видимости - обычная переменная.
+func (c *ctx) isConst(name string) bool {
+	for i, sc := range slices.Backward(c.scopes) {
+		if _, ok := sc[name]; ok {
+			return c.consts[i][name]
+		}
+	}
+	return false
+}
+
 // resolveTypeName - единственное место, где имя типа Rech (строка из AST)
 // маппится на ir.Type: встроенные примитивы, уже собранная сущность
 // (entities - сигнатуры, собранные раньше по файлу, см. collectEntities;
@@ -434,6 +479,83 @@ func registerHTTPEntity(entities map[string]entitySig, name string, fields []ir.
 		sig.FieldPrivate = append(sig.FieldPrivate, false)
 	}
 	entities[name] = sig
+}
+
+// standardEnums - встроенные перечисления (шаг 12, добавлено по прямому
+// запросу пользователя - "стандартные енумы... заранее известные") -
+// доступны в любой программе без объявления, тем же принципом, что и
+// Файл/Сокет/Запрос/Ответ (пользователь не объявляет их сам, но может
+// объявить СВОЁ перечисление с любым другим именем обычным
+// "перечисление" - collectEnums). Курируемый список, не механизм
+// пользовательских generic-типов - обычные перечисления того же вида,
+// что пользователь мог бы написать сам, просто уже готовые для типичных,
+// заранее известных наборов значений.
+var standardEnums = map[string]map[string]int64{
+	// HTTPКод - для сравнения с "запрос(...).код" (шаг 9, HTTP-клиент) без
+	// голых магических чисел в исходнике программы - только самые частые
+	// коды, не полный список IANA (курируемый минимум, не исчерпывающий).
+	"HTTPКод": {
+		"ОК":                 200,
+		"Создано":            201,
+		"Принято":            202,
+		"БезСодержимого":     204,
+		"ПеремещёнПостоянно": 301,
+		"НайденВременно":     302,
+		"НеИзменялось":       304,
+		"НеправильныйЗапрос": 400,
+		"НеАвторизован":      401,
+		"Запрещено":          403,
+		"НеНайдено":          404,
+		"МетодНеДопустим":    405,
+		"Конфликт":           409,
+		"ОшибкаСервера":      500,
+		"НеРеализовано":      501,
+		"СервисНедоступен":   503,
+	},
+	// ДеньНедели/Месяц - нет ни одной функции даты/времени в языке пока
+	// (docs/ROADMAP.md), но сами имена дней/месяцев не изменятся, когда она
+	// появится - разумно завести сейчас, раз запрошены "заранее известные"
+	// перечисления. Понедельник == 1 - ISO 8601, не "воскресенье == 0",
+	// как в некоторых языках.
+	"ДеньНедели": {
+		"Понедельник": 1, "Вторник": 2, "Среда": 3, "Четверг": 4,
+		"Пятница": 5, "Суббота": 6, "Воскресенье": 7,
+	},
+	"Месяц": {
+		"Январь": 1, "Февраль": 2, "Март": 3, "Апрель": 4,
+		"Май": 5, "Июнь": 6, "Июль": 7, "Август": 8,
+		"Сентябрь": 9, "Октябрь": 10, "Ноябрь": 11, "Декабрь": 12,
+	},
+}
+
+// collectEnums собирает все перечисления программы (шаг 12) - стандартные
+// (standardEnums, всегда присутствуют) плюс объявленные пользователем
+// (prog.Enums, копия standardEnums на входе - чтобы мутация ниже не
+// затронула сам standardEnums между вызовами Analyze). Дубли членов
+// внутри одного перечисления уже проверены парсером (см. parseEnumDecl) -
+// здесь только коллизии ИМЕНИ самого перечисления с сущностью или другим
+// перечислением (в т. ч. встроенным).
+func collectEnums(entities map[string]entitySig, prog *ast.Program) (map[string]map[string]int64, error) {
+	enums := make(map[string]map[string]int64, len(standardEnums)+len(prog.Enums))
+	for name, members := range standardEnums {
+		copied := make(map[string]int64, len(members))
+		maps.Copy(copied, members)
+		enums[name] = copied
+	}
+	for _, e := range prog.Enums {
+		if _, exists := entities[e.Name]; exists {
+			return nil, fmt.Errorf("строка %d: перечисление %q совпадает с именем уже объявленной сущности", e.Line, e.Name)
+		}
+		if _, exists := enums[e.Name]; exists {
+			return nil, fmt.Errorf("строка %d: перечисление %q уже объявлено (возможно, совпадает со встроенным перечислением)", e.Line, e.Name)
+		}
+		members := make(map[string]int64, len(e.Members))
+		for _, m := range e.Members {
+			members[m.Name] = m.Value
+		}
+		enums[e.Name] = members
+	}
+	return enums, nil
 }
 
 // parseGenericTypeName разбирает закодированную парсером строку вида
@@ -530,10 +652,14 @@ func Analyze(prog *ast.Program) (*ir.Program, error) {
 	if err != nil {
 		return nil, err
 	}
+	enums, err := collectEnums(entities, prog)
+	if err != nil {
+		return nil, err
+	}
 
 	out := &ir.Program{ExternFuncs: externFuncs}
 	for _, ent := range prog.Entities {
-		irEnt, err := analyzeEntity(funcs, entities, methods, aliases, ent)
+		irEnt, err := analyzeEntity(funcs, entities, methods, aliases, enums, ent)
 		if err != nil {
 			return nil, fmt.Errorf("сущность %q: %w", ent.Name, err)
 		}
@@ -549,7 +675,7 @@ func Analyze(prog *ast.Program) (*ir.Program, error) {
 		&ir.Entity{Name: "Ответ", Fields: httpResponseFields},
 	)
 	for _, fn := range prog.Functions {
-		irFn, err := analyzeFunction(funcs, entities, methods, aliases, fn)
+		irFn, err := analyzeFunction(funcs, entities, methods, aliases, enums, fn)
 		if err != nil {
 			return nil, fmt.Errorf("функция %q: %w", fn.Name, err)
 		}
@@ -790,7 +916,7 @@ func collectEntities(prog *ast.Program) (map[string]entitySig, map[string]map[st
 	return entities, methods, aliases, aliasState, nil
 }
 
-func analyzeEntity(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, ent *ast.EntityDecl) (*ir.Entity, error) {
+func analyzeEntity(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, enums map[string]map[string]int64, ent *ast.EntityDecl) (*ir.Entity, error) {
 	sig := entities[ent.Name]
 	fields := make([]ir.Field, len(sig.FieldNames))
 	for i, name := range sig.FieldNames {
@@ -798,7 +924,7 @@ func analyzeEntity(funcs map[string]funcSig, entities map[string]entitySig, meth
 	}
 	irMethods := make([]*ir.Method, len(ent.Methods))
 	for i, m := range ent.Methods {
-		irM, err := analyzeMethod(funcs, entities, methods, aliases, ent.Name, m)
+		irM, err := analyzeMethod(funcs, entities, methods, aliases, enums, ent.Name, m)
 		if err != nil {
 			return nil, fmt.Errorf("метод %q: %w", m.Name, err)
 		}
@@ -807,9 +933,9 @@ func analyzeEntity(funcs map[string]funcSig, entities map[string]entitySig, meth
 	return &ir.Entity{Name: ent.Name, Fields: fields, Methods: irMethods}, nil
 }
 
-func analyzeMethod(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, entityName string, m *ast.MethodDecl) (*ir.Method, error) {
+func analyzeMethod(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, enums map[string]map[string]int64, entityName string, m *ast.MethodDecl) (*ir.Method, error) {
 	sig := methods[entityName][m.Name]
-	sc := newCtx(funcs, entities, methods, aliases, entityName, sig.ReturnType, sig.HasReturn)
+	sc := newCtx(funcs, entities, methods, aliases, enums, entityName, sig.ReturnType, sig.HasReturn)
 	params := make([]ir.Param, len(m.Params))
 	for i, p := range m.Params {
 		params[i] = ir.Param{Name: p.Name, Type: sig.Params[i]}
@@ -857,9 +983,9 @@ func analyzeMethod(funcs map[string]funcSig, entities map[string]entitySig, meth
 	}, nil
 }
 
-func analyzeFunction(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, fn *ast.FunctionDecl) (*ir.Function, error) {
+func analyzeFunction(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, enums map[string]map[string]int64, fn *ast.FunctionDecl) (*ir.Function, error) {
 	sig := funcs[fn.Name]
-	sc := newCtx(funcs, entities, methods, aliases, "", sig.ReturnType, sig.HasReturn)
+	sc := newCtx(funcs, entities, methods, aliases, enums, "", sig.ReturnType, sig.HasReturn)
 	params := make([]ir.Param, len(fn.Params))
 	for i, p := range fn.Params {
 		params[i] = ir.Param{Name: p.Name, Type: sig.Params[i]}
@@ -939,10 +1065,30 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		sc.setEstablished(s.Name, newEstablished)
 		return &ir.VarDecl{Name: s.Name, Value: value}, nil
 
+	case *ast.ConstDecl:
+		// Полностью тот же код, что и VarDecl выше (одна и та же ir.VarDecl -
+		// internal/ir не различает константу и переменную вообще, см.
+		// package doc ast.ConstDecl), плюс markConst сразу после declare -
+		// дальше любой Assign этому имени должен быть отвергнут (см. ниже).
+		value, err := analyzeExpr(sc, s.Value)
+		if err != nil {
+			return nil, err
+		}
+		newEstablished := establishedForNewBinding(sc, s.Name, value)
+		if err := sc.declare(s.Name, ir.TypeOf(value)); err != nil {
+			return nil, fmt.Errorf("строка %d: %w", s.Line, err)
+		}
+		sc.setEstablished(s.Name, newEstablished)
+		sc.markConst(s.Name)
+		return &ir.VarDecl{Name: s.Name, Value: value}, nil
+
 	case *ast.Assign:
 		declared, exists := sc.lookup(s.Name)
 		if !exists {
 			return nil, fmt.Errorf("строка %d: переменная %q не объявлена - используйте \"переменная\" для объявления", s.Line, s.Name)
+		}
+		if sc.isConst(s.Name) {
+			return nil, fmt.Errorf("строка %d: %q объявлено как \"константа\" - нельзя присвоить новое значение", s.Line, s.Name)
 		}
 		value, err := analyzeExpr(sc, s.Value)
 		if err != nil {
@@ -1258,6 +1404,25 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 		return analyzeNewExpr(sc, e)
 
 	case *ast.FieldAccess:
+		// "Имя.Член" перечисления (шаг 12) - синтаксически неотличимо от
+		// обычного FieldAccess (получатель - идентификатор), парсер не
+		// различает их вообще - разрешается здесь, до попытки
+		// проанализировать Receiver как обычное выражение: если бы
+		// receiver действительно был переменной с этим именем, ниже он
+		// победил бы (переменные всегда сильнее перечисления с тем же
+		// именем - то же затенение, что и везде в языке), поэтому
+		// проверяем sc.lookup ПЕРЕД sc.enums, не наоборот.
+		if ident, ok := e.Receiver.(*ast.Identifier); ok {
+			if _, isVar := sc.lookup(ident.Name); !isVar {
+				if members, isEnum := sc.enums[ident.Name]; isEnum {
+					v, ok := members[e.Field]
+					if !ok {
+						return nil, fmt.Errorf("строка %d: у перечисления %q нет члена %q", e.Line, ident.Name, e.Field)
+					}
+					return &ir.IntLiteral{Value: v}, nil
+				}
+			}
+		}
 		receiver, err := analyzeExpr(sc, e.Receiver)
 		if err != nil {
 			return nil, err
@@ -1489,6 +1654,9 @@ func analyzeIncDecExpr(sc *ctx, e *ast.IncDecExpr) (ir.Expr, error) {
 	typ, ok := sc.lookup(e.Name)
 	if !ok {
 		return nil, fmt.Errorf("строка %d: переменная %q не объявлена", e.Line, e.Name)
+	}
+	if sc.isConst(e.Name) {
+		return nil, fmt.Errorf("строка %d: %q объявлено как \"константа\" - нельзя изменить (%s)", e.Line, e.Name, e.Op)
 	}
 	if typ != ir.TypeInt && typ != ir.TypeFloat {
 		return nil, fmt.Errorf("строка %d: оператор %q применим только к Целое/Число, получено %s", e.Line, e.Op, typ)

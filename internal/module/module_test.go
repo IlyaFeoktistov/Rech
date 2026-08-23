@@ -163,6 +163,31 @@ func contains(ss []string, s string) bool {
 	return slices.Contains(ss, s)
 }
 
+// TestLinkPreservesEnums - регрессионный тест: Program.Link строит merged
+// *ast.Program явным перечислением полей исходного (Functions/Entities/
+// ExternFuncs/Enums) - "перечисление" (шаг 12) было добавлено в
+// ast.Program позже остальных и изначально не попало в этот список, из-за
+// чего единственный файл с "перечисление" (без единого "использовать")
+// всё равно проходил через module.Load+Link (рекурсивный парсинг делает
+// это независимо от того, есть ли реальные импорты) и терял свои
+// перечисления молча - см. docs/ROADMAP.md, Шаг 12.
+func TestLinkPreservesEnums(t *testing.T) {
+	dir := t.TempDir()
+	entry := writeFile(t, dir, "главный.rech", "перечисление Цвет { Красный, Зелёный }\nфункция главная { вывести Цвет.Зелёный }\n")
+
+	prog, err := Load(entry, testFrontend{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	merged, err := prog.Link()
+	if err != nil {
+		t.Fatalf("Link: %v", err)
+	}
+	if len(merged.Enums) != 1 || merged.Enums[0].Name != "Цвет" {
+		t.Fatalf("ожидалось перечисление %q в слинкованной программе, получено: %+v", "Цвет", merged.Enums)
+	}
+}
+
 func TestLinkNoCollisionBetweenUnrelatedFiles(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "один.rech", "функция взять(): Целое\n{\n    вернуть 1\n}\n")

@@ -125,6 +125,14 @@ func (p *Program) Link() (*ast.Program, error) {
 		merged.Functions = append(merged.Functions, m.AST.Functions...)
 		merged.Entities = append(merged.Entities, m.AST.Entities...)
 		merged.ExternFuncs = append(merged.ExternFuncs, m.AST.ExternFuncs...)
+		// Enums (шаг 12) - без мангла при импорте (в отличие от функций/
+		// сущностей/внешних функций выше) - перечисления через
+		// "использовать" пока не поддержаны (см. package doc
+		// internal/semantic.collectEnums): именно поэтому одноимённое
+		// перечисление в двух файлах, слитых в одну программу, поймает
+		// только collectEnums (менее подробное сообщение, чем у мангла
+		// выше) - осознанный, а не забытый пробел этого среза.
+		merged.Enums = append(merged.Enums, m.AST.Enums...)
 	}
 	return merged, nil
 }

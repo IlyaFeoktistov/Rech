@@ -111,6 +111,8 @@ func (r *rewriter) rewriteStmt(s ast.Stmt) error {
 		return r.rewriteExpr(s.Value)
 	case *ast.VarDecl:
 		return r.rewriteExpr(s.Value)
+	case *ast.ConstDecl:
+		return r.rewriteExpr(s.Value)
 	case *ast.Assign:
 		return r.rewriteExpr(s.Value)
 	case *ast.FieldAssign:

@@ -307,6 +307,12 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 				return nil, err
 			}
 			prog.ExternFuncs = append(prog.ExternFuncs, ext)
+		case lexer.KwEnum:
+			enum, err := p.parseEnumDecl()
+			if err != nil {
+				return nil, err
+			}
+			prog.Enums = append(prog.Enums, enum)
 		default:
 			stmt, err := p.parseStatement()
 			if err != nil {
@@ -474,6 +480,84 @@ func (p *Parser) parseExternFuncDecl() (*ast.ExternFuncDecl, error) {
 	}
 
 	return &ast.ExternFuncDecl{CName: cName.Value, Alias: alias, Params: params, ReturnType: returnType, Line: kw.Line}, nil
+}
+
+// parseEnumDecl разбирает "перечисление <Имя> { Член1, Член2 = 5, ... }"
+// (шаг 12) - список членов через запятую и/или перенос строки (оба
+// разделителя допустимы, тем же принципом, что и везде в этом парсере, а
+// не единственно допустимой запятой, как у "использовать"). Член без явного
+// "= <целое>" получает значение "предыдущее + 1" (0 у самого первого члена
+// без явного значения) - вычисляется прямо здесь, чтобы internal/ast.
+// EnumMember.Value уже нёс готовое число, без разницы явное оно или нет.
+func (p *Parser) parseEnumDecl() (*ast.EnumDecl, error) {
+	kw, err := p.expect(lexer.KwEnum)
+	if err != nil {
+		return nil, err
+	}
+	name, err := p.expect(lexer.IDENT)
+	if err != nil {
+		return nil, fmt.Errorf("после %q ожидалось имя перечисления: %w", kw.Value, err)
+	}
+	p.skipNewlines()
+	if _, err := p.expect(lexer.LBRACE); err != nil {
+		return nil, err
+	}
+	p.skipSeparators()
+
+	var members []ast.EnumMember
+	seen := map[string]bool{}
+	next := int64(0)
+	for p.cur().Type != lexer.RBRACE {
+		memberName, err := p.expect(lexer.IDENT)
+		if err != nil {
+			return nil, fmt.Errorf("перечисление %q: %w", name.Value, err)
+		}
+		if seen[memberName.Value] {
+			return nil, fmt.Errorf("строка %d: перечисление %q: член %q объявлен более одного раза", memberName.Line, name.Value, memberName.Value)
+		}
+		seen[memberName.Value] = true
+
+		value := next
+		if p.cur().Type == lexer.ASSIGN {
+			p.advance()
+			neg := false
+			if p.cur().Type == lexer.MINUS {
+				neg = true
+				p.advance()
+			}
+			numTok, err := p.expect(lexer.INT)
+			if err != nil {
+				return nil, fmt.Errorf("перечисление %q: член %q: после \"=\" ожидалось целое число: %w", name.Value, memberName.Value, err)
+			}
+			v, err := strconv.ParseInt(numTok.Value, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("строка %d: перечисление %q: член %q: некорректное число %q", numTok.Line, name.Value, memberName.Value, numTok.Value)
+			}
+			if neg {
+				v = -v
+			}
+			value = v
+		}
+		members = append(members, ast.EnumMember{Name: memberName.Value, Value: value, Line: memberName.Line})
+		next = value + 1
+
+		if p.cur().Type == lexer.COMMA {
+			p.advance()
+			p.skipSeparators()
+			continue
+		}
+		if p.skipSeparators() > 0 {
+			continue
+		}
+		break
+	}
+	if _, err := p.expect(lexer.RBRACE); err != nil {
+		return nil, fmt.Errorf("перечисление %q: %w", name.Value, err)
+	}
+	if len(members) == 0 {
+		return nil, fmt.Errorf("строка %d: перечисление %q должно содержать хотя бы один член", kw.Line, name.Value)
+	}
+	return &ast.EnumDecl{Name: name.Value, Members: members, Line: kw.Line}, nil
 }
 
 // parseStatesSection разбирает "состояние:" и краткие формы состояний,
@@ -921,6 +1005,8 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 		return p.parseAssertStmt()
 	case lexer.KwVariable:
 		return p.parseVarDecl()
+	case lexer.KwConst:
+		return p.parseConstDecl()
 	case lexer.KwIf:
 		return p.parseIfStmt()
 	case lexer.KwWhile:
@@ -1046,6 +1132,30 @@ func (p *Parser) parseVarDecl() (ast.Stmt, error) {
 	}
 	p.registerNoun(name.Value)
 	return &ast.VarDecl{Name: name.Value, Value: value, Line: kw.Line}, nil
+}
+
+// parseConstDecl - "константа <имя> = <значение>" (шаг 12) - синтаксически
+// идентично parseVarDecl (та же обязательная инициализация, та же
+// регистрация имени для падежного согласования) - разница (запрет
+// повторного присваивания) проверяется в internal/semantic, не здесь.
+func (p *Parser) parseConstDecl() (ast.Stmt, error) {
+	kw, err := p.expect(lexer.KwConst)
+	if err != nil {
+		return nil, err
+	}
+	name, err := p.expect(lexer.IDENT)
+	if err != nil {
+		return nil, fmt.Errorf("после \"константа\" ожидалось имя константы: %w", err)
+	}
+	if _, err := p.expect(lexer.ASSIGN); err != nil {
+		return nil, fmt.Errorf("объявление константы %q должно содержать инициализацию (\"=\"): %w", name.Value, err)
+	}
+	value, err := p.parseExpr()
+	if err != nil {
+		return nil, fmt.Errorf("в инициализации константы %q: %w", name.Value, err)
+	}
+	p.registerNoun(name.Value)
+	return &ast.ConstDecl{Name: name.Value, Value: value, Line: kw.Line}, nil
 }
 
 func (p *Parser) parseAssign() (ast.Stmt, error) {

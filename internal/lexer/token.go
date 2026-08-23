@@ -74,6 +74,8 @@ const (
 	KwOf       // из (предлог перед путём импорта, шаг 11)
 	KwAs       // как (переименование импортируемого имени, шаг 11)
 	KwExternal // внешняя (внешняя функция, шаг 7, FFI)
+	KwConst    // константа (шаг 12, неизменяемое значение)
+	KwEnum     // перечисление (шаг 12, именованный набор целочисленных значений)
 )
 
 // keywords - таблица ключевых слов v0.1. Список сознательно узкий:
@@ -121,6 +123,8 @@ var keywords = map[string]TokenType{
 	"из":           KwOf,
 	"как":          KwAs,
 	"внешняя":      KwExternal,
+	"константа":    KwConst,
+	"перечисление": KwEnum,
 }
 
 // Token - одна лексема с позицией в исходном файле (для сообщений об ошибках).
@@ -261,6 +265,10 @@ func (t TokenType) String() string {
 		return "как"
 	case KwExternal:
 		return "внешняя"
+	case KwConst:
+		return "константа"
+	case KwEnum:
+		return "перечисление"
 	default:
 		return "UNKNOWN"
 	}

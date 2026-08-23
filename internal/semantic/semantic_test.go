@@ -974,3 +974,138 @@ func TestAnalyzeIncDecOnStringFails(t *testing.T) {
 		t.Fatalf("ожидалась ошибка про тип переменной, получено: %v", err)
 	}
 }
+
+func TestAnalyzeConstDeclAndRejectsReassign(t *testing.T) {
+	toks, err := lexer.New(`
+функция главная
+{
+    константа x = 5
+    x = 6
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
+	if err == nil || !strings.Contains(err.Error(), "константа") {
+		t.Fatalf("ожидалась ошибка про присваивание константе, получено: %v", err)
+	}
+}
+
+func TestAnalyzeConstDeclRejectsIncDec(t *testing.T) {
+	toks, err := lexer.New(`
+функция главная
+{
+    константа x = 5
+    x++
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
+	if err == nil || !strings.Contains(err.Error(), "константа") {
+		t.Fatalf("ожидалась ошибка про ++ на константе, получено: %v", err)
+	}
+}
+
+func TestAnalyzeEnumMemberResolvesToIntLiteral(t *testing.T) {
+	irProg := parseProgram(t, `
+перечисление Приоритет
+{
+    Низкий,
+    Средний = 5,
+    Высокий
+}
+функция главная
+{
+    вывести Приоритет.Высокий
+    вывести HTTPКод.НеНайдено
+}
+`)
+	printLow := irProg.Functions[0].Body[0].(*ir.PrintStmt)
+	lit, ok := printLow.Value.(*ir.IntLiteral)
+	if !ok || lit.Value != 6 {
+		t.Fatalf("ожидался ir.IntLiteral{6} (Средний=5, Высокий=Средний+1), получено: %+v", printLow.Value)
+	}
+	printHTTP := irProg.Functions[0].Body[1].(*ir.PrintStmt)
+	lit2, ok := printHTTP.Value.(*ir.IntLiteral)
+	if !ok || lit2.Value != 404 {
+		t.Fatalf("ожидался ir.IntLiteral{404}, получено: %+v", printHTTP.Value)
+	}
+}
+
+func TestAnalyzeEnumUnknownMemberFails(t *testing.T) {
+	toks, err := lexer.New(`
+перечисление Цвет { Красный }
+функция главная
+{
+    вывести Цвет.Зелёный
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
+	if err == nil || !strings.Contains(err.Error(), "нет члена") {
+		t.Fatalf("ожидалась ошибка про неизвестный член перечисления, получено: %v", err)
+	}
+}
+
+func TestAnalyzeEnumCollidesWithEntityFails(t *testing.T) {
+	toks, err := lexer.New(`
+сущность Цвет
+{
+    имеет:
+        имя: Строка
+}
+перечисление Цвет { Красный }
+функция главная { вывести 1 }
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
+	if err == nil || !strings.Contains(err.Error(), "совпадает с именем уже объявленной сущности") {
+		t.Fatalf("ожидалась ошибка про коллизию перечисления с сущностью, получено: %v", err)
+	}
+}
+
+func TestAnalyzeLocalVariableShadowsEnumName(t *testing.T) {
+	// Переменная с тем же именем, что и перечисление, должна победить -
+	// "HTTPКод.поле" внутри этой области видимости - обычный FieldAccess
+	// сущности, не обращение к встроенному перечислению.
+	irProg := parseProgram(t, `
+сущность HTTPКод
+{
+    имеет:
+        поле: Целое
+}
+функция главная
+{
+    переменная HTTPКод = новый HTTPКод(1)
+    вывести HTTPКод.поле
+}
+`)
+	fn := irProg.Functions[0]
+	print := fn.Body[1].(*ir.PrintStmt)
+	if _, ok := print.Value.(*ir.FieldAccess); !ok {
+		t.Fatalf("ожидался ir.FieldAccess (обычное поле сущности, не член перечисления), получено %T", print.Value)
+	}
+}
