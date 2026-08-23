@@ -1243,6 +1243,42 @@ static char *rech_read_line_from_file(rech_file_t f, bool *ok) {
     *ok = true;
     return buf;
 }
+
+// rech_read_whole_file/rech_write_file/rech_append_file - высокоуровневые
+// обёртки без ручного открыть/прочитать(-в цикле)/закрыть (шаг 8) -
+// открывают, делают ровно одну операцию на весь файл, закрывают.
+// rech_write_whole_file - общий хвост записи/дозаписи, отличаются только
+// режимом открытия (как rech_open/rech_open_write/rech_open_append выше).
+static char *rech_read_whole_file(const char *path) {
+    rech_file_t f = rech_open_mode(path, "rb", L"rb", "прочитать_файл");
+    if (fseek(f, 0, SEEK_END) != 0 || ftell(f) < 0) {
+        rech_panic("%[2]s");
+    }
+    long size = ftell(f);
+    rewind(f);
+    char *buf = malloc((size_t)size + 1);
+    size_t n = fread(buf, 1, (size_t)size, f);
+    if (n != (size_t)size && ferror(f)) {
+        rech_panic("%[2]s");
+    }
+    buf[n] = '\0';
+    fclose(f);
+    return buf;
+}
+
+static void rech_write_whole_file(const char *path, const char *content, const char *mode, const wchar_t *wmode, const char *op) {
+    rech_file_t f = rech_open_mode(path, mode, wmode, op);
+    rech_write(f, content);
+    fclose(f);
+}
+
+static void rech_write_file(const char *path, const char *content) {
+    rech_write_whole_file(path, content, "wb", L"wb", "записать_в_файл");
+}
+
+static void rech_append_file(const char *path, const char *content) {
+    rech_write_whole_file(path, content, "ab", L"ab", "дописать_в_файл");
+}
 `, rtmsg.ReadInvalidMax, rtmsg.ReadIOFailed, rtmsg.WriteIOFailed)
 
 // synthesizeList синтезирует C typedef struct + функции для конкретной
@@ -2005,6 +2041,18 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 	case "закрыть":
 		flags.usesFileIO = true
 		return fmt.Sprintf("rech_close(%s)", args[0]), true
+	case "прочитать_файл":
+		flags.usesFileIO = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_read_whole_file(%s)", args[0]), true
+	case "записать_в_файл":
+		flags.usesFileIO = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_write_file(%s, %s)", args[0], args[1]), true
+	case "дописать_в_файл":
+		flags.usesFileIO = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_append_file(%s, %s)", args[0], args[1]), true
 	case "стандартный_ввод":
 		flags.usesFileIO = true
 		return "stdin", true

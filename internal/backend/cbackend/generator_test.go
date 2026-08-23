@@ -865,6 +865,30 @@ func TestGenerateFileBuiltinCalls(t *testing.T) {
 	}
 }
 
+func TestGenerateWholeFileBuiltinCalls(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.PrintStmt{Value: &ast.CallExpr{Callee: "прочитать_файл", Args: []ast.Expr{&ast.StringLiteral{Value: "путь"}}}},
+		&ast.ExprStmt{Call: &ast.CallExpr{Callee: "записать_в_файл", Args: []ast.Expr{&ast.StringLiteral{Value: "путь2"}, &ast.StringLiteral{Value: "текст"}}}},
+		&ast.ExprStmt{Call: &ast.CallExpr{Callee: "дописать_в_файл", Args: []ast.Expr{&ast.StringLiteral{Value: "путь3"}, &ast.StringLiteral{Value: "хвост"}}}},
+	}}
+	out, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	for _, want := range []string{
+		`rech_read_whole_file("путь")`,
+		`rech_write_file("путь2", "текст");`,
+		`rech_append_file("путь3", "хвост");`,
+		"static char *rech_read_whole_file(const char *path)",
+		"static void rech_write_file(const char *path, const char *content)",
+		"static void rech_append_file(const char *path, const char *content)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ожидалось %q в выводе, получено:\n%s", want, out)
+		}
+	}
+}
+
 func TestGenerateForEachFileLine(t *testing.T) {
 	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
 		&ast.VarDecl{Name: "ф", Value: &ast.CallExpr{Callee: "открыть", Args: []ast.Expr{&ast.StringLiteral{Value: "путь"}}}},

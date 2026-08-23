@@ -73,6 +73,20 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 	case "закрыть":
 		args[0].File.Close()
 		return Value{}, true
+	case "прочитать_файл":
+		f := in.openFile(name, args[0].S, os.O_RDONLY, 0).File
+		data, err := io.ReadAll(f)
+		f.Close()
+		if err != nil {
+			panicRuntime("%s", rtmsg.ReadIOFailed)
+		}
+		return stringValue(string(data)), true
+	case "записать_в_файл":
+		in.writeWholeFile(name, args[0].S, args[1].S, os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
+		return Value{}, true
+	case "дописать_в_файл":
+		in.writeWholeFile(name, args[0].S, args[1].S, os.O_WRONLY|os.O_CREATE|os.O_APPEND)
+		return Value{}, true
 	case "стандартный_ввод":
 		// os.Stdin напрямую, не через in.stdin (bufio.Reader, которым уже
 		// читают прочитать_строку/прочитать_целое/прочитать_число) -
@@ -114,6 +128,19 @@ func (in *Interp) openFile(name, path string, flag int, perm os.FileMode) Value 
 		panicRuntime("%s", rtmsg.OpenFailedFormat(name, path))
 	}
 	return fileValue(f)
+}
+
+// writeWholeFile - общая реализация "записать_в_файл"/"дописать_в_файл"
+// (шаг 8, высокоуровневые обёртки без ручного открыть/закрыть) - flag
+// отличает запись (обрезает существующее содержимое) от дозаписи, как и у
+// openFile выше.
+func (in *Interp) writeWholeFile(name, path, content string, flag int) {
+	f := in.openFile(name, path, flag, 0o644).File
+	n, err := f.WriteString(content)
+	f.Close()
+	if err != nil || n != len(content) {
+		panicRuntime("%s", rtmsg.WriteIOFailed)
+	}
 }
 
 // readLine читает одну строку из in.stdin, обрезая завершающий перенос

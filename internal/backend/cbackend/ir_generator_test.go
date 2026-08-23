@@ -448,3 +448,24 @@ func TestGenerateFromIRFileForEach(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerateFromIRWholeFileBuiltinCalls(t *testing.T) {
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.PrintStmt{Value: &ir.CallExpr{Callee: "прочитать_файл", Args: []ir.Expr{&ir.StringLiteral{Value: "путь"}}, Type: ir.TypeString, HasReturn: true}},
+		&ir.ExprStmt{Call: &ir.CallExpr{Callee: "записать_в_файл", Args: []ir.Expr{&ir.StringLiteral{Value: "путь2"}, &ir.StringLiteral{Value: "текст"}}}},
+		&ir.ExprStmt{Call: &ir.CallExpr{Callee: "дописать_в_файл", Args: []ir.Expr{&ir.StringLiteral{Value: "путь3"}, &ir.StringLiteral{Value: "хвост"}}}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	for _, want := range []string{
+		`rech_read_whole_file("путь")`,
+		`rech_write_file("путь2", "текст");`,
+		`rech_append_file("путь3", "хвост");`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ожидалось %q в выводе, получено:\n%s", want, out)
+		}
+	}
+}

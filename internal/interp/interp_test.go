@@ -66,7 +66,7 @@ func TestRunAllExamplesMatchCompiledOutput(t *testing.T) {
 		"коллекции/список.rech":           "3\n10\n30\n99\nложь\n10\n99\n30\n",
 		"коллекции/стопка.rech":           "истина\n3\n3\n3\n2\n1\nложь\n",
 		"основы/выражения.rech":           "Привет, Илья!\n13\n7\n30\n3\n-10\n4\nистина\nистина\nложь\nложь\nистина\nложь\nистина\n11\n",
-		"основы/файлы.rech":               "привет\n, файл\n\nистина\nпервая строка\nвторая строка\n",
+		"основы/файлы.rech":               "привет\n, файл\n\nистина\nпервая строка\nвторая строка\nперезаписано целиком\nи дописано\n\n",
 		"основы/побитовые.rech":           "7\n2\n5\n-1\n8\n8\n5\n",
 		"основы/инкремент.rech":           "5\n6\n7\n7\n8\n7\n1.5\n2.5\n",
 		"основы/привет.rech":              "Привет, мир!\n",
@@ -151,6 +151,22 @@ func TestRunFileWriteAppendAndForEachLine(t *testing.T) {
         вывести строка
     }
     закрыть(файл)
+}
+`)
+	if got != "первая\nвторая\n" {
+		t.Fatalf("получили %q, хотели \"первая\\nвторая\\n\"", got)
+	}
+}
+
+func TestRunWholeFileBuiltins(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "out.txt")
+	pathLit := strings.ReplaceAll(path, `\`, `\\`)
+	got := runSrc(t, `
+функция главная
+{
+    записать_в_файл("`+pathLit+`", "первая")
+    дописать_в_файл("`+pathLit+`", "\nвторая")
+    вывести прочитать_файл("`+pathLit+`")
 }
 `)
 	if got != "первая\nвторая\n" {
