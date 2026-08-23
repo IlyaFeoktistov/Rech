@@ -302,28 +302,16 @@ func resolveGenericTypeName(entities map[string]entitySig, methods map[string]ma
 // коллекции) - см. internal/ir, package doc. Расширяется вместе с
 // internal/backend/cbackend.GenerateFromIR подшаг за подшагом, шаг 5.
 func Analyze(prog *ast.Program) (*ir.Program, error) {
-	// Внешние функции (шаг 7, FFI) - явный, документированный пробел этого
-	// среза (docs/ROADMAP.md): interpreter (internal/interp, используется
-	// `rech test`) - чистый Go, у него нет способа вызвать произвольный
-	// C-символ без реальной динамической линковки (dlopen/dlsym), которой
-	// пока нет. `rech build`/`rech run` (cbackend.Generate, настоящий `cc`)
-	// поддерживают внешние функции полностью - это ограничение только
-	// interpreter-пути, явная ошибка вместо тихого игнорирования или паники
-	// глубже в IR.
-	if len(prog.ExternFuncs) > 0 {
-		return nil, fmt.Errorf("внешняя функция %q: внешние функции (шаг 7, FFI) пока не поддерживаются интерпретатором/`rech test` - соберите и запустите программу через `rech build`/`rech run`",
-			prog.ExternFuncs[0].Alias)
-	}
 	entities, methods, aliases, err := collectEntities(prog)
 	if err != nil {
 		return nil, err
 	}
-	funcs, err := collectFuncSigs(entities, methods, aliases, prog)
+	funcs, externFuncs, err := collectFuncSigs(entities, methods, aliases, prog)
 	if err != nil {
 		return nil, err
 	}
 
-	out := &ir.Program{}
+	out := &ir.Program{ExternFuncs: externFuncs}
 	for _, ent := range prog.Entities {
 		irEnt, err := analyzeEntity(funcs, entities, methods, aliases, ent)
 		if err != nil {
@@ -372,21 +360,21 @@ func Analyze(prog *ast.Program) (*ir.Program, error) {
 // полностью собраны (collectEntities) - функция может ссылаться на любую
 // сущность, производный тип состояния или generic-коллекцию, независимо
 // от того, где та объявлена в файле относительно функции.
-func collectFuncSigs(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, prog *ast.Program) (map[string]funcSig, error) {
+func collectFuncSigs(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, prog *ast.Program) (map[string]funcSig, []*ir.ExternFuncDecl, error) {
 	funcs := map[string]funcSig{}
 	registerBuiltinFuncs(funcs)
 	for _, fn := range prog.Functions {
 		if _, exists := funcs[fn.Name]; exists {
 			if _, isBuiltin := builtins.ByName(fn.Name); isBuiltin {
-				return nil, fmt.Errorf("функция %q - зарезервированное имя встроенной функции (шаг 8), нельзя объявить свою функцию с этим именем", fn.Name)
+				return nil, nil, fmt.Errorf("функция %q - зарезервированное имя встроенной функции, нельзя объявить свою функцию с этим именем", fn.Name)
 			}
-			return nil, fmt.Errorf("функция %q объявлена более одного раза", fn.Name)
+			return nil, nil, fmt.Errorf("функция %q объявлена более одного раза", fn.Name)
 		}
 		params := make([]ir.Type, len(fn.Params))
 		for i, p := range fn.Params {
 			typ, err := resolveTypeName(entities, methods, aliases, p.Type)
 			if err != nil {
-				return nil, fmt.Errorf("функция %q: параметр %q: %w", fn.Name, p.Name, err)
+				return nil, nil, fmt.Errorf("функция %q: параметр %q: %w", fn.Name, p.Name, err)
 			}
 			params[i] = typ
 		}
@@ -394,14 +382,82 @@ func collectFuncSigs(entities map[string]entitySig, methods map[string]map[strin
 		if fn.ReturnType != "" {
 			typ, err := resolveTypeName(entities, methods, aliases, fn.ReturnType)
 			if err != nil {
-				return nil, fmt.Errorf("функция %q: тип результата: %w", fn.Name, err)
+				return nil, nil, fmt.Errorf("функция %q: тип результата: %w", fn.Name, err)
 			}
 			sig.ReturnType = typ
 			sig.HasReturn = true
 		}
 		funcs[fn.Name] = sig
 	}
-	return funcs, nil
+
+	externFuncs, err := collectExternFuncSigs(funcs, entities, methods, aliases, prog)
+	if err != nil {
+		return nil, nil, err
+	}
+	return funcs, externFuncs, nil
+}
+
+// isFFIScalar - типы, допустимые для параметра/результата внешней функции
+// (шаг 7, FFI) - тот же принцип, что и cbackend.isFFIScalar (AST-путь):
+// ни сущности, ни generic-коллекции не имеют стабильного, задокументированного
+// C-представления, на которое мог бы полагаться сторонний C-код.
+func isFFIScalar(t ir.Type) bool {
+	switch t.Kind {
+	case ir.KindInt, ir.KindFloat, ir.KindString, ir.KindBool:
+		return true
+	default:
+		return false
+	}
+}
+
+// collectExternFuncSigs - "внешняя функция" (шаг 7, FFI): та же коллизия
+// имени с builtin/уже объявленной функцией, что и у обычных функций выше,
+// плюс проверка, что параметры/результат - один из четырёх примитивов
+// (isFFIScalar) - тот же принцип, что и cbackend.externSignatureOf
+// (AST-путь). Регистрирует Alias в funcs (для проверки вызовов), возвращает
+// []*ir.ExternFuncDecl для ir.Program.ExternFuncs - настоящий C-символ
+// (CName) для кодогенерации berёт оттуда только cbackend.GenerateFromIR,
+// семантическому анализу он не нужен.
+func collectExternFuncSigs(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, prog *ast.Program) ([]*ir.ExternFuncDecl, error) {
+	var out []*ir.ExternFuncDecl
+	for _, ext := range prog.ExternFuncs {
+		label := fmt.Sprintf("внешняя функция %q", ext.Alias)
+		if _, exists := funcs[ext.Alias]; exists {
+			if _, isBuiltin := builtins.ByName(ext.Alias); isBuiltin {
+				return nil, fmt.Errorf("%s - зарезервированное имя встроенной функции, нельзя объявить с этим именем", label)
+			}
+			return nil, fmt.Errorf("имя %q уже объявлено (как функция) - нельзя повторно объявить его как внешнюю функцию", ext.Alias)
+		}
+		params := make([]ir.Type, len(ext.Params))
+		for i, p := range ext.Params {
+			typ, err := resolveTypeName(entities, methods, aliases, p.Type)
+			if err != nil {
+				return nil, fmt.Errorf("%s: параметр %q: %w", label, p.Name, err)
+			}
+			if !isFFIScalar(typ) {
+				return nil, fmt.Errorf("%s: параметр %q имеет тип %s - у внешней функции сейчас допустимы только Целое/Число/Строка/Логическое", label, p.Name, typ)
+			}
+			params[i] = typ
+		}
+		decl := &ir.ExternFuncDecl{CName: ext.CName, Alias: ext.Alias, Params: params}
+		sig := funcSig{Params: params}
+		if ext.ReturnType != "" {
+			typ, err := resolveTypeName(entities, methods, aliases, ext.ReturnType)
+			if err != nil {
+				return nil, fmt.Errorf("%s: тип результата: %w", label, err)
+			}
+			if !isFFIScalar(typ) {
+				return nil, fmt.Errorf("%s: тип результата %s не поддерживается - у внешней функции сейчас допустимы только Целое/Число/Строка/Логическое", label, typ)
+			}
+			decl.ReturnType = typ
+			decl.HasReturn = true
+			sig.ReturnType = typ
+			sig.HasReturn = true
+		}
+		funcs[ext.Alias] = sig
+		out = append(out, decl)
+	}
+	return out, nil
 }
 
 // collectEntities - предварительный проход: поля, сигнатуры методов и

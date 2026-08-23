@@ -26,9 +26,30 @@ package ir
 
 // Program - корень IR-дерева программы.
 type Program struct {
-	Functions []*Function
-	Entities  []*Entity
-	Generics  []GenericInstantiation
+	Functions   []*Function
+	Entities    []*Entity
+	Generics    []GenericInstantiation
+	ExternFuncs []*ExternFuncDecl
+}
+
+// ExternFuncDecl соответствует "внешняя функция <CName> [как <Alias>](...)"
+// (шаг 7, FFI) - объявление сигнатуры уже существующей C-функции без тела,
+// см. ast.ExternFuncDecl. Params - только типы (без имён - C-прототип не
+// нуждается в именах параметров, а внутри Rech-программы к ним обращаются
+// только по имени параметра из AST, которое уже не нужно после того, как
+// семантический анализ проверил число/типы аргументов вызова).
+// internal/backend/cbackend.GenerateFromIR - единственный потребитель, у
+// которого это реально работает: internal/interp не умеет вызывать
+// произвольный C-символ без настоящей динамической линковки (dlopen/dlsym),
+// поэтому Run явно отказывается сам, увидев непустой ExternFuncs -
+// semantic.Analyze производит IR с ним как обычно (это ограничение только
+// interpreter-пути, не самого IR).
+type ExternFuncDecl struct {
+	CName      string
+	Alias      string
+	Params     []Type
+	ReturnType Type
+	HasReturn  bool
 }
 
 // GenericInstantiation - конкретная инстанциация встроенной generic-

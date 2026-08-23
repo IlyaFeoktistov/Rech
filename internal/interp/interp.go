@@ -194,6 +194,17 @@ type Interp struct {
 // иначе один упавший файл в "rech test" завершал бы весь прогон вместо
 // того, чтобы считаться одним неудачным тестом.
 func Run(prog *ir.Program, out io.Writer, stdin io.Reader) (err error) {
+	// Внешние функции (шаг 7, FFI) - явный, документированный пробел
+	// именно интерпретатора (docs/ROADMAP.md), не самого IR:
+	// semantic.Analyze производит ir.Program.ExternFuncs как обычно (у
+	// cbackend.GenerateFromIR это реально работает) - интерпретатор
+	// (чистый Go) не умеет вызвать произвольный C-символ без настоящей
+	// динамической линковки (dlopen/dlsym), которой пока нет, поэтому
+	// отказывается сам, здесь, а не молча игнорирует/падает глубже.
+	if len(prog.ExternFuncs) > 0 {
+		return fmt.Errorf("внешняя функция %q: внешние функции пока не поддерживаются интерпретатором/`rech test` - соберите и запустите программу через `rech build`/`rech run`",
+			prog.ExternFuncs[0].Alias)
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			if re, ok := r.(*runtimeError); ok {

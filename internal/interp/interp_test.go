@@ -580,3 +580,31 @@ func TestRunConsoleInputEOFPanics(t *testing.T) {
 		t.Fatalf("ожидалась ошибка конца ввода, получено: %v", err)
 	}
 }
+
+// TestRunRejectsExternFunc - Run сам отказывается исполнять программу с
+// внешними функциями (semantic.Analyze их производит в IR как обычно, см.
+// TestAnalyzeExternFuncBuildsIR в internal/semantic - отказ ради того, что
+// у интерпретатора нет способа вызвать произвольный C-символ без настоящей
+// динамической линковки, находится здесь, а не в Analyze).
+func TestRunRejectsExternFunc(t *testing.T) {
+	toks, err := lexer.New(`
+внешняя функция abs(n: Целое): Целое
+функция главная { вывести abs(0 - 5) }
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	irProg, err := semantic.Analyze(prog)
+	if err != nil {
+		t.Fatalf("семантический анализ: %v", err)
+	}
+	var buf bytes.Buffer
+	err = Run(irProg, &buf, strings.NewReader(""))
+	if err == nil || !strings.Contains(err.Error(), "не поддерживаются интерпретатором") {
+		t.Fatalf("ожидалась ошибка про неподдержку внешних функций интерпретатором, получено: %v", err)
+	}
+}

@@ -183,10 +183,42 @@ func TestAnalyzeBuiltinNameCollisionFails(t *testing.T) {
 	}
 }
 
-func TestAnalyzeRejectsExternFunc(t *testing.T) {
+// TestAnalyzeExternFuncBuildsIR - Analyze сам по себе успешно строит IR с
+// ExternFuncs (заполняет ir.Program.ExternFuncs, регистрирует Alias в
+// funcs) - отказ ради интерпретатора, у которого действительно нет
+// способа вызвать произвольный C-символ, находится в internal/interp.Run,
+// не здесь (см. TestRunRejectsExternFunc в internal/interp) - Analyze
+// используется и cbackend.GenerateFromIR, для которого внешние функции
+// работают полностью.
+func TestAnalyzeExternFuncBuildsIR(t *testing.T) {
+	irProg := parseProgram(t, `
+внешняя функция abs как модуль_числа(n: Целое): Целое
+функция главная { вывести модуль_числа(0 - 5) }
+`)
+	if len(irProg.ExternFuncs) != 1 {
+		t.Fatalf("ожидался 1 ExternFuncDecl, получено %d", len(irProg.ExternFuncs))
+	}
+	ext := irProg.ExternFuncs[0]
+	if ext.CName != "abs" || ext.Alias != "модуль_числа" {
+		t.Fatalf("неожиданный ExternFuncDecl: %+v", ext)
+	}
+	if !ext.HasReturn || ext.ReturnType != ir.TypeInt || len(ext.Params) != 1 || ext.Params[0] != ir.TypeInt {
+		t.Fatalf("неожиданная сигнатура ExternFuncDecl: %+v", ext)
+	}
+}
+
+// TestAnalyzeExternFuncRejectsNonScalarType - параметр/результат внешней
+// функции - только Целое/Число/Строка/Логическое (нет стабильного
+// C-представления у сущностей/generic-коллекций).
+func TestAnalyzeExternFuncRejectsNonScalarType(t *testing.T) {
 	toks, err := lexer.New(`
-внешняя функция abs(n: Целое): Целое
-функция главная { вывести abs(0 - 5) }
+сущность Точка
+{
+    имеет:
+        x: Целое
+}
+внешняя функция f(p: Точка)
+функция главная { }
 `).Tokenize()
 	if err != nil {
 		t.Fatalf("лексер: %v", err)
@@ -196,8 +228,28 @@ func TestAnalyzeRejectsExternFunc(t *testing.T) {
 		t.Fatalf("парсер: %v", err)
 	}
 	_, err = Analyze(prog)
-	if err == nil || !strings.Contains(err.Error(), "не поддерживаются интерпретатором") {
-		t.Fatalf("ожидалась ошибка про неподдержку внешних функций интерпретатором, получено: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "допустимы только") {
+		t.Fatalf("ожидалась ошибка про допустимые типы внешней функции, получено: %v", err)
+	}
+}
+
+// TestAnalyzeExternFuncCollidesWithBuiltinFails - та же коллизия имени с
+// зарезервированным builtin'ом, что и у обычной функции.
+func TestAnalyzeExternFuncCollidesWithBuiltinFails(t *testing.T) {
+	toks, err := lexer.New(`
+внешняя функция sqrt как корень(x: Число): Число
+функция главная { }
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
+	if err == nil || !strings.Contains(err.Error(), "зарезервированное имя встроенной функции") {
+		t.Fatalf("ожидалась ошибка про зарезервированное имя, получено: %v", err)
 	}
 }
 

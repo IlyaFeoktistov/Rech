@@ -17,7 +17,7 @@ func TestGenerateFromIRPrintString(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, `int main(void) {`) {
+	if !strings.Contains(out, `int main(int argc, char **argv) {`) {
 		t.Fatalf("ожидалась сигнатура main, получено:\n%s", out)
 	}
 	if !strings.Contains(out, `printf("%s\n", "Привет, мир!");`) {
@@ -368,5 +368,83 @@ func TestGenerateFromIRIncDecExpr(t *testing.T) {
 	}
 	if !strings.Contains(out, "(v_a++)") || !strings.Contains(out, "(--v_a);") {
 		t.Fatalf("ожидались C-постфикс/префикс ++/--, получено:\n%s", out)
+	}
+}
+
+// TestGenerateFromIRBuiltinMathCall - паритет с AST-путём (шаг 5): builtin
+// "корень" даёт inline C-выражение (sqrt), не вызов по имени, как обычная
+// функция программы (mangleName) - см. builtinCallCode, общий для обоих
+// путей через builtinFlags.
+func TestGenerateFromIRBuiltinMathCall(t *testing.T) {
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.PrintStmt{Value: &ir.CallExpr{Callee: "корень", Args: []ir.Expr{&ir.FloatLiteral{Value: 16}}, Type: ir.TypeFloat, HasReturn: true}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "sqrt(16") {
+		t.Fatalf("ожидался вызов sqrt, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "#include <math.h>") {
+		t.Fatalf("ожидался #include <math.h>, получено:\n%s", out)
+	}
+}
+
+// TestGenerateFromIRExternFuncCall - ir.Program.ExternFuncs даёт настоящий
+// extern-прототип и вызов по CName, не по mangleName(Alias).
+func TestGenerateFromIRExternFuncCall(t *testing.T) {
+	prog := &ir.Program{
+		ExternFuncs: []*ir.ExternFuncDecl{
+			{CName: "sqrt", Alias: "корень2", Params: []ir.Type{ir.TypeFloat}, ReturnType: ir.TypeFloat, HasReturn: true},
+		},
+		Functions: []*ir.Function{
+			{Name: "главная", Body: []ir.Stmt{
+				&ir.PrintStmt{Value: &ir.CallExpr{Callee: "корень2", Args: []ir.Expr{&ir.FloatLiteral{Value: 16}}, Type: ir.TypeFloat, HasReturn: true}},
+			}},
+		},
+	}
+	out, err := GenerateFromIR(prog)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "extern double sqrt(double);") {
+		t.Fatalf("ожидался extern-прототип sqrt, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "sqrt(16") {
+		t.Fatalf("ожидался вызов по настоящему C-имени sqrt, получено:\n%s", out)
+	}
+	if strings.Contains(out, "корень2") {
+		t.Fatalf("Rech-facing имя не должно попасть в C (только CName), получено:\n%s", out)
+	}
+}
+
+// TestGenerateFromIRFileForEach - "для <строка> в <Файл>" - отдельная,
+// потоковая форма от индексированного Список<T>.
+func TestGenerateFromIRFileForEach(t *testing.T) {
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "ф", Value: &ir.CallExpr{Callee: "открыть", Args: []ir.Expr{&ir.StringLiteral{Value: "путь"}}, Type: ir.TypeFile, HasReturn: true}},
+		&ir.ForEachStmt{
+			Var:        "строка",
+			Collection: &ir.Identifier{Name: "ф", Type: ir.TypeFile},
+			ElemType:   ir.TypeString,
+			Body: []ir.Stmt{
+				&ir.PrintStmt{Value: &ir.Identifier{Name: "строка", Type: ir.TypeString}},
+			},
+		},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	for _, want := range []string{
+		"rech_open(\"путь\")",
+		"for (;;) {",
+		"const char *v_stroka = rech_read_line_from_file(v_f, &rech_fe_ok_v_stroka);",
+		"if (!rech_fe_ok_v_stroka) { break; }",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ожидалось %q в выводе, получено:\n%s", want, out)
+		}
 	}
 }

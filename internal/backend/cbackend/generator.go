@@ -305,6 +305,50 @@ func registerBuiltins(ctx *genCtx) {
 	}
 }
 
+// builtinFlags - какие runtime-хелперы понадобились из-за вызова встроенных
+// функций (internal/builtins, шаг 8) - общий тип для genCtx (AST-путь) и
+// irGenCtx (IR-путь, ir_generator.go), чтобы builtinCallCode была ОДНОЙ
+// таблицей диспетчеризации на оба пути, не двумя независимо
+// поддерживаемыми копиями.
+type builtinFlags struct {
+	// usesStrCmp - нужен ли strcmp (встроенная "содержит" - strstr тоже из
+	// string.h, тот же заголовок; сравнение Строка "=="/"!=" вне builtin'ов
+	// само по себе также использует этот флаг, см. genBinaryExpr/
+	// generateIRBinaryExpr - тот же заголовок нужен по той же причине).
+	usesStrCmp bool
+	// usesPanic - нужен ли rech_panic (helper аварийного завершения
+	// процесса): встроенные generic-коллекции (выход за границы/операция на
+	// пустой коллекции, шаг 4.2), "утверждать" (ложное условие),
+	// целочисленное деление на ноль и большинство встроенных функций шага 8
+	// (неверный формат ввода, ошибка открытия/чтения файла, индекс
+	// аргумента вне диапазона) - все случаи используют один и тот же
+	// helper.
+	usesPanic bool
+	// usesMath - нужен ли <math.h> (встроенные функции шага 8: корень,
+	// степень, округлить, потолок, пол, модуль).
+	usesMath bool
+	// usesConsoleInput - нужны ли rech_read_line/rech_read_int/
+	// rech_read_float (встроенные функции шага 8: прочитать_строку,
+	// прочитать_целое, прочитать_число) - все три хелпера эмитятся вместе,
+	// если использован хоть один (rech_read_int/rech_read_float построены
+	// поверх rech_read_line). Подразумевает usesPanic (некорректный формат
+	// ввода/конец ввода - тот же rech_panic, что и везде).
+	usesConsoleInput bool
+	// usesFileIO - нужны ли rech_open*/rech_read/rech_write/rech_close/
+	// rech_read_line_from_file (встроенные функции шага 8: открыть*/
+	// прочитать/записать/закрыть, "для X в Файл") - платформенно-ветвящийся
+	// helper только в самом открытии файла (fopen против _wfopen), в
+	// отличие от usesConsoleInput/usesMath - те везде используют один и тот
+	// же стандартный C. Подразумевает usesPanic (ошибка открытия/чтения -
+	// тот же rech_panic).
+	usesFileIO bool
+	// usesArgs - нужна ли rech_arg (встроенная функция "аргумент") -
+	// rech_argc/rech_argv (argsGlobals) сами по себе всегда объявлены
+	// безусловно (см. argsGlobals), этот флаг - только про саму индексную
+	// функцию (нужен ей panicHelper).
+	usesArgs bool
+}
+
 // genCtx - состояние генерации одной функции: стек областей видимости
 // (шаг 2 - если/иначе/пока/для вводят вложенные блоки, как в C) и флаги
 // использованных runtime-хелперов (влияют на пролог файла).
@@ -320,41 +364,18 @@ type genCtx struct {
 	mangledScopes []map[string]string
 
 	usesConcat bool
-	usesStrCmp bool
-	// usesPanic - нужен ли rech_panic (helper аварийного завершения
-	// процесса): встроенные generic-коллекции (выход за границы/операция на
-	// пустой коллекции, шаг 4.2), "утверждать" (ложное условие) и
-	// целочисленное деление на ноль - все случаи используют один и тот же
-	// helper.
-	usesPanic bool
+	// builtinFlags - какие runtime-хелперы понадобились из-за вызова
+	// встроенных функций (internal/builtins) - общий тип с irGenCtx (IR-путь,
+	// ir_generator.go): единственная таблица диспетчеризации builtinCallCode
+	// работает для обоих путей без дублирования, embedding делает
+	// ctx.usesMath (и т. п.) доступным без явного ".builtinFlags." везде,
+	// кроме мест, которым нужен указатель на сам builtinFlags (вызов
+	// builtinCallCode).
+	builtinFlags
 	// usesIntDiv - нужен ли rech_int_div (целочисленное "/" с проверкой на
 	// ноль, в отличие от "/" между Число, где деление на 0.0 - IEEE 754
 	// +-Inf/NaN, не ошибка, и генерируется как обычный оператор C).
 	usesIntDiv bool
-	// usesMath - нужен ли <math.h> (встроенные функции шага 8: корень,
-	// степень, округлить, потолок, пол, модуль - internal/builtins).
-	usesMath bool
-	// usesConsoleInput - нужны ли rech_read_line/rech_read_int/
-	// rech_read_float (встроенные функции шага 8: прочитать_строку,
-	// прочитать_целое, прочитать_число) - все три хелпера эмитятся вместе,
-	// если использован хоть один (rech_read_int/rech_read_float построены
-	// поверх rech_read_line). Подразумевает usesPanic (некорректный формат
-	// ввода/конец ввода - тот же rech_panic, что и везде).
-	usesConsoleInput bool
-
-	// usesFileIO - нужны ли rech_open/rech_read/rech_close (встроенные
-	// функции шага 8: открыть/прочитать/закрыть) - платформенно-ветвящийся
-	// helper (POSIX open/read/close против Windows CreateFileW/ReadFile/
-	// CloseHandle), в отличие от usesConsoleInput/usesMath - те везде
-	// используют один и тот же стандартный C. Подразумевает usesPanic
-	// (ошибка открытия/чтения - тот же rech_panic).
-	usesFileIO bool
-
-	// usesArgs - нужна ли rech_arg (встроенная функция "аргумент") -
-	// rech_argc/rech_argv (argsGlobals) сами по себе всегда объявлены
-	// безусловно (см. argsGlobals), этот флаг - только про саму индексную
-	// функцию (нужен ей panicHelper).
-	usesArgs bool
 
 	// genericsCode - C-код (typedef struct + функции), синтезированный для
 	// встроенных generic-коллекций (Список/Стопка/Очередь, шаг 4.2) по мере
@@ -552,7 +573,7 @@ func Generate(prog *ast.Program) (string, error) {
 		}
 		if _, exists := ctx.funcs[fn.Name]; exists {
 			if _, isBuiltin := builtins.ByName(fn.Name); isBuiltin {
-				return "", fmt.Errorf("функция %q - зарезервированное имя встроенной функции (шаг 8), нельзя объявить свою функцию с этим именем", fn.Name)
+				return "", fmt.Errorf("функция %q - зарезервированное имя встроенной функции, нельзя объявить свою функцию с этим именем", fn.Name)
 			}
 			return "", fmt.Errorf("функция %q объявлена более одного раза", fn.Name)
 		}
@@ -579,7 +600,7 @@ func Generate(prog *ast.Program) (string, error) {
 	for _, ext := range prog.ExternFuncs {
 		if _, exists := ctx.funcs[ext.Alias]; exists {
 			if _, isBuiltin := builtins.ByName(ext.Alias); isBuiltin {
-				return "", fmt.Errorf("внешняя функция %q - зарезервированное имя встроенной функции (шаг 8), нельзя объявить с этим именем", ext.Alias)
+				return "", fmt.Errorf("внешняя функция %q - зарезервированное имя встроенной функции, нельзя объявить с этим именем", ext.Alias)
 			}
 			return "", fmt.Errorf("имя %q уже объявлено (как функция) - нельзя повторно объявить его как внешнюю функцию", ext.Alias)
 		}
@@ -769,11 +790,11 @@ func externSignatureOf(ctx *genCtx, fn *ast.ExternFuncDecl) (funcSig, error) {
 	}
 	for i, typ := range sig.ParamTypes {
 		if !isFFIScalar(typ) {
-			return funcSig{}, fmt.Errorf("%s: параметр %q имеет тип %s - внешней функции (шаг 7) сейчас допустимы только Целое/Число/Строка/Логическое", label, fn.Params[i].Name, typ)
+			return funcSig{}, fmt.Errorf("%s: параметр %q имеет тип %s - у внешней функции сейчас допустимы только Целое/Число/Строка/Логическое", label, fn.Params[i].Name, typ)
 		}
 	}
 	if sig.HasReturn && !isFFIScalar(sig.ReturnType) {
-		return funcSig{}, fmt.Errorf("%s: тип результата %s не поддерживается - внешней функции (шаг 7) сейчас допустимы только Целое/Число/Строка/Логическое", label, sig.ReturnType)
+		return funcSig{}, fmt.Errorf("%s: тип результата %s не поддерживается - у внешней функции сейчас допустимы только Целое/Число/Строка/Логическое", label, sig.ReturnType)
 	}
 	return sig, nil
 }
@@ -1912,7 +1933,7 @@ func genCall(ctx *genCtx, e *ast.CallExpr) (string, funcSig, error) {
 		}
 		argCodes[i] = code
 	}
-	if code, ok := builtinCallCode(ctx, e.Callee, argCodes); ok {
+	if code, ok := builtinCallCode(&ctx.builtinFlags, e.Callee, argCodes); ok {
 		return code, sig, nil
 	}
 	callee := mangleName(e.Callee)
@@ -1929,80 +1950,80 @@ func genCall(ctx *genCtx, e *ast.CallExpr) (string, funcSig, error) {
 // требует usesPanic - некорректный формат ввода/конец ввода паникуют).
 // ok == false - name не встроенная функция, вызывающий код использует
 // обычный путь (mangleName).
-func builtinCallCode(ctx *genCtx, name string, args []string) (string, bool) {
+func builtinCallCode(flags *builtinFlags, name string, args []string) (string, bool) {
 	switch name {
 	case "корень":
-		ctx.usesMath = true
+		flags.usesMath = true
 		return fmt.Sprintf("sqrt(%s)", args[0]), true
 	case "степень":
-		ctx.usesMath = true
+		flags.usesMath = true
 		return fmt.Sprintf("pow(%s, %s)", args[0], args[1]), true
 	case "округлить":
-		ctx.usesMath = true
+		flags.usesMath = true
 		return fmt.Sprintf("(long long)llround(%s)", args[0]), true
 	case "потолок":
-		ctx.usesMath = true
+		flags.usesMath = true
 		return fmt.Sprintf("(long long)ceil(%s)", args[0]), true
 	case "пол":
-		ctx.usesMath = true
+		flags.usesMath = true
 		return fmt.Sprintf("(long long)floor(%s)", args[0]), true
 	case "модуль":
-		ctx.usesMath = true
+		flags.usesMath = true
 		return fmt.Sprintf("fabs(%s)", args[0]), true
 	case "прочитать_строку":
-		ctx.usesConsoleInput = true
-		ctx.usesPanic = true
+		flags.usesConsoleInput = true
+		flags.usesPanic = true
 		return "rech_read_line()", true
 	case "прочитать_целое":
-		ctx.usesConsoleInput = true
-		ctx.usesPanic = true
+		flags.usesConsoleInput = true
+		flags.usesPanic = true
 		return "rech_read_int()", true
 	case "прочитать_число":
-		ctx.usesConsoleInput = true
-		ctx.usesPanic = true
+		flags.usesConsoleInput = true
+		flags.usesPanic = true
 		return "rech_read_float()", true
 	case "открыть":
-		ctx.usesFileIO = true
-		ctx.usesPanic = true
+		flags.usesFileIO = true
+		flags.usesPanic = true
 		return fmt.Sprintf("rech_open(%s)", args[0]), true
 	case "открыть_для_записи":
-		ctx.usesFileIO = true
-		ctx.usesPanic = true
+		flags.usesFileIO = true
+		flags.usesPanic = true
 		return fmt.Sprintf("rech_open_write(%s)", args[0]), true
 	case "открыть_для_дозаписи":
-		ctx.usesFileIO = true
-		ctx.usesPanic = true
+		flags.usesFileIO = true
+		flags.usesPanic = true
 		return fmt.Sprintf("rech_open_append(%s)", args[0]), true
 	case "прочитать":
-		ctx.usesFileIO = true
-		ctx.usesPanic = true
+		flags.usesFileIO = true
+		flags.usesPanic = true
 		return fmt.Sprintf("rech_read(%s, %s)", args[0], args[1]), true
 	case "записать":
-		ctx.usesFileIO = true
-		ctx.usesPanic = true
+		flags.usesFileIO = true
+		flags.usesPanic = true
 		return fmt.Sprintf("rech_write(%s, %s)", args[0], args[1]), true
 	case "закрыть":
-		ctx.usesFileIO = true
+		flags.usesFileIO = true
 		return fmt.Sprintf("rech_close(%s)", args[0]), true
 	case "стандартный_ввод":
-		ctx.usesFileIO = true
+		flags.usesFileIO = true
 		return "stdin", true
 	case "стандартный_вывод":
-		ctx.usesFileIO = true
+		flags.usesFileIO = true
 		return "stdout", true
 	case "стандартный_вывод_ошибок":
-		ctx.usesFileIO = true
+		flags.usesFileIO = true
 		return "stderr", true
 	case "количество_аргументов":
 		return "(rech_argc - 1)", true
 	case "аргумент":
-		ctx.usesArgs = true
-		ctx.usesPanic = true
+		flags.usesArgs = true
+		flags.usesPanic = true
 		return fmt.Sprintf("rech_arg(%s)", args[0]), true
 	case "содержит":
 		// usesStrCmp - тот же флаг, что и у "==" между Строка (см. ниже) -
 		// оба нужны исключительно за <string.h>, здесь - за strstr.
-		ctx.usesStrCmp = true
+		flags.usesStrCmp = true
 		return fmt.Sprintf("(strstr(%s, %s) != NULL)", args[0], args[1]), true
 	default:
 		return "", false

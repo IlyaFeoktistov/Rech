@@ -40,16 +40,22 @@ import (
 // backend'е заново).
 type irGenCtx struct {
 	usesConcat bool
-	usesStrCmp bool
-	// usesPanic - нужен ли rech_panic - "утверждать" с ложным условием и
-	// целочисленное деление на ноль (generic-коллекции сами по себе учтены
-	// отдельно через usesGenerics/prog.Generics в GenerateFromIR, не через
-	// этот флаг).
-	usesPanic bool
+	// builtinFlags - общий с genCtx (AST-путь, generator.go) тип - см. его
+	// package doc: единая таблица диспетчеризации builtinCallCode на оба
+	// пути. usesPanic из неё же покрывает и "утверждать"/деление на ноль
+	// (generic-коллекции сами по себе учтены отдельно через usesGenerics/
+	// prog.Generics в GenerateFromIR, не через этот флаг).
+	builtinFlags
 	// usesIntDiv - нужен ли rech_int_div (см. cbackend.genArithmetic).
 	usesIntDiv bool
 	entities   map[string]*ir.Entity
-	thisEntity string
+	// externCNames - Rech-facing имя (Alias) внешней функции -> настоящий
+	// C-символ (CName), из prog.ExternFuncs - тем же принципом, что и
+	// ctx.externCNames в AST-пути (generator.go): CallExpr.Callee несёт
+	// Alias, вызывается по CName, не по mangleName(Alias) (тот не имеет
+	// отношения к настоящему символу).
+	externCNames map[string]string
+	thisEntity   string
 }
 
 // GenerateFromIR возвращает исходник на C, соответствующий программе prog.
@@ -57,6 +63,10 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	entities := map[string]*ir.Entity{}
 	for _, ent := range prog.Entities {
 		entities[ent.Name] = ent
+	}
+	externCNames := map[string]string{}
+	for _, ext := range prog.ExternFuncs {
+		externCNames[ext.Alias] = ext.CName
 	}
 
 	var typedefs strings.Builder
@@ -88,6 +98,9 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	}
 
 	var protos strings.Builder
+	for _, ext := range prog.ExternFuncs {
+		protos.WriteString(externPrototypeOfIR(ext))
+	}
 	for _, ent := range prog.Entities {
 		for _, m := range ent.Methods {
 			fmt.Fprintf(&protos, "%s %s(%s);\n", cReturnTypeFor(m.HasReturn, m.ReturnType), mangleMethod(ent.Name, m.Name), cMethodParamListIR(ent.Name, m.Params))
@@ -106,7 +119,7 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	}
 
 	var body strings.Builder
-	ctx := &irGenCtx{entities: entities}
+	ctx := &irGenCtx{entities: entities, externCNames: externCNames}
 	for _, ent := range prog.Entities {
 		for _, m := range ent.Methods {
 			mCode, err := generateIRMethod(ctx, ent.Name, m)
@@ -128,12 +141,23 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	sb.WriteString("// Автоматически сгенерировано компилятором rech. Не редактировать руками.\n")
 	sb.WriteString("#include <stdio.h>\n")
 	sb.WriteString("#include <stdbool.h>\n")
-	if ctx.usesConcat || ctx.usesStrCmp {
+	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO {
 		sb.WriteString("#include <string.h>\n")
 	}
-	if ctx.usesConcat || usesGenerics || ctx.usesPanic {
+	if ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO {
 		sb.WriteString("#include <stdlib.h>\n")
 	}
+	if ctx.usesMath {
+		sb.WriteString("#include <math.h>\n")
+	}
+	// windows.h/shellapi.h - см. cbackend.Generate (AST-путь, тот же
+	// принцип без дублирования преамбулы: rech_init_console/rech_init_args
+	// нужны безусловно, файловый ввод-вывод - за MultiByteToWideChar).
+	sb.WriteString("#ifdef _WIN32\n#include <windows.h>\n#include <shellapi.h>\n#endif\n")
+	sb.WriteString("\n")
+	sb.WriteString(consoleInitHelper)
+	sb.WriteString("\n")
+	sb.WriteString(argsGlobals)
 	sb.WriteString("\n")
 	if ctx.usesConcat {
 		sb.WriteString(strConcatHelper)
@@ -143,8 +167,20 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 		sb.WriteString(panicHelper)
 		sb.WriteString("\n")
 	}
+	if ctx.usesArgs {
+		sb.WriteString(argFuncHelper)
+		sb.WriteString("\n")
+	}
 	if ctx.usesIntDiv {
 		sb.WriteString(intDivHelper)
+		sb.WriteString("\n")
+	}
+	if ctx.usesConsoleInput {
+		sb.WriteString(readHelpers)
+		sb.WriteString("\n")
+	}
+	if ctx.usesFileIO {
+		sb.WriteString(fileHelpers)
 		sb.WriteString("\n")
 	}
 	if typedefs.Len() > 0 {
@@ -199,6 +235,23 @@ func cParamListIR(params []ir.Param) string {
 	return strings.Join(parts, ", ")
 }
 
+// externPrototypeOfIR - "extern <тип> <CName>(<типы>);" для внешней
+// функции - без имён параметров (в отличие от cbackend.externPrototypeOf,
+// AST-путь): C допускает анонимные параметры в прототипе, а сами имена
+// параметров Rech после семантического анализа уже не нужны ни для чего,
+// кроме сообщений об ошибках, которые уже показаны на этапе Analyze.
+func externPrototypeOfIR(ext *ir.ExternFuncDecl) string {
+	cReturnType := "void"
+	if ext.HasReturn {
+		cReturnType = fromIRType(ext.ReturnType).cType()
+	}
+	types := make([]string, len(ext.Params))
+	for i, p := range ext.Params {
+		types[i] = fromIRType(p).cType()
+	}
+	return fmt.Sprintf("extern %s %s(%s);\n", cReturnType, ext.CName, strings.Join(types, ", "))
+}
+
 // cMethodParamListIR - как cParamListIR, но с обязательным скрытым первым
 // параметром "Тип *this_" (получатель по указателю, как и в AST-пути) -
 // у метода он есть всегда, поэтому в отличие от cParamListIR/
@@ -215,7 +268,21 @@ func cMethodParamListIR(entityName string, params []ir.Param) string {
 func generateIRFunction(ctx *irGenCtx, fn *ir.Function) (string, error) {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "// %s\n", fn.Name)
-	fmt.Fprintf(&sb, "%s %s(%s) {\n", cReturnTypeFor(fn.HasReturn, fn.ReturnType), mangleName(fn.Name), cParamListIR(fn.Params))
+	cName := mangleName(fn.Name)
+	paramList := cParamListIR(fn.Params)
+	if cName == "main" {
+		// "главная" всегда получает настоящую C-сигнатуру main(int argc,
+		// char **argv) - как и в AST-пути (generateCallable) - количество_
+		// аргументов/аргумент читают их из глобальных rech_argc/rech_argv
+		// (argsGlobals), вызываемых из любой функции программы, не только
+		// из главная.
+		paramList = "int argc, char **argv"
+	}
+	fmt.Fprintf(&sb, "%s %s(%s) {\n", cReturnTypeFor(fn.HasReturn, fn.ReturnType), cName, paramList)
+	if cName == "main" {
+		sb.WriteString("    rech_init_console();\n")
+		sb.WriteString("    rech_init_args(argc, argv);\n")
+	}
 	for _, s := range fn.Body {
 		if err := generateIRStmt(&sb, ctx, s, 1); err != nil {
 			return "", err
@@ -387,9 +454,30 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 		return nil
 
 	case *ir.ForEachStmt:
-		collCode, _, err := generateIRExpr(ctx, s.Collection)
+		collCode, collType, err := generateIRExpr(ctx, s.Collection)
 		if err != nil {
 			return err
+		}
+		// "для <строка> в <Файл>" - потоковое построчное чтение, отдельная
+		// форма от индексированного Список<T> ниже - файл не известной
+		// заранее длины (тот же принцип, что и в cbackend.generateStmt,
+		// AST-путь).
+		if collType == typeFile {
+			ctx.usesFileIO = true
+			ctx.usesPanic = true
+			varC := mangleVar(s.Var)
+			okC := "rech_fe_ok_" + varC
+			fmt.Fprintf(sb, "%sfor (;;) {\n", ind)
+			fmt.Fprintf(sb, "%sbool %s = false;\n", indent(depth+1), okC)
+			fmt.Fprintf(sb, "%sconst char *%s = rech_read_line_from_file(%s, &%s);\n", indent(depth+1), varC, collCode, okC)
+			fmt.Fprintf(sb, "%sif (!%s) { break; }\n", indent(depth+1), okC)
+			for _, st := range s.Body {
+				if err := generateIRStmt(sb, ctx, st, depth+1); err != nil {
+					return err
+				}
+			}
+			fmt.Fprintf(sb, "%s}\n", ind)
+			return nil
 		}
 		varC := mangleVar(s.Var)
 		idxC := "rech_fe_i_" + varC
@@ -450,7 +538,17 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 			}
 			argCodes[i] = code
 		}
-		return fmt.Sprintf("%s(%s)", mangleName(e.Callee), strings.Join(argCodes, ", ")), fromIRType(e.Type), nil
+		// Порядок проверки - тот же, что и в cbackend.genCall (AST-путь):
+		// builtin (inline C-выражение) -> внешняя функция (настоящий
+		// C-символ, не mangleName) -> обычная функция программы.
+		if code, ok := builtinCallCode(&ctx.builtinFlags, e.Callee, argCodes); ok {
+			return code, fromIRType(e.Type), nil
+		}
+		callee := mangleName(e.Callee)
+		if cName, ok := ctx.externCNames[e.Callee]; ok {
+			callee = cName
+		}
+		return fmt.Sprintf("%s(%s)", callee, strings.Join(argCodes, ", ")), fromIRType(e.Type), nil
 
 	case *ir.NewExpr:
 		return generateIRNewExpr(ctx, e)
@@ -631,6 +729,8 @@ func fromIRType(t ir.Type) valueType {
 		return typeFloat
 	case ir.KindBool:
 		return typeBool
+	case ir.KindFile:
+		return typeFile
 	case ir.KindEntity:
 		return entityType(t.Entity)
 	default:
