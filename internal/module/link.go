@@ -84,6 +84,16 @@ func (p *Program) Link() (*ast.Program, error) {
 				}
 			}
 		}
+		for _, ext := range m.AST.ExternFuncs {
+			if err := r.rewriteParams(ext.Params); err != nil {
+				return nil, fmt.Errorf("%s: внешняя функция %q: %w", m.Path, ext.Alias, err)
+			}
+			resolved, err := r.rewriteReturnType(ext.ReturnType)
+			if err != nil {
+				return nil, fmt.Errorf("%s: внешняя функция %q: тип результата: %w", m.Path, ext.Alias, err)
+			}
+			ext.ReturnType = resolved
+		}
 
 		// Переименование собственных объявлений m - после переписывания тел
 		// выше (rewriter резолвит по ИСХОДНЫМ, ещё не переименованным именам
@@ -101,6 +111,12 @@ func (p *Program) Link() (*ast.Program, error) {
 					ent.States[i].TypeName = mangledName(m, p.Entry, ent.States[i].TypeName)
 				}
 			}
+			// ExternFuncDecl.Alias переименовывается тем же принципом - CName
+			// (настоящий C-символ) не трогается, переименовывается только
+			// Rech-facing имя, под которым функция видна в остальном коде.
+			for _, ext := range m.AST.ExternFuncs {
+				ext.Alias = mangledName(m, p.Entry, ext.Alias)
+			}
 		}
 	}
 
@@ -108,6 +124,7 @@ func (p *Program) Link() (*ast.Program, error) {
 	for _, m := range p.Modules {
 		merged.Functions = append(merged.Functions, m.AST.Functions...)
 		merged.Entities = append(merged.Entities, m.AST.Entities...)
+		merged.ExternFuncs = append(merged.ExternFuncs, m.AST.ExternFuncs...)
 	}
 	return merged, nil
 }

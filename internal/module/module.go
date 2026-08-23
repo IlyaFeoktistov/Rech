@@ -112,6 +112,9 @@ func declaredNames(prog *ast.Program) map[string]bool {
 	for _, ent := range prog.Entities {
 		names[ent.Name] = true
 	}
+	for _, ext := range prog.ExternFuncs {
+		names[ext.Alias] = true
+	}
 	return names
 }
 

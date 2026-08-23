@@ -147,6 +147,24 @@ func TestAnalyzeBuiltinNameCollisionFails(t *testing.T) {
 	}
 }
 
+func TestAnalyzeRejectsExternFunc(t *testing.T) {
+	toks, err := lexer.New(`
+внешняя функция abs(n: Целое): Целое
+функция главная { вывести abs(0 - 5) }
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
+	if err == nil || !strings.Contains(err.Error(), "не поддерживаются интерпретатором") {
+		t.Fatalf("ожидалась ошибка про неподдержку внешних функций интерпретатором, получено: %v", err)
+	}
+}
+
 func TestAnalyzeUndeclaredVariableFails(t *testing.T) {
 	toks, err := lexer.New(`
 функция главная

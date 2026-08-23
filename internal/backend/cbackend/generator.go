@@ -345,6 +345,14 @@ type genCtx struct {
 	// читается при разборе вызовов.
 	funcs map[string]funcSig
 
+	// externCNames - Rech-facing имя (ExternFuncDecl.Alias) -> настоящий
+	// C-символ (ExternFuncDecl.CName), шаг 7 (FFI). genCall смотрит сюда
+	// раньше, чем применить обычный mangleName - внешняя функция вызывается
+	// по её реальному C-имени напрямую, а не по транслитерации Rech-имени
+	// (у неё и так уже есть готовый, стабильный C ABI - линковщик должен
+	// найти именно этот символ в libc/libm).
+	externCNames map[string]string
+
 	// entities - сигнатуры всех сущностей программы (entitySig), собранные
 	// до генерации тел - по тем же причинам, что и funcs.
 	entities map[string]entitySig
@@ -427,7 +435,7 @@ func indent(depth int) string {
 
 // Generate возвращает исходник на C, соответствующий программе prog.
 func Generate(prog *ast.Program) (string, error) {
-	ctx := &genCtx{funcs: map[string]funcSig{}, entities: map[string]entitySig{}, methods: map[string]map[string]funcSig{}, stateAliases: map[string]string{}}
+	ctx := &genCtx{funcs: map[string]funcSig{}, entities: map[string]entitySig{}, methods: map[string]map[string]funcSig{}, stateAliases: map[string]string{}, externCNames: map[string]string{}}
 	registerBuiltins(ctx)
 
 	// funcMangled - устойчивое мангирование имён функций (шаг 3.5):
@@ -536,11 +544,35 @@ func Generate(prog *ast.Program) (string, error) {
 		return "", fmt.Errorf("в программе не найдена функция %q - она служит точкой входа", entryPointName)
 	}
 
+	// Внешние функции (шаг 7, FFI) - регистрируются тем же принципом, что и
+	// обычные функции выше (коллизия имени с builtin/уже объявленной функцией
+	// - та же ошибка), но без mangleName/funcMangled: у внешней функции уже
+	// есть готовый, стабильный C-символ (CName), транслитерация Rech-имени
+	// (Alias) к нему не имеет отношения - коллизии транслитерации в принципе
+	// невозможны там, где сам C-символ не выводится из Rech-имени.
+	for _, ext := range prog.ExternFuncs {
+		if _, exists := ctx.funcs[ext.Alias]; exists {
+			if _, isBuiltin := builtins.ByName(ext.Alias); isBuiltin {
+				return "", fmt.Errorf("внешняя функция %q - зарезервированное имя встроенной функции (шаг 8), нельзя объявить с этим именем", ext.Alias)
+			}
+			return "", fmt.Errorf("имя %q уже объявлено (как функция) - нельзя повторно объявить его как внешнюю функцию", ext.Alias)
+		}
+		sig, err := externSignatureOf(ctx, ext)
+		if err != nil {
+			return "", err
+		}
+		ctx.funcs[ext.Alias] = sig
+		ctx.externCNames[ext.Alias] = ext.CName
+	}
+
 	// Прототипы (forward declarations) для всех функций, кроме точки входа -
 	// иначе функции, вызывающие друг друга в порядке, отличном от порядка
 	// объявления в исходнике (включая взаимную рекурсию), не собрались бы в
 	// C: компилятору C нужно видеть сигнатуру функции до места вызова.
 	var protos strings.Builder
+	for _, ext := range prog.ExternFuncs {
+		protos.WriteString(externPrototypeOf(ext, ctx.funcs[ext.Alias]))
+	}
 	for _, fn := range prog.Functions {
 		if fn.Name == entryPointName {
 			continue
@@ -652,6 +684,63 @@ func methodSignatureOf(ctx *genCtx, ent *ast.EntityDecl, m *ast.MethodDecl) (fun
 	}
 	sig.Private = m.Private
 	return sig, nil
+}
+
+// isFFIScalar - типы, допустимые для параметра/результата внешней функции
+// в этом срезе шага 7 (docs/ROADMAP.md): только четыре встроенных
+// примитива. Ни сущности, ни generic-коллекции (обе - kindEntity) не имеют
+// стабильного, задокументированного C-представления, на которое мог бы
+// полагаться сторонний C-код - в отличие от valueType.cType() у примитивов
+// (int64_t/double/const char */bool), это деталь реализации Rech, которая
+// может измениться.
+func isFFIScalar(t valueType) bool {
+	switch t.kind {
+	case kindInt, kindFloat, kindString, kindBool:
+		return true
+	default:
+		return false
+	}
+}
+
+// externSignatureOf выводит funcSig внешней функции (шаг 7, FFI) -
+// signatureFromDecl плюс проверка, что каждый параметр и тип результата (если
+// он объявлен) - один из четырёх примитивов (isFFIScalar): у внешней функции
+// нет тела, которое cbackend мог бы сгенерировать сам, поэтому неверно
+// объявленный тип (например, сущность) не поймать иначе, чем явной проверкой
+// здесь - С-компилятор потом просто доверится нашему собственному extern-
+// прототипу (externPrototypeOf), не имея доступа к настоящему заголовку
+// функции.
+func externSignatureOf(ctx *genCtx, fn *ast.ExternFuncDecl) (funcSig, error) {
+	label := fmt.Sprintf("внешняя функция %q", fn.Alias)
+	sig, err := signatureFromDecl(ctx, label, fn.Params, fn.ReturnType)
+	if err != nil {
+		return funcSig{}, err
+	}
+	for i, typ := range sig.ParamTypes {
+		if !isFFIScalar(typ) {
+			return funcSig{}, fmt.Errorf("%s: параметр %q имеет тип %s - внешней функции (шаг 7) сейчас допустимы только Целое/Число/Строка/Логическое", label, fn.Params[i].Name, typ)
+		}
+	}
+	if sig.HasReturn && !isFFIScalar(sig.ReturnType) {
+		return funcSig{}, fmt.Errorf("%s: тип результата %s не поддерживается - внешней функции (шаг 7) сейчас допустимы только Целое/Число/Строка/Логическое", label, sig.ReturnType)
+	}
+	return sig, nil
+}
+
+// externPrototypeOf формирует C forward declaration внешней функции - в
+// отличие от prototypeOf, использует настоящий C-символ (fn.CName), не
+// mangleName(fn.Alias), и "void" вместо технической заглушки "int" для
+// необъявленного типа результата: в отличие от Rech-функций (где "int" -
+// заглушка под "return 0" в конце сгенерированного тела, см. prototypeOf),
+// у внешней функции тела нет - если Rech-объявление не называет тип
+// результата, значит настоящая C-функция ничего не возвращает (void), и
+// прототип должен говорить об этом честно.
+func externPrototypeOf(fn *ast.ExternFuncDecl, sig funcSig) string {
+	cReturnType := "void"
+	if sig.HasReturn {
+		cReturnType = sig.ReturnType.cType()
+	}
+	return fmt.Sprintf("extern %s %s(%s);\n", cReturnType, fn.CName, cParamList(fn.Params, sig.ParamTypes))
 }
 
 // combineParamList добавляет extraParam (скрытый первый параметр this_ у
@@ -1536,7 +1625,11 @@ func genCall(ctx *genCtx, e *ast.CallExpr) (string, funcSig, error) {
 	if code, ok := builtinCallCode(ctx, e.Callee, argCodes); ok {
 		return code, sig, nil
 	}
-	return fmt.Sprintf("%s(%s)", mangleName(e.Callee), strings.Join(argCodes, ", ")), sig, nil
+	callee := mangleName(e.Callee)
+	if cName, ok := ctx.externCNames[e.Callee]; ok {
+		callee = cName
+	}
+	return fmt.Sprintf("%s(%s)", callee, strings.Join(argCodes, ", ")), sig, nil
 }
 
 // builtinCallCode генерирует C-вызов встроенной функции (internal/builtins,

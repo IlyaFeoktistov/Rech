@@ -16,9 +16,10 @@ type Node interface {
 // Program - корень дерева: список объявленных функций и сущностей одного
 // файла, плюс импорты из других файлов (шаг 11).
 type Program struct {
-	Functions []*FunctionDecl
-	Entities  []*EntityDecl
-	Uses      []*UseDecl
+	Functions   []*FunctionDecl
+	Entities    []*EntityDecl
+	Uses        []*UseDecl
+	ExternFuncs []*ExternFuncDecl
 }
 
 func (*Program) node() {}
@@ -52,6 +53,31 @@ type UseName struct {
 	Alias string
 	Line  int
 }
+
+// ExternFuncDecl соответствует конструкции (шаг 7, FFI):
+//
+//	внешняя функция <ИмяC> [как <Псевдоним>](<парам>: <Тип>, ...): <ТипВозврата>
+//
+// Объявление сигнатуры уже существующей C-функции без тела - реализация
+// уже есть (libc/libm, которые компилятор и так безусловно линкует, см.
+// internal/toolchain), нужно только описать её сигнатуру на границе с C
+// ABI. CName - настоящее имя C-функции (так, как она объявлена в её
+// собственном заголовке); Alias - имя, под которым функция доступна
+// остальному коду Rech (Alias == CName, если "как <псевдоним>" не
+// написано - тот же принцип переименования, что и у UseName). Ограничения
+// этого среза (docs/ROADMAP.md, Шаг 7): нет "из библиотеки ..." - только
+// то, что уже слинковано (libc/libm); типы параметров и результата -
+// только Целое/Число/Строка/Логическое (backend, не парсер, отвергает
+// сущности/generic-коллекции здесь).
+type ExternFuncDecl struct {
+	CName      string
+	Alias      string
+	Params     []Param
+	ReturnType string // "" - функция ничего не возвращает (C void)
+	Line       int
+}
+
+func (*ExternFuncDecl) node() {}
 
 // EntityDecl соответствует конструкции:
 //

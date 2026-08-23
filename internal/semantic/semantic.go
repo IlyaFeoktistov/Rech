@@ -296,6 +296,18 @@ func resolveGenericTypeName(entities map[string]entitySig, methods map[string]ma
 // коллекции) - см. internal/ir, package doc. Расширяется вместе с
 // internal/backend/cbackend.GenerateFromIR подшаг за подшагом, шаг 5.
 func Analyze(prog *ast.Program) (*ir.Program, error) {
+	// Внешние функции (шаг 7, FFI) - явный, документированный пробел этого
+	// среза (docs/ROADMAP.md): interpreter (internal/interp, используется
+	// `rech test`) - чистый Go, у него нет способа вызвать произвольный
+	// C-символ без реальной динамической линковки (dlopen/dlsym), которой
+	// пока нет. `rech build`/`rech run` (cbackend.Generate, настоящий `cc`)
+	// поддерживают внешние функции полностью - это ограничение только
+	// interpreter-пути, явная ошибка вместо тихого игнорирования или паники
+	// глубже в IR.
+	if len(prog.ExternFuncs) > 0 {
+		return nil, fmt.Errorf("внешняя функция %q: внешние функции (шаг 7, FFI) пока не поддерживаются интерпретатором/`rech test` - соберите и запустите программу через `rech build`/`rech run`",
+			prog.ExternFuncs[0].Alias)
+	}
 	entities, methods, aliases, err := collectEntities(prog)
 	if err != nil {
 		return nil, err

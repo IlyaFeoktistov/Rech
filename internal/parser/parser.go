@@ -198,31 +198,38 @@ func (p *Parser) collectFunctionSignatures() error {
 
 	sigs := map[string][]ast.Param{}
 	for p.cur().Type != lexer.EOF {
-		if p.cur().Type != lexer.KwFunction {
-			p.advance()
-			continue
-		}
-		p.advance() // "функция"
-		name, err := p.expect(lexer.IDENT)
-		if err != nil {
-			return fmt.Errorf("после \"функция\" ожидалось имя функции: %w", err)
-		}
-		var params []ast.Param
-		if p.cur().Type == lexer.LPAREN {
-			params, err = p.parseParams()
+		switch p.cur().Type {
+		case lexer.KwFunction:
+			p.advance() // "функция"
+			name, err := p.expect(lexer.IDENT)
 			if err != nil {
-				return fmt.Errorf("в списке параметров функции %q: %w", name.Value, err)
+				return fmt.Errorf("после \"функция\" ожидалось имя функции: %w", err)
 			}
-		}
-		if p.cur().Type == lexer.COLON {
+			var params []ast.Param
+			if p.cur().Type == lexer.LPAREN {
+				params, err = p.parseParams()
+				if err != nil {
+					return fmt.Errorf("в списке параметров функции %q: %w", name.Value, err)
+				}
+			}
+			if p.cur().Type == lexer.COLON {
+				p.advance()
+				if _, err := p.parseTypeName(); err != nil {
+					return fmt.Errorf("после \":\" у функции %q ожидалось имя типа результата: %w", name.Value, err)
+				}
+			}
+			sigs[name.Value] = params
+			if err := p.skipFunctionBody(); err != nil {
+				return err
+			}
+		case lexer.KwExternal:
+			ext, err := p.parseExternFuncDecl()
+			if err != nil {
+				return err
+			}
+			sigs[ext.Alias] = ext.Params
+		default:
 			p.advance()
-			if _, err := p.parseTypeName(); err != nil {
-				return fmt.Errorf("после \":\" у функции %q ожидалось имя типа результата: %w", name.Value, err)
-			}
-		}
-		sigs[name.Value] = params
-		if err := p.skipFunctionBody(); err != nil {
-			return err
 		}
 	}
 	p.funcParams = sigs
@@ -294,6 +301,12 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 				return nil, err
 			}
 			prog.Uses = append(prog.Uses, use)
+		case lexer.KwExternal:
+			ext, err := p.parseExternFuncDecl()
+			if err != nil {
+				return nil, err
+			}
+			prog.ExternFuncs = append(prog.ExternFuncs, ext)
 		default:
 			stmt, err := p.parseStatement()
 			if err != nil {
@@ -314,7 +327,7 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 		}
 		prog.Functions = append(prog.Functions, &ast.FunctionDecl{Name: entryPointName, Body: topLevelStmts})
 	}
-	if len(prog.Functions) == 0 {
+	if len(prog.Functions) == 0 && len(prog.ExternFuncs) == 0 {
 		return nil, fmt.Errorf("программа не содержит ни одной функции")
 	}
 	return prog, nil
@@ -408,6 +421,59 @@ func (p *Parser) parseUseDecl() (*ast.UseDecl, error) {
 		return nil, fmt.Errorf("после \"из\" ожидался путь строковым литералом: %w", err)
 	}
 	return &ast.UseDecl{Names: names, Path: path.Value, Line: kw.Line}, nil
+}
+
+// parseExternFuncDecl разбирает "внешняя функция <ИмяC> [как <Псевдоним>]
+// (<парам>: <Тип>, ...) [: <ТипВозврата>]" (шаг 7, FFI) - объявление без
+// тела: реализация - уже существующий C-символ ИмяC. "как" - тот же
+// принцип переименования, что и у "использовать" (parseUseDecl) - без него
+// Alias == ИмяC. Проверка допустимости типов параметров/результата (только
+// Целое/Число/Строка/Логическое в этом срезе) - в backend'е, не здесь, тем
+// же принципом, что и у обычных функций (см. заголовочный комментарий
+// cbackend/generator.go).
+func (p *Parser) parseExternFuncDecl() (*ast.ExternFuncDecl, error) {
+	kw, err := p.expect(lexer.KwExternal)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := p.expect(lexer.KwFunction); err != nil {
+		return nil, fmt.Errorf("после %q ожидалось \"функция\": %w", kw.Value, err)
+	}
+	cName, err := p.expect(lexer.IDENT)
+	if err != nil {
+		return nil, fmt.Errorf("после \"внешняя функция\" ожидалось имя C-функции: %w", err)
+	}
+	alias := cName.Value
+	if p.cur().Type == lexer.KwAs {
+		p.advance() // "как"
+		aliasTok, err := p.expect(lexer.IDENT)
+		if err != nil {
+			return nil, fmt.Errorf("после \"как\" ожидался псевдоним: %w", err)
+		}
+		alias = aliasTok.Value
+	}
+	if alias == entryPointName {
+		return nil, fmt.Errorf("строка %d: %q - точка входа программы, внешняя функция не может так называться", kw.Line, entryPointName)
+	}
+
+	var params []ast.Param
+	if p.cur().Type == lexer.LPAREN {
+		params, err = p.parseParams()
+		if err != nil {
+			return nil, fmt.Errorf("в списке параметров внешней функции %q: %w", alias, err)
+		}
+	}
+
+	returnType := ""
+	if p.cur().Type == lexer.COLON {
+		p.advance()
+		returnType, err = p.parseTypeName()
+		if err != nil {
+			return nil, fmt.Errorf("после \":\" у внешней функции %q ожидалось имя типа результата: %w", alias, err)
+		}
+	}
+
+	return &ast.ExternFuncDecl{CName: cName.Value, Alias: alias, Params: params, ReturnType: returnType, Line: kw.Line}, nil
 }
 
 // parseStatesSection разбирает "состояние:" и краткие формы состояний,

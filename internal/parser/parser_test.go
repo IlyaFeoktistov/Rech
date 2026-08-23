@@ -125,6 +125,67 @@ func TestParseFunctionWithoutParamsStillWorks(t *testing.T) {
 	}
 }
 
+func TestParseExternFuncDecl(t *testing.T) {
+	prog, err := parseSource(t, `
+внешняя функция sqrt как корень2(x: Число): Число
+функция главная { вывести корень2(4.0) }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if len(prog.ExternFuncs) != 1 {
+		t.Fatalf("ожидалась одна внешняя функция, получено: %d", len(prog.ExternFuncs))
+	}
+	ext := prog.ExternFuncs[0]
+	if ext.CName != "sqrt" || ext.Alias != "корень2" {
+		t.Fatalf("CName/Alias не совпадают с ожидаемыми: %+v", ext)
+	}
+	if len(ext.Params) != 1 || ext.Params[0].Type != "Число" || ext.ReturnType != "Число" {
+		t.Fatalf("параметры/тип результата разобраны неверно: %+v", ext)
+	}
+}
+
+func TestParseExternFuncDeclWithoutAliasUsesCName(t *testing.T) {
+	prog, err := parseSource(t, `
+внешняя функция strlen(текст: Строка): Целое
+функция главная { вывести strlen("привет") }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	ext := prog.ExternFuncs[0]
+	if ext.CName != "strlen" || ext.Alias != "strlen" {
+		t.Fatalf("без \"как\" Alias должен совпадать с CName: %+v", ext)
+	}
+}
+
+func TestParseExternFuncDeclWithoutReturnType(t *testing.T) {
+	prog, err := parseSource(t, `
+внешняя функция srand(семя: Целое)
+функция главная { srand(1) }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if prog.ExternFuncs[0].ReturnType != "" {
+		t.Fatalf("ожидался пустой тип результата, получено: %q", prog.ExternFuncs[0].ReturnType)
+	}
+}
+
+func TestParseExternFuncDeclCannotBeEntryPoint(t *testing.T) {
+	_, err := parseSource(t, `внешняя функция exit как главная(код: Целое)`)
+	if err == nil || !strings.Contains(err.Error(), "точка входа") {
+		t.Fatalf("ожидалась ошибка про точку входа, получено: %v", err)
+	}
+}
+
+func TestParseExternFuncDeclRequiresFunctionKeyword(t *testing.T) {
+	_, err := parseSource(t, `внешняя sqrt(x: Число): Число`)
+	if err == nil {
+		t.Fatalf("ожидалась ошибка отсутствия \"функция\"")
+	}
+}
+
 func TestParseCallExprAsExpression(t *testing.T) {
 	prog, err := parseSource(t, `
 функция главная {

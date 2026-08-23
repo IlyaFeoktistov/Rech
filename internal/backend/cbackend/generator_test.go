@@ -853,6 +853,75 @@ func TestGenerateBuiltinNameCollisionFails(t *testing.T) {
 	}
 }
 
+func TestGenerateExternFuncCallUsesRealCName(t *testing.T) {
+	ext := &ast.ExternFuncDecl{
+		CName:      "sqrt",
+		Alias:      "корень2",
+		Params:     []ast.Param{{Name: "x", Type: "Число"}},
+		ReturnType: "Число",
+	}
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.PrintStmt{Value: &ast.CallExpr{Callee: "корень2", Args: []ast.Expr{&ast.FloatLiteral{Value: 16}}}},
+	}}
+	out, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}, ExternFuncs: []*ast.ExternFuncDecl{ext}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "extern double sqrt(double v_x);") {
+		t.Fatalf("ожидался extern-прототип по настоящему C-имени, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "sqrt(16") {
+		t.Fatalf("ожидался вызов по настоящему C-имени sqrt, а не по мангл-имени Alias, получено:\n%s", out)
+	}
+	if strings.Contains(out, "korenq") || strings.Contains(out, "koren2") {
+		t.Fatalf("вызов не должен использовать транслитерацию Alias, получено:\n%s", out)
+	}
+}
+
+func TestGenerateExternFuncWithoutReturnTypeUsesVoid(t *testing.T) {
+	ext := &ast.ExternFuncDecl{CName: "srand", Alias: "srand", Params: []ast.Param{{Name: "семя", Type: "Целое"}}}
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.ExprStmt{Call: &ast.CallExpr{Callee: "srand", Args: []ast.Expr{&ast.IntLiteral{Value: 1}}}},
+	}}
+	out, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}, ExternFuncs: []*ast.ExternFuncDecl{ext}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "extern void srand(long long v_semya);") {
+		t.Fatalf("ожидался void-прототип (нет объявленного типа результата), получено:\n%s", out)
+	}
+}
+
+func TestGenerateExternFuncRejectsNonScalarType(t *testing.T) {
+	ent := &ast.EntityDecl{Name: "Точка", Fields: []ast.Field{{Name: "x", Type: "Целое"}}}
+	ext := &ast.ExternFuncDecl{CName: "foo", Alias: "foo", Params: []ast.Param{{Name: "p", Type: "Точка"}}}
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{&ast.PrintStmt{Value: &ast.IntLiteral{Value: 1}}}}
+	_, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}, Entities: []*ast.EntityDecl{ent}, ExternFuncs: []*ast.ExternFuncDecl{ext}})
+	if err == nil || !strings.Contains(err.Error(), "только Целое/Число/Строка/Логическое") {
+		t.Fatalf("ожидалась ошибка про допустимые типы FFI, получено: %v", err)
+	}
+}
+
+func TestGenerateExternFuncCollidesWithBuiltinFails(t *testing.T) {
+	ext := &ast.ExternFuncDecl{CName: "sqrt", Alias: "корень", Params: []ast.Param{{Name: "x", Type: "Число"}}, ReturnType: "Число"}
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{&ast.PrintStmt{Value: &ast.IntLiteral{Value: 1}}}}
+	_, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}, ExternFuncs: []*ast.ExternFuncDecl{ext}})
+	if err == nil || !strings.Contains(err.Error(), "зарезервированное имя встроенной функции") {
+		t.Fatalf("ожидалась ошибка про зарезервированное имя, получено: %v", err)
+	}
+}
+
+func TestGenerateExternFuncCollidesWithUserFunctionFails(t *testing.T) {
+	ext := &ast.ExternFuncDecl{CName: "abs", Alias: "сложить", Params: []ast.Param{{Name: "n", Type: "Целое"}}, ReturnType: "Целое"}
+	slozhit := &ast.FunctionDecl{Name: "сложить", Params: []ast.Param{{Name: "a", Type: "Целое"}, {Name: "b", Type: "Целое"}}, ReturnType: "Целое",
+		Body: []ast.Stmt{&ast.ReturnStmt{Value: &ast.BinaryExpr{Op: "+", Left: &ast.Identifier{Name: "a"}, Right: &ast.Identifier{Name: "b"}}}}}
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{&ast.PrintStmt{Value: &ast.IntLiteral{Value: 1}}}}
+	_, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{slozhit, main}, ExternFuncs: []*ast.ExternFuncDecl{ext}})
+	if err == nil || !strings.Contains(err.Error(), "уже объявлено") {
+		t.Fatalf("ожидалась ошибка про уже занятое имя, получено: %v", err)
+	}
+}
+
 func TestGenerateAssertStmtValidCondition(t *testing.T) {
 	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
 		&ast.AssertStmt{Cond: &ast.BoolLiteral{Value: true}},

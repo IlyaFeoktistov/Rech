@@ -256,6 +256,7 @@ func (c *Compiler) parseDir(dirPath string) (*ast.Program, error) {
 		}
 		merged.Functions = append(merged.Functions, prog.Functions...)
 		merged.Entities = append(merged.Entities, prog.Entities...)
+		merged.ExternFuncs = append(merged.ExternFuncs, prog.ExternFuncs...)
 	}
 	return merged, nil
 }

@@ -209,3 +209,33 @@ func TestLinkRenamesOnImport(t *testing.T) {
 		t.Fatalf("неожиданная ошибка (разные псевдонимы не должны сталкиваться): %v", err)
 	}
 }
+
+func TestLinkImportsExternFuncPreservingCNameButRenamingAlias(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "математика.rech", "внешняя функция sqrt как корень(x: Число): Число\n")
+	entry := writeFile(t, dir, "главный.rech",
+		"использовать корень как корень2 из \"математика\"\n\nфункция главная\n{\n    вывести корень2(9.0)\n}\n")
+
+	loaded, err := Load(entry, testFrontend{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	merged, err := loaded.Link()
+	if err != nil {
+		t.Fatalf("Link: %v", err)
+	}
+	if len(merged.ExternFuncs) != 1 {
+		t.Fatalf("ожидалась одна внешняя функция в слитой программе, получено: %d", len(merged.ExternFuncs))
+	}
+	ext := merged.ExternFuncs[0]
+	if ext.CName != "sqrt" {
+		t.Fatalf("настоящий C-символ не должен переименовываться при линковке, получено: %q", ext.CName)
+	}
+	if ext.Alias != "Математика_корень" {
+		t.Fatalf("Alias импортируемого модуля переименовывается по mangledName (Qualifier_имя), получено: %q", ext.Alias)
+	}
+	call := merged.Functions[0].Body[0].(*ast.PrintStmt).Value.(*ast.CallExpr)
+	if call.Callee != ext.Alias {
+		t.Fatalf("вызов в главном файле должен резолвиться на мангл-имя внешней функции %q, получено: %q", ext.Alias, call.Callee)
+	}
+}
