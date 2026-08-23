@@ -46,11 +46,27 @@ func TestRunAllExamplesMatchCompiledOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("abs: %v", err)
 	}
+	// "открыть" в основы/файлы.rech читает путь относительно рабочего
+	// каталога процесса (как и настоящий rech run) - тесты по умолчанию
+	// запускаются с рабочим каталогом самого пакета, а не корня репозитория,
+	// поэтому здесь он временно переключается на корень репозитория (тот же
+	// каталог, откуда "rech run" ожидается запущенным - см. комментарий в
+	// самом примере).
+	repoRoot := filepath.Dir(root)
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repoRoot); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWD) })
 	cases := map[string]string{
 		"коллекции/очередь.rech":          "истина\n3\n1\n1\n2\n1\nложь\n",
 		"коллекции/список.rech":           "3\n10\n30\n99\nложь\n10\n99\n30\n",
 		"коллекции/стопка.rech":           "истина\n3\n3\n3\n2\n1\nложь\n",
 		"основы/выражения.rech":           "Привет, Илья!\n13\n7\n30\n3\n-10\n4\nистина\nистина\nложь\nложь\nистина\nложь\nистина\n11\n",
+		"основы/файлы.rech":               "привет\n, файл\n\nистина\n",
 		"основы/побитовые.rech":           "7\n2\n5\n-1\n8\n8\n5\n",
 		"основы/инкремент.rech":           "5\n6\n7\n7\n8\n7\n1.5\n2.5\n",
 		"основы/привет.rech":              "Привет, мир!\n",
@@ -76,6 +92,39 @@ func TestRunAllExamplesMatchCompiledOutput(t *testing.T) {
 				t.Fatalf("вывод не совпадает с эталонным (скомпилированным) -\nхотели:\n%q\nполучили:\n%q", want, got)
 			}
 		})
+	}
+}
+
+// TestRunFileReadPastEOFReturnsEmptyString - открыть/прочитать/закрыть
+// (шаг 8, файловый ввод-вывод) через временный файл, не зависящий от
+// examples/ (в отличие от TestRunAllExamplesMatchCompiledOutput выше) -
+// повторное "прочитать" после конца файла должно возвращать "" каждый раз,
+// не панику (в отличие от прочитать_строку/прочитать_целое/прочитать_число
+// на конце стандартного ввода).
+func TestRunFileReadPastEOFReturnsEmptyString(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "rech-file-*.txt")
+	if err != nil {
+		t.Fatalf("создать временный файл: %v", err)
+	}
+	if _, err := f.WriteString("ab"); err != nil {
+		t.Fatalf("записать во временный файл: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("закрыть временный файл: %v", err)
+	}
+	path := strings.ReplaceAll(f.Name(), `\`, `\\`)
+	got := runSrc(t, `
+функция главная
+{
+    переменная ф = открыть("`+path+`")
+    вывести прочитать(ф, 1)
+    вывести прочитать(ф, 10)
+    вывести прочитать(ф, 10)
+    закрыть(ф)
+}
+`)
+	if got != "a\nb\n\n" {
+		t.Fatalf("получили %q, хотели \"a\\nb\\n\\n\"", got)
 	}
 }
 
@@ -387,9 +436,9 @@ func TestRunConsoleInputBuiltins(t *testing.T) {
 	got := runSrcWithInput(t, `
 функция главная
 {
-    переменная имя = прочитатьСтроку()
-    переменная возраст = прочитатьЦелое()
-    переменная рост = прочитатьЧисло()
+    переменная имя = прочитать_строку()
+    переменная возраст = прочитать_целое()
+    переменная рост = прочитать_число()
     вывести имя
     вывести возраст
     вывести рост
@@ -405,7 +454,7 @@ func TestRunConsoleInputInvalidIntFormatPanics(t *testing.T) {
 	toks, err := lexer.New(`
 функция главная
 {
-    переменная х = прочитатьЦелое()
+    переменная х = прочитать_целое()
 }
 `).Tokenize()
 	if err != nil {
@@ -430,7 +479,7 @@ func TestRunConsoleInputEOFPanics(t *testing.T) {
 	toks, err := lexer.New(`
 функция главная
 {
-    переменная х = прочитатьСтроку()
+    переменная х = прочитать_строку()
 }
 `).Tokenize()
 	if err != nil {

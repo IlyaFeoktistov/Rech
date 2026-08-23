@@ -126,6 +126,42 @@ func TestAnalyzeBuiltinFunctionCallResolves(t *testing.T) {
 	}
 }
 
+func TestAnalyzeFileBuiltinsResolve(t *testing.T) {
+	irProg := parseProgram(t, `
+функция главная
+{
+    переменная ф = открыть("данные.txt")
+    переменная кусок = прочитать(ф, 10)
+    вывести кусок
+    закрыть(ф)
+}
+`)
+	if len(irProg.Functions) != 1 {
+		t.Fatalf("ожидалась 1 функция, получено %d", len(irProg.Functions))
+	}
+}
+
+func TestAnalyzeFileCallAsExpressionFails(t *testing.T) {
+	toks, err := lexer.New(`
+функция главная
+{
+    переменная ф = открыть("данные.txt")
+    вывести закрыть(ф)
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
+	if err == nil || !strings.Contains(err.Error(), "нельзя использовать как выражение") {
+		t.Fatalf("ожидалась ошибка про использование функции без результата как выражения, получено: %v", err)
+	}
+}
+
 func TestAnalyzeBuiltinNameCollisionFails(t *testing.T) {
 	toks, err := lexer.New(`
 функция корень(x: Целое): Целое

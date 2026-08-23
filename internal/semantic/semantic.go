@@ -45,6 +45,8 @@ func builtinIRType(k builtins.Kind) ir.Type {
 		return ir.TypeFloat
 	case builtins.KindString:
 		return ir.TypeString
+	case builtins.KindFile:
+		return ir.TypeFile
 	default:
 		return ir.Type{}
 	}
@@ -60,7 +62,7 @@ func registerBuiltinFuncs(funcs map[string]funcSig) {
 		for i, k := range f.Params {
 			params[i] = builtinIRType(k)
 		}
-		funcs[f.Name] = funcSig{Params: params, ReturnType: builtinIRType(f.ReturnKind), HasReturn: true}
+		funcs[f.Name] = funcSig{Params: params, ReturnType: builtinIRType(f.ReturnKind), HasReturn: f.HasReturn}
 	}
 }
 
@@ -200,6 +202,8 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 		return ir.TypeFloat, nil
 	case "Логическое":
 		return ir.TypeBool, nil
+	case "Файл":
+		return ir.TypeFile, nil
 	}
 	if _, ok := entities[name]; ok {
 		return ir.EntityType(name), nil

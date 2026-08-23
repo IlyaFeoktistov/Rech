@@ -825,7 +825,7 @@ func TestGenerateMathBuiltinCall(t *testing.T) {
 
 func TestGenerateConsoleInputBuiltinCall(t *testing.T) {
 	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
-		&ast.PrintStmt{Value: &ast.CallExpr{Callee: "прочитатьСтроку"}},
+		&ast.PrintStmt{Value: &ast.CallExpr{Callee: "прочитать_строку"}},
 	}}
 	out, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
 	if err != nil {
@@ -836,6 +836,29 @@ func TestGenerateConsoleInputBuiltinCall(t *testing.T) {
 	}
 	if !strings.Contains(out, "static char *rech_read_line(void)") {
 		t.Fatalf("ожидалось определение rech_read_line, получено:\n%s", out)
+	}
+}
+
+func TestGenerateFileBuiltinCalls(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "ф", Value: &ast.CallExpr{Callee: "открыть", Args: []ast.Expr{&ast.StringLiteral{Value: "путь"}}}},
+		&ast.PrintStmt{Value: &ast.CallExpr{Callee: "прочитать", Args: []ast.Expr{&ast.Identifier{Name: "ф"}, &ast.IntLiteral{Value: 10}}}},
+		&ast.ExprStmt{Call: &ast.CallExpr{Callee: "закрыть", Args: []ast.Expr{&ast.Identifier{Name: "ф"}}}},
+	}}
+	out, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	for _, want := range []string{
+		"rech_open(\"путь\")", "rech_read(v_f, 10LL)", "rech_close(v_f);",
+		"#ifdef _WIN32\n#include <windows.h>\n#else\n#include <fcntl.h>\n#include <unistd.h>\n#endif",
+		"typedef HANDLE rech_file_t;", "typedef int rech_file_t;",
+		"CreateFileW(", "ReadFile(", "CloseHandle(",
+		"open(path, O_RDONLY)", "read(f, buf,", "close(f);",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ожидалось %q в выводе, получено:\n%s", want, out)
+		}
 	}
 }
 

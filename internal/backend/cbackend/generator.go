@@ -104,6 +104,10 @@ const (
 	kindFloat
 	kindBool
 	kindEntity
+	// kindFile - непрозрачный дескриптор открытого файла (шаг 8, файловый
+	// ввод-вывод) - представление в C разное по платформе (int/HANDLE), см.
+	// valueType.cType и преамбулу typedef rech_file_t в Generate.
+	kindFile
 )
 
 // valueType - тип значения выражения, выведенный во время генерации C-кода.
@@ -124,6 +128,7 @@ var (
 	typeInt     = valueType{kind: kindInt}
 	typeFloat   = valueType{kind: kindFloat}
 	typeBool    = valueType{kind: kindBool}
+	typeFile    = valueType{kind: kindFile}
 )
 
 // entityType возвращает valueType, соответствующий значению сущности name.
@@ -142,6 +147,7 @@ var typeNames = map[valueType]string{
 	typeInt:    "Целое",
 	typeFloat:  "Число",
 	typeBool:   "Логическое",
+	typeFile:   "Файл",
 }
 
 func (t valueType) String() string {
@@ -240,6 +246,8 @@ func (t valueType) cType() string {
 		return "double"
 	case typeBool:
 		return "bool"
+	case typeFile:
+		return "rech_file_t"
 	default:
 		return "void *"
 	}
@@ -273,6 +281,8 @@ func builtinValueType(k builtins.Kind) valueType {
 		return typeFloat
 	case builtins.KindString:
 		return typeString
+	case builtins.KindFile:
+		return typeFile
 	default:
 		return typeUnknown
 	}
@@ -289,7 +299,7 @@ func registerBuiltins(ctx *genCtx) {
 		for i, k := range f.Params {
 			params[i] = builtinValueType(k)
 		}
-		ctx.funcs[f.Name] = funcSig{ParamTypes: params, ReturnType: builtinValueType(f.ReturnKind), HasReturn: true}
+		ctx.funcs[f.Name] = funcSig{ParamTypes: params, ReturnType: builtinValueType(f.ReturnKind), HasReturn: f.HasReturn}
 	}
 }
 
@@ -323,12 +333,20 @@ type genCtx struct {
 	// степень, округлить, потолок, пол, модуль - internal/builtins).
 	usesMath bool
 	// usesConsoleInput - нужны ли rech_read_line/rech_read_int/
-	// rech_read_float (встроенные функции шага 8: прочитатьСтроку,
-	// прочитатьЦелое, прочитатьЧисло) - все три хелпера эмитятся вместе,
+	// rech_read_float (встроенные функции шага 8: прочитать_строку,
+	// прочитать_целое, прочитать_число) - все три хелпера эмитятся вместе,
 	// если использован хоть один (rech_read_int/rech_read_float построены
 	// поверх rech_read_line). Подразумевает usesPanic (некорректный формат
 	// ввода/конец ввода - тот же rech_panic, что и везде).
 	usesConsoleInput bool
+
+	// usesFileIO - нужны ли rech_open/rech_read/rech_close (встроенные
+	// функции шага 8: открыть/прочитать/закрыть) - платформенно-ветвящийся
+	// helper (POSIX open/read/close против Windows CreateFileW/ReadFile/
+	// CloseHandle), в отличие от usesConsoleInput/usesMath - те везде
+	// используют один и тот же стандартный C. Подразумевает usesPanic
+	// (ошибка открытия/чтения - тот же rech_panic).
+	usesFileIO bool
 
 	// genericsCode - C-код (typedef struct + функции), синтезированный для
 	// встроенных generic-коллекций (Список/Стопка/Очередь, шаг 4.2) по мере
@@ -612,6 +630,9 @@ func Generate(prog *ast.Program) (string, error) {
 	if ctx.usesMath {
 		sb.WriteString("#include <math.h>\n")
 	}
+	if ctx.usesFileIO {
+		sb.WriteString("#ifdef _WIN32\n#include <windows.h>\n#else\n#include <fcntl.h>\n#include <unistd.h>\n#endif\n")
+	}
 	sb.WriteString("\n")
 	if ctx.usesConcat {
 		sb.WriteString(strConcatHelper)
@@ -627,6 +648,10 @@ func Generate(prog *ast.Program) (string, error) {
 	}
 	if ctx.usesConsoleInput {
 		sb.WriteString(readHelpers)
+		sb.WriteString("\n")
+	}
+	if ctx.usesFileIO {
+		sb.WriteString(fileHelpers)
 		sb.WriteString("\n")
 	}
 	if typedefs.Len() > 0 {
@@ -894,13 +919,13 @@ var intDivHelper = fmt.Sprintf(`static long long rech_int_div(long long a, long 
 }
 `, rtmsg.DivisionByZero)
 
-// readHelpers - прочитатьСтроку/прочитатьЦелое/прочитатьЧисло (шаг 8, без
+// readHelpers - прочитать_строку/прочитать_целое/прочитать_число (шаг 8, без
 // FFI - стандартный ввод есть у любой программы). rech_read_line
 // намеренно не использует POSIX-only getline (шаг 8 явно требует
 // кроссплатформенности, docs/ROADMAP.md) - растущий буфer поверх обычного
 // fgets, доступного в любом C. Каждый вызов возвращает новый malloc'нутый
 // буфер (как rech_str_concat) - статический/переиспользуемый буфер был бы
-// багом: две переменные, каждая из своего вызова прочитатьСтроку, не
+// багом: две переменные, каждая из своего вызова прочитать_строку, не
 // должны делить память. rech_read_int/rech_read_float построены поверх
 // rech_read_line - разбирают ровно всю строку (strtoll/strtod плюс
 // проверка, что *end == '\0', как и в других местах разбора чисел) и
@@ -955,7 +980,7 @@ static long long rech_read_int(void) {
     long long v = strtoll(line, &end, 10);
     if (end == line || *end != '\0') {
         char msg[256];
-        snprintf(msg, sizeof(msg), "прочитатьЦелое: \"%%s\" не является целым числом", line);
+        snprintf(msg, sizeof(msg), "прочитать_целое: \"%%s\" не является целым числом", line);
         rech_panic(msg);
     }
     return v;
@@ -967,12 +992,86 @@ static double rech_read_float(void) {
     double v = strtod(line, &end);
     if (end == line || *end != '\0') {
         char msg[256];
-        snprintf(msg, sizeof(msg), "прочитатьЧисло: \"%%s\" не является числом", line);
+        snprintf(msg, sizeof(msg), "прочитать_число: \"%%s\" не является числом", line);
         rech_panic(msg);
     }
     return v;
 }
 `, rtmsg.ReadEOF)
+
+// fileHelpers - открыть/прочитать/закрыть (шаг 8, низкоуровневый файловый
+// ввод-вывод, только чтение в этом срезе). Единственное место во всей
+// генерации C, где реально расходится системный вызов по платформе -
+// разные заголовки (windows.h против fcntl.h/unistd.h, см. Generate) и
+// разные функции (CreateFileW/ReadFile/CloseHandle против open/read/close),
+// в отличие от readHelpers/math-обёрток выше, которым достаточно обычного
+// стандартного C. rech_file_t - typedef, скрывающий это различие
+// (HANDLE/int) от остального сгенерированного кода - valueType.typeFile
+// всегда печатается как "rech_file_t", независимо от платформы сборки.
+// Путь - Rech "Строка", то есть UTF-8 (const char *) - на Windows его нужно
+// перекодировать в UTF-16 перед CreateFileW, которая, в отличие от POSIX
+// open, не принимает байтовые пути напрямую. "прочитать_целое"-подобного
+// разбора здесь нет - сообщение об ошибке открытия строится в самом
+// C-коде (snprintf с настоящим путём), должно совпадать байт-в-байт с
+// rtmsg.OpenFailedFormat (см. internal/interp/builtins.go).
+var fileHelpers = fmt.Sprintf(`#ifdef _WIN32
+typedef HANDLE rech_file_t;
+#else
+typedef int rech_file_t;
+#endif
+
+static rech_file_t rech_open(const char *path) {
+#ifdef _WIN32
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, path, -1, NULL, 0);
+    wchar_t *wpath = malloc((size_t)wlen * sizeof(wchar_t));
+    MultiByteToWideChar(CP_UTF8, 0, path, -1, wpath, wlen);
+    HANDLE h = CreateFileW(wpath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    free(wpath);
+    if (h == INVALID_HANDLE_VALUE) {
+        char msg[512];
+        snprintf(msg, sizeof(msg), "открыть: не удалось открыть файл \"%%s\"", path);
+        rech_panic(msg);
+    }
+    return h;
+#else
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) {
+        char msg[512];
+        snprintf(msg, sizeof(msg), "открыть: не удалось открыть файл \"%%s\"", path);
+        rech_panic(msg);
+    }
+    return fd;
+#endif
+}
+
+static char *rech_read(rech_file_t f, long long max) {
+    if (max <= 0) {
+        rech_panic("%[1]s");
+    }
+    char *buf = malloc((size_t)max + 1);
+#ifdef _WIN32
+    DWORD n = 0;
+    if (!ReadFile(f, buf, (DWORD)max, &n, NULL)) {
+        rech_panic("%[2]s");
+    }
+#else
+    ssize_t n = read(f, buf, (size_t)max);
+    if (n < 0) {
+        rech_panic("%[2]s");
+    }
+#endif
+    buf[n] = '\0';
+    return buf;
+}
+
+static void rech_close(rech_file_t f) {
+#ifdef _WIN32
+    CloseHandle(f);
+#else
+    close(f);
+#endif
+}
+`, rtmsg.ReadInvalidMax, rtmsg.ReadIOFailed)
 
 // synthesizeList синтезирует C typedef struct + функции для конкретной
 // инстанциации "Список<T>" (name, например "Список<Целое>") и регистрирует
@@ -1659,18 +1758,29 @@ func builtinCallCode(ctx *genCtx, name string, args []string) (string, bool) {
 	case "модуль":
 		ctx.usesMath = true
 		return fmt.Sprintf("fabs(%s)", args[0]), true
-	case "прочитатьСтроку":
+	case "прочитать_строку":
 		ctx.usesConsoleInput = true
 		ctx.usesPanic = true
 		return "rech_read_line()", true
-	case "прочитатьЦелое":
+	case "прочитать_целое":
 		ctx.usesConsoleInput = true
 		ctx.usesPanic = true
 		return "rech_read_int()", true
-	case "прочитатьЧисло":
+	case "прочитать_число":
 		ctx.usesConsoleInput = true
 		ctx.usesPanic = true
 		return "rech_read_float()", true
+	case "открыть":
+		ctx.usesFileIO = true
+		ctx.usesPanic = true
+		return fmt.Sprintf("rech_open(%s)", args[0]), true
+	case "прочитать":
+		ctx.usesFileIO = true
+		ctx.usesPanic = true
+		return fmt.Sprintf("rech_read(%s, %s)", args[0], args[1]), true
+	case "закрыть":
+		ctx.usesFileIO = true
+		return fmt.Sprintf("rech_close(%s)", args[0]), true
 	default:
 		return "", false
 	}

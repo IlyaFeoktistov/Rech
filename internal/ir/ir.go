@@ -261,6 +261,9 @@ const (
 	KindFloat
 	KindBool
 	KindEntity
+	// KindFile - непрозрачный дескриптор открытого файла (шаг 8, файловый
+	// ввод-вывод) - без операторов, как и KindString.
+	KindFile
 )
 
 // Type - тип значения выражения IR, уже разрешённый семантическим анализом
@@ -279,6 +282,7 @@ var (
 	TypeInt     = Type{Kind: KindInt}
 	TypeFloat   = Type{Kind: KindFloat}
 	TypeBool    = Type{Kind: KindBool}
+	TypeFile    = Type{Kind: KindFile}
 )
 
 // EntityType возвращает Type, соответствующий значению сущности name.
@@ -299,6 +303,8 @@ func (t Type) String() string {
 		return "Число"
 	case KindBool:
 		return "Логическое"
+	case KindFile:
+		return "Файл"
 	default:
 		return "неизвестный тип"
 	}

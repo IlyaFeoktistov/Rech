@@ -33,6 +33,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
@@ -70,12 +71,14 @@ type Value struct {
 	S    string
 	B    bool
 	Obj  *entityObj // непусто только при Type.Kind == ir.KindEntity
+	File *os.File   // непусто только при Type.Kind == ir.KindFile
 }
 
 func intValue(v int64) Value     { return Value{Type: ir.TypeInt, I: v} }
 func floatValue(v float64) Value { return Value{Type: ir.TypeFloat, F: v} }
 func stringValue(v string) Value { return Value{Type: ir.TypeString, S: v} }
 func boolValue(v bool) Value     { return Value{Type: ir.TypeBool, B: v} }
+func fileValue(f *os.File) Value { return Value{Type: ir.TypeFile, File: f} }
 
 // cloneValue - применяет значение-копирующую семантику сущностей (шаг 4,
 // docs/SPEC.md, "Сущности - значения") в момент "коммита" в новое хранилище
@@ -173,7 +176,7 @@ type Interp struct {
 }
 
 // Run исполняет prog: находит "главная" и выполняет её тело, печатая
-// "вывести" в out и читая прочитатьСтроку/прочитатьЦелое/прочитатьЧисло
+// "вывести" в out и читая прочитать_строку/прочитать_целое/прочитать_число
 // (шаг 8, internal/builtins) из stdin. Возвращает error и в случае ошибки
 // компиляции (в prog нет точки входа - не должно происходить, если prog
 // прошёл internal/semantic.Analyze, но Run не полагается на это слепо), и
