@@ -66,7 +66,7 @@ func TestRunAllExamplesMatchCompiledOutput(t *testing.T) {
 		"коллекции/список.rech":           "3\n10\n30\n99\nложь\n10\n99\n30\n",
 		"коллекции/стопка.rech":           "истина\n3\n3\n3\n2\n1\nложь\n",
 		"основы/выражения.rech":           "Привет, Илья!\n13\n7\n30\n3\n-10\n4\nистина\nистина\nложь\nложь\nистина\nложь\nистина\n11\n",
-		"основы/файлы.rech":               "привет\n, файл\n\nистина\n",
+		"основы/файлы.rech":               "привет\n, файл\n\nистина\nпервая строка\nвторая строка\n",
 		"основы/побитовые.rech":           "7\n2\n5\n-1\n8\n8\n5\n",
 		"основы/инкремент.rech":           "5\n6\n7\n7\n8\n7\n1.5\n2.5\n",
 		"основы/привет.rech":              "Привет, мир!\n",
@@ -125,6 +125,87 @@ func TestRunFileReadPastEOFReturnsEmptyString(t *testing.T) {
 `)
 	if got != "a\nb\n\n" {
 		t.Fatalf("получили %q, хотели \"a\\nb\\n\\n\"", got)
+	}
+}
+
+// TestRunFileWriteAppendAndForEachLine - открыть_для_записи (обрезает),
+// открыть_для_дозаписи (дописывает в конец) и "для <строка> в <Файл>"
+// (потоковое построчное чтение, шаг 8) через один и тот же временный файл.
+func TestRunFileWriteAppendAndForEachLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "out.txt")
+	pathLit := strings.ReplaceAll(path, `\`, `\\`)
+	got := runSrc(t, `
+функция главная
+{
+    переменная запись = открыть_для_записи("`+pathLit+`")
+    записать(запись, "первая\n")
+    закрыть(запись)
+
+    переменная дозапись = открыть_для_дозаписи("`+pathLit+`")
+    записать(дозапись, "вторая\n")
+    закрыть(дозапись)
+
+    переменная файл = открыть("`+pathLit+`")
+    для строка в файле
+    {
+        вывести строка
+    }
+    закрыть(файл)
+}
+`)
+	if got != "первая\nвторая\n" {
+		t.Fatalf("получили %q, хотели \"первая\\nвторая\\n\"", got)
+	}
+}
+
+func TestRunContainsBuiltin(t *testing.T) {
+	got := runSrc(t, `
+функция главная
+{
+    вывести содержит("привет мир", "мир")
+    вывести содержит("привет мир", "нет")
+}
+`)
+	if got != "истина\nложь\n" {
+		t.Fatalf("получили %q, хотели \"истина\\nложь\\n\"", got)
+	}
+}
+
+// TestRunArgsBuiltinsHaveNoProgramArgs - "rech test" не передаёт
+// интерпретируемой программе аргументов - "количество_аргументов" всегда
+// 0, "аргумент" любого индекса паникует диапазоном.
+func TestRunArgsBuiltinsHaveNoProgramArgs(t *testing.T) {
+	got := runSrc(t, `
+функция главная
+{
+    вывести количество_аргументов()
+}
+`)
+	if got != "0\n" {
+		t.Fatalf("получили %q, хотели \"0\\n\"", got)
+	}
+
+	toks, err := lexer.New(`
+функция главная
+{
+    вывести аргумент(0)
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	irProg, err := semantic.Analyze(prog)
+	if err != nil {
+		t.Fatalf("семантический анализ: %v", err)
+	}
+	var buf bytes.Buffer
+	err = Run(irProg, &buf, strings.NewReader(""))
+	if err == nil || !strings.Contains(err.Error(), "аргумент: индекс 0 вне диапазона") {
+		t.Fatalf("ожидалась паника про индекс вне диапазона, получено: %v", err)
 	}
 }
 

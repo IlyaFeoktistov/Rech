@@ -45,6 +45,8 @@ func builtinIRType(k builtins.Kind) ir.Type {
 		return ir.TypeFloat
 	case builtins.KindString:
 		return ir.TypeString
+	case builtins.KindBool:
+		return ir.TypeBool
 	case builtins.KindFile:
 		return ir.TypeFile
 	default:
@@ -691,9 +693,26 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			return nil, err
 		}
 		typ := ir.TypeOf(collection)
+		// "для <строка> в <Файл>" - потоковое построчное чтение (шаг 8), а
+		// не индексированный доступ, как у Список<T> ниже - файл не
+		// известной заранее длины. ElemType всегда Строка (сама строка
+		// файла), сигнатуры Список<T> здесь ни при чём.
+		if typ.Kind == ir.KindFile {
+			sc.push()
+			if err := sc.declare(s.Var, ir.TypeString); err != nil {
+				sc.pop()
+				return nil, fmt.Errorf("строка %d: %w", s.Line, err)
+			}
+			body, err := analyzeBlock(sc, s.Body)
+			sc.pop()
+			if err != nil {
+				return nil, err
+			}
+			return &ir.ForEachStmt{Var: s.Var, Collection: collection, ElemType: ir.TypeString, Body: body}, nil
+		}
 		sig := sc.entities[typ.Entity]
 		if typ.Kind != ir.KindEntity || !sig.IsList {
-			return nil, fmt.Errorf("строка %d: цикл \"для %s в ...\" ожидает переменную-Список<T>, получен тип %s", s.Line, s.Var, typ)
+			return nil, fmt.Errorf("строка %d: цикл \"для %s в ...\" ожидает переменную-Список<T> или Файл, получен тип %s", s.Line, s.Var, typ)
 		}
 		sc.push()
 		if err := sc.declare(s.Var, sig.ElemType); err != nil {

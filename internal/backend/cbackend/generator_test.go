@@ -843,6 +843,8 @@ func TestGenerateFileBuiltinCalls(t *testing.T) {
 	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
 		&ast.VarDecl{Name: "ф", Value: &ast.CallExpr{Callee: "открыть", Args: []ast.Expr{&ast.StringLiteral{Value: "путь"}}}},
 		&ast.PrintStmt{Value: &ast.CallExpr{Callee: "прочитать", Args: []ast.Expr{&ast.Identifier{Name: "ф"}, &ast.IntLiteral{Value: 10}}}},
+		&ast.VarDecl{Name: "в", Value: &ast.CallExpr{Callee: "открыть_для_записи", Args: []ast.Expr{&ast.StringLiteral{Value: "путь2"}}}},
+		&ast.ExprStmt{Call: &ast.CallExpr{Callee: "записать", Args: []ast.Expr{&ast.Identifier{Name: "в"}, &ast.StringLiteral{Value: "текст"}}}},
 		&ast.ExprStmt{Call: &ast.CallExpr{Callee: "закрыть", Args: []ast.Expr{&ast.Identifier{Name: "ф"}}}},
 	}}
 	out, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
@@ -851,14 +853,111 @@ func TestGenerateFileBuiltinCalls(t *testing.T) {
 	}
 	for _, want := range []string{
 		"rech_open(\"путь\")", "rech_read(v_f, 10LL)", "rech_close(v_f);",
-		"#ifdef _WIN32\n#include <windows.h>\n#else\n#include <fcntl.h>\n#include <unistd.h>\n#endif",
-		"typedef HANDLE rech_file_t;", "typedef int rech_file_t;",
-		"CreateFileW(", "ReadFile(", "CloseHandle(",
-		"open(path, O_RDONLY)", "read(f, buf,", "close(f);",
+		"rech_open_write(\"путь2\")", "rech_write(v_v, \"текст\");",
+		"typedef FILE *rech_file_t;",
+		"#ifdef _WIN32\n#include <windows.h>\n#include <shellapi.h>\n#endif",
+		"_wfopen(", "fopen(path, mode)", "fread(buf,", "fwrite(s, 1, len, f)", "fclose(f);",
+		"static char *rech_read_line_from_file(rech_file_t f, bool *ok)",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("ожидалось %q в выводе, получено:\n%s", want, out)
 		}
+	}
+}
+
+func TestGenerateForEachFileLine(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.VarDecl{Name: "ф", Value: &ast.CallExpr{Callee: "открыть", Args: []ast.Expr{&ast.StringLiteral{Value: "путь"}}}},
+		&ast.ForEachStmt{Var: "строка", Collection: &ast.Identifier{Name: "ф"}, Body: []ast.Stmt{
+			&ast.PrintStmt{Value: &ast.Identifier{Name: "строка"}},
+		}},
+	}}
+	out, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	for _, want := range []string{
+		"for (;;) {",
+		"bool rech_fe_ok_v_stroka = false;",
+		"const char *v_stroka = rech_read_line_from_file(v_f, &rech_fe_ok_v_stroka);",
+		"if (!rech_fe_ok_v_stroka) { break; }",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ожидалось %q в выводе, получено:\n%s", want, out)
+		}
+	}
+}
+
+func TestGenerateStdStreamsBuiltinCalls(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.ExprStmt{Call: &ast.CallExpr{Callee: "записать", Args: []ast.Expr{
+			&ast.CallExpr{Callee: "стандартный_вывод"}, &ast.StringLiteral{Value: "ок"},
+		}}},
+	}}
+	out, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "rech_write(stdout, \"ок\");") {
+		t.Fatalf("ожидался rech_write(stdout, ...), получено:\n%s", out)
+	}
+}
+
+func TestGenerateContainsBuiltinCall(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.PrintStmt{Value: &ast.CallExpr{Callee: "содержит", Args: []ast.Expr{
+			&ast.StringLiteral{Value: "привет мир"}, &ast.StringLiteral{Value: "мир"},
+		}}},
+	}}
+	out, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, `(strstr("привет мир", "мир") != NULL)`) {
+		t.Fatalf("ожидался strstr, получено:\n%s", out)
+	}
+}
+
+// TestGenerateArgsBuiltinCalls - "количество_аргументов"/"аргумент" -
+// главная всегда получает настоящие argc/argv (не "void"), независимо от
+// того, что вызывающая сторона видит только фиксированную сигнатуру без
+// параметров на уровне самого Rech (docs/SPEC.md).
+func TestGenerateArgsBuiltinCalls(t *testing.T) {
+	main := &ast.FunctionDecl{Name: "главная", Body: []ast.Stmt{
+		&ast.PrintStmt{Value: &ast.CallExpr{Callee: "количество_аргументов"}},
+		&ast.PrintStmt{Value: &ast.CallExpr{Callee: "аргумент", Args: []ast.Expr{&ast.IntLiteral{Value: 0}}}},
+	}}
+	out, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	for _, want := range []string{
+		"int main(int argc, char **argv) {",
+		"rech_init_args(argc, argv);",
+		"(rech_argc - 1)",
+		"rech_arg(0LL)",
+		"static const char *rech_arg(long long i)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ожидалось %q в выводе, получено:\n%s", want, out)
+		}
+	}
+}
+
+// TestGenerateArgsGlobalsAlwaysPresent - rech_argc/rech_argv объявлены,
+// даже когда программа вообще не использует "аргумент"/
+// "количество_аргументов" - main() всё равно безусловно присваивает их
+// (см. generateCallable) и должен видеть объявление раньше присваивания.
+func TestGenerateArgsGlobalsAlwaysPresent(t *testing.T) {
+	out, err := Generate(&ast.Program{Functions: []*ast.FunctionDecl{mainFunc()}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "static int rech_argc = 0;") {
+		t.Fatalf("ожидалось безусловное объявление rech_argc, получено:\n%s", out)
+	}
+	if strings.Contains(out, "rech_arg(long long i)") {
+		t.Fatalf("rech_arg не должен генерироваться, когда \"аргумент\" не используется:\n%s", out)
 	}
 }
 

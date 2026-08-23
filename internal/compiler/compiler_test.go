@@ -20,6 +20,18 @@ func newTestCompiler() *Compiler {
 	return NewCompiler(NewFrontend(), NewBackend(), fakeToolchain{})
 }
 
+// exeAppendingToolchain имитирует mingw gcc на Windows - сам добавляет
+// ".exe" к выходному файлу, даже если -o дан без расширения.
+type exeAppendingToolchain struct{}
+
+func (exeAppendingToolchain) CompileC(cPath, binPath string) error {
+	return os.WriteFile(binPath+".exe", []byte{}, 0o755)
+}
+
+func newExeAppendingTestCompiler() *Compiler {
+	return NewCompiler(NewFrontend(), NewBackend(), exeAppendingToolchain{})
+}
+
 func writeSource(t *testing.T, dir, name, src string) string {
 	t.Helper()
 	path := filepath.Join(dir, name)
@@ -74,6 +86,28 @@ func TestBuildProducesExecutableBinaryAtSourcePath(t *testing.T) {
 		if e.Name() != "программа.rech" && e.Name() != "программа" {
 			t.Fatalf("неожиданный файл %q утёк в каталог с исходником", e.Name())
 		}
+	}
+}
+
+// TestBuildPreservesExeSuffixFromToolchain - если системный компилятор сам
+// приписал ".exe" к бинарнику (mingw gcc на Windows), готовый файл должен
+// оказаться на настоящем месте с ТЕМ ЖЕ ".exe", а не без него - explorer/
+// cmd.exe/сторонние скрипты на Windows умеют запускать именно .exe-файл по
+// имени, не файл без расширения (см. compileProgram).
+func TestBuildPreservesExeSuffixFromToolchain(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := writeSource(t, dir, "прог.rech", helloSource)
+
+	binPath, err := newExeAppendingTestCompiler().Build(srcPath, false)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	wantPath := filepath.Join(dir, "прог.exe")
+	if binPath != wantPath {
+		t.Fatalf("ожидался путь %q, получено %q", wantPath, binPath)
+	}
+	if _, err := os.Stat(binPath); err != nil {
+		t.Fatalf("бинарник не найден по %q: %v", binPath, err)
 	}
 }
 

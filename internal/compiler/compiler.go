@@ -191,15 +191,19 @@ func (c *Compiler) compileProgram(prog *ast.Program, base string, keepC bool) (s
 		return "", err
 	}
 
-	compiledBin := tmpBase
+	// Некоторые тулчейны (mingw gcc на Windows) сами добавляют ".exe" к
+	// выходному файлу, даже если -o дан без расширения - тот же суффикс
+	// нужно сохранить и на настоящем месте (base), а не срезать его:
+	// .exe - то, что реально умеет запускать сам Windows (explorer, cmd.exe,
+	// сторонние скрипты) без знания о том, как именно Go разрешает
+	// расширения при exec.Command - см. runBinary в cmd/rech.
+	compiledBin, ext := tmpBase, ""
 	if _, err := os.Stat(compiledBin); err != nil {
-		// Некоторые тулчейны (mingw gcc на Windows) сами добавляют ".exe" к
-		// выходному файлу, даже если -o дан без расширения.
 		if _, err2 := os.Stat(tmpBase + ".exe"); err2 == nil {
-			compiledBin = tmpBase + ".exe"
+			compiledBin, ext = tmpBase+".exe", ".exe"
 		}
 	}
-	binPath := base
+	binPath := base + ext
 	if err := moveFile(compiledBin, binPath); err != nil {
 		return "", fmt.Errorf("не удалось перенести собранный бинарник в %s: %w", binPath, err)
 	}

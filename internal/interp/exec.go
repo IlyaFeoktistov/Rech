@@ -1,6 +1,10 @@
 package interp
 
 import (
+	"bufio"
+	"os"
+	"strings"
+
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
@@ -119,6 +123,9 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 		if err != nil {
 			return ctrl{}, err
 		}
+		if collV.Type.Kind == ir.KindFile {
+			return in.execForEachFileLine(collV.File, s, env, cc)
+		}
 		elems := collV.Obj.coll.elems
 		for _, elem := range elems {
 			loopEnv := newEnv(env)
@@ -157,5 +164,40 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 	default:
 		panicRuntime("исполнение: инструкция %T не поддерживается интерпретатором", s)
 		return ctrl{}, nil
+	}
+}
+
+// execForEachFileLine - "для <строка> в <Файл>" (в отличие от "для x в
+// Список<T>" выше - файл не индексируемый и не известной заранее длины,
+// поэтому это отдельная, потоковая форма цикла, а не общий механизм).
+// bufio.NewReader читает не более чем нужно за раз - файл не загружается в
+// память целиком, в отличие от builtins.All "прочитать" с фиксированным
+// max. Пустая строка - настоящая пустая строка файла (Логическое ok здесь
+// не нужно - в отличие от cbackend.rech_read_line_from_file, у Go
+// bufio.Reader.ReadString уже есть err == io.EOF как отдельный от значения
+// сигнал конца файла). Последняя строка без завершающего переноса строки
+// - ReadString возвращает её вместе с io.EOF (не пустой err без данных) -
+// тело цикла всё равно должно выполниться на ней один раз, прежде чем
+// цикл завершится.
+func (in *Interp) execForEachFileLine(f *os.File, s *ir.ForEachStmt, env *Env, cc *callCtx) (ctrl, error) {
+	reader := bufio.NewReader(f)
+	for {
+		line, readErr := reader.ReadString('\n')
+		if readErr != nil && line == "" {
+			return ctrl{}, nil
+		}
+		line = strings.TrimRight(line, "\r\n")
+		loopEnv := newEnv(env)
+		loopEnv.declare(s.Var, stringValue(line))
+		c, err := in.execBlock(s.Body, loopEnv, cc)
+		if err != nil {
+			return ctrl{}, err
+		}
+		if c.kind == ctrlReturn {
+			return c, nil
+		}
+		if readErr != nil {
+			return ctrl{}, nil
+		}
 	}
 }

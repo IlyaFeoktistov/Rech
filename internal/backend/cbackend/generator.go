@@ -281,6 +281,8 @@ func builtinValueType(k builtins.Kind) valueType {
 		return typeFloat
 	case builtins.KindString:
 		return typeString
+	case builtins.KindBool:
+		return typeBool
 	case builtins.KindFile:
 		return typeFile
 	default:
@@ -347,6 +349,12 @@ type genCtx struct {
 	// используют один и тот же стандартный C. Подразумевает usesPanic
 	// (ошибка открытия/чтения - тот же rech_panic).
 	usesFileIO bool
+
+	// usesArgs - нужна ли rech_arg (встроенная функция "аргумент") -
+	// rech_argc/rech_argv (argsGlobals) сами по себе всегда объявлены
+	// безусловно (см. argsGlobals), этот флаг - только про саму индексную
+	// функцию (нужен ей panicHelper).
+	usesArgs bool
 
 	// genericsCode - C-код (typedef struct + функции), синтезированный для
 	// встроенных generic-коллекций (Список/Стопка/Очередь, шаг 4.2) по мере
@@ -621,10 +629,10 @@ func Generate(prog *ast.Program) (string, error) {
 	sb.WriteString("// Автоматически сгенерировано компилятором rech. Не редактировать руками.\n")
 	sb.WriteString("#include <stdio.h>\n")
 	sb.WriteString("#include <stdbool.h>\n")
-	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput {
+	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO {
 		sb.WriteString("#include <string.h>\n")
 	}
-	if ctx.usesConcat || ctx.usesPanic || ctx.usesConsoleInput {
+	if ctx.usesConcat || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO {
 		sb.WriteString("#include <stdlib.h>\n")
 	}
 	if ctx.usesMath {
@@ -633,14 +641,16 @@ func Generate(prog *ast.Program) (string, error) {
 	// windows.h - всегда на _WIN32, не только при usesFileIO: нужен и
 	// consoleInitHelper (см. ниже - без него вывод кириллицы в консоли
 	// Windows превращается в мусор, консоль по умолчанию не в UTF-8, в
-	// отличие от Linux/macOS терминалов).
-	sb.WriteString("#ifdef _WIN32\n#include <windows.h>\n#else\n")
-	if ctx.usesFileIO {
-		sb.WriteString("#include <fcntl.h>\n#include <unistd.h>\n")
-	}
-	sb.WriteString("#endif\n")
+	// отличие от Linux/macOS терминалов); при usesFileIO - ещё и за
+	// MultiByteToWideChar (fileHelpers.rech_utf8_to_wide). fcntl.h/
+	// unistd.h POSIX-ветке больше не нужны - файловый ввод-вывод теперь
+	// весь через стандартный C stdio (fopen/fread/fwrite/fclose/fgets), а
+	// не открытые системные вызовы (см. fileHelpers).
+	sb.WriteString("#ifdef _WIN32\n#include <windows.h>\n#include <shellapi.h>\n#endif\n")
 	sb.WriteString("\n")
 	sb.WriteString(consoleInitHelper)
+	sb.WriteString("\n")
+	sb.WriteString(argsGlobals)
 	sb.WriteString("\n")
 	if ctx.usesConcat {
 		sb.WriteString(strConcatHelper)
@@ -648,6 +658,14 @@ func Generate(prog *ast.Program) (string, error) {
 	}
 	if ctx.usesPanic {
 		sb.WriteString(panicHelper)
+		sb.WriteString("\n")
+	}
+	if ctx.usesArgs {
+		// После panicHelper, не раньше - rech_arg вызывает rech_panic, C
+		// требует видеть его определение раньше (иначе "implicit
+		// declaration"/конфликт линковки с static); ctx.usesArgs => "аргумент"
+		// вызывался => ctx.usesPanic уже true (см. builtinCallCode).
+		sb.WriteString(argFuncHelper)
 		sb.WriteString("\n")
 	}
 	if ctx.usesIntDiv {
@@ -920,6 +938,67 @@ static void rech_init_console(void) {}
 #endif
 `
 
+// argsGlobals - rech_argc/rech_argv + rech_init_args, всегда объявлены
+// безусловно (не под ctx.usesArgs, в отличие от argFuncHelper ниже) -
+// main() (generateCallable, cName == "main") зовёт rech_init_args(argc,
+// argv) на этапе генерации ЕЁ тела, то есть раньше, чем стало известно,
+// использует ли программа "аргумент"/"количество_аргументов" где-либо
+// вообще (эти флаги считаются по итогам генерации ВСЕХ функций, а
+// преамбула, где обычно решается "включать или нет", печатается уже после
+// этого - но сама main() пишется по ходу того же прохода).
+//
+// На Windows игнорирует свои же параметры и вместо этого перечитывает
+// аргументы через CommandLineToArgvW (нужен -lshell32, internal/toolchain)
+// - argv, который сам даёт CRT в main(int argc, char **argv), закодирован
+// в активной ANSI-кодовой странице процесса, не UTF-8 (тот же класс
+// проблемы, что и у путей к файлам в internal/compiler.compileProgram и у
+// вывода кириллицы в rech_init_console выше - Windows-API вообще нигде не
+// говорит по умолчанию на UTF-8, только через явные Wide-варианты).
+const argsGlobals = `static int rech_argc = 0;
+static char **rech_argv = NULL;
+
+#ifdef _WIN32
+static void rech_init_args(int argc, char **argv) {
+    (void)argc;
+    (void)argv;
+    int wargc = 0;
+    LPWSTR *wargv = CommandLineToArgvW(GetCommandLineW(), &wargc);
+    rech_argc = wargc;
+    rech_argv = malloc(sizeof(char *) * (size_t)wargc);
+    for (int i = 0; i < wargc; i++) {
+        int len = WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, NULL, 0, NULL, NULL);
+        char *buf = malloc((size_t)len);
+        WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, buf, len, NULL, NULL);
+        rech_argv[i] = buf;
+    }
+    LocalFree(wargv);
+}
+#else
+static void rech_init_args(int argc, char **argv) {
+    rech_argc = argc;
+    rech_argv = argv;
+}
+#endif
+`
+
+// argFuncHelper - "аргумент" (сама индексная функция, вызывает rech_panic
+// при выходе за диапазон - в отличие от argsGlobals выше, требует
+// panicHelper, поэтому под ctx.usesArgs, как и остальные необязательные
+// helper'ы). Индексация с 0, как и у "получить" встроенных коллекций -
+// rech_arg(i) читает argv[i+1]. Текст сообщения об ошибке должен совпадать
+// байт-в-байт с rtmsg.ArgIndexOutOfRangeFormat - Go "%d" и C "%lld"
+// печатают одно и то же десятичное число для любого int64, включая
+// отрицательные.
+const argFuncHelper = `static const char *rech_arg(long long i) {
+    if (i < 0 || i >= (long long)rech_argc - 1) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "аргумент: индекс %lld вне диапазона", i);
+        rech_panic(msg);
+    }
+    return rech_argv[i + 1];
+}
+`
+
 // panicHelper - аварийное завершение процесса с понятным сообщением (шаг
 // 4.2, встроенные коллекции): снять/извлечь с пустой Стопки/Очереди,
 // индекс вне границ у Списка. В языке ещё нет исключений (шаг 14) - это
@@ -1026,49 +1105,58 @@ static double rech_read_float(void) {
 }
 `, rtmsg.ReadEOF)
 
-// fileHelpers - открыть/прочитать/закрыть (шаг 8, низкоуровневый файловый
-// ввод-вывод, только чтение в этом срезе). Единственное место во всей
-// генерации C, где реально расходится системный вызов по платформе -
-// разные заголовки (windows.h против fcntl.h/unistd.h, см. Generate) и
-// разные функции (CreateFileW/ReadFile/CloseHandle против open/read/close),
-// в отличие от readHelpers/math-обёрток выше, которым достаточно обычного
-// стандартного C. rech_file_t - typedef, скрывающий это различие
-// (HANDLE/int) от остального сгенерированного кода - valueType.typeFile
-// всегда печатается как "rech_file_t", независимо от платформы сборки.
-// Путь - Rech "Строка", то есть UTF-8 (const char *) - на Windows его нужно
-// перекодировать в UTF-16 перед CreateFileW, которая, в отличие от POSIX
-// open, не принимает байтовые пути напрямую. "прочитать_целое"-подобного
-// разбора здесь нет - сообщение об ошибке открытия строится в самом
-// C-коде (snprintf с настоящим путём), должно совпадать байт-в-байт с
-// rtmsg.OpenFailedFormat (см. internal/interp/builtins.go).
-var fileHelpers = fmt.Sprintf(`#ifdef _WIN32
-typedef HANDLE rech_file_t;
-#else
-typedef int rech_file_t;
+// fileHelpers - открыть*/прочитать/записать/закрыть и построчное чтение
+// для "для X в Y" (шаг 8, файловый ввод-вывод). rech_file_t - всегда
+// "FILE *" (не int/HANDLE, как в первом срезе этой фичи) - стандартный C
+// stdio уже даёт буферизованное чтение/запись и построчный fgets
+// одинаково на всех платформах, поэтому единственное, что реально
+// расходится по платформе - сам ОТКРЫТИЕ файла: Rech "Строка" - UTF-8, а
+// обычный узкий fopen на Windows интерпретирует путь через активную
+// ANSI-кодовую страницу процесса (та же причина, по которой mingw
+// gcc/ld ломают кириллицу в аргументах командной строки, см.
+// internal/compiler.compileProgram) - значит нужен _wfopen с путём,
+// перекодированным в UTF-16 (windows.h - тут только за
+// MultiByteToWideChar, не за HANDLE/CreateFileW, как раньше). Сообщение
+// об ошибке открытия строится в самом C-коде (snprintf с настоящими op/
+// путём), должно совпадать байт-в-байт с rtmsg.OpenFailedFormat (см.
+// internal/interp/builtins.go).
+var fileHelpers = fmt.Sprintf(`typedef FILE *rech_file_t;
+
+#ifdef _WIN32
+static wchar_t *rech_utf8_to_wide(const char *s) {
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, s, -1, NULL, 0);
+    wchar_t *w = malloc((size_t)wlen * sizeof(wchar_t));
+    MultiByteToWideChar(CP_UTF8, 0, s, -1, w, wlen);
+    return w;
+}
 #endif
 
-static rech_file_t rech_open(const char *path) {
+static rech_file_t rech_open_mode(const char *path, const char *mode, const wchar_t *wmode, const char *op) {
 #ifdef _WIN32
-    int wlen = MultiByteToWideChar(CP_UTF8, 0, path, -1, NULL, 0);
-    wchar_t *wpath = malloc((size_t)wlen * sizeof(wchar_t));
-    MultiByteToWideChar(CP_UTF8, 0, path, -1, wpath, wlen);
-    HANDLE h = CreateFileW(wpath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    wchar_t *wpath = rech_utf8_to_wide(path);
+    FILE *f = _wfopen(wpath, wmode);
     free(wpath);
-    if (h == INVALID_HANDLE_VALUE) {
-        char msg[512];
-        snprintf(msg, sizeof(msg), "открыть: не удалось открыть файл \"%%s\"", path);
-        rech_panic(msg);
-    }
-    return h;
 #else
-    int fd = open(path, O_RDONLY);
-    if (fd < 0) {
+    FILE *f = fopen(path, mode);
+#endif
+    if (!f) {
         char msg[512];
-        snprintf(msg, sizeof(msg), "открыть: не удалось открыть файл \"%%s\"", path);
+        snprintf(msg, sizeof(msg), "%%s: не удалось открыть файл \"%%s\"", op, path);
         rech_panic(msg);
     }
-    return fd;
-#endif
+    return f;
+}
+
+static rech_file_t rech_open(const char *path) {
+    return rech_open_mode(path, "rb", L"rb", "открыть");
+}
+
+static rech_file_t rech_open_write(const char *path) {
+    return rech_open_mode(path, "wb", L"wb", "открыть_для_записи");
+}
+
+static rech_file_t rech_open_append(const char *path) {
+    return rech_open_mode(path, "ab", L"ab", "открыть_для_дозаписи");
 }
 
 static char *rech_read(rech_file_t f, long long max) {
@@ -1076,29 +1164,65 @@ static char *rech_read(rech_file_t f, long long max) {
         rech_panic("%[1]s");
     }
     char *buf = malloc((size_t)max + 1);
-#ifdef _WIN32
-    DWORD n = 0;
-    if (!ReadFile(f, buf, (DWORD)max, &n, NULL)) {
+    size_t n = fread(buf, 1, (size_t)max, f);
+    if (n == 0 && ferror(f)) {
         rech_panic("%[2]s");
     }
-#else
-    ssize_t n = read(f, buf, (size_t)max);
-    if (n < 0) {
-        rech_panic("%[2]s");
-    }
-#endif
     buf[n] = '\0';
     return buf;
 }
 
-static void rech_close(rech_file_t f) {
-#ifdef _WIN32
-    CloseHandle(f);
-#else
-    close(f);
-#endif
+static void rech_write(rech_file_t f, const char *s) {
+    size_t len = strlen(s);
+    if (fwrite(s, 1, len, f) != len) {
+        rech_panic("%[3]s");
+    }
 }
-`, rtmsg.ReadInvalidMax, rtmsg.ReadIOFailed)
+
+static void rech_close(rech_file_t f) {
+    fclose(f);
+}
+
+// rech_read_line_from_file - "для <строка> в <Файл>" (см. generateStmt,
+// *ast.ForEachStmt). *ok == false - настоящий конец файла (ничего не
+// прочитано вообще), а не просто пустая строка - пустая строка файла
+// ("\n" сам по себе) - это *ok == true с buf == "", *ok различает их
+// именно затем, что пустая Строка сама по себе не годится как признак
+// конца файла (в отличие от "прочитать" выше, где пустая Строка - это и
+// есть достаточный признак EOF, потому что при max > 0 обычное чтение
+// никогда не возвращает "" иначе). Последняя строка файла без
+// завершающего "\n" всё равно возвращается один раз (*ok == true) - цикл
+// увидит конец файла только на СЛЕДУЮЩЕЙ попытке.
+static char *rech_read_line_from_file(rech_file_t f, bool *ok) {
+    size_t cap = 128, len = 0;
+    char *buf = malloc(cap);
+    int got_any = 0;
+    for (;;) {
+        if (!fgets(buf + len, (int)(cap - len), f)) {
+            break;
+        }
+        got_any = 1;
+        len += strlen(buf + len);
+        if (len > 0 && buf[len - 1] == '\n') {
+            break;
+        }
+        if (len + 1 >= cap) {
+            cap *= 2;
+            buf = realloc(buf, cap);
+        }
+    }
+    if (!got_any) {
+        free(buf);
+        *ok = false;
+        return NULL;
+    }
+    while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r')) {
+        buf[--len] = '\0';
+    }
+    *ok = true;
+    return buf;
+}
+`, rtmsg.ReadInvalidMax, rtmsg.ReadIOFailed, rtmsg.WriteIOFailed)
 
 // synthesizeList синтезирует C typedef struct + функции для конкретной
 // инстанциации "Список<T>" (name, например "Список<Целое>") и регистрирует
@@ -1374,9 +1498,20 @@ func generateCallable(sb *strings.Builder, ctx *genCtx, cName string, extraParam
 		}
 	}
 
-	fmt.Fprintf(sb, "%s %s(%s) {\n", cReturnType, cName, combineParamList(extraParam, cParamList(params, sig.ParamTypes)))
+	paramList := combineParamList(extraParam, cParamList(params, sig.ParamTypes))
+	if cName == "main" {
+		// "главная" (docs/SPEC.md - фиксированная C-сигнатура, без
+		// параметров и типа результата на уровне самого Rech) всё равно
+		// получает настоящие argc/argv от ОС - "количество_аргументов"/
+		// "аргумент" читают их из глобальных rech_argc/rech_argv (см.
+		// преамбулу), а не параметра функции, потому что вызвать их можно
+		// из любой функции программы, не только из главная.
+		paramList = "int argc, char **argv"
+	}
+	fmt.Fprintf(sb, "%s %s(%s) {\n", cReturnType, cName, paramList)
 	if cName == "main" {
 		sb.WriteString("    rech_init_console();\n")
+		sb.WriteString("    rech_init_args(argc, argv);\n")
 	}
 	for _, stmt := range body {
 		if err := generateStmt(sb, ctx, stmt, 1); err != nil {
@@ -1573,9 +1708,35 @@ func generateStmt(sb *strings.Builder, ctx *genCtx, stmt ast.Stmt, depth int) er
 		if err != nil {
 			return err
 		}
+		// "для <строка> в <Файл>" - потоковое построчное чтение (шаг 8), не
+		// индексированный доступ, как у Список<T> ниже - файл не известной
+		// заранее длины, поэтому это отдельная форма цикла (см.
+		// rech_read_line_from_file, fileHelpers).
+		if collType == typeFile {
+			ctx.usesFileIO = true
+			ctx.usesPanic = true
+			ctx.pushScope()
+			if err := ctx.declare(s.Var, typeString); err != nil {
+				return err
+			}
+			varC := mangleVar(s.Var)
+			okC := "rech_fe_ok_" + varC
+			fmt.Fprintf(sb, "%sfor (;;) {\n", ind)
+			fmt.Fprintf(sb, "%sbool %s = false;\n", indent(depth+1), okC)
+			fmt.Fprintf(sb, "%sconst char *%s = rech_read_line_from_file(%s, &%s);\n", indent(depth+1), varC, collCode, okC)
+			fmt.Fprintf(sb, "%sif (!%s) { break; }\n", indent(depth+1), okC)
+			for _, st := range s.Body {
+				if err := generateStmt(sb, ctx, st, depth+1); err != nil {
+					return err
+				}
+			}
+			ctx.popScope()
+			fmt.Fprintf(sb, "%s}\n", ind)
+			return nil
+		}
 		sig, ok := ctx.entities[collType.entity]
 		if collType.kind != kindEntity || !ok || !sig.IsList {
-			return fmt.Errorf("строка %d: цикл \"для %s в ...\" ожидает переменную-Список<T>, получен тип %s", s.Line, s.Var, collType)
+			return fmt.Errorf("строка %d: цикл \"для %s в ...\" ожидает переменную-Список<T> или Файл, получен тип %s", s.Line, s.Var, collType)
 		}
 		ctx.pushScope()
 		if err := ctx.declare(s.Var, sig.ElemType); err != nil {
@@ -1804,13 +1965,45 @@ func builtinCallCode(ctx *genCtx, name string, args []string) (string, bool) {
 		ctx.usesFileIO = true
 		ctx.usesPanic = true
 		return fmt.Sprintf("rech_open(%s)", args[0]), true
+	case "открыть_для_записи":
+		ctx.usesFileIO = true
+		ctx.usesPanic = true
+		return fmt.Sprintf("rech_open_write(%s)", args[0]), true
+	case "открыть_для_дозаписи":
+		ctx.usesFileIO = true
+		ctx.usesPanic = true
+		return fmt.Sprintf("rech_open_append(%s)", args[0]), true
 	case "прочитать":
 		ctx.usesFileIO = true
 		ctx.usesPanic = true
 		return fmt.Sprintf("rech_read(%s, %s)", args[0], args[1]), true
+	case "записать":
+		ctx.usesFileIO = true
+		ctx.usesPanic = true
+		return fmt.Sprintf("rech_write(%s, %s)", args[0], args[1]), true
 	case "закрыть":
 		ctx.usesFileIO = true
 		return fmt.Sprintf("rech_close(%s)", args[0]), true
+	case "стандартный_ввод":
+		ctx.usesFileIO = true
+		return "stdin", true
+	case "стандартный_вывод":
+		ctx.usesFileIO = true
+		return "stdout", true
+	case "стандартный_вывод_ошибок":
+		ctx.usesFileIO = true
+		return "stderr", true
+	case "количество_аргументов":
+		return "(rech_argc - 1)", true
+	case "аргумент":
+		ctx.usesArgs = true
+		ctx.usesPanic = true
+		return fmt.Sprintf("rech_arg(%s)", args[0]), true
+	case "содержит":
+		// usesStrCmp - тот же флаг, что и у "==" между Строка (см. ниже) -
+		// оба нужны исключительно за <string.h>, здесь - за strstr.
+		ctx.usesStrCmp = true
+		return fmt.Sprintf("(strstr(%s, %s) != NULL)", args[0], args[1]), true
 	default:
 		return "", false
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 
 	"github.com/IlyaFeoktistov/Rech/internal/compiler"
 )
@@ -29,8 +30,20 @@ func (*CC) CompileC(cPath, binPath string) error {
 	// неиспользуемой библиотеки безвредна, а решать здесь "нужна ли она"
 	// означало бы протаскивать это знание из cbackend через весь конвейер
 	// компиляции только ради этого одного флага.
+	args := []string{cPath, "-o", binPath, "-lm"}
+	if runtime.GOOS == "windows" {
+		// -lshell32 - CommandLineToArgvW (шаг 8, internal/backend/cbackend.
+		// argFuncHelper/rech_init_args): argv, который сам даёт CRT на
+		// Windows, - в ANSI-кодовой странице процесса, не UTF-8, поэтому
+		// "аргумент"/"количество_аргументов" перечитывают его сами через
+		// CommandLineToArgvW - без -lshell32 сборка не слинкуется. runtime.
+		// GOOS здесь - платформа, на которой на самом деле запущен сам
+		// rech (не кросс-компиляция C-вывода) - тот же компилятор cc и
+		// собирает, и запускается на одной и той же ОС.
+		args = append(args, "-lshell32")
+	}
 	// #nosec G204 -- пути приходят от локального пользователя, вызывающего свой же компилятор.
-	cmd := exec.Command(path, cPath, "-o", binPath, "-lm")
+	cmd := exec.Command(path, args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s завершился с ошибкой: %w\n%s", path, err, string(out))
