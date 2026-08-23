@@ -157,11 +157,7 @@ func TestBuildDirMergesAllRechFiles(t *testing.T) {
 // сначала не было в этом списке.
 func TestBuildDirMergesEnums(t *testing.T) {
 	dir := t.TempDir()
-	// "перечисление" без единой функции в том же файле не пройдёт общую
-	// (не специфичную для перечислений) проверку parser.ParseProgram "программа
-	// не содержит ни одной функции" - применяется отдельно к каждому файлу
-	// каталога до слияния, поэтому рядом нужна хотя бы одна функция.
-	writeSource(t, dir, "цвета.rech", "перечисление Цвет { Красный, Зелёный }\nфункция неважно() { вернуть }\n")
+	writeSource(t, dir, "цвета.rech", "перечисление Цвет { Красный, Зелёный }\n")
 	writeSource(t, dir, "главный.rech", "функция главная\n{\n    вывести Цвет.Зелёный\n}\n")
 
 	binPath, err := newTestCompiler().Build(dir, true)

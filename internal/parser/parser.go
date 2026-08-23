@@ -333,9 +333,6 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 		}
 		prog.Functions = append(prog.Functions, &ast.FunctionDecl{Name: entryPointName, Body: topLevelStmts})
 	}
-	if len(prog.Functions) == 0 && len(prog.ExternFuncs) == 0 {
-		return nil, fmt.Errorf("программа не содержит ни одной функции")
-	}
 	return prog, nil
 }
 
