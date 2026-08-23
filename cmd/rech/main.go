@@ -34,6 +34,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/IlyaFeoktistov/Rech/internal/compiler"
 	"github.com/IlyaFeoktistov/Rech/internal/testrunner"
 	"github.com/IlyaFeoktistov/Rech/internal/version"
 )
@@ -47,6 +48,18 @@ func main() {
 
 	if cmd == "version" {
 		fmt.Println("rech", version.Version)
+		return
+	}
+
+	if cmd == "init" {
+		name := ""
+		if len(os.Args) >= 3 {
+			name = os.Args[2]
+		}
+		if err := initProject(name); err != nil {
+			fmt.Fprintln(os.Stderr, "ошибка:", err)
+			os.Exit(1)
+		}
 		return
 	}
 
@@ -66,6 +79,39 @@ func main() {
 		fmt.Fprintln(os.Stderr, "ошибка:", err)
 		os.Exit(2)
 	}
+
+	// Файл проекта (.rechproj) - либо явно передан вместо <файл.rech>|<каталог>,
+	// либо (при полностью пустых аргументах) единственный в текущем каталоге -
+	// см. cmd/rech/project.go. outDir/projName пусты, если проекта нет вовсе -
+	// тогда ниже всё идёт как раньше, без переноса бинарника.
+	var outDir, projName string
+	if !hasCode {
+		projPath := srcPath
+		if projPath == "" {
+			p, ferr := findProjectFile()
+			if ferr != nil {
+				fmt.Fprintln(os.Stderr, "ошибка:", ferr)
+				os.Exit(2)
+			}
+			projPath = p
+		}
+		if projPath != "" && filepath.Ext(projPath) == ".rechproj" {
+			pf, perr := loadProjectFile(projPath)
+			if perr != nil {
+				fmt.Fprintln(os.Stderr, "ошибка:", perr)
+				os.Exit(1)
+			}
+			srcPath = pf.MainPath()
+			if !keepC {
+				// --keep-c из командной строки не переопределяется "режимом"
+				// файла проекта в обратную сторону - иначе значение по
+				// умолчанию (false) неотличимо от явного выбора пользователя.
+				keepC = pf.KeepC()
+			}
+			outDir, projName = pf.OutputDir(), pf.Имя
+		}
+	}
+
 	if !hasCode && srcPath == "" {
 		usage()
 		os.Exit(2)
@@ -84,9 +130,17 @@ func main() {
 			fmt.Fprintln(os.Stderr, "ошибка:", err)
 			os.Exit(1)
 		}
-		if hasCode {
-			// У -c/--code нет "рядом с исходником" - без файла негде было
-			// бы догадаться, куда положен результат.
+		if outDir != "" {
+			binPath, err = placeInOutputDir(binPath, outDir, projName)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "ошибка:", err)
+				os.Exit(1)
+			}
+		}
+		if hasCode || outDir != "" {
+			// У -c/--code нет "рядом с исходником", а у файла проекта
+			// бинарник переносится в каталог "выход" - в обоих случаях без
+			// печати негде было бы догадаться, куда положен результат.
 			fmt.Println(binPath)
 		}
 	case "run":
@@ -94,6 +148,13 @@ func main() {
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "ошибка:", err)
 			os.Exit(1)
+		}
+		if outDir != "" {
+			binPath, err = placeInOutputDir(binPath, outDir, projName)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "ошибка:", err)
+				os.Exit(1)
+			}
 		}
 		if err := runBinary(binPath); err != nil {
 			fmt.Fprintln(os.Stderr, "ошибка выполнения:", err)
@@ -103,6 +164,20 @@ func main() {
 		usage()
 		os.Exit(2)
 	}
+}
+
+// placeInOutputDir переносит собранный бинарник binPath в outDir под именем
+// проекта projName (см. поле "файлы.выход" .rechproj) - сохраняет расширение
+// binPath (".exe" на Windows, иначе пусто, см. compiler.compileProgram).
+func placeInOutputDir(binPath, outDir, projName string) (string, error) {
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		return "", fmt.Errorf("не удалось создать каталог выхода %q: %w", outDir, err)
+	}
+	dst := filepath.Join(outDir, projName+filepath.Ext(binPath))
+	if err := compiler.MoveFile(binPath, dst); err != nil {
+		return "", fmt.Errorf("не удалось перенести собранный бинарник в %s: %w", dst, err)
+	}
+	return dst, nil
 }
 
 // parseBuildArgs разбирает аргументы после "build"/"run": флаг --keep-c (в
@@ -132,7 +207,7 @@ func parseBuildArgs(args []string) (srcPath, code string, keepC, hasCode bool, e
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "использование: rech build|run [--keep-c] <файл.rech>|<каталог>|-c \"<код>\" | rech test <файл.rech>|<каталог> | rech version")
+	fmt.Fprintln(os.Stderr, "использование: rech build|run [--keep-c] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech test <файл.rech>|<каталог> | rech init [имя] | rech version")
 }
 
 // testDotsPerLine - сколько точек/"F" печатать в строке прогресса, прежде

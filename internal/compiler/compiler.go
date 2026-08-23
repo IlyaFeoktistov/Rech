@@ -215,7 +215,7 @@ func (c *Compiler) compileProgram(prog *ast.Program, base string, keepC bool) (s
 		}
 	}
 	binPath := base + ext
-	if err := moveFile(compiledBin, binPath); err != nil {
+	if err := MoveFile(compiledBin, binPath); err != nil {
 		return "", fmt.Errorf("не удалось перенести собранный бинарник в %s: %w", binPath, err)
 	}
 
@@ -228,14 +228,16 @@ func (c *Compiler) compileProgram(prog *ast.Program, base string, keepC bool) (s
 	return binPath, nil
 }
 
-// moveFile переносит файл src в dst - сначала пробует os.Rename (дёшево,
+// MoveFile переносит файл src в dst - сначала пробует os.Rename (дёшево,
 // атомарно), а если это не сработало (типичная причина - src и dst на
 // разных файловых системах/томах, например временный каталог сборки на
 // tmpfs, а место назначения - на обычном диске: os.Rename тогда вернул бы
 // "invalid cross-device link" на Linux), откатывается на явное копирование
 // байт + удаление src. 0o755 (не 0o644, как у обычных файлов) - у src
 // собранный исполняемый бинарник, право на выполнение должно сохраниться.
-func moveFile(src, dst string) error {
+// Экспортирована - переиспользуется в cmd/rech для переноса бинарника в
+// папку "выход" файла проекта (.rechproj).
+func MoveFile(src, dst string) error {
 	if err := os.Rename(src, dst); err == nil {
 		return nil
 	}
