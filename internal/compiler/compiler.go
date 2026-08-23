@@ -162,21 +162,76 @@ func (c *Compiler) compileProgram(prog *ast.Program, base string, keepC bool) (s
 		return "", fmt.Errorf("генерация C: %w", err)
 	}
 
-	cPath := base + ".c"
-	if err := os.WriteFile(cPath, []byte(cSource), 0o644); err != nil {
-		return "", fmt.Errorf("не удалось записать %s: %w", cPath, err)
+	// Сам системный компилятор C (Toolchain.CompileC) вызывается только с
+	// ASCII-путями во временном каталоге, а не там, где на самом деле лежит
+	// исходник/должен оказаться бинарник (base может содержать кириллицу -
+	// обычное дело для Rech, вплоть до плейсхолдера "код" у BuildSource
+	// ниже) - на Windows mingw gcc/ld открывают и входной .c, и выходной
+	// бинарник через узкие (не wide-char) файловые API, перекодируя путь из
+	// аргумента командной строки через активную ANSI-кодовую страницу
+	// процесса - она кириллицу не покрывает, и оба открытия молча
+	// проваливаются ("Permission denied" на искажённом имени). Готовый
+	// бинарник переносится на настоящее место уже обычными файловыми
+	// операциями Go (moveFile) - они на Windows идут через wide-char API и
+	// этой проблеме не подвержены. Тот же путь используется на всех
+	// платформах, не только Windows - на Linux/macOS он просто не нужен, но
+	// и не вреден, а платформенно-specific ветка здесь не заводится.
+	tmpDir, err := os.MkdirTemp("", "rech-build-")
+	if err != nil {
+		return "", fmt.Errorf("не удалось создать временный каталог сборки: %w", err)
 	}
+	defer os.RemoveAll(tmpDir)
 
-	binPath := base
-	if err := c.Toolchain.CompileC(cPath, binPath); err != nil {
+	tmpBase := filepath.Join(tmpDir, "out")
+	tmpCPath := tmpBase + ".c"
+	if err := os.WriteFile(tmpCPath, []byte(cSource), 0o644); err != nil {
+		return "", fmt.Errorf("не удалось записать %s: %w", tmpCPath, err)
+	}
+	if err := c.Toolchain.CompileC(tmpCPath, tmpBase); err != nil {
 		return "", err
 	}
-	if !keepC {
-		// Необязательная уборка - ошибка удаления не портит уже собранный
-		// бинарник, поэтому не возвращается вызывающему коду как ошибка сборки.
-		_ = os.Remove(cPath)
+
+	compiledBin := tmpBase
+	if _, err := os.Stat(compiledBin); err != nil {
+		// Некоторые тулчейны (mingw gcc на Windows) сами добавляют ".exe" к
+		// выходному файлу, даже если -o дан без расширения.
+		if _, err2 := os.Stat(tmpBase + ".exe"); err2 == nil {
+			compiledBin = tmpBase + ".exe"
+		}
+	}
+	binPath := base
+	if err := moveFile(compiledBin, binPath); err != nil {
+		return "", fmt.Errorf("не удалось перенести собранный бинарник в %s: %w", binPath, err)
+	}
+
+	if keepC {
+		cPath := base + ".c"
+		if err := os.WriteFile(cPath, []byte(cSource), 0o644); err != nil {
+			return "", fmt.Errorf("не удалось записать %s: %w", cPath, err)
+		}
 	}
 	return binPath, nil
+}
+
+// moveFile переносит файл src в dst - сначала пробует os.Rename (дёшево,
+// атомарно), а если это не сработало (типичная причина - src и dst на
+// разных файловых системах/томах, например временный каталог сборки на
+// tmpfs, а место назначения - на обычном диске: os.Rename тогда вернул бы
+// "invalid cross-device link" на Linux), откатывается на явное копирование
+// байт + удаление src. 0o755 (не 0o644, как у обычных файлов) - у src
+// собранный исполняемый бинарник, право на выполнение должно сохраниться.
+func moveFile(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	}
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(dst, data, 0o755); err != nil {
+		return err
+	}
+	return os.Remove(src)
 }
 
 // parseFileRaw разбирает ровно srcPath, без "использовать" (шаг 11) -

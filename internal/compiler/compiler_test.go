@@ -44,6 +44,39 @@ func TestBuildDeletesCByDefault(t *testing.T) {
 	}
 }
 
+// TestBuildProducesExecutableBinaryAtSourcePath - compileProgram собирает
+// через временный ASCII-путь (Windows mingw gcc/ld ненадёжно обрабатывают
+// кириллицу в аргументах командной строки - см. moveFile/compileProgram) и
+// переносит готовый бинарник на настоящее место обычной файловой операцией
+// - право на выполнение (0o755, не 0o644 у обычных файлов) должно
+// сохраниться после переноса, а во временном каталоге ничего не должно
+// остаться "утёкшим" в каталог с исходником.
+func TestBuildProducesExecutableBinaryAtSourcePath(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := writeSource(t, dir, "программа.rech", helloSource)
+
+	binPath, err := newTestCompiler().Build(srcPath, false)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	info, err := os.Stat(binPath)
+	if err != nil {
+		t.Fatalf("бинарник не найден по %q: %v", binPath, err)
+	}
+	if info.Mode()&0o100 == 0 {
+		t.Fatalf("бинарник %q не исполняемый: mode=%v", binPath, info.Mode())
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("не удалось прочитать каталог: %v", err)
+	}
+	for _, e := range entries {
+		if e.Name() != "программа.rech" && e.Name() != "программа" {
+			t.Fatalf("неожиданный файл %q утёк в каталог с исходником", e.Name())
+		}
+	}
+}
+
 func TestBuildKeepsCWhenRequested(t *testing.T) {
 	dir := t.TempDir()
 	srcPath := writeSource(t, dir, "прог.rech", helloSource)

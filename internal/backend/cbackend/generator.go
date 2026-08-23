@@ -630,9 +630,17 @@ func Generate(prog *ast.Program) (string, error) {
 	if ctx.usesMath {
 		sb.WriteString("#include <math.h>\n")
 	}
+	// windows.h - всегда на _WIN32, не только при usesFileIO: нужен и
+	// consoleInitHelper (см. ниже - без него вывод кириллицы в консоли
+	// Windows превращается в мусор, консоль по умолчанию не в UTF-8, в
+	// отличие от Linux/macOS терминалов).
+	sb.WriteString("#ifdef _WIN32\n#include <windows.h>\n#else\n")
 	if ctx.usesFileIO {
-		sb.WriteString("#ifdef _WIN32\n#include <windows.h>\n#else\n#include <fcntl.h>\n#include <unistd.h>\n#endif\n")
+		sb.WriteString("#include <fcntl.h>\n#include <unistd.h>\n")
 	}
+	sb.WriteString("#endif\n")
+	sb.WriteString("\n")
+	sb.WriteString(consoleInitHelper)
 	sb.WriteString("\n")
 	if ctx.usesConcat {
 		sb.WriteString(strConcatHelper)
@@ -891,6 +899,25 @@ const strConcatHelper = `static char *rech_str_concat(const char *a, const char 
     out[la + lb] = '\0';
     return out;
 }
+`
+
+// consoleInitHelper - на Windows консоль по умолчанию не в UTF-8 (легаси
+// OEM-кодовая страница, например 866) - вывод/ввод кириллицы (все сообщения
+// компилятора и рантайма Rech - на русском) без этого превращается в
+// нечитаемый мусор, хотя сам код везде корректный UTF-8 (см. lexer.
+// ValidateUTF8). rech_init_console вызывается один раз, первой инструкцией
+// main() (см. generateCallable) - переключает кодовую страницу консоли на
+// UTF-8 для ввода и вывода сразу для всего процесса. На Linux/macOS
+// терминал и так в UTF-8 - функция там пустая, а не отсутствующая (чтобы
+// вызов из main() был безусловным, без #ifdef на стороне вызывающего кода).
+const consoleInitHelper = `#ifdef _WIN32
+static void rech_init_console(void) {
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+}
+#else
+static void rech_init_console(void) {}
+#endif
 `
 
 // panicHelper - аварийное завершение процесса с понятным сообщением (шаг
@@ -1348,6 +1375,9 @@ func generateCallable(sb *strings.Builder, ctx *genCtx, cName string, extraParam
 	}
 
 	fmt.Fprintf(sb, "%s %s(%s) {\n", cReturnType, cName, combineParamList(extraParam, cParamList(params, sig.ParamTypes)))
+	if cName == "main" {
+		sb.WriteString("    rech_init_console();\n")
+	}
 	for _, stmt := range body {
 		if err := generateStmt(sb, ctx, stmt, 1); err != nil {
 			return fmt.Errorf("%s: %w", errLabel, err)
