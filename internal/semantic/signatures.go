@@ -89,3 +89,12 @@ func (s entitySig) constIndex(name string) int {
 	}
 	return -1
 }
+
+func (s entitySig) fieldIndex(name string) int {
+	for i, n := range s.FieldNames {
+		if n == name {
+			return i
+		}
+	}
+	return -1
+}

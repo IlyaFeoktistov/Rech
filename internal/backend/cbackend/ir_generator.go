@@ -60,6 +60,10 @@ type irGenCtx struct {
 
 // GenerateFromIR возвращает исходник на C, соответствующий программе prog.
 func GenerateFromIR(prog *ir.Program) (string, error) {
+	if err := checkManglingCollisions(prog); err != nil {
+		return "", err
+	}
+
 	entities := map[string]*ir.Entity{}
 	for _, ent := range prog.Entities {
 		entities[ent.Name] = ent

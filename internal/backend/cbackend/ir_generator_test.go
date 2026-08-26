@@ -241,6 +241,26 @@ func TestGenerateFromIRIntDivisionUsesCheckedHelper(t *testing.T) {
 	}
 }
 
+// TestGenerateFromIRFloatDivisionDoesNotUseCheckedHelper - "/" между Число
+// (в отличие от Целое) - обычный оператор C: деление на 0.0 даёт IEEE 754
+// +-Inf/NaN, не панику, поэтому rech_int_div здесь не нужен и не должен
+// генерироваться.
+func TestGenerateFromIRFloatDivisionDoesNotUseCheckedHelper(t *testing.T) {
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.PrintStmt{Value: &ir.BinaryExpr{Op: "/", Left: &ir.FloatLiteral{Value: 7}, Right: &ir.FloatLiteral{Value: 2}, Type: ir.TypeFloat}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "(7.0 / 2.0)") {
+		t.Fatalf("ожидался обычный оператор \"/\", получено:\n%s", out)
+	}
+	if strings.Contains(out, "rech_int_div") {
+		t.Fatalf("rech_int_div не должен генерироваться для деления Число: %s", out)
+	}
+}
+
 func TestGenerateFromIRAssertStmt(t *testing.T) {
 	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
 		&ir.AssertStmt{Cond: &ir.BoolLiteral{Value: true}, Line: 4},
@@ -535,5 +555,98 @@ func TestGenerateFromIRWholeFileBuiltinCalls(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("ожидалось %q в выводе, получено:\n%s", want, out)
 		}
+	}
+}
+
+func TestGenerateFromIRConsoleInputBuiltinCall(t *testing.T) {
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.PrintStmt{Value: &ir.CallExpr{Callee: "прочитать_строку", Type: ir.TypeString, HasReturn: true}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	for _, want := range []string{
+		"rech_read_line()",
+		"static char *rech_read_line(void)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ожидалось %q в выводе, получено:\n%s", want, out)
+		}
+	}
+}
+
+func TestGenerateFromIRStdStreamsBuiltinCalls(t *testing.T) {
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.ExprStmt{Call: &ir.CallExpr{Callee: "записать", Args: []ir.Expr{
+			&ir.CallExpr{Callee: "стандартный_вывод", Type: ir.TypeInt, HasReturn: true},
+			&ir.StringLiteral{Value: "ок"},
+		}}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, `rech_write(stdout, "ок");`) {
+		t.Fatalf("ожидался rech_write(stdout, ...), получено:\n%s", out)
+	}
+}
+
+func TestGenerateFromIRContainsBuiltinCall(t *testing.T) {
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.PrintStmt{Value: &ir.CallExpr{Callee: "содержит", Args: []ir.Expr{
+			&ir.StringLiteral{Value: "привет мир"}, &ir.StringLiteral{Value: "мир"},
+		}, Type: ir.TypeBool, HasReturn: true}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, `(strstr("привет мир", "мир") != NULL)`) {
+		t.Fatalf("ожидался strstr, получено:\n%s", out)
+	}
+}
+
+// TestGenerateFromIRArgsBuiltinCalls - "количество_аргументов"/"аргумент" -
+// главная всегда получает настоящие argc/argv (не "void"), независимо от
+// того, что вызывающая сторона видит только фиксированную сигнатуру без
+// параметров на уровне самого Rech (docs/SPEC.md).
+func TestGenerateFromIRArgsBuiltinCalls(t *testing.T) {
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.PrintStmt{Value: &ir.CallExpr{Callee: "количество_аргументов", Type: ir.TypeInt, HasReturn: true}},
+		&ir.PrintStmt{Value: &ir.CallExpr{Callee: "аргумент", Args: []ir.Expr{&ir.IntLiteral{Value: 0}}, Type: ir.TypeString, HasReturn: true}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	for _, want := range []string{
+		"int main(int argc, char **argv) {",
+		"rech_init_args(argc, argv);",
+		"(rech_argc - 1)",
+		"rech_arg(0LL)",
+		"static const char *rech_arg(long long i)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ожидалось %q в выводе, получено:\n%s", want, out)
+		}
+	}
+}
+
+// TestGenerateFromIRArgsGlobalsAlwaysPresent - rech_argc/rech_argv
+// объявлены, даже когда программа вообще не использует "аргумент"/
+// "количество_аргументов" - main() всё равно безусловно присваивает их и
+// должен видеть объявление раньше присваивания.
+func TestGenerateFromIRArgsGlobalsAlwaysPresent(t *testing.T) {
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{}}
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "static int rech_argc = 0;") {
+		t.Fatalf("ожидалось безусловное объявление rech_argc, получено:\n%s", out)
+	}
+	if strings.Contains(out, "rech_arg(long long i)") {
+		t.Fatalf("rech_arg не должен генерироваться, когда \"аргумент\" не используется:\n%s", out)
 	}
 }
