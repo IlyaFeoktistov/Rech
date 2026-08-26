@@ -433,7 +433,7 @@ func TestEntityConstantMutualCycleFailsCleanly(t *testing.T) {
 }
 
 // TestAnalyzeExternFuncRejectsNonScalarType - параметр/результат внешней
-// функции - только Целое/Число/Строка/Логическое (нет стабильного
+// функции - только Целое/Действительное/Строка/Логическое (нет стабильного
 // C-представления у сущностей/generic-коллекций).
 func TestAnalyzeExternFuncRejectsNonScalarType(t *testing.T) {
 	toks, err := lexer.New(`
@@ -1195,7 +1195,7 @@ func TestAnalyzeIncDecOnStringFails(t *testing.T) {
 		t.Fatalf("парсер: %v", err)
 	}
 	_, err = Analyze(prog)
-	if err == nil || !strings.Contains(err.Error(), "применим только к Целое/Число") {
+	if err == nil || !strings.Contains(err.Error(), "применим только к Целое/Действительное") {
 		t.Fatalf("ожидалась ошибка про тип переменной, получено: %v", err)
 	}
 }
@@ -1332,5 +1332,47 @@ func TestAnalyzeLocalVariableShadowsEnumName(t *testing.T) {
 	print := fn.Body[1].(*ir.PrintStmt)
 	if _, ok := print.Value.(*ir.FieldAccess); !ok {
 		t.Fatalf("ожидался ir.FieldAccess (обычное поле сущности, не член перечисления), получено %T", print.Value)
+	}
+}
+
+func TestAnalyzeDeystvitelnoyeIsAliasOfChislo(t *testing.T) {
+	irProg := parseProgram(t, `
+функция сложить(а: Действительное, б: Число): Действительное
+{
+	вернуть а + б
+}
+
+функция главная
+{
+	вывести сложить(1.5, 2.5)
+}
+`)
+	fn := irProg.Functions[0]
+	if len(fn.Params) != 2 || fn.Params[0].Type != ir.TypeFloat || fn.Params[1].Type != ir.TypeFloat {
+		t.Fatalf("ожидались оба параметра типа ir.TypeFloat (Действительное и Число - один и тот же тип), получено %+v", fn.Params)
+	}
+	if fn.ReturnType != ir.TypeFloat {
+		t.Fatalf("ожидался тип результата ir.TypeFloat, получено %v", fn.ReturnType)
+	}
+}
+
+func TestAnalyzeTypeErrorReportsDeystvitelnoye(t *testing.T) {
+	toks, err := lexer.New(`
+функция обработать(а: Действительное) { вывести а }
+функция главная { обработать("текст") }
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
+	if err == nil || !strings.Contains(err.Error(), "должен быть типа Действительное") {
+		t.Fatalf("ожидалась ошибка с каноническим именем типа \"Действительное\", получено: %v", err)
+	}
+	if strings.Contains(err.Error(), "типа Число") {
+		t.Fatalf("сообщение об ошибке не должно называть тип устаревшим именем \"Число\": %v", err)
 	}
 }

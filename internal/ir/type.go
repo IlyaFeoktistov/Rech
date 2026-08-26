@@ -53,7 +53,11 @@ func (t Type) String() string {
 	case KindInt:
 		return "Целое"
 	case KindFloat:
-		return "Число"
+		// "Число" остаётся допустимым именем типа во входном исходнике
+		// (алиас, internal/semantic.resolveTypeName), но в сообщениях об
+		// ошибках компилятор всегда называет тип одинаково, чтобы не путать
+		// читателя двумя разными именами одного и того же типа.
+		return "Действительное"
 	case KindBool:
 		return "Логическое"
 	case KindFile:

@@ -324,7 +324,7 @@ func analyzeIncDecExpr(sc *ctx, e *ast.IncDecExpr) (ir.Expr, error) {
 		return nil, fmt.Errorf("строка %d: %q объявлено как \"константа\" - нельзя изменить (%s)", e.Line, e.Name, e.Op)
 	}
 	if typ != ir.TypeInt && typ != ir.TypeFloat {
-		return nil, fmt.Errorf("строка %d: оператор %q применим только к Целое/Число, получено %s", e.Line, e.Op, typ)
+		return nil, fmt.Errorf("строка %d: оператор %q применим только к Целое/Действительное, получено %s", e.Line, e.Op, typ)
 	}
 	return &ir.IncDecExpr{Name: e.Name, Op: e.Op, Prefix: e.Prefix, Type: typ}, nil
 }

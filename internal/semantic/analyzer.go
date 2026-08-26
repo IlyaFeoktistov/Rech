@@ -203,7 +203,7 @@ func (a *Analyzer) collectExternFuncSigs(funcs map[string]funcSig, entities map[
 				return nil, fmt.Errorf("%s: параметр %q: %w", label, p.Name, err)
 			}
 			if !isFFIScalar(typ) {
-				return nil, fmt.Errorf("%s: параметр %q имеет тип %s - у внешней функции сейчас допустимы только Целое/Число/Строка/Логическое", label, p.Name, typ)
+				return nil, fmt.Errorf("%s: параметр %q имеет тип %s - у внешней функции сейчас допустимы только Целое/Действительное/Строка/Логическое", label, p.Name, typ)
 			}
 			params[i] = typ
 		}
@@ -215,7 +215,7 @@ func (a *Analyzer) collectExternFuncSigs(funcs map[string]funcSig, entities map[
 				return nil, fmt.Errorf("%s: тип результата: %w", label, err)
 			}
 			if !isFFIScalar(typ) {
-				return nil, fmt.Errorf("%s: тип результата %s не поддерживается - у внешней функции сейчас допустимы только Целое/Число/Строка/Логическое", label, typ)
+				return nil, fmt.Errorf("%s: тип результата %s не поддерживается - у внешней функции сейчас допустимы только Целое/Действительное/Строка/Логическое", label, typ)
 			}
 			decl.ReturnType = typ
 			decl.HasReturn = true

@@ -13,13 +13,12 @@ const (
 	kindFloat
 	kindBool
 	kindEntity
-	// kindFile - непрозрачный дескриптор открытого файла (шаг 8, файловый
-	// ввод-вывод) - представление в C разное по платформе (int/HANDLE), см.
-	// valueType.cType и преамбулу typedef rech_file_t в fileHelpers.
+	// kindFile - непрозрачный дескриптор открытого файла - представление в C
+	// разное по платформе (int/HANDLE), см. valueType.cType и преамбулу
+	// typedef rech_file_t в fileHelpers.
 	kindFile
-	// kindSocket - непрозрачный дескриптор сетевого сокета (шаг 8, сетевые
-	// примитивы) - тот же принцип, что и kindFile, см. typedef
-	// rech_socket_t в socketHelpers.
+	// kindSocket - непрозрачный дескриптор сетевого сокета - тот же принцип,
+	// что и kindFile, см. typedef rech_socket_t в socketHelpers.
 	kindSocket
 )
 
@@ -48,28 +47,6 @@ var (
 // entityType возвращает valueType, соответствующий значению сущности name.
 func entityType(name string) valueType {
 	return valueType{kind: kindEntity, entity: name}
-}
-
-// typeNames - единственное место, где ВСТРОЕННЫЕ типы Rech связаны с их
-// написанием в исходнике - valueType.String() читает эту таблицу для
-// текста ошибок.
-var typeNames = map[valueType]string{
-	typeString: "Строка",
-	typeInt:    "Целое",
-	typeFloat:  "Число",
-	typeBool:   "Логическое",
-	typeFile:   "Файл",
-	typeSocket: "Сокет",
-}
-
-func (t valueType) String() string {
-	if t.kind == kindEntity {
-		return t.entity
-	}
-	if name, ok := typeNames[t]; ok {
-		return name
-	}
-	return "неизвестный тип"
 }
 
 func (t valueType) cType() string {

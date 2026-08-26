@@ -57,7 +57,10 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 		return ir.TypeString, nil
 	case "Целое":
 		return ir.TypeInt, nil
-	case "Число":
+	case "Число", "Действительное":
+		// "Число" - алиас "Действительное", сохранён ради уже написанного
+		// кода; канонический вывод типа в сообщениях об ошибках -
+		// "Действительное" (ir.Type.String()).
 		return ir.TypeFloat, nil
 	case "Логическое":
 		return ir.TypeBool, nil
@@ -218,12 +221,12 @@ func genericMethodSigs(template string, elem ir.Type) (map[string]funcSig, bool)
 	}
 }
 
-// resolveGenericTypeName - как cbackend.resolveType (AST-путь): при первой
-// встрече конкретной инстанциации builtin-коллекции ("Список<Целое>")
-// синтезирует её сигнатуру (entitySig/funcSig) и регистрирует в entities/
-// methods (мемоизация - синтез только один раз, дальше просто найдётся в
-// карте) - дальше остальной internal/semantic обращается с ней как с
-// обычной сущностью, не зная, пользовательская она или встроенная.
+// resolveGenericTypeName - при первой встрече конкретной инстанциации
+// builtin-коллекции ("Список<Целое>") синтезирует её сигнатуру (entitySig/
+// funcSig) и регистрирует в entities/methods (мемоизация - синтез только
+// один раз, дальше просто найдётся в карте) - дальше остальной
+// internal/semantic обращается с ней как с обычной сущностью, не зная,
+// пользовательская она или встроенная.
 func resolveGenericTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, name string) (ir.Type, error) {
 	template, argName, ok := parseGenericTypeName(name)
 	if !ok {
@@ -234,7 +237,7 @@ func resolveGenericTypeName(entities map[string]entitySig, methods map[string]ma
 		return ir.TypeUnknown, fmt.Errorf("тип элемента %q в %q: %w", argName, name, err)
 	}
 	if elem.Kind == ir.KindEntity {
-		return ir.TypeUnknown, fmt.Errorf("%q: элементы встроенных коллекций поддерживаются только для Строка/Целое/Число/Логическое, не для сущностей", name)
+		return ir.TypeUnknown, fmt.Errorf("%q: элементы встроенных коллекций поддерживаются только для Строка/Целое/Действительное/Логическое, не для сущностей", name)
 	}
 	sigs, ok := genericMethodSigs(template, elem)
 	if !ok {
