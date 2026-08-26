@@ -11,7 +11,6 @@ package semantic
 
 import (
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 
@@ -19,42 +18,6 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/builtins"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
-
-// funcSig - сигнатура функции, собранная предварительным проходом
-// (collectFuncSigs) до анализа тел - функции могут вызывать друг друга
-// независимо от порядка объявления в файле (включая взаимную рекурсию),
-// как и в AST-пути (cbackend.funcSig, тот же принцип, отдельный тип - IR
-// не должен знать про cbackend).
-type funcSig struct {
-	Params     []ir.Type
-	ReturnType ir.Type
-	HasReturn  bool
-
-	// Private - видимость метода (шаг 4.3, ast.MethodDecl.Private); всегда
-	// false для обычных функций - у них нет понятия видимости.
-	Private bool
-
-	// ParamStates - для параметра, объявленного производным типом
-	// состояния (шаг 4.1, "параметр: АвторизованныйПользователь"), краткая
-	// форма самого состояния ("авторизован") - тот же индекс, что и Params
-	// (Params[i] уже резолвлен в тип БАЗОВОЙ сущности, alias-имя потеряно,
-	// см. resolveTypeName - без этого поля flow-sensitive проверка шага 5
-	// не знала бы, какой именно переход состояния требует параметр).
-	// "" - параметр объявлен без производного типа состояния (обычный тип,
-	// в т.ч. обычная сущность без каких-либо требований к состоянию).
-	ParamStates []string
-
-	// GuaranteedThisStates - только для методов (funcSig как элемент
-	// methods[Сущность][Метод]): набор состояний, которые этот метод
-	// доказанно устанавливает на "этот" на всех путях выполнения (см.
-	// analyzeMethod) - используется analyzeMethodCallExpr, чтобы после
-	// вызова метода-транзиции (например, "получатель.авторизовать()")
-	// перенести доказанный переход на переменную-получателя вызывающей
-	// стороны. nil у обычных функций (никогда не заполняется) и у методов,
-	// ещё не проанализированных к моменту вызова (взаимная рекурсия
-	// методов - безопасный дефолт "ничего не доказано").
-	GuaranteedThisStates map[string]bool
-}
 
 // builtinIRType переводит internal/builtins.Kind (общий для cbackend и
 // этого пакета, ничего не знающий про конкретный ir.Type/valueType) в
@@ -92,35 +55,6 @@ func registerBuiltinFuncs(funcs map[string]funcSig) {
 	}
 }
 
-// entitySig - сигнатура сущности: поля в порядке объявления (для
-// конструктора и доступа к полю, шаг 4.b), собранная предварительным
-// проходом (collectEntitySigs) - тот же принцип, что и funcSig, отдельный
-// тип от cbackend.entitySig (IR не должен знать про cbackend).
-type entitySig struct {
-	FieldNames []string
-	FieldTypes []ir.Type
-
-	// FieldPrivate - видимость соответствующего поля (шаг 4.3, тот же индекс,
-	// что и FieldNames/FieldTypes); nil у сущностей без ни одного приватного
-	// поля.
-	FieldPrivate []bool
-
-	// States - краткие формы, объявленные под "состояние:" (шаг 4.1,
-	// упрощённая версия) - для проверки BecomeStmt ("получатель становится
-	// <состояние>"). nil у сущностей без "состояние:".
-	States map[string]bool
-
-	// IsList/ElemType - заполнены только для синтезированных инстанциаций
-	// встроенных generic-коллекций (шаг 4.2, resolveTypeName) - IsList
-	// true только у "Список<T>" (единственная коллекция, участвующая в
-	// цикле "для x в списке"), ElemType - у всех трёх (Список/Стопка/
-	// Очередь), чтобы Analyze мог собрать Program.Generics в конце без
-	// повторного разбора имени. У обычных пользовательских сущностей -
-	// нулевые значения.
-	IsList   bool
-	ElemType ir.Type
-}
-
 // checkFieldVisibility возвращает ошибку, если поле fieldName сущности
 // entityName приватное (шаг 4.3) и обращение происходит не изнутри метода
 // этой же сущности (sc.thisEntity != entityName) - см. одноимённый хелпер в
@@ -132,6 +66,57 @@ func checkFieldVisibility(sc *ctx, entityName, fieldName string, private bool, l
 		return nil
 	}
 	return fmt.Errorf("строка %d: поле %q сущности %q приватное - доступ только из методов самой сущности", line, fieldName, entityName)
+}
+
+// checkConstVisibility - то же самое, что checkFieldVisibility, но для
+// константы сущности (отдельная функция, а не переиспользование
+// checkFieldVisibility "как есть" - иначе сообщение об ошибке называло бы
+// константу полем).
+func checkConstVisibility(sc *ctx, entityName, constName string, private bool, line int) error {
+	if !private || sc.thisEntity == entityName {
+		return nil
+	}
+	return fmt.Errorf("строка %d: константа %q сущности %q приватная - доступ только из методов самой сущности", line, constName, entityName)
+}
+
+// resolveEntityConstant возвращает значение константы entityName.constName.
+// Значение вычисляется РОВНО один раз на весь Analyze: результат кладётся в
+// sc.resolvedConsts (общая для всей программы карта, см. newCtx) и на
+// повторных обращениях просто читается оттуда - без этого выражение
+// константы (если это не литерал, а что-то посложнее) вычислялось бы заново
+// на каждое обращение "Сущность.Константа"/"экземпляр.Константа".
+//
+// sc.resolvingConsts защищает от циклической ссылки константы саму на себя
+// (напрямую или через цепочку других констант, в т.ч. чужих сущностей):
+// ключ ставится перед рекурсивным analyzeExpr и снимается сразу после -
+// если тот же ключ встретится повторно, пока он ещё не снят, значит
+// вычисление зациклилось - без этой проверки analyzeExpr вызывал бы сам
+// себя без остановки и падал стек-оверфлоу самого компилятора вместо
+// понятной ошибки.
+//
+// Видимость (приватная/публичная) здесь не проверяется - это забота
+// вызывающей стороны (обеих точек доступа в analyzeExpr выше): при
+// построении ir.Entity.Constants для собственной сущности видимость
+// проверять не нужно (сущность имеет право использовать собственную
+// приватную константу для вычисления другой своей константы).
+func resolveEntityConstant(sc *ctx, entityName, constName string, line int) (ir.Expr, error) {
+	key := entityName + "." + constName
+	if v, ok := sc.resolvedConsts[key]; ok {
+		return v, nil
+	}
+	if sc.resolvingConsts[key] {
+		return nil, fmt.Errorf("строка %d: константа %q.%q ссылается сама на себя (прямо или через другую константу) - вычислить значение невозможно", line, entityName, constName)
+	}
+	sig := sc.entities[entityName]
+	idx := sig.constIndex(constName)
+	sc.resolvingConsts[key] = true
+	val, err := analyzeExpr(sc, sig.ConstExprs[idx])
+	delete(sc.resolvingConsts, key)
+	if err != nil {
+		return nil, fmt.Errorf("строка %d: при вычислении константы %q.%q: %w", line, entityName, constName, err)
+	}
+	sc.resolvedConsts[key] = val
+	return val, nil
 }
 
 // checkMethodVisibility - то же самое для вызова приватного метода.
@@ -217,15 +202,32 @@ type ctx struct {
 	// не может быть переобъявлен/затенён в рамках одного метода), поэтому
 	// отдельное поле, без стека (метод не бывает вложен в другой метод).
 	thisEstablished map[string]bool
+
+	// resolvedConsts/resolvingConsts - вычисление константы уровня сущности
+	// (ключ "Сущность.Константа", см. resolveEntityConstant): resolvedConsts -
+	// кэш уже вычисленных значений (константа вычисляется РОВНО один раз на
+	// весь Analyze, а не заново на каждое обращение), resolvingConsts -
+	// множество констант, вычисление которых сейчас идёт (ключ появляется
+	// перед рекурсивным analyzeExpr и снимается сразу после) - если во время
+	// вычисления встречается тот же ключ, значит константа (прямо или через
+	// цепочку других констант) ссылается сама на себя, что иначе ушло бы в
+	// бесконечную рекурсию analyzeExpr. Обе карты созданы один раз в
+	// Analyze и переданы по ссылке во все newCtx этого прохода (в отличие от
+	// established/consts выше, это не стек по scope, а общее для всей
+	// программы состояние - как entities/enums).
+	resolvedConsts  map[string]ir.Expr
+	resolvingConsts map[string]bool
 }
 
-func newCtx(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, enums map[string]map[string]int64, thisEntity string, returnType ir.Type, hasReturn bool) *ctx {
+func newCtx(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, enums map[string]map[string]int64, thisEntity string, returnType ir.Type, hasReturn bool, resolvedConsts map[string]ir.Expr, resolvingConsts map[string]bool) *ctx {
 	return &ctx{
 		funcs: funcs, entities: entities, methods: methods, aliases: aliases, enums: enums, thisEntity: thisEntity,
 		scopes: []scope{{}}, returnType: returnType, hasReturn: hasReturn,
 		established:     []map[string]map[string]bool{{}},
 		thisEstablished: map[string]bool{},
 		consts:          []map[string]bool{{}},
+		resolvedConsts:  resolvedConsts,
+		resolvingConsts: resolvingConsts,
 	}
 }
 
@@ -440,8 +442,7 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 }
 
 // httpRequestFields/httpResponseFields - фиксированные поля встроенных
-// сущностей "Запрос"/"Ответ" (шаг 9, HTTP-клиент, добавлено по прямому
-// запросу пользователя - "функция запрос типа curl") - в этом порядке
+// сущностей "Запрос"/"Ответ" - в этом порядке
 // (позиционный конструктор "новый Запрос(...)" следует ему) и без
 // падежного согласования (обычные имена полей). Заголовки - одна `Строка`
 // (каждый заголовок на своей строке, разделитель "\r\n"), не список пар
@@ -481,8 +482,7 @@ func registerHTTPEntity(entities map[string]entitySig, name string, fields []ir.
 	entities[name] = sig
 }
 
-// standardEnums - встроенные перечисления (шаг 12, добавлено по прямому
-// запросу пользователя - "стандартные енумы... заранее известные") -
+// standardEnums - встроенные перечисления -
 // доступны в любой программе без объявления, тем же принципом, что и
 // Файл/Сокет/Запрос/Ответ (пользователь не объявляет их сам, но может
 // объявить СВОЁ перечисление с любым другим именем обычным
@@ -526,36 +526,6 @@ var standardEnums = map[string]map[string]int64{
 		"Май": 5, "Июнь": 6, "Июль": 7, "Август": 8,
 		"Сентябрь": 9, "Октябрь": 10, "Ноябрь": 11, "Декабрь": 12,
 	},
-}
-
-// collectEnums собирает все перечисления программы (шаг 12) - стандартные
-// (standardEnums, всегда присутствуют) плюс объявленные пользователем
-// (prog.Enums, копия standardEnums на входе - чтобы мутация ниже не
-// затронула сам standardEnums между вызовами Analyze). Дубли членов
-// внутри одного перечисления уже проверены парсером (см. parseEnumDecl) -
-// здесь только коллизии ИМЕНИ самого перечисления с сущностью или другим
-// перечислением (в т. ч. встроенным).
-func collectEnums(entities map[string]entitySig, prog *ast.Program) (map[string]map[string]int64, error) {
-	enums := make(map[string]map[string]int64, len(standardEnums)+len(prog.Enums))
-	for name, members := range standardEnums {
-		copied := make(map[string]int64, len(members))
-		maps.Copy(copied, members)
-		enums[name] = copied
-	}
-	for _, e := range prog.Enums {
-		if _, exists := entities[e.Name]; exists {
-			return nil, fmt.Errorf("строка %d: перечисление %q совпадает с именем уже объявленной сущности", e.Line, e.Name)
-		}
-		if _, exists := enums[e.Name]; exists {
-			return nil, fmt.Errorf("строка %d: перечисление %q уже объявлено (возможно, совпадает со встроенным перечислением)", e.Line, e.Name)
-		}
-		members := make(map[string]int64, len(e.Members))
-		for _, m := range e.Members {
-			members[m.Name] = m.Value
-		}
-		enums[e.Name] = members
-	}
-	return enums, nil
 }
 
 // parseGenericTypeName разбирает закодированную парсером строку вида
@@ -644,125 +614,24 @@ func resolveGenericTypeName(entities map[string]entitySig, methods map[string]ma
 // коллекции) - см. internal/ir, package doc. Расширяется вместе с
 // internal/backend/cbackend.GenerateFromIR подшаг за подшагом, шаг 5.
 func Analyze(prog *ast.Program) (*ir.Program, error) {
-	entities, methods, aliases, aliasState, err := collectEntities(prog)
-	if err != nil {
-		return nil, err
+	a := &Analyzer{
+		resolvedConsts:  map[string]ir.Expr{},
+		resolvingConsts: map[string]bool{},
 	}
-	funcs, externFuncs, err := collectFuncSigs(entities, methods, aliases, aliasState, prog)
-	if err != nil {
-		return nil, err
-	}
-	enums, err := collectEnums(entities, prog)
-	if err != nil {
+
+	if err := a.collectEntities(prog); err != nil {
 		return nil, err
 	}
 
-	out := &ir.Program{ExternFuncs: externFuncs}
-	for _, ent := range prog.Entities {
-		irEnt, err := analyzeEntity(funcs, entities, methods, aliases, enums, ent)
-		if err != nil {
-			return nil, fmt.Errorf("сущность %q: %w", ent.Name, err)
-		}
-		out.Entities = append(out.Entities, irEnt)
-	}
-	// "Запрос"/"Ответ" (шаг 9) - registerHTTPEntity в collectFuncSigs уже
-	// гарантировал их наличие в entities без AST-узла (нет ast.EntityDecl -
-	// собственный синтетический ir.Entity, без методов), поэтому
-	// cbackend.GenerateFromIR сгенерирует их typedef тем же общим циклом по
-	// Program.Entities, каким и для обычных пользовательских сущностей.
-	out.Entities = append(out.Entities,
-		&ir.Entity{Name: "Запрос", Fields: httpRequestFields},
-		&ir.Entity{Name: "Ответ", Fields: httpResponseFields},
-	)
-	for _, fn := range prog.Functions {
-		irFn, err := analyzeFunction(funcs, entities, methods, aliases, enums, fn)
-		if err != nil {
-			return nil, fmt.Errorf("функция %q: %w", fn.Name, err)
-		}
-		out.Functions = append(out.Functions, irFn)
+	if err := a.collectFuncSigs(prog); err != nil {
+		return nil, err
 	}
 
-	// entities может по ходу анализа (в т. ч. внутри тел функций/методов -
-	// analyzeNewExpr) пополниться инстанциациями generic-коллекций
-	// (resolveGenericTypeName) - собираем их в Program.Generics здесь, в
-	// конце, а не по одной в момент появления, чтобы не тащить
-	// накопитель через всю рекурсию analyzeExpr. Ключ содержит "<" ровно
-	// у синтезированных инстанциаций - обычное имя сущности/типа этот
-	// символ никогда не содержит (не входит в алфавит идентификаторов
-	// Rech). Сортировка по имени - только для детерминированного порядка
-	// вывода (map по природе неупорядочен), семантически не важна.
-	names := make([]string, 0, len(entities))
-	for name := range entities {
-		if strings.Contains(name, "<") {
-			names = append(names, name)
-		}
-	}
-	slices.Sort(names)
-	for _, name := range names {
-		template, _, _ := parseGenericTypeName(name)
-		out.Generics = append(out.Generics, ir.GenericInstantiation{
-			Name:     name,
-			Template: template,
-			ElemType: entities[name].ElemType,
-		})
-	}
-	return out, nil
-}
-
-// collectFuncSigs - предварительный проход: сигнатуры всех функций
-// программы, до анализа любого тела (нужно для вызовов вперёд/взаимной
-// рекурсии - как и в cbackend.Generate). entities/methods/aliases уже
-// полностью собраны (collectEntities) - функция может ссылаться на любую
-// сущность, производный тип состояния или generic-коллекцию, независимо
-// от того, где та объявлена в файле относительно функции.
-func collectFuncSigs(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, aliasState map[string]string, prog *ast.Program) (map[string]funcSig, []*ir.ExternFuncDecl, error) {
-	funcs := map[string]funcSig{}
-	registerBuiltinFuncs(funcs)
-	// "запрос" (шаг 9, HTTP-клиент) - не входит в internal/builtins.All:
-	// принимает и возвращает сущности (Запрос/Ответ), а Func.Params - только
-	// Kind (примитивы) - регистрируется отдельно, тем же принципом
-	// (зарезервированное имя, недоступное для собственной функции
-	// программы - см. builtins.ReservedFuncNames). registerHTTPEntity здесь,
-	// не только в resolveTypeName - "Запрос"/"Ответ" должны существовать
-	// сразу, даже если сама "запрос" в программе не вызывается, а только,
-	// например, объявлена пользовательская функция с параметром "Запрос".
-	registerHTTPEntity(entities, "Запрос", httpRequestFields)
-	registerHTTPEntity(entities, "Ответ", httpResponseFields)
-	funcs["запрос"] = funcSig{Params: []ir.Type{ir.EntityType("Запрос")}, ReturnType: ir.EntityType("Ответ"), HasReturn: true}
-	for _, fn := range prog.Functions {
-		if _, exists := funcs[fn.Name]; exists {
-			if builtins.IsReservedName(fn.Name) {
-				return nil, nil, fmt.Errorf("функция %q - зарезервированное имя встроенной функции, нельзя объявить свою функцию с этим именем", fn.Name)
-			}
-			return nil, nil, fmt.Errorf("функция %q объявлена более одного раза", fn.Name)
-		}
-		params := make([]ir.Type, len(fn.Params))
-		paramStates := make([]string, len(fn.Params))
-		for i, p := range fn.Params {
-			typ, err := resolveTypeName(entities, methods, aliases, p.Type)
-			if err != nil {
-				return nil, nil, fmt.Errorf("функция %q: параметр %q: %w", fn.Name, p.Name, err)
-			}
-			params[i] = typ
-			paramStates[i] = aliasState[p.Type]
-		}
-		sig := funcSig{Params: params, ParamStates: paramStates}
-		if fn.ReturnType != "" {
-			typ, err := resolveTypeName(entities, methods, aliases, fn.ReturnType)
-			if err != nil {
-				return nil, nil, fmt.Errorf("функция %q: тип результата: %w", fn.Name, err)
-			}
-			sig.ReturnType = typ
-			sig.HasReturn = true
-		}
-		funcs[fn.Name] = sig
+	if err := a.collectEnums(prog); err != nil {
+		return nil, err
 	}
 
-	externFuncs, err := collectExternFuncSigs(funcs, entities, methods, aliases, prog)
-	if err != nil {
-		return nil, nil, err
-	}
-	return funcs, externFuncs, nil
+	return a.buildIR(prog)
 }
 
 // isFFIScalar - типы, допустимые для параметра/результата внешней функции
@@ -776,240 +645,6 @@ func isFFIScalar(t ir.Type) bool {
 	default:
 		return false
 	}
-}
-
-// collectExternFuncSigs - "внешняя функция" (шаг 7, FFI): та же коллизия
-// имени с builtin/уже объявленной функцией, что и у обычных функций выше,
-// плюс проверка, что параметры/результат - один из четырёх примитивов
-// (isFFIScalar) - тот же принцип, что и cbackend.externSignatureOf
-// (AST-путь). Регистрирует Alias в funcs (для проверки вызовов), возвращает
-// []*ir.ExternFuncDecl для ir.Program.ExternFuncs - настоящий C-символ
-// (CName) для кодогенерации berёт оттуда только cbackend.GenerateFromIR,
-// семантическому анализу он не нужен.
-func collectExternFuncSigs(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, prog *ast.Program) ([]*ir.ExternFuncDecl, error) {
-	var out []*ir.ExternFuncDecl
-	for _, ext := range prog.ExternFuncs {
-		label := fmt.Sprintf("внешняя функция %q", ext.Alias)
-		if _, exists := funcs[ext.Alias]; exists {
-			if builtins.IsReservedName(ext.Alias) {
-				return nil, fmt.Errorf("%s - зарезервированное имя встроенной функции, нельзя объявить с этим именем", label)
-			}
-			return nil, fmt.Errorf("имя %q уже объявлено (как функция) - нельзя повторно объявить его как внешнюю функцию", ext.Alias)
-		}
-		params := make([]ir.Type, len(ext.Params))
-		for i, p := range ext.Params {
-			typ, err := resolveTypeName(entities, methods, aliases, p.Type)
-			if err != nil {
-				return nil, fmt.Errorf("%s: параметр %q: %w", label, p.Name, err)
-			}
-			if !isFFIScalar(typ) {
-				return nil, fmt.Errorf("%s: параметр %q имеет тип %s - у внешней функции сейчас допустимы только Целое/Число/Строка/Логическое", label, p.Name, typ)
-			}
-			params[i] = typ
-		}
-		decl := &ir.ExternFuncDecl{CName: ext.CName, Alias: ext.Alias, Params: params}
-		sig := funcSig{Params: params}
-		if ext.ReturnType != "" {
-			typ, err := resolveTypeName(entities, methods, aliases, ext.ReturnType)
-			if err != nil {
-				return nil, fmt.Errorf("%s: тип результата: %w", label, err)
-			}
-			if !isFFIScalar(typ) {
-				return nil, fmt.Errorf("%s: тип результата %s не поддерживается - у внешней функции сейчас допустимы только Целое/Число/Строка/Логическое", label, typ)
-			}
-			decl.ReturnType = typ
-			decl.HasReturn = true
-			sig.ReturnType = typ
-			sig.HasReturn = true
-		}
-		funcs[ext.Alias] = sig
-		out = append(out, decl)
-	}
-	return out, nil
-}
-
-// collectEntities - предварительный проход: поля, сигнатуры методов и
-// производные типы состояний (aliases - "АвторизованныйПользователь" ->
-// "Пользователь", шаг 4.1) всех сущностей программы, до анализа любого
-// тела. Одним циклом по prog.Entities, как и в cbackend.Generate -
-// поле/параметр/тип результата метода сущности N может ссылаться только
-// на сущность (или производный тип), уже занесённую к этому моменту
-// (объявленную раньше в файле, включая саму N) - та же граница, что и в
-// cbackend.
-func collectEntities(prog *ast.Program) (map[string]entitySig, map[string]map[string]funcSig, map[string]string, map[string]string, error) {
-	entities := map[string]entitySig{}
-	methods := map[string]map[string]funcSig{}
-	aliases := map[string]string{}
-	// aliasState - производный тип состояния (то же ключевое множество, что
-	// и aliases) -> краткая форма самого состояния ("авторизован") - в
-	// отличие от aliases (-> базовая сущность, нужна для резолюции типа),
-	// это отдельная информация, нужная только для funcSig.ParamStates
-	// (какой конкретно переход обязан быть доказан, см. package doc ctx.
-	// established) - aliases сама по себе эту информацию не несёт.
-	aliasState := map[string]string{}
-	for _, ent := range prog.Entities {
-		if builtins.ReservedEntityNames[ent.Name] {
-			return nil, nil, nil, nil, fmt.Errorf("сущность %q - зарезервированное имя встроенной сущности (шаг 9, HTTP-клиент), нельзя объявить свою сущность с этим именем", ent.Name)
-		}
-		if _, exists := entities[ent.Name]; exists {
-			return nil, nil, nil, nil, fmt.Errorf("сущность %q объявлена более одного раза", ent.Name)
-		}
-		if other, exists := aliases[ent.Name]; exists {
-			return nil, nil, nil, nil, fmt.Errorf("сущность %q: имя совпадает с производным типом состояния, уже занятым сущностью %q", ent.Name, other)
-		}
-		var sig entitySig
-		for _, f := range ent.Fields {
-			if sig.fieldIndex(f.Name) != -1 {
-				return nil, nil, nil, nil, fmt.Errorf("сущность %q: поле %q объявлено более одного раза", ent.Name, f.Name)
-			}
-			typ, err := resolveTypeName(entities, methods, aliases, f.Type)
-			if err != nil {
-				return nil, nil, nil, nil, fmt.Errorf("сущность %q: поле %q: %w", ent.Name, f.Name, err)
-			}
-			sig.FieldNames = append(sig.FieldNames, f.Name)
-			sig.FieldTypes = append(sig.FieldTypes, typ)
-			sig.FieldPrivate = append(sig.FieldPrivate, f.Private)
-		}
-		if len(ent.States) > 0 {
-			sig.States = map[string]bool{}
-			for _, st := range ent.States {
-				sig.States[st.Name] = true
-				if _, exists := entities[st.TypeName]; exists {
-					return nil, nil, nil, nil, fmt.Errorf("сущность %q: производный тип состояния %q совпадает с именем уже объявленной сущности", ent.Name, st.TypeName)
-				}
-				if other, exists := aliases[st.TypeName]; exists && other != ent.Name {
-					return nil, nil, nil, nil, fmt.Errorf("сущность %q: производный тип состояния %q уже используется сущностью %q", ent.Name, st.TypeName, other)
-				}
-				aliases[st.TypeName] = ent.Name
-				aliasState[st.TypeName] = st.Name
-			}
-		}
-		entities[ent.Name] = sig
-
-		methods[ent.Name] = map[string]funcSig{}
-		for _, m := range ent.Methods {
-			if _, exists := methods[ent.Name][m.Name]; exists {
-				return nil, nil, nil, nil, fmt.Errorf("сущность %q: метод %q объявлен более одного раза", ent.Name, m.Name)
-			}
-			params := make([]ir.Type, len(m.Params))
-			paramStates := make([]string, len(m.Params))
-			for i, p := range m.Params {
-				typ, err := resolveTypeName(entities, methods, aliases, p.Type)
-				if err != nil {
-					return nil, nil, nil, nil, fmt.Errorf("сущность %q: метод %q: параметр %q: %w", ent.Name, m.Name, p.Name, err)
-				}
-				params[i] = typ
-				paramStates[i] = aliasState[p.Type]
-			}
-			msig := funcSig{Params: params, ParamStates: paramStates, Private: m.Private}
-			if m.ReturnType != "" {
-				typ, err := resolveTypeName(entities, methods, aliases, m.ReturnType)
-				if err != nil {
-					return nil, nil, nil, nil, fmt.Errorf("сущность %q: метод %q: тип результата: %w", ent.Name, m.Name, err)
-				}
-				msig.ReturnType = typ
-				msig.HasReturn = true
-			}
-			methods[ent.Name][m.Name] = msig
-		}
-	}
-	return entities, methods, aliases, aliasState, nil
-}
-
-func analyzeEntity(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, enums map[string]map[string]int64, ent *ast.EntityDecl) (*ir.Entity, error) {
-	sig := entities[ent.Name]
-	fields := make([]ir.Field, len(sig.FieldNames))
-	for i, name := range sig.FieldNames {
-		fields[i] = ir.Field{Name: name, Type: sig.FieldTypes[i]}
-	}
-	irMethods := make([]*ir.Method, len(ent.Methods))
-	for i, m := range ent.Methods {
-		irM, err := analyzeMethod(funcs, entities, methods, aliases, enums, ent.Name, m)
-		if err != nil {
-			return nil, fmt.Errorf("метод %q: %w", m.Name, err)
-		}
-		irMethods[i] = irM
-	}
-	return &ir.Entity{Name: ent.Name, Fields: fields, Methods: irMethods}, nil
-}
-
-func analyzeMethod(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, enums map[string]map[string]int64, entityName string, m *ast.MethodDecl) (*ir.Method, error) {
-	sig := methods[entityName][m.Name]
-	sc := newCtx(funcs, entities, methods, aliases, enums, entityName, sig.ReturnType, sig.HasReturn)
-	params := make([]ir.Param, len(m.Params))
-	for i, p := range m.Params {
-		params[i] = ir.Param{Name: p.Name, Type: sig.Params[i]}
-		if err := sc.declare(p.Name, sig.Params[i]); err != nil {
-			return nil, fmt.Errorf("строка %d: параметр %q: %w", p.Line, p.Name, err)
-		}
-		if i < len(sig.ParamStates) && sig.ParamStates[i] != "" {
-			// Параметр объявлен производным типом состояния - вызывающая
-			// сторона уже обязана доказать переход (analyzeCallExpr/
-			// analyzeMethodCallExpr), внутри тела метода это доверяется
-			// без повторной проверки.
-			sc.setEstablished(p.Name, map[string]bool{sig.ParamStates[i]: true})
-		}
-	}
-	body, err := analyzeBlock(sc, m.Body)
-	if err != nil {
-		return nil, err
-	}
-	if sig.HasReturn && !endsWithReturnValue(body) {
-		return nil, fmt.Errorf("с объявленным типом результата %s должен заканчиваться \"вернуть <значение>\"", sig.ReturnType)
-	}
-	// sc.thisEstablished сейчас - набор состояний, доказанно установленных
-	// на "этот" на ВСЕХ путях выполнения этого метода (if/else уже слиты
-	// пересечением, тело цикла - консервативно отброшено, см. package doc
-	// ctx.established) - то есть ровно постусловие метода. "этот" передаётся
-	// по ссылке (this_ - указатель в C, без cloneValue в интерпретаторе, в
-	// отличие от обычных параметров - см. package doc ir.Entity), поэтому,
-	// в отличие от обычных параметров, это постусловие можно безопасно
-	// перенести на переменную-получателя вызывающей стороны - см.
-	// analyzeMethodCallExpr, sig.GuaranteedThisStates. Записываем обратно в
-	// разделяемую methods (тот же экземпляр карты на весь Analyze) - методы,
-	// проанализированные раньше (эта же или более ранняя сущность), к
-	// моменту вызова УЖЕ несут здесь актуальное постусловие; для метода,
-	// который вызывается раньше, чем сам проанализирован (взаимная
-	// рекурсия методов), постусловие останется нулевым (безопасный дефолт
-	// "ничего не доказано" - не звук наоборот).
-	sig.GuaranteedThisStates = sc.thisEstablished
-	methods[entityName][m.Name] = sig
-	return &ir.Method{
-		Name:       m.Name,
-		Params:     params,
-		ReturnType: sig.ReturnType,
-		HasReturn:  sig.HasReturn,
-		Body:       body,
-	}, nil
-}
-
-func analyzeFunction(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, enums map[string]map[string]int64, fn *ast.FunctionDecl) (*ir.Function, error) {
-	sig := funcs[fn.Name]
-	sc := newCtx(funcs, entities, methods, aliases, enums, "", sig.ReturnType, sig.HasReturn)
-	params := make([]ir.Param, len(fn.Params))
-	for i, p := range fn.Params {
-		params[i] = ir.Param{Name: p.Name, Type: sig.Params[i]}
-		if err := sc.declare(p.Name, sig.Params[i]); err != nil {
-			return nil, fmt.Errorf("строка %d: параметр %q: %w", p.Line, p.Name, err)
-		}
-		if i < len(sig.ParamStates) && sig.ParamStates[i] != "" {
-			sc.setEstablished(p.Name, map[string]bool{sig.ParamStates[i]: true})
-		}
-	}
-	body, err := analyzeBlock(sc, fn.Body)
-	if err != nil {
-		return nil, err
-	}
-	if sig.HasReturn && !endsWithReturnValue(body) {
-		return nil, fmt.Errorf("с объявленным типом результата %s должна заканчиваться \"вернуть <значение>\"", sig.ReturnType)
-	}
-	return &ir.Function{
-		Name:       fn.Name,
-		Params:     params,
-		ReturnType: sig.ReturnType,
-		HasReturn:  sig.HasReturn,
-		Body:       body,
-	}, nil
 }
 
 // endsWithReturnValue - true, если последняя инструкция тела (верхнего
@@ -1295,6 +930,12 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			return nil, fmt.Errorf("строка %d: нельзя присвоить полю %q - тип %s не сущность", s.Line, s.Field, typ)
 		}
 		sig := sc.entities[typ.Entity]
+
+		// Нельзя присваивать значение константе сущности
+		if cidx := sig.constIndex(s.Field); cidx != -1 {
+			return nil, fmt.Errorf("строка %d: нельзя присвоить значение константе %q.%q", s.Line, typ.Entity, s.Field)
+		}
+
 		idx := sig.fieldIndex(s.Field)
 		if idx == -1 {
 			return nil, fmt.Errorf("строка %d: у сущности %q нет поля %q", s.Line, typ.Entity, s.Field)
@@ -1414,12 +1055,22 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 		// проверяем sc.lookup ПЕРЕД sc.enums, не наоборот.
 		if ident, ok := e.Receiver.(*ast.Identifier); ok {
 			if _, isVar := sc.lookup(ident.Name); !isVar {
+				// Сначала проверяем перечисление
 				if members, isEnum := sc.enums[ident.Name]; isEnum {
 					v, ok := members[e.Field]
 					if !ok {
 						return nil, fmt.Errorf("строка %d: у перечисления %q нет члена %q", e.Line, ident.Name, e.Field)
 					}
 					return &ir.IntLiteral{Value: v}, nil
+				}
+				// Константа, объявленная на уровне сущности (Сущность.Константа)
+				if sig, isEnt := sc.entities[ident.Name]; isEnt {
+					if idx := sig.constIndex(e.Field); idx != -1 {
+						if err := checkConstVisibility(sc, ident.Name, e.Field, sig.ConstPrivate[idx], e.Line); err != nil {
+							return nil, err
+						}
+						return resolveEntityConstant(sc, ident.Name, e.Field, e.Line)
+					}
 				}
 			}
 		}
@@ -1434,6 +1085,15 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 		sig := sc.entities[typ.Entity]
 		idx := sig.fieldIndex(e.Field)
 		if idx == -1 {
+			// Не поле экземпляра - возможно, константа сущности, доступная
+			// и через экземпляр (Сущность.Константа и экземпляр.Константа -
+			// обе формы разрешены).
+			if cidx := sig.constIndex(e.Field); cidx != -1 {
+				if err := checkConstVisibility(sc, typ.Entity, e.Field, sig.ConstPrivate[cidx], e.Line); err != nil {
+					return nil, err
+				}
+				return resolveEntityConstant(sc, typ.Entity, e.Field, e.Line)
+			}
 			return nil, fmt.Errorf("строка %d: у сущности %q нет поля %q", e.Line, typ.Entity, e.Field)
 		}
 		if err := checkFieldVisibility(sc, typ.Entity, e.Field, sig.FieldPrivate[idx], e.Line); err != nil {

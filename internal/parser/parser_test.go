@@ -1129,3 +1129,67 @@ func TestParseIncDecAsStatement(t *testing.T) {
 		t.Fatalf("ожидался --а как инструкция, получено %+v", prog.Functions[0].Body[2])
 	}
 }
+
+func TestParseEntityConstantPlainIsPublic(t *testing.T) {
+	prog, err := parseSource(t, `
+сущность Настройки
+{
+	константа ВЕРСИЯ = 1
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	c := prog.Entities[0].Constants[0]
+	if c.Name != "ВЕРСИЯ" || c.Private {
+		t.Fatalf("ожидалась публичная константа ВЕРСИЯ, получено %+v", c)
+	}
+}
+
+func TestParseEntityConstantExplicitVisibility(t *testing.T) {
+	prog, err := parseSource(t, `
+сущность Секрет
+{
+	приватная константа КОД = 1
+	публичная константа ВЕРСИЯ = 2
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if len(prog.Entities[0].Constants) != 2 {
+		t.Fatalf("ожидалось 2 константы, получено %d", len(prog.Entities[0].Constants))
+	}
+	code := prog.Entities[0].Constants[0]
+	if code.Name != "КОД" || !code.Private {
+		t.Fatalf("ожидалась приватная константа КОД, получено %+v", code)
+	}
+	version := prog.Entities[0].Constants[1]
+	if version.Name != "ВЕРСИЯ" || version.Private {
+		t.Fatalf("ожидалась публичная константа ВЕРСИЯ, получено %+v", version)
+	}
+}
+
+func TestParseEntityConstantVisibilityMustAgreeWithConstWordNotName(t *testing.T) {
+	_, err := parseSource(t, `
+сущность Секрет
+{
+	приватный КОД = 1
+}
+`)
+	if err == nil {
+		t.Fatal("ожидалась ошибка - без слова \"константа\" форма \"приватный ИМЯ = ...\" больше не поддерживается")
+	}
+}
+
+func TestParseEntityConstantVisibilityWrongFormRejected(t *testing.T) {
+	_, err := parseSource(t, `
+сущность Секрет
+{
+	приватный константа КОД = 1
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "приватная") {
+		t.Fatalf("ожидалась ошибка о требуемой форме \"приватная\" (согласование со словом \"константа\"), получено: %v", err)
+	}
+}

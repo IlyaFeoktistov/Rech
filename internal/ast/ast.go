@@ -84,6 +84,9 @@ func (*ExternFuncDecl) node() {}
 //
 //	сущность Имя
 //	{
+//		константа <имя> = <значение>
+//		...
+//		состояние <состояние1>, <состояние2>, ...
 //	    имеет:
 //	        поле: Тип
 //	        ...
@@ -95,11 +98,12 @@ func (*ExternFuncDecl) node() {}
 //
 // ("класс" - синоним "сущность", docs/GRAMMAR.md).
 type EntityDecl struct {
-	Name    string
-	States  []StateDecl
-	Fields  []Field
-	Methods []*MethodDecl
-	Line    int
+	Name      string
+	Constants []*ConstDecl
+	States    []StateDecl
+	Fields    []Field
+	Methods   []*MethodDecl
+	Line      int
 }
 
 func (*EntityDecl) node() {}
@@ -252,13 +256,23 @@ func (*VarDecl) stmt() {}
 
 // ConstDecl - "константа <имя> = <значение>" (шаг 12) - как VarDecl, но
 // повторное присваивание этому имени (Assign) - ошибка компиляции
-// (internal/semantic), не времени выполнения; само значение вычисляется и
-// хранится тем же кодом, что и обычная переменная (internal/ir не отличает
-// их вообще - см. package doc internal/semantic).
+// (internal/semantic), не времени выполнения; локальная/верхнеуровневая
+// константа вычисляется и хранится тем же кодом, что и обычная переменная
+// (internal/ir не отличает их вообще - см. package doc internal/semantic).
+//
+// Private осмыслен только для константы внутри тела "сущность"
+// (EntityDecl.Constants) - модификатор "приватная"/"публичная" перед
+// словом "константа", согласованный по роду/числу с самим словом
+// "константа" (женский род, единственное число), а не с Name (имя
+// константы обычно КАПС_ЛОКОМ и не является обычным существительным). У
+// локальной/верхнеуровневой константы (тело функции/метода) видимость не
+// имеет смысла - парсер модификатор перед ней не принимает, Private всегда
+// false.
 type ConstDecl struct {
-	Name  string
-	Value Expr
-	Line  int
+	Name    string
+	Value   Expr
+	Private bool
+	Line    int
 }
 
 func (*ConstDecl) node() {}

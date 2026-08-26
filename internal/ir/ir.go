@@ -95,9 +95,17 @@ type Param struct {
 // перенесены - internal/semantic явно отказывает на них, а не тихо
 // пропускает.
 type Entity struct {
-	Name    string
-	Fields  []Field
-	Methods []*Method
+	Name      string
+	Constants []Constant
+	Fields    []Field
+	Methods   []*Method
+}
+
+// Constant - одно константное поле сущности
+type Constant struct {
+	Name  string
+	Value Expr
+	Type  Type
 }
 
 // Field - одно поле сущности, в порядке объявления (порядок значим -

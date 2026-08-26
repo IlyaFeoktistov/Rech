@@ -207,6 +207,231 @@ func TestAnalyzeExternFuncBuildsIR(t *testing.T) {
 	}
 }
 
+func TestAnalyzeEntityConstantResolvesToLiteral(t *testing.T) {
+	irProg := parseProgram(t, `
+сущность Ответчик
+{
+	константа ОТВЕТ = 42
+}
+
+функция главная
+{
+	вывести Ответчик.ОТВЕТ
+}
+`)
+	fn := irProg.Functions[0]
+	if len(fn.Body) != 1 {
+		t.Fatalf("ожидалась 1 инструкция, получено %d", len(fn.Body))
+	}
+	print := fn.Body[0].(*ir.PrintStmt)
+	lit, ok := print.Value.(*ir.IntLiteral)
+	if !ok || lit.Value != 42 {
+		t.Fatalf("ожидался ir.IntLiteral{42}, получено %+v", print.Value)
+	}
+	// Проверить, что константа попала в ir.Entity.Constants
+	var found *ir.Entity
+	for _, e := range irProg.Entities {
+		if e.Name == "Ответчик" {
+			found = e
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("ожидалась сущность Ответчик в IR")
+	}
+	if len(found.Constants) != 1 || found.Constants[0].Name != "ОТВЕТ" {
+		t.Fatalf("константы сущности не заполнены корректно: %+v", found.Constants)
+	}
+}
+
+func TestAnalyzeEntityInstanceConstantAccess(t *testing.T) {
+	irProg := parseProgram(t, `
+сущность Профиль
+{
+	константа ЛИМИТ = 100
+	имеет:
+		имя: Строка
+		счет: Целое
+}
+
+функция главная
+{
+	переменная p = новый Профиль("Иван", 10)
+	вывести p.ЛИМИТ
+}
+`)
+	print := irProg.Functions[0].Body[1].(*ir.PrintStmt)
+	lit, ok := print.Value.(*ir.IntLiteral)
+	if !ok || lit.Value != 100 {
+		t.Fatalf("ожидался ir.IntLiteral{100}, получено %+v", print.Value)
+	}
+}
+
+func TestAssignToEntityConstantViaInstanceFails(t *testing.T) {
+	toks, err := lexer.New(`
+сущность Профиль
+{
+	константа ЛИМИТ = 100
+	имеет:
+		счет: Целое
+}
+
+функция главная
+{
+	переменная p = новый Профиль(10)
+	p.ЛИМИТ = 200
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
+	if err == nil || !strings.Contains(err.Error(), "констант") {
+		t.Fatalf("ожидалась ошибка про присваивание константе сущности, получено: %v", err)
+	}
+}
+
+func TestPrivateEntityConstantAccessibleInMethod(t *testing.T) {
+	toks, err := lexer.New(`
+сущность Секрет
+{
+	приватная константа КОД = 1234
+	имеет:
+		поле: Целое
+
+	показать(): Целое
+	{
+		вернуть Секрет.КОД
+	}
+}
+
+функция главная
+{
+	переменная s = новый Секрет(0)
+	вывести s.показать()
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
+	if err != nil {
+		t.Fatalf("ожидался успешный анализ доступа к приватной константе внутри метода, получено: %v", err)
+	}
+}
+
+func TestPublicEntityConstantExplicitModifierAccessibleExternally(t *testing.T) {
+	irProg := parseProgram(t, `
+сущность Настройки
+{
+	публичная константа ВЕРСИЯ = 3
+}
+
+функция главная
+{
+	вывести Настройки.ВЕРСИЯ
+}
+`)
+	print := irProg.Functions[0].Body[0].(*ir.PrintStmt)
+	lit, ok := print.Value.(*ir.IntLiteral)
+	if !ok || lit.Value != 3 {
+		t.Fatalf("ожидался ir.IntLiteral{3}, получено %+v", print.Value)
+	}
+}
+
+func TestPrivateEntityConstantExternalAccessDenied(t *testing.T) {
+	toks, err := lexer.New(`
+сущность Секрет
+{
+	приватная константа КОД = 1234
+	имеет:
+		поле: Целое
+}
+
+функция главная
+{
+	вывести Секрет.КОД
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
+	if err == nil || !strings.Contains(err.Error(), "константа") || !strings.Contains(err.Error(), "приватная") {
+		t.Fatalf("ожидалась ошибка про приватную константу (без слова \"поле\"), получено: %v", err)
+	}
+	if strings.Contains(err.Error(), "поле") {
+		t.Fatalf("ошибка не должна называть константу полем: %v", err)
+	}
+}
+
+func TestEntityConstantSelfReferenceFailsCleanly(t *testing.T) {
+	toks, err := lexer.New(`
+сущность А
+{
+	константа X = А.X
+}
+
+функция главная
+{
+	вывести А.X
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
+	if err == nil || !strings.Contains(err.Error(), "сама на себя") {
+		t.Fatalf("ожидалась ошибка о циклической ссылке константы, получено: %v", err)
+	}
+}
+
+func TestEntityConstantMutualCycleFailsCleanly(t *testing.T) {
+	toks, err := lexer.New(`
+сущность А
+{
+	константа X = Б.Y
+}
+
+сущность Б
+{
+	константа Y = А.X
+}
+
+функция главная
+{
+	вывести А.X
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
+	if err == nil || !strings.Contains(err.Error(), "сама на себя") {
+		t.Fatalf("ожидалась ошибка о циклической ссылке константы, получено: %v", err)
+	}
+}
+
 // TestAnalyzeExternFuncRejectsNonScalarType - параметр/результат внешней
 // функции - только Целое/Число/Строка/Логическое (нет стабильного
 // C-представления у сущностей/generic-коллекций).

@@ -97,6 +97,7 @@ func (defaultBackend) Generate(prog *ast.Program) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	return cbackend.GenerateFromIR(irProg)
 }
 

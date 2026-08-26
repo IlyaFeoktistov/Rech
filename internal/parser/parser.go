@@ -4,7 +4,7 @@
 // EBNF-набросок - docs/GRAMMAR.md):
 //
 //	program     := { newline } { ( function | entity ) { newline } }
-//	entity      := ( "сущность" | "класс" ) IDENT newline "{" [ states_section ] [ fields_section ] "}"
+//	entity      := ( "сущность" | "класс" ) IDENT newline "{" [ constants_section ] [ states_section ] [ fields_section ] [ methods_section ] "}"
 //	states_section := "состояние" ":" { IDENT }        (* одна строка, шаг 4.1 *)
 //	fields_section := "имеет" ":" { field }
 //	field       := IDENT ":" IDENT
@@ -339,48 +339,134 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 // parseEntity разбирает "сущность"/"класс" (синонимы) и её тело.
 func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 	kw := p.advance() // "сущность" или "класс"
+
 	name, err := p.expect(lexer.IDENT)
 	if err != nil {
-		return nil, fmt.Errorf("после %q ожидалось имя сущности: %w", kw.Value, err)
+		return nil, fmt.Errorf(
+			"после %q ожидалось имя сущности: %w",
+			kw.Value,
+			err,
+		)
 	}
+
 	p.skipNewlines()
+
 	if _, err := p.expect(lexer.LBRACE); err != nil {
 		return nil, err
 	}
+
 	p.skipSeparators()
 
+	var constants []*ast.ConstDecl
 	var states []ast.StateDecl
-	if p.cur().Type == lexer.KwState {
-		states, err = p.parseStatesSection(name.Value)
-		if err != nil {
-			return nil, fmt.Errorf("сущность %q: %w", name.Value, err)
-		}
-		p.skipSeparators()
-	}
-
 	var fields []ast.Field
-	if p.cur().Type == lexer.KwHas {
-		fields, err = p.parseFieldsSection()
-		if err != nil {
-			return nil, fmt.Errorf("сущность %q: %w", name.Value, err)
-		}
-		p.skipSeparators()
-	}
-
 	var methods []*ast.MethodDecl
-	for p.cur().Type == lexer.IDENT || p.cur().Type == lexer.KwPrivate || p.cur().Type == lexer.KwPublic {
-		m, err := p.parseMethod()
-		if err != nil {
-			return nil, fmt.Errorf("сущность %q: %w", name.Value, err)
+
+	for p.cur().Type != lexer.RBRACE {
+		switch p.cur().Type {
+		case lexer.KwConst:
+			c, err := p.parseConstDecl()
+			if err != nil {
+				return nil, fmt.Errorf(
+					"сущность %q: %w",
+					name.Value,
+					err,
+				)
+			}
+
+			constants = append(constants, c)
+
+		case lexer.KwState:
+			parsedStates, err := p.parseStatesSection(name.Value)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"сущность %q: %w",
+					name.Value,
+					err,
+				)
+			}
+
+			states = append(states, parsedStates...)
+
+		case lexer.KwHas:
+			parsedFields, err := p.parseFieldsSection()
+			if err != nil {
+				return nil, fmt.Errorf(
+					"сущность %q: %w",
+					name.Value,
+					err,
+				)
+			}
+
+			fields = append(fields, parsedFields...)
+
+		case lexer.IDENT:
+			m, err := p.parseMethod()
+			if err != nil {
+				return nil, fmt.Errorf(
+					"сущность %q: %w",
+					name.Value,
+					err,
+				)
+			}
+
+			methods = append(methods, m)
+
+		case lexer.KwPrivate, lexer.KwPublic:
+			// Модификатор видимости перед "константа" ("[приватная|
+			// публичная] константа ИМЯ = ...") либо модификатор видимости
+			// метода ("[приватный|публичный] МЕТОД...") - различаем по
+			// следующему токену без потребления текущего.
+			if p.peekAt(1).Type == lexer.KwConst {
+				visTok := p.advance()
+				if err := checkConstVisibilityAgreement(visTok); err != nil {
+					return nil, fmt.Errorf("сущность %q: %w", name.Value, err)
+				}
+				c, err := p.parseConstDecl()
+				if err != nil {
+					return nil, fmt.Errorf(
+						"сущность %q: %w",
+						name.Value,
+						err,
+					)
+				}
+				c.Private = visTok.Type == lexer.KwPrivate
+				constants = append(constants, c)
+				break
+			}
+			m2, err := p.parseMethod()
+			if err != nil {
+				return nil, fmt.Errorf(
+					"сущность %q: %w",
+					name.Value,
+					err,
+				)
+			}
+			methods = append(methods, m2)
+
+		default:
+			return nil, fmt.Errorf(
+				"сущность %q: неожиданный токен %q",
+				name.Value,
+				p.cur().Value,
+			)
 		}
-		methods = append(methods, m)
+
 		p.skipSeparators()
 	}
 
 	if _, err := p.expect(lexer.RBRACE); err != nil {
 		return nil, err
 	}
-	return &ast.EntityDecl{Name: name.Value, States: states, Fields: fields, Methods: methods, Line: kw.Line}, nil
+
+	return &ast.EntityDecl{
+		Name:      name.Value,
+		Constants: constants,
+		States:    states,
+		Fields:    fields,
+		Methods:   methods,
+		Line:      kw.Line,
+	}, nil
 }
 
 // parseUseDecl разбирает "использовать <имя> [как <псевдоним>], ... из
@@ -828,6 +914,22 @@ func checkVisibilityAgreement(kw lexer.Token, private bool, fieldName string) er
 	return nil
 }
 
+// checkConstVisibilityAgreement - то же самое, что checkVisibilityAgreement,
+// но для константы сущности: модификатор здесь согласуется не с именем
+// самой константы (она обычно записана КАПС_ЛОКОМ_С_ПОДЧЁРКИВАНИЯМИ и не
+// является обычным склоняемым существительным - checkVisibilityAgreement
+// на таком имени просто ничего не проверил бы, morph.NounAgreement его не
+// узнает), а со словом "константа" - оно всегда женского рода единственного
+// числа, поэтому единственные допустимые формы - "приватная"/"публичная".
+func checkConstVisibilityAgreement(kw lexer.Token) error {
+	want := visibilityKeywordFor(kw.Type == lexer.KwPrivate, morph.Feminine, morph.Singular)
+	if kw.Value != want {
+		return fmt.Errorf("строка %d, столбец %d: перед \"константа\" модификатор видимости согласуется со словом \"константа\" (женский род, единственное число) - ожидалось %q, получено %q",
+			kw.Line, kw.Col, want, kw.Value)
+	}
+	return nil
+}
+
 func (p *Parser) parseFunction() (*ast.FunctionDecl, error) {
 	kw, err := p.expect(lexer.KwFunction)
 	if err != nil {
@@ -994,6 +1096,12 @@ func (p *Parser) parseBlock() ([]ast.Stmt, error) {
 	return stmts, nil
 }
 
+// parseStatement разбирает одну инструкцию тела функции/метода (а также
+// инструкцию верхнего уровня программы, см. ParseProgram). Модификаторы
+// видимости ("приватный"/"публичный") здесь не ожидаются вообще - видимость
+// имеет смысл только для константы/поля/метода внутри "сущность" (см.
+// parseEntity) - попытка написать их перед обычной инструкцией падает в
+// default ниже с понятной ошибкой "неожиданный токен".
 func (p *Parser) parseStatement() (ast.Stmt, error) {
 	switch p.cur().Type {
 	case lexer.KwPrint:
@@ -1135,7 +1243,9 @@ func (p *Parser) parseVarDecl() (ast.Stmt, error) {
 // идентично parseVarDecl (та же обязательная инициализация, та же
 // регистрация имени для падежного согласования) - разница (запрет
 // повторного присваивания) проверяется в internal/semantic, не здесь.
-func (p *Parser) parseConstDecl() (ast.Stmt, error) {
+// Модификатор видимости сюда не входит - его читает вызывающая сторона
+// (parseEntity) до вызова этой функции, см. checkConstVisibilityAgreement.
+func (p *Parser) parseConstDecl() (*ast.ConstDecl, error) {
 	kw, err := p.expect(lexer.KwConst)
 	if err != nil {
 		return nil, err
