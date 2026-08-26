@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
@@ -430,6 +431,9 @@ func formatFloatForPrint(f float64) string {
 	}
 }
 
+// printValue - "вывести <выражение>": один формат на примитив, дружелюбный
+// плейсхолдер на сущность/файл/сокет - вместо ошибки или печати внутреннего
+// Go-представления; подробности значения - через "показать" (showValue).
 func (in *Interp) printValue(v Value) {
 	switch v.Type.Kind {
 	case ir.KindString:
@@ -444,7 +448,51 @@ func (in *Interp) printValue(v Value) {
 		} else {
 			fmt.Fprintln(in.out, "ложь")
 		}
+	case ir.KindFile:
+		fmt.Fprintln(in.out, "[файл]")
+	case ir.KindSocket:
+		fmt.Fprintln(in.out, "[сокет]")
+	case ir.KindEntity:
+		fmt.Fprintf(in.out, "[сущность]<%s>\n", v.Obj.typeName)
 	default:
 		fmt.Fprintln(in.out, v.S)
+	}
+}
+
+// showValue строит отладочное представление v ("показать") - значение
+// вместе с именем типа, рекурсивно для сущностей (поля в порядке
+// объявления, взятом из in.entities - у map нет своего порядка) и
+// встроенных коллекций (элементы по порядку). Различие коллекции от
+// обычной сущности - v.Obj.coll != nil, тот же признак, что и в cloneValue.
+func (in *Interp) showValue(v Value) string {
+	switch v.Type.Kind {
+	case ir.KindString:
+		return fmt.Sprintf("\"%s\" (Строка)", v.S)
+	case ir.KindInt:
+		return fmt.Sprintf("%s (Целое)", strconv.FormatInt(v.I, 10))
+	case ir.KindFloat:
+		return fmt.Sprintf("%s (Действительное)", formatFloatForPrint(v.F))
+	case ir.KindBool:
+		word := "ложь"
+		if v.B {
+			word = "истина"
+		}
+		return fmt.Sprintf("%s (Логическое)", word)
+	case ir.KindEntity:
+		if v.Obj.coll != nil {
+			parts := make([]string, len(v.Obj.coll.elems))
+			for i, elem := range v.Obj.coll.elems {
+				parts[i] = in.showValue(elem)
+			}
+			return fmt.Sprintf("%s [%s]", v.Obj.typeName, strings.Join(parts, ", "))
+		}
+		ent := in.entities[v.Obj.typeName]
+		parts := make([]string, len(ent.Fields))
+		for i, f := range ent.Fields {
+			parts[i] = fmt.Sprintf("%s: %s", f.Name, in.showValue(v.Obj.fields[f.Name]))
+		}
+		return fmt.Sprintf("%s { %s }", v.Obj.typeName, strings.Join(parts, ", "))
+	default:
+		return fmt.Sprintf("%s (%s)", v.S, v.Type)
 	}
 }

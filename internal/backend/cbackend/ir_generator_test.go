@@ -650,3 +650,99 @@ func TestGenerateFromIRArgsGlobalsAlwaysPresent(t *testing.T) {
 		t.Fatalf("rech_arg не должен генерироваться, когда \"аргумент\" не используется:\n%s", out)
 	}
 }
+
+func TestGenerateFromIRShowStmtPrimitive(t *testing.T) {
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.ShowStmt{Value: &ir.IntLiteral{Value: 5}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, `printf("%lld (Целое)", 5LL);`) {
+		t.Fatalf("ожидался показ Целое, получено:\n%s", out)
+	}
+}
+
+func TestGenerateFromIRShowStmtEntityGeneratesShowFunc(t *testing.T) {
+	ent := &ir.Entity{Name: "Точка", Fields: []ir.Field{
+		{Name: "x", Type: ir.TypeInt},
+		{Name: "y", Type: ir.TypeInt},
+	}}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "p", Value: &ir.NewExpr{Entity: "Точка", Args: []ir.Expr{&ir.IntLiteral{Value: 1}, &ir.IntLiteral{Value: 2}}}},
+		&ir.ShowStmt{Value: &ir.Identifier{Name: "p", Type: ir.EntityType("Точка")}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Entities: []*ir.Entity{ent}, Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	for _, want := range []string{
+		"static void rech_show_tochka(rech_T_tochka v) {",
+		`printf("Точка { ");`,
+		`printf("x: ");`,
+		`printf("%lld (Целое)", v.f_x);`,
+		"rech_show_tochka(v_p);",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ожидалось %q в выводе, получено:\n%s", want, out)
+		}
+	}
+}
+
+func TestGenerateFromIRShowStmtOmittedWhenUnused(t *testing.T) {
+	ent := &ir.Entity{Name: "Точка", Fields: []ir.Field{{Name: "x", Type: ir.TypeInt}}}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "p", Value: &ir.NewExpr{Entity: "Точка", Args: []ir.Expr{&ir.IntLiteral{Value: 1}}}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Entities: []*ir.Entity{ent}, Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if strings.Contains(out, "rech_show_") {
+		t.Fatalf("функции показа не должны генерироваться, если \"показать\" не используется:\n%s", out)
+	}
+}
+
+func TestGenerateFromIRShowStmtList(t *testing.T) {
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.ShowStmt{Value: &ir.Identifier{Name: "список", Type: ir.EntityType("Список<Целое>")}},
+	}}
+	prog := &ir.Program{
+		Functions: []*ir.Function{main},
+		Generics:  []ir.GenericInstantiation{{Name: "Список<Целое>", Template: "Список", ElemType: ir.TypeInt}},
+	}
+	main.Body = append([]ir.Stmt{&ir.VarDecl{Name: "список", Value: &ir.NewExpr{Entity: "Список<Целое>"}}}, main.Body...)
+	out, err := GenerateFromIR(prog)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	for _, want := range []string{
+		"static void rech_show_spisok_of_celoe(rech_T_spisok_of_celoe v) {",
+		`printf("Список<Целое> [");`,
+		"for (long long i = 0; i < v.len; i++) {",
+		`printf("%lld (Целое)", v.data[i]);`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ожидалось %q в выводе, получено:\n%s", want, out)
+		}
+	}
+}
+
+// TestGenerateFromIRPrintOnEntityShowsFriendlyPlaceholder - "вывести" на
+// сущности не ошибка компиляции и не printf("%s", ...) на C-структуре
+// (неопределённое поведение) - печатает маркер "[сущность]<Тип>".
+func TestGenerateFromIRPrintOnEntityShowsFriendlyPlaceholder(t *testing.T) {
+	ent := &ir.Entity{Name: "Точка", Fields: []ir.Field{{Name: "x", Type: ir.TypeInt}}}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "p", Value: &ir.NewExpr{Entity: "Точка", Args: []ir.Expr{&ir.IntLiteral{Value: 1}}}},
+		&ir.PrintStmt{Value: &ir.Identifier{Name: "p", Type: ir.EntityType("Точка")}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Entities: []*ir.Entity{ent}, Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, `printf("[сущность]<Точка>\n");`) {
+		t.Fatalf("ожидался дружелюбный плейсхолдер, получено:\n%s", out)
+	}
+}

@@ -303,7 +303,7 @@ func TestPrivateEntityConstantAccessibleInMethod(t *testing.T) {
 	имеет:
 		поле: Целое
 
-	показать(): Целое
+	раскрыть(): Целое
 	{
 		вернуть Секрет.КОД
 	}
@@ -312,7 +312,7 @@ func TestPrivateEntityConstantAccessibleInMethod(t *testing.T) {
 функция главная
 {
 	переменная s = новый Секрет(0)
-	вывести s.показать()
+	вывести s.раскрыть()
 }
 `).Tokenize()
 	if err != nil {

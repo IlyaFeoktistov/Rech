@@ -1,21 +1,11 @@
-// GenerateFromIR - C backend поверх internal/ir (шаг 5.c) - параллельный
-// путь к Generate(*ast.Program): пока не встроен в реальную компиляцию
-// (internal/compiler по-прежнему вызывает Generate напрямую), покрывает
-// ровно то же подмножество, что и internal/semantic.Analyze на данный
-// момент - шаги 0-4 (`вывести <строка>`, переменные/арифметика,
-// если/пока/для, функции с параметрами/типом результата и их вызов,
-// сущности/поля/конструктор/методы/"этот"), шаг 4.1 (состояния) и шаг 4.2
-// (встроенные generic-коллекции, цикл "для x в списке") - полное покрытие
-// текущего языка. Расширяется вместе с покрытием internal/semantic,
-// вертикальным срезом за срезом (см. package doc internal/ir), а не
-// отдельно от него - не имеет смысла генерировать код для IR-узла, которого
-// семантический анализ ещё не производит.
+// GenerateFromIR - единственный C backend Rech, транслирует
+// internal/ir.Program (уже полностью проверенный internal/semantic) в
+// исходник на C. Вызывается напрямую из internal/compiler.
 //
-// Переиспользует то, что уже есть в этом пакете для генерации из AST
-// (entryPointName, mangleName, mangleVar, valueType, printCall,
-// escapeCString, formatFloatLiteral, indent) - IR-путь не имеет
-// собственного понятия C-типа/мангла, это решение backend'а в обоих
-// случаях одно и то же.
+// Использует общую для пакета инфраструктуру, не зависящую от IR как
+// такового (mangleName/mangleVar/mangleType/mangleField/mangleMethod,
+// valueType, printCall, escapeCString, formatFloatLiteral, indent,
+// builtinCallCode, generic-коллекции - см. соседние файлы пакета).
 package cbackend
 
 import (
@@ -27,7 +17,7 @@ import (
 )
 
 // irGenCtx - состояние генерации из IR: флаги использованных
-// runtime-хелперов (как ctx.usesConcat/usesStrCmp в genCtx, AST-путь),
+// runtime-хелперов (как ctx.usesConcat/usesStrCmp),
 // сущности программы по имени (нужно NewExpr - её Args позиционны, без
 // имён полей, см. package doc ir.NewExpr - имена нужны только здесь, для
 // designated initializer в C) и имя сущности-владельца метода, который
@@ -40,20 +30,21 @@ import (
 // backend'е заново).
 type irGenCtx struct {
 	usesConcat bool
-	// builtinFlags - общий с genCtx (AST-путь, generator.go) тип - см. его
-	// package doc: единая таблица диспетчеризации builtinCallCode на оба
-	// пути. usesPanic из неё же покрывает и "утверждать"/деление на ноль
-	// (generic-коллекции сами по себе учтены отдельно через usesGenerics/
-	// prog.Generics в GenerateFromIR, не через этот флаг).
+	// builtinFlags - единая таблица диспетчеризации builtinCallCode
+	// (usesPanic из неё же покрывает "утверждать"/деление на ноль -
+	// generic-коллекции учтены отдельно через usesGenerics/prog.Generics в
+	// GenerateFromIR, не через этот флаг).
 	builtinFlags
-	// usesIntDiv - нужен ли rech_int_div (см. cbackend.genArithmetic).
+	// usesIntDiv - нужен ли rech_int_div (см. generateIRArithmetic).
 	usesIntDiv bool
-	entities   map[string]*ir.Entity
+	// usesShow - нужны ли функции показа (rech_show_...) - генерируются
+	// только если "показать" реально встретилось в программе.
+	usesShow bool
+	entities map[string]*ir.Entity
 	// externCNames - Rech-facing имя (Alias) внешней функции -> настоящий
-	// C-символ (CName), из prog.ExternFuncs - тем же принципом, что и
-	// ctx.externCNames в AST-пути (generator.go): CallExpr.Callee несёт
-	// Alias, вызывается по CName, не по mangleName(Alias) (тот не имеет
-	// отношения к настоящему символу).
+	// C-символ (CName), из prog.ExternFuncs: CallExpr.Callee несёт Alias,
+	// вызывается по CName, не по mangleName(Alias) (тот не имеет отношения
+	// к настоящему символу).
 	externCNames map[string]string
 	thisEntity   string
 }
@@ -79,12 +70,11 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	}
 
 	// genericsCode - typedef struct + функции для встроенных generic-
-	// коллекций (шаг 4.2), использованных в программе - переиспользует
-	// cbackend.listCollectionCCode/stackCollectionCCode/queueCollectionCCode,
-	// ту же реализацию (growable array), что и AST-путь (synthesizeList/
-	// synthesizeStack/synthesizeQueue) - IR-путь не хранит собственных
-	// сигнатур методов для них, MethodCallExpr уже несёт всё нужное для
-	// вызова, эта функция только про C-текст самого типа.
+	// коллекций, использованных в программе - переиспользует
+	// listCollectionCCode/stackCollectionCCode/queueCollectionCCode
+	// (растущий массив) - IR не хранит собственных сигнатур методов для
+	// них, MethodCallExpr уже несёт всё нужное для вызова, эта функция
+	// только про C-текст самого типа.
 	var genericsCode strings.Builder
 	usesGenerics := len(prog.Generics) > 0
 	for _, g := range prog.Generics {
@@ -99,6 +89,18 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 		default:
 			return "", fmt.Errorf("неизвестный generic-шаблон %q", g.Template)
 		}
+	}
+
+	// showFuncs - функции показа ("показать") для каждой сущности и
+	// generic-коллекции программы - строятся всегда (дёшево, чистый текст),
+	// в итоговый файл попадают только если ctx.usesShow (см. ниже, после
+	// генерации тел).
+	var showFuncs strings.Builder
+	for _, ent := range prog.Entities {
+		showFuncs.WriteString(generateIREntityShowFunc(ent))
+	}
+	for _, g := range prog.Generics {
+		showFuncs.WriteString(generateIRGenericShowFunc(g))
 	}
 
 	var protos strings.Builder
@@ -154,10 +156,9 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	if ctx.usesMath {
 		sb.WriteString("#include <math.h>\n")
 	}
-	// windows.h/shellapi.h - см. cbackend.Generate (AST-путь, тот же
-	// принцип без дублирования преамбулы: rech_init_console/rech_init_args
-	// нужны безусловно, файловый ввод-вывод - за MultiByteToWideChar).
-	// WIN32_LEAN_AND_MEAN/winsock2.h - см. cbackend.Generate, usesSockets.
+	// windows.h/shellapi.h - rech_init_console/rech_init_args нужны
+	// безусловно, файловый ввод-вывод - за MultiByteToWideChar.
+	// WIN32_LEAN_AND_MEAN/winsock2.h - нужны при usesSockets.
 	sb.WriteString("#ifdef _WIN32\n#define WIN32_LEAN_AND_MEAN\n#include <windows.h>\n#include <shellapi.h>\n#endif\n")
 	if ctx.usesSockets {
 		sb.WriteString("#ifdef _WIN32\n#include <winsock2.h>\n#include <ws2tcpip.h>\n#else\n#include <sys/socket.h>\n#include <netinet/in.h>\n#include <arpa/inet.h>\n#include <netdb.h>\n#include <unistd.h>\n#endif\n")
@@ -201,8 +202,12 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	if genericsCode.Len() > 0 {
 		sb.WriteString(genericsCode.String())
 	}
+	if ctx.usesShow && showFuncs.Len() > 0 {
+		sb.WriteString(showFuncs.String())
+	}
 	if ctx.usesHTTP {
-		// После typedefs - см. cbackend.Generate (AST-путь, тот же принцип).
+		// После typedefs - rech_http_request принимает/возвращает Запрос/
+		// Ответ по значению, их typedef должен быть уже виден.
 		sb.WriteString(httpHelpers)
 		sb.WriteString("\n")
 	}
@@ -215,8 +220,7 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 }
 
 // generateIREntityStruct - C typedef struct для ent, как
-// cbackend.generateEntityStruct (AST-путь), только по уже собранным
-// internal/ir.Field вместо entitySig.
+// C typedef struct для ent, по уже собранным internal/ir.Field.
 func generateIREntityStruct(ent *ir.Entity) string {
 	var sb strings.Builder
 	sb.WriteString("typedef struct {\n")
@@ -254,7 +258,7 @@ func cParamListIR(params []ir.Param) string {
 
 // externPrototypeOfIR - "extern <тип> <CName>(<типы>);" для внешней
 // функции - без имён параметров (в отличие от cbackend.externPrototypeOf,
-// AST-путь): C допускает анонимные параметры в прототипе, а сами имена
+// C допускает анонимные параметры в прототипе, а сами имена
 // параметров Rech после семантического анализа уже не нужны ни для чего,
 // кроме сообщений об ошибках, которые уже показаны на этапе Analyze.
 func externPrototypeOfIR(ext *ir.ExternFuncDecl) string {
@@ -343,6 +347,16 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 			return err
 		}
 		fmt.Fprintf(sb, "%s%s\n", ind, printCall(typ, code))
+		return nil
+
+	case *ir.ShowStmt:
+		ctx.usesShow = true
+		code, _, err := generateIRExpr(ctx, s.Value)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(sb, "%s%s;\n", ind, generateIRShowExpr(ir.TypeOf(s.Value), code))
+		fmt.Fprintf(sb, "%sprintf(\"\\n\");\n", ind)
 		return nil
 
 	case *ir.VarDecl:
@@ -612,7 +626,7 @@ func generateIRUnaryExpr(ctx *irGenCtx, e *ir.UnaryExpr) (string, valueType, err
 
 // generateIRBinaryExpr доверяет типам, уже разрешённым internal/semantic
 // (e.Type, ir.TypeOf(e.Left/e.Right)) - в отличие от cbackend.genBinaryExpr
-// (AST-путь), сам не перепроверяет допустимость операции для этих типов,
+// сам не перепроверяет допустимость операции для этих типов,
 // это уже сделано семантическим анализом один раз (шаг 5.b), а не заново в
 // каждом backend'е.
 func generateIRBinaryExpr(ctx *irGenCtx, e *ir.BinaryExpr) (string, valueType, error) {
@@ -668,7 +682,7 @@ func generateIRBinaryExpr(ctx *irGenCtx, e *ir.BinaryExpr) (string, valueType, e
 
 // generateIRArithmetic - "+" (нестроковый)/"-"/"*"/"/": приведение
 // операнда к double при смешении Целое/Число - та же промоция, что и в
-// cbackend.genArithmetic (AST-путь).
+// generateIRArithmetic.
 func generateIRArithmetic(ctx *irGenCtx, op string, lc string, lt ir.Type, rc string, rt ir.Type) (string, valueType, error) {
 	if lt == ir.TypeFloat || rt == ir.TypeFloat {
 		if lt == ir.TypeInt {

@@ -49,6 +49,8 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 	switch p.cur().Type {
 	case lexer.KwPrint:
 		return p.parsePrintStmt()
+	case lexer.KwShow:
+		return p.parseShowStmt()
 	case lexer.KwAssert:
 		return p.parseAssertStmt()
 	case lexer.KwVariable:
@@ -148,6 +150,18 @@ func (p *Parser) parsePrintStmt() (ast.Stmt, error) {
 		return nil, fmt.Errorf("после \"вывести\" ожидалось выражение: %w", err)
 	}
 	return &ast.PrintStmt{Value: value, Line: kw.Line}, nil
+}
+
+func (p *Parser) parseShowStmt() (ast.Stmt, error) {
+	kw, err := p.expect(lexer.KwShow)
+	if err != nil {
+		return nil, err
+	}
+	value, err := p.parseExpr()
+	if err != nil {
+		return nil, fmt.Errorf("после \"показать\" ожидалось выражение: %w", err)
+	}
+	return &ast.ShowStmt{Value: value, Line: kw.Line}, nil
 }
 
 func (p *Parser) parseAssertStmt() (ast.Stmt, error) {

@@ -45,6 +45,7 @@ const (
 
 	KwFunction // функция
 	KwPrint    // вывести
+	KwShow     // показать (отладочный вывод значения вместе с типом)
 	KwVariable // переменная
 	KwAnd      // и
 	KwOr       // или
@@ -85,6 +86,7 @@ const (
 var keywords = map[string]TokenType{
 	"функция":      KwFunction,
 	"вывести":      KwPrint,
+	"показать":     KwShow,
 	"переменная":   KwVariable,
 	"и":            KwAnd,
 	"или":          KwOr,
@@ -207,6 +209,8 @@ func (t TokenType) String() string {
 		return "функция"
 	case KwPrint:
 		return "вывести"
+	case KwShow:
+		return "показать"
 	case KwVariable:
 		return "переменная"
 	case KwAnd:

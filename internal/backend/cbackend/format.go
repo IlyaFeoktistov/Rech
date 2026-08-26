@@ -10,6 +10,11 @@ func indent(depth int) string {
 	return strings.Repeat("    ", depth)
 }
 
+// printCall - "вывести <выражение>": один printf на примитив, дружелюбный
+// плейсхолдер (без обращения к самому значению) на сущность/файл/сокет -
+// вместо ошибки компиляции или неопределённого поведения (printf("%s", ...)
+// на структуре) значение просто помечается своим видом, подробности - через
+// "показать" (см. generateIRShowExpr).
 func printCall(typ valueType, code string) string {
 	switch typ {
 	case typeString:
@@ -20,7 +25,14 @@ func printCall(typ valueType, code string) string {
 		return fmt.Sprintf(`printf("%%g\n", %s);`, code)
 	case typeBool:
 		return fmt.Sprintf(`printf("%%s\n", (%s) ? "истина" : "ложь");`, code)
+	case typeFile:
+		return `printf("[файл]\n");`
+	case typeSocket:
+		return `printf("[сокет]\n");`
 	default:
+		if typ.kind == kindEntity {
+			return fmt.Sprintf(`printf("[сущность]<%s>\n");`, escapeCString(typ.entity))
+		}
 		return fmt.Sprintf(`printf("%%s\n", %s);`, code)
 	}
 }

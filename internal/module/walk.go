@@ -110,6 +110,8 @@ func (r *rewriter) rewriteStmt(s ast.Stmt) error {
 	switch s := s.(type) {
 	case *ast.PrintStmt:
 		return r.rewriteExpr(s.Value)
+	case *ast.ShowStmt:
+		return r.rewriteExpr(s.Value)
 	case *ast.VarDecl:
 		return r.rewriteExpr(s.Value)
 	case *ast.ConstDecl:

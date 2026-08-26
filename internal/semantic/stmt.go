@@ -65,6 +65,13 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		}
 		return &ir.PrintStmt{Value: value}, nil
 
+	case *ast.ShowStmt:
+		value, err := analyzeExpr(sc, s.Value)
+		if err != nil {
+			return nil, err
+		}
+		return &ir.ShowStmt{Value: value}, nil
+
 	case *ast.VarDecl:
 		value, err := analyzeExpr(sc, s.Value)
 		if err != nil {

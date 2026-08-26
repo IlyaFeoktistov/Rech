@@ -11,6 +11,16 @@ type PrintStmt struct {
 
 func (*PrintStmt) stmt() {}
 
+// ShowStmt соответствует "показать <выражение>" - отладочный вывод значения
+// вместе с именем его типа, рекурсивно для сущностей (поля) и встроенных
+// коллекций (элементы). Тип значения - TypeOf(Value), как и у PrintStmt;
+// имена полей сущности codegen берёт из Program.Entities по имени типа.
+type ShowStmt struct {
+	Value Expr
+}
+
+func (*ShowStmt) stmt() {}
+
 // VarDecl соответствует "переменная <имя> = <выражение>". Тип переменной -
 // тип Value (literal-based inference, шаг 1) - разрешён и провалидирован
 // семантическим анализом (internal/semantic), в самом узле не хранится

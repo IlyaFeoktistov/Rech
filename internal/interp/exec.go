@@ -2,6 +2,7 @@ package interp
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"strings"
 
@@ -19,6 +20,14 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 			return ctrl{}, err
 		}
 		in.printValue(v)
+		return ctrl{}, nil
+
+	case *ir.ShowStmt:
+		v, err := in.evalExpr(s.Value, env, cc)
+		if err != nil {
+			return ctrl{}, err
+		}
+		fmt.Fprintln(in.out, in.showValue(v))
 		return ctrl{}, nil
 
 	case *ir.VarDecl:
