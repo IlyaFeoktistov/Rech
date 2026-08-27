@@ -115,7 +115,7 @@ func loadProjectFile(path string) (*ProjectFile, error) {
 		return nil, fmt.Errorf("%s: не указано обязательное поле файлы.главный", path)
 	}
 	if pf.Выход == "" {
-		pf.Выход = "build"
+		pf.Выход = "сборка"
 	}
 	if pf.Режим == "" {
 		pf.Режим = "релиз"
@@ -162,7 +162,7 @@ const projectTemplate = `проект:
 файлы:
   исходники: исходники/**/*.rech
   главный: исходники/главный.rech
-  выход: build
+  выход: сборка
 
 сборка:
   режим: отладка
