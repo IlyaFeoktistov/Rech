@@ -88,6 +88,22 @@ type irGenCtx struct {
 	excIsaTable    [][]bool
 	usesExceptions bool
 	tryCounter     int
+
+	// irFuncs - функции программы по имени (нужно generateIRLaunchExpr,
+	// чтобы найти параметры/тип результата обёрнутой функции - см.
+	// internal/backend/cbackend/concurrency.go, ensureTaskWrapper).
+	irFuncs map[string]*ir.Function
+	// launchedFuncs/taskCode - какие функции уже когда-либо "запускались"
+	// в этой программе (ensureTaskWrapper эмитит C-обёртку один раз на
+	// функцию, при первой встрече) и сам накопленный текст этих обёрток -
+	// тот же принцип, что и showFuncs/vtables (отдельный builder,
+	// заполняемый по ходу генерации тела, вставляется в файл в нужном
+	// текстовом месте в конце). usesThreads - "запустить" реально
+	// встретилось в программе - гейтит #include <pthread.h>/поточные
+	// заголовки Windows и сам этот блок целиком.
+	launchedFuncs map[string]bool
+	taskCode      strings.Builder
+	usesThreads   bool
 }
 
 // exceptionsUseDispatch - true, если системная сущность "Исключение"
@@ -181,6 +197,11 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 		// slots в итоге пуст.
 		usesVtable: len(participants) > 0,
 		excTypeIDs: excTypeIDs, excTypeNames: excTypeNames, excIsaTable: excIsaTable,
+		launchedFuncs: map[string]bool{},
+	}
+	ctx.irFuncs = map[string]*ir.Function{}
+	for _, fn := range prog.Functions {
+		ctx.irFuncs[fn.Name] = fn
 	}
 
 	var typedefs strings.Builder
@@ -295,6 +316,13 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	sb.WriteString("#include <stdio.h>\n")
 	sb.WriteString("#include <stdbool.h>\n")
 	sb.WriteString("#include <stdint.h>\n")
+	// windows.h/shellapi.h - rech_init_console/rech_init_args нужны
+	// безусловно, файловый ввод-вывод - за MultiByteToWideChar.
+	// WIN32_LEAN_AND_MEAN/winsock2.h - нужны при usesSockets. ДО "#include
+	// <gc.h>" ниже - на Windows редирект CreateThread -> GC_CreateThread
+	// внутри <gc.h> (потоки, см. ensureTaskWrapper) активен только если сам
+	// <gc.h> уже видит, что windows.h включён.
+	sb.WriteString("#ifdef _WIN32\n#define WIN32_LEAN_AND_MEAN\n#include <windows.h>\n#include <shellapi.h>\n#endif\n")
 	// gc.h - Boehm GC (сущность/класс - ссылочная семантика, шаг 12,
 	// выделяются GC_MALLOC, см. generateIREntityCtor) - только если в
 	// программе реально есть хотя бы одна ссылочная сущность (ctx.usesGC) -
@@ -304,7 +332,16 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	// программа без единой сущности не должна требовать её установки.
 	// internal/toolchain.CC ищет ровно эту строку в файле, чтобы решить,
 	// нужен ли "-lgc" при линковке.
-	if ctx.usesGC {
+	// GC_THREADS - открывает интерцепцию pthread_create/CreateThread
+	// (gc_pthread_redirects.h/win32-редирект внутри <gc.h> сам подменяет их
+	// на GC_pthread_create/GC_CreateThread, регистрирующие поток в GC
+	// автоматически, см. ensureTaskWrapper) - должен идти ДО "#include
+	// <gc.h>" (заголовочный guard <gc.h> учитывает его только на первое
+	// включение).
+	if ctx.usesThreads {
+		sb.WriteString("#define GC_THREADS\n")
+	}
+	if ctx.usesGC || ctx.usesThreads {
 		sb.WriteString("#include <gc.h>\n")
 	}
 	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast {
@@ -319,12 +356,14 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	if ctx.usesExceptions {
 		sb.WriteString("#include <setjmp.h>\n")
 	}
-	// windows.h/shellapi.h - rech_init_console/rech_init_args нужны
-	// безусловно, файловый ввод-вывод - за MultiByteToWideChar.
-	// WIN32_LEAN_AND_MEAN/winsock2.h - нужны при usesSockets.
-	sb.WriteString("#ifdef _WIN32\n#define WIN32_LEAN_AND_MEAN\n#include <windows.h>\n#include <shellapi.h>\n#endif\n")
 	if ctx.usesSockets {
 		sb.WriteString("#ifdef _WIN32\n#include <winsock2.h>\n#include <ws2tcpip.h>\n#else\n#include <sys/socket.h>\n#include <netinet/in.h>\n#include <arpa/inet.h>\n#include <netdb.h>\n#include <unistd.h>\n#endif\n")
+	}
+	// Потоки (шаг 15, "запустить"/"дождаться") - на Windows CreateThread/
+	// WaitForSingleObject/CloseHandle уже объявлены через windows.h выше,
+	// отдельного заголовка не нужно; на POSIX - pthread.h.
+	if ctx.usesThreads {
+		sb.WriteString("#ifndef _WIN32\n#include <pthread.h>\n#endif\n")
 	}
 	sb.WriteString("\n")
 	sb.WriteString(consoleInitHelper)
@@ -397,6 +436,14 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	}
 	if ctors.Len() > 0 {
 		sb.WriteString(ctors.String())
+	}
+	// taskCode - обёртки "запустить"/"дождаться" (internal/backend/cbackend/
+	// concurrency.go) - ссылаются на &rech_<имя> обёрнутых функций (нужны
+	// protos выше) и на rech_throw (нужен exceptionRuntimeCode выше), сама
+	// заполняется как побочный эффект генерации body ниже, поэтому текст
+	// уже готов к этому моменту, хотя размещается в файле раньше него.
+	if ctx.taskCode.Len() > 0 {
+		sb.WriteString(ctx.taskCode.String())
 	}
 	sb.WriteString(body.String())
 	return sb.String(), nil
@@ -773,6 +820,8 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 			call = s.MethodCall
 		case s.IncDec != nil:
 			call = s.IncDec
+		case s.Await != nil:
+			call = s.Await
 		}
 		code, _, err := generateIRExpr(ctx, call)
 		if err != nil {
@@ -943,6 +992,12 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 
 	case *ir.IsExpr:
 		return generateIRIsExpr(ctx, e)
+
+	case *ir.LaunchExpr:
+		return generateIRLaunchExpr(ctx, e)
+
+	case *ir.AwaitExpr:
+		return generateIRAwaitExpr(ctx, e)
 
 	default:
 		return "", typeUnknown, fmt.Errorf("генерация C из IR: выражение %T пока не поддерживается", e)
@@ -1131,6 +1186,9 @@ var irKindToValueType = map[ir.TypeKind]valueType{
 func fromIRType(t ir.Type) valueType {
 	if t.Kind == ir.KindEntity {
 		return entityType(t.Entity)
+	}
+	if t.Kind == ir.KindTask {
+		return taskType(t.Entity)
 	}
 	if vt, ok := irKindToValueType[t.Kind]; ok {
 		return vt

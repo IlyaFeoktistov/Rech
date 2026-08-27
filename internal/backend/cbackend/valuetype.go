@@ -23,6 +23,11 @@ const (
 	// kindSocket - непрозрачный дескриптор сетевого сокета - тот же принцип,
 	// что и kindFile, см. typedef rech_socket_t в socketHelpers.
 	kindSocket
+	// kindTask - значение-дескриптор задачи ("запустить <имя>(...)", шаг
+	// 15) - entity несёт имя ОБЁРНУТОЙ ФУНКЦИИ, не тип результата (см.
+	// package doc internal/backend/cbackend/concurrency.go) - всегда
+	// указатель на собственную C-структуру этой функции.
+	kindTask
 )
 
 // valueType - тип значения выражения C-кодогенерации. Структура (не голое
@@ -55,6 +60,12 @@ func entityType(name string) valueType {
 	return valueType{kind: kindEntity, entity: name}
 }
 
+// taskType возвращает valueType, соответствующий значению-дескриптору
+// задачи, обёртывающей функцию funcName.
+func taskType(funcName string) valueType {
+	return valueType{kind: kindTask, entity: funcName}
+}
+
 // primitiveCTypes - valueType (не kindEntity/kindUnknown) -> C-тип.
 // kindChar - int32_t ("Символ" хранит кодовую точку Unicode, не байт, как C
 // char - язык кириллический по духу, 'я' должен помещаться в один Символ).
@@ -80,6 +91,9 @@ func (t valueType) cType(ctx *irGenCtx) string {
 			return mangleType(t.entity) + " *"
 		}
 		return mangleType(t.entity)
+	}
+	if t.kind == kindTask {
+		return mangleTaskType(t.entity) + " *"
 	}
 	if c, ok := primitiveCTypes[t]; ok {
 		return c

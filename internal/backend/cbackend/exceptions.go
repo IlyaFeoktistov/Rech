@@ -115,7 +115,15 @@ func exceptionRuntimeCode(ctx *irGenCtx) string {
 	fmt.Fprintf(&sb, "    struct %s *prev;\n", catchFrameType)
 	sb.WriteString("    void *exc;\n")
 	fmt.Fprintf(&sb, "} %s;\n", catchFrameType)
-	fmt.Fprintf(&sb, "static %s *%s = NULL;\n\n", catchFrameType, catchTopVar)
+	// rech_catch_top - per-поток (не общий на процесс): без этого
+	// "попытаться" в одном потоке ОС (шаг 15) видело бы/портило кадры
+	// другого - __declspec(thread)/__thread - переносимая пара для этого
+	// (не C11 _Thread_local - не на всех тулчейнах, которые нужно
+	// поддерживать, есть <threads.h>). Тред-локальность не вредит и
+	// однопоточной программе (то же поведение, что и у обычного static) -
+	// не гейтится отдельно от usesExceptions самим usesThreads.
+	sb.WriteString("#if defined(_WIN32)\n#define RECH_THREAD_LOCAL __declspec(thread)\n#else\n#define RECH_THREAD_LOCAL __thread\n#endif\n")
+	fmt.Fprintf(&sb, "static RECH_THREAD_LOCAL %s *%s = NULL;\n\n", catchFrameType, catchTopVar)
 
 	// rech_isa/rech_type_names - общие для ЛЮБОГО участника диспетчеризации
 	// (не только наследников "Исключение" - generateIRIsExpr использует их

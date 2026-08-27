@@ -52,6 +52,19 @@ func (*CC) CompileC(cPath, binPath string) error {
 	if bytes.Contains(src, []byte("#include <gc.h>")) {
 		args = append(args, "-lgc")
 	}
+	// -pthread - потоки ОС (шаг 15, "запустить"/"дождаться" -
+	// internal/backend/cbackend/concurrency.go) - только на POSIX, где
+	// pthread_create и не является частью libc по умолчанию на всех
+	// платформах (glibc сама по себе линкует его безусловно с недавних
+	// версий, но не гарантированно на каждом POSIX-тулчейне) - на Windows
+	// используется CreateThread (kernel32, уже линкуется по умолчанию),
+	// поэтому здесь ограничено !windows, а не просто наличием
+	// "#include <pthread.h>" в файле (тот присутствует в тексте всегда,
+	// когда используются потоки, независимо от платформы - см. package doc
+	// cbackend/ir_generator.go).
+	if bytes.Contains(src, []byte("#include <pthread.h>")) && runtime.GOOS != "windows" {
+		args = append(args, "-pthread")
+	}
 	if runtime.GOOS == "windows" {
 		// -lshell32 - CommandLineToArgvW (шаг 8, internal/backend/cbackend.
 		// argFuncHelper/rech_init_args): argv, который сам даёт CRT на
