@@ -106,7 +106,12 @@ func (ctx *irGenCtx) needsDispatch(name string) bool {
 func vtableTypedefs(slotCount int) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "typedef void (*%s)(void);\n", vtfuncType)
-	fmt.Fprintf(&sb, "typedef struct { %s slots[%d]; } %s;\n", vtfuncType, slotCount, vtableType)
+	// type_id - позиция типа в rech_isa (internal/backend/cbackend/
+	// exceptions.go, buildIsaTable) - общий для наследования/интерфейсов
+	// vtable уже даёт то же самое разделение "vt хранится один на КОНКРЕТНЫЙ
+	// тип, не на объект" бесплатно: экземпляр отличается только этим полем,
+	// не отдельным полем в самом объекте.
+	fmt.Fprintf(&sb, "typedef struct { int type_id; %s slots[%d]; } %s;\n", vtfuncType, slotCount, vtableType)
 	fmt.Fprintf(&sb, "typedef struct { const %s *vt; } %s;\n\n", vtableType, vtableHeaderType)
 	return sb.String()
 }
@@ -122,7 +127,7 @@ func vtableTypedefs(slotCount int) string {
 // семантический анализ такого не пропустит.
 func generateVtableInstance(ctx *irGenCtx, ent *ir.Entity) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "static const %s %s = {\n    .slots = {\n", vtableType, vtableInstanceName(ent.Name))
+	fmt.Fprintf(&sb, "static const %s %s = {\n    .type_id = %d,\n    .slots = {\n", vtableType, vtableInstanceName(ent.Name), ctx.excTypeIDs[ent.Name])
 	for name, slot := range ctx.dispatchSlots {
 		definer := findVtableSlotFunc(ctx, ent.Name, name)
 		if definer == "" {

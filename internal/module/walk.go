@@ -11,7 +11,9 @@ import (
 // builtinTypeBases - имена типов, встроенных в язык (не требуют ни
 // объявления, ни импорта): примитивы, "Файл"/"Сокет" (непрозрачные
 // дескрипторы), "Запрос"/"Ответ" (HTTP-клиент,
-// internal/builtins.ReservedEntityNames) и три generic-коллекции. У
+// internal/builtins.ReservedEntityNames), "Исключение" (база для
+// "наследует" в любом файле без явного объявления, internal/semantic) и
+// три generic-коллекции. У
 // generic-инстанциации ("Список<Целое>") аргумент внутри "<...>" сейчас
 // может быть только примитивом (internal/semantic.resolveGenericTypeName -
 // "элементы встроенных коллекций пока поддерживаются только для
@@ -31,6 +33,7 @@ var builtinTypeBases = map[string]bool{
 	"Сокет":          true,
 	"Запрос":         true,
 	"Ответ":          true,
+	"Исключение":     true,
 	"Список":         true,
 	"Стопка":         true,
 	"Очередь":        true,
@@ -168,6 +171,20 @@ func (r *rewriter) rewriteStmt(s ast.Stmt) error {
 			return r.rewriteExpr(s.MethodCall)
 		}
 		return nil
+	case *ast.ThrowStmt:
+		return r.rewriteExpr(s.Value)
+	case *ast.TryStmt:
+		if err := r.rewriteStmts(s.Body); err != nil {
+			return err
+		}
+		for i, t := range s.CatchTypes {
+			resolved, err := resolveTypeRef(t, r.names)
+			if err != nil {
+				return fmt.Errorf("\"поймать(...)\": %w", err)
+			}
+			s.CatchTypes[i] = resolved
+		}
+		return r.rewriteStmts(s.CatchBody)
 	default:
 		return fmt.Errorf("внутренняя ошибка: неизвестная инструкция %T", s)
 	}
@@ -215,6 +232,13 @@ func (r *rewriter) rewriteExpr(e ast.Expr) error {
 	case *ast.UnaryExpr:
 		return r.rewriteExpr(e.Operand)
 	case *ast.CastExpr:
+		return r.rewriteExpr(e.Value)
+	case *ast.IsExpr:
+		resolved, err := resolveTypeRef(e.Target, r.names)
+		if err != nil {
+			return fmt.Errorf("строка %d: %w", e.Line, err)
+		}
+		e.Target = resolved
 		return r.rewriteExpr(e.Value)
 	default:
 		return fmt.Errorf("внутренняя ошибка: неизвестное выражение %T", e)

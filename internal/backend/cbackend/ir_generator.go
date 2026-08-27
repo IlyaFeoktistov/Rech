@@ -71,6 +71,38 @@ type irGenCtx struct {
 	dispatchSlots        map[string]int
 	dispatchParticipants map[string]bool
 	usesVtable           bool
+
+	// excTypeIDs/excIsaTable - см. internal/backend/cbackend/exceptions.go,
+	// buildIsaTable. usesExceptions - "выбросить"/"попытаться"/"относится
+	// к" (с реальной проверкой типа - см. needsDispatch в generateIRIsExpr)
+	// реально встретились в программе (в отличие от usesVtable, участие в
+	// наследовании/интерфейсах само по себе не требует рантайма исключений) -
+	// гейтит #include <setjmp.h> и весь блок рантайм-хелперов разом
+	// (jmp_buf-кадры и rech_isa - один блок, не два отдельных гейта: "только
+	// относится к, без единого попытаться" всё равно тянет за собой
+	// неиспользуемые jmp_buf-хелперы - принято ради простоты одного гейта).
+	// tryCounter - счётчик для уникальных имён C-переменных вложенных
+	// "попытаться" (см. generateIRTryStmt).
+	excTypeIDs     map[string]int
+	excTypeNames   []string
+	excIsaTable    [][]bool
+	usesExceptions bool
+	tryCounter     int
+}
+
+// exceptionsUseDispatch - true, если системная сущность "Исключение"
+// реально участвует в диспетчеризации (есть хотя бы один пользовательский
+// наследник где-то в программе) - единственный случай, когда объект
+// исключения гарантированно несёт vt/type_id (embedding одинаков для ВСЕХ
+// объектов типа "Исключение" во всей программе, свой у каждого backend'а
+// один typedef на тип - см. generateIREntityStruct). Если false - в
+// программе в принципе не может существовать никакого исключения, кроме
+// самого "Исключение" (наследников нет ни у кого) - чтение vt->type_id
+// было бы неопределённым поведением на объекте без этого поля, поэтому
+// катч/isExpr в этом случае разрешаются на этапе компиляции без
+// обращения к рантайму вовсе (см. generateIRTryStmt/generateIRIsExpr).
+func (ctx *irGenCtx) exceptionsUseDispatch() bool {
+	return ctx.dispatchParticipants[systemExceptionEntity]
 }
 
 // receiverIsPointer - true, если C-выражение, которое сгенерирует
@@ -136,10 +168,19 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 		interfaces[iface.Name] = iface
 	}
 	participants, slots := computeDispatch(prog)
+	excTypeIDs, excTypeNames, excIsaTable := buildIsaTable(prog, participants)
 	ctx := &irGenCtx{
 		entities: entities, externCNames: externCNames, usesGC: usesGC,
 		interfaces: interfaces, dispatchParticipants: participants, dispatchSlots: slots,
-		usesVtable: len(slots) > 0,
+		// usesVtable - хотя бы одна сущность участвует в диспетчеризации
+		// (participants), не "есть хотя бы один слот" (slots) - сущность
+		// без единого метода (например, системная "Исключение" и её
+		// маркерные наследники без переопределений) всё равно получает
+		// поле vt в своей C-структуре (см. generateIREntityStruct), значит
+		// rech_vtable/rech_vtable_header обязаны быть объявлены, даже если
+		// slots в итоге пуст.
+		usesVtable: len(participants) > 0,
+		excTypeIDs: excTypeIDs, excTypeNames: excTypeNames, excIsaTable: excIsaTable,
 	}
 
 	var typedefs strings.Builder
@@ -269,11 +310,14 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast {
 		sb.WriteString("#include <string.h>\n")
 	}
-	if ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast {
+	if ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions {
 		sb.WriteString("#include <stdlib.h>\n")
 	}
 	if ctx.usesMath {
 		sb.WriteString("#include <math.h>\n")
+	}
+	if ctx.usesExceptions {
+		sb.WriteString("#include <setjmp.h>\n")
 	}
 	// windows.h/shellapi.h - rech_init_console/rech_init_args нужны
 	// безусловно, файловый ввод-вывод - за MultiByteToWideChar.
@@ -321,6 +365,12 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	}
 	if typedefs.Len() > 0 {
 		sb.WriteString(typedefs.String())
+	}
+	if ctx.usesExceptions {
+		// После typedefs - использует rech_vtable_header/rech_T_Исключение,
+		// оба уже должны быть объявлены (см. exceptions.go).
+		sb.WriteString(exceptionRuntimeCode(ctx))
+		sb.WriteString("\n")
 	}
 	if genericsCode.Len() > 0 {
 		sb.WriteString(genericsCode.String())
@@ -750,6 +800,12 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 		fmt.Fprintf(sb, "%s}\n", ind)
 		return nil
 
+	case *ir.ThrowStmt:
+		return generateIRThrowStmt(sb, ctx, s, depth)
+
+	case *ir.TryStmt:
+		return generateIRTryStmt(sb, ctx, s, depth)
+
 	case *ir.ForEachStmt:
 		collCode, collType, err := generateIRExpr(ctx, s.Collection)
 		if err != nil {
@@ -884,6 +940,9 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 
 	case *ir.CastExpr:
 		return generateIRCastExpr(ctx, e)
+
+	case *ir.IsExpr:
+		return generateIRIsExpr(ctx, e)
 
 	default:
 		return "", typeUnknown, fmt.Errorf("генерация C из IR: выражение %T пока не поддерживается", e)
