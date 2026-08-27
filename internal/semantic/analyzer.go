@@ -43,6 +43,21 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 	methods := map[string]map[string]funcSig{}
 	aliases := map[string]string{}
 	aliasState := map[string]string{}
+	// "Исключение" - системная базовая сущность выброшенных значений
+	// (internal/ir.ThrowStmt/TryStmt), доступна в любой программе без
+	// объявления, тем же принципом, что и Запрос/Ответ (registerHTTPEntity)
+	// - но, в отличие от них, засеяна ДО цикла ниже, а не лениво по первому
+	// упоминанию: "сущность Б наследует Исключение" резолвит базовую
+	// сущность прямым поиском в entities (applyInheritance), не через
+	// resolveTypeName, значит запись обязана существовать здесь заранее,
+	// иначе любой пользовательский наследник, объявленный раньше в файле,
+	// чем гипотетическое "первое упоминание", не нашёл бы её вовсе.
+	entities["Исключение"] = entitySig{
+		FieldNames:      []string{"сообщение"},
+		FieldTypes:      []ir.Type{ir.TypeString},
+		FieldVisibility: []ast.Visibility{ast.Public},
+	}
+	methods["Исключение"] = map[string]funcSig{}
 	for _, ent := range prog.Entities {
 		if builtins.ReservedEntityNames[ent.Name] {
 			return fmt.Errorf("сущность %q - зарезервированное имя встроенной сущности (HTTP-клиент), нельзя объявить свою сущность с этим именем", ent.Name)
@@ -464,6 +479,12 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	out.Entities = append(out.Entities,
 		&ir.Entity{Name: "Запрос", IsStruct: true, Fields: httpRequestFields},
 		&ir.Entity{Name: "Ответ", IsStruct: true, Fields: httpResponseFields},
+	)
+	// "Исключение" - ссылочная сущность (не структура): "выбросить"
+	// передаёт указатель на неё дальше по стеку вызовов без копирования,
+	// как и любую другую сущность/класс.
+	out.Entities = append(out.Entities,
+		&ir.Entity{Name: "Исключение", Fields: []ir.Field{{Name: "сообщение", Type: ir.TypeString}}},
 	)
 	for _, fn := range prog.Functions {
 		irFn, err := a.analyzeFunction(fn)

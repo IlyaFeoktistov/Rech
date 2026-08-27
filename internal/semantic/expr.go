@@ -27,6 +27,9 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 	case *ast.CastExpr:
 		return analyzeCastExpr(sc, e)
 
+	case *ast.IsExpr:
+		return analyzeIsExpr(sc, e)
+
 	case *ast.Identifier:
 		typ, exists := sc.lookup(e.Name)
 		if !exists {

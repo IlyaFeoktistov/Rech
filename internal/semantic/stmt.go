@@ -370,6 +370,12 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		}
 		return &ir.ParentCallStmt{BaseEntity: baseName, Args: args}, nil
 
+	case *ast.ThrowStmt:
+		return analyzeThrowStmt(sc, s)
+
+	case *ast.TryStmt:
+		return analyzeTryStmt(sc, s)
+
 	default:
 		return nil, fmt.Errorf("инструкция %T не поддерживается", s)
 	}
