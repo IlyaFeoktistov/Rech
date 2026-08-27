@@ -65,6 +65,13 @@ type ConstDecl struct {
 	Value      Expr
 	Visibility Visibility
 	Line       int
+	// Doc - текст doc-комментария ("/** ... */") прямо перед объявлением,
+	// "" - его не было. Осмысленно только у константы уровня сущности
+	// (EntityDecl.Constants) - см. ast.EntityDecl.Doc; у ConstDecl,
+	// встреченного как обычная инструкция внутри тела функции/метода,
+	// парсер его так же разбирает, но там он не несёт смысла (см.
+	// EntityDecl.Doc про локальные переменные).
+	Doc string
 }
 
 func (*ConstDecl) node() {}

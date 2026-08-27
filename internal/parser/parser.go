@@ -190,6 +190,24 @@ func (p *Parser) skipNewlines() {
 	}
 }
 
+// consumeDoc - если текущий токен DOC_COMMENT ("/** ... */"), возвращает
+// его текст и продвигается за него и за последующие переносы строк (сам
+// doc-комментарий стоит на собственной строке перед документируемым
+// объявлением) - иначе просто "", ничего не потребляя. Вызывается ровно
+// один раз, в точке диспетчеризации ПЕРЕД тем, как решить, какое
+// объявление разбирать дальше (ParseProgram, тело сущности, тело "имеет:") -
+// сам doc-комментарий не становится отдельным ast.Stmt/узлом, он просто
+// текст, привязанный к следующему объявлению.
+func (p *Parser) consumeDoc() string {
+	if p.cur().Type != lexer.DOC_COMMENT {
+		return ""
+	}
+	doc := p.cur().Value
+	p.advance()
+	p.skipNewlines()
+	return doc
+}
+
 // peekPastNewlines возвращает первый токен от текущей позиции, который не
 // NEWLINE, не потребляя ничего. Нужен, чтобы заглянуть вперёд через
 // необязательные пустые строки (например, есть ли "иначе" после блока
@@ -338,12 +356,14 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 	var explicitMain *ast.FunctionDecl
 	p.skipSeparators()
 	for p.cur().Type != lexer.EOF {
+		doc := p.consumeDoc()
 		switch p.cur().Type {
 		case lexer.KwFunction:
 			fn, err := p.parseFunction()
 			if err != nil {
 				return nil, err
 			}
+			fn.Doc = doc
 			if fn.Name == entryPointName {
 				explicitMain = fn
 			}
@@ -353,6 +373,7 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 			if err != nil {
 				return nil, err
 			}
+			ent.Doc = doc
 			prog.Entities = append(prog.Entities, ent)
 		case lexer.KwUse:
 			use, err := p.parseUseDecl()
@@ -480,6 +501,7 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 	var ctor *ast.ConstructorDecl
 
 	for p.cur().Type != lexer.RBRACE {
+		doc := p.consumeDoc()
 		switch p.cur().Type {
 		case lexer.KwConstructor:
 			if ctor != nil {
@@ -501,6 +523,7 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 					err,
 				)
 			}
+			c.Doc = doc
 
 			constants = append(constants, c)
 
@@ -540,6 +563,7 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 					err,
 				)
 			}
+			m.Doc = doc
 
 			methods = append(methods, m)
 
@@ -564,6 +588,7 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 					)
 				}
 				c.Visibility = visibilityFromToken(visTok)
+				c.Doc = doc
 				constants = append(constants, c)
 				break
 			}
@@ -576,6 +601,7 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 					err,
 				)
 			}
+			m2.Doc = doc
 			methods = append(methods, m2)
 
 		default:

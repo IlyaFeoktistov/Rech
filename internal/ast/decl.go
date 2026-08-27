@@ -140,6 +140,17 @@ type EntityDecl struct {
 	// без File по одному Line нельзя было бы понять, к какому файлу он
 	// относится).
 	File string
+	// Doc - текст doc-комментария ("/** ... */") прямо перед объявлением
+	// сущности, "" - его не было. Парсер копирует его как есть (без
+	// обрезки отступов построчно) - internal/lsp форматирует при показе
+	// (hover), сам компилятор его нигде не проверяет и не использует.
+	// Функция/метод/сущность/поле/константа - единственные объявления,
+	// которые его несут (см. одноимённые поля Doc у FunctionDecl/
+	// MethodDecl/Field/ConstDecl) - локальные переменные внутри тела
+	// функции/метода doc-комментарии не несут, у них нет устойчивого
+	// "API", который имело бы смысл документировать отдельно от места
+	// использования.
+	Doc string
 }
 
 func (*EntityDecl) node() {}
@@ -154,6 +165,9 @@ type Field struct {
 	Type       string
 	Visibility Visibility
 	Line       int
+	// Doc - текст doc-комментария ("/** ... */") прямо перед объявлением
+	// поля, "" - его не было. См. package doc EntityDecl.Doc.
+	Doc string
 }
 
 // StateDecl - одно состояние, объявленное под "состояние:" (упрощённая
@@ -231,6 +245,9 @@ type MethodDecl struct {
 	Body       []Stmt
 	Visibility Visibility
 	Line       int
+	// Doc - текст doc-комментария ("/** ... */") прямо перед объявлением
+	// метода, "" - его не было. См. package doc EntityDecl.Doc.
+	Doc string
 }
 
 // FunctionDecl соответствует конструкции:
@@ -252,6 +269,9 @@ type FunctionDecl struct {
 	Line       int
 	// File - см. EntityDecl.File.
 	File string
+	// Doc - текст doc-комментария ("/** ... */") прямо перед объявлением
+	// функции, "" - его не было. См. package doc EntityDecl.Doc.
+	Doc string
 }
 
 func (*FunctionDecl) node() {}

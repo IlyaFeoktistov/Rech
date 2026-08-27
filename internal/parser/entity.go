@@ -279,10 +279,12 @@ func (p *Parser) parseFieldsSection() ([]ast.Field, error) {
 		if err := p.requireSeparator(); err != nil {
 			return nil, fmt.Errorf("перед полем: %w", err)
 		}
+		doc := p.consumeDoc()
 		field, err := p.parseField()
 		if err != nil {
 			return nil, err
 		}
+		field.Doc = doc
 		fields = append(fields, field)
 	}
 	return fields, nil
