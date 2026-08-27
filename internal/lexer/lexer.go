@@ -182,6 +182,8 @@ func (l *Lexer) next() (Token, error) {
 		return Token{Type: BITNOT, Value: "~", Line: line, Col: col}, nil
 	case r == '"':
 		return l.readString(line, col)
+	case r == '\'':
+		return l.readChar(line, col)
 	case unicode.IsDigit(r):
 		return l.readNumber(line, col), nil
 	case unicode.IsLetter(r) || r == '_':
@@ -270,7 +272,7 @@ func (l *Lexer) readString(line, col int) (Token, error) {
 			case '\\':
 				sb = append(sb, '\\')
 			default:
-				return Token{}, fmt.Errorf("строка %d, столбец %d: неизвестная escape-последовательность \\%c", l.line, l.col, esc)
+				return Token{}, fmt.Errorf("строка %d, столбец %d: неизвестная последовательность экранирования \\%c", l.line, l.col, esc)
 			}
 			l.advance()
 			continue
@@ -279,6 +281,49 @@ func (l *Lexer) readString(line, col int) (Token, error) {
 		l.advance()
 	}
 	return Token{Type: STRING, Value: string(sb), Line: line, Col: col}, nil
+}
+
+// readChar разбирает символьный литерал ('a', 'я', эскейп-последовательность)
+// в одинарных кавычках - ровно один кодовый пункт Unicode внутри, не байт,
+// как C char (Rech кириллический по духу, 'я' должен помещаться в один
+// Символ). Value токена - сам символ как строка (одна руна) - парсер
+// декодирует её обратно в rune для ast.CharLiteral.
+func (l *Lexer) readChar(line, col int) (Token, error) {
+	l.advance() // открывающая '
+	if l.pos >= len(l.src) {
+		return Token{}, fmt.Errorf("строка %d, столбец %d: символьный литерал не закрыт кавычкой", line, col)
+	}
+	var value rune
+	switch r := l.peek(); r {
+	case '\'':
+		return Token{}, fmt.Errorf("строка %d, столбец %d: пустой символьный литерал", line, col)
+	case '\n':
+		return Token{}, fmt.Errorf("строка %d, столбец %d: перенос строки внутри символьного литерала не поддерживается", line, col)
+	case '\\':
+		l.advance()
+		esc := l.peek()
+		switch esc {
+		case 'n':
+			value = '\n'
+		case 't':
+			value = '\t'
+		case '\'':
+			value = '\''
+		case '\\':
+			value = '\\'
+		default:
+			return Token{}, fmt.Errorf("строка %d, столбец %d: неизвестная последовательность экранирования \\%c", l.line, l.col, esc)
+		}
+		l.advance()
+	default:
+		value = r
+		l.advance()
+	}
+	if l.pos >= len(l.src) || l.peek() != '\'' {
+		return Token{}, fmt.Errorf("строка %d, столбец %d: символьный литерал должен содержать ровно один символ", line, col)
+	}
+	l.advance() // закрывающая '
+	return Token{Type: CHAR, Value: string(value), Line: line, Col: col}, nil
 }
 
 // validateUTF8 - небольшая защита от бинарного мусора на входе;

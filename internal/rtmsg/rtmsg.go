@@ -72,6 +72,27 @@ func OpenFailedFormat(op, path string) string {
 // ReadInvalidMax - сообщение при "прочитать", если максимум байт <= 0.
 const ReadInvalidMax = "прочитать: максимум байт должен быть положительным числом"
 
+// CastStrToIntFailedFormat - сообщение при явном касте "Строка" ->
+// "Целое"/"Байт" (`(Тип) значение`), если строка - не целое число.
+// typeName - имя целевого типа ("Целое"/"Байт"), как оно написано в касте.
+// Формат должен совпадать байт-в-байт с cbackend (internal/backend/
+// cbackend/cast.go, rech_cast_str_to_int).
+func CastStrToIntFailedFormat(typeName, input string) string {
+	return fmt.Sprintf("каст (%s): \"%s\" не является целым числом", typeName, input)
+}
+
+// CastStrToFloatFailedFormat - то же самое для касты в "Действительное"/
+// "Дробное".
+func CastStrToFloatFailedFormat(typeName, input string) string {
+	return fmt.Sprintf("каст (%s): \"%s\" не является числом", typeName, input)
+}
+
+// CastStrToCharFailedFormat - сообщение при касте "Строка" -> "Символ",
+// если строка не состоит ровно из одной кодовой точки Unicode.
+func CastStrToCharFailedFormat(input string) string {
+	return fmt.Sprintf("каст (Символ): строка \"%s\" не состоит ровно из одного символа", input)
+}
+
 // ReadIOFailed - сообщение при "прочитать", если сам системный вызов
 // чтения вернул ошибку - не спутать с концом файла (0 прочитанных байт),
 // который не аварийное завершение, а пустая Строка (см. docs/SPEC.md).

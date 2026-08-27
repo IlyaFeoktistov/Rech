@@ -9,6 +9,22 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/parser"
 )
 
+// AnalyzeSource разбирает и анализирует src, возвращая саму ошибку (в
+// отличие от parseProgram, который вызывает t.Fatalf на любой ошибке) -
+// для тестов, которые проверяют именно текст/факт ошибки Analyze.
+func AnalyzeSource(t *testing.T, src string) (*ir.Program, error) {
+	t.Helper()
+	toks, err := lexer.New(src).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	return Analyze(prog)
+}
+
 func parseProgram(t *testing.T, src string) *ir.Program {
 	t.Helper()
 	toks, err := lexer.New(src).Tokenize()
@@ -1195,7 +1211,7 @@ func TestAnalyzeIncDecOnStringFails(t *testing.T) {
 		t.Fatalf("парсер: %v", err)
 	}
 	_, err = Analyze(prog)
-	if err == nil || !strings.Contains(err.Error(), "применим только к Целое/Действительное") {
+	if err == nil || !strings.Contains(err.Error(), "применим только к Целое/Дробное/Действительное") {
 		t.Fatalf("ожидалась ошибка про тип переменной, получено: %v", err)
 	}
 }
@@ -1335,24 +1351,20 @@ func TestAnalyzeLocalVariableShadowsEnumName(t *testing.T) {
 	}
 }
 
-func TestAnalyzeDeystvitelnoyeIsAliasOfChislo(t *testing.T) {
-	irProg := parseProgram(t, `
-функция сложить(а: Действительное, б: Число): Действительное
-{
-	вернуть а + б
-}
-
-функция главная
-{
-	вывести сложить(1.5, 2.5)
-}
-`)
-	fn := irProg.Functions[0]
-	if len(fn.Params) != 2 || fn.Params[0].Type != ir.TypeFloat || fn.Params[1].Type != ir.TypeFloat {
-		t.Fatalf("ожидались оба параметра типа ir.TypeFloat (Действительное и Число - один и тот же тип), получено %+v", fn.Params)
+func TestAnalyzeChisloIsNoLongerAValidTypeName(t *testing.T) {
+	toks, err := lexer.New(`
+функция сложить(а: Число): Число { вернуть а }
+функция главная { вывести сложить(1.5) }
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
 	}
-	if fn.ReturnType != ir.TypeFloat {
-		t.Fatalf("ожидался тип результата ir.TypeFloat, получено %v", fn.ReturnType)
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	if _, err := Analyze(prog); err == nil {
+		t.Fatal("ожидалась ошибка - \"Число\" больше не имя типа, только \"Действительное\"")
 	}
 }
 
@@ -1374,5 +1386,134 @@ func TestAnalyzeTypeErrorReportsDeystvitelnoye(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "типа Число") {
 		t.Fatalf("сообщение об ошибке не должно называть тип устаревшим именем \"Число\": %v", err)
+	}
+}
+
+func TestAnalyzeCastIntToStringAndBack(t *testing.T) {
+	irProg := parseProgram(t, `
+функция главная
+{
+    переменная а = (Строка) 42
+    переменная б = (Целое) "42"
+    вывести а
+    вывести б
+}
+`)
+	fn := irProg.Functions[0]
+	first := fn.Body[0].(*ir.VarDecl)
+	if ir.TypeOf(first.Value) != ir.TypeString {
+		t.Fatalf("ожидался тип Строка у первой переменной, получено %v", ir.TypeOf(first.Value))
+	}
+	second := fn.Body[1].(*ir.VarDecl)
+	if ir.TypeOf(second.Value) != ir.TypeInt {
+		t.Fatalf("ожидался тип Целое у второй переменной, получено %v", ir.TypeOf(second.Value))
+	}
+}
+
+func TestAnalyzeCastSameTypeIsIdentity(t *testing.T) {
+	irProg := parseProgram(t, `
+функция главная
+{
+    переменная а = (Целое) 42
+}
+`)
+	decl := irProg.Functions[0].Body[0].(*ir.VarDecl)
+	if _, ok := decl.Value.(*ir.CastExpr); ok {
+		t.Fatalf("каст типа в самого себя должен свернуться в исходное значение, получен *ir.CastExpr: %+v", decl.Value)
+	}
+	if _, ok := decl.Value.(*ir.IntLiteral); !ok {
+		t.Fatalf("ожидался IntLiteral без обёртки в каст, получено %+v", decl.Value)
+	}
+}
+
+func TestAnalyzeCastEntityRejected(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+сущность Точка
+{
+    имеет:
+        x: Целое
+}
+функция главная
+{
+    переменная p = новая Точка(1)
+    переменная а = (Целое) p
+}
+`)
+	if err == nil {
+		t.Fatal("ожидалась ошибка - каст в имя сущности не поддерживается")
+	}
+}
+
+func TestAnalyzeCastDisallowedPairRejected(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция главная
+{
+    переменная а = (Логическое) 1
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "нельзя привести") {
+		t.Fatalf("ожидалась ошибка \"нельзя привести\" для Целое -> Логическое, получено: %v", err)
+	}
+}
+
+func TestAnalyzeCharLiteralType(t *testing.T) {
+	irProg := parseProgram(t, `
+функция главная
+{
+    переменная а = 'я'
+}
+`)
+	decl := irProg.Functions[0].Body[0].(*ir.VarDecl)
+	if ir.TypeOf(decl.Value) != ir.TypeChar {
+		t.Fatalf("ожидался тип Символ, получено %v", ir.TypeOf(decl.Value))
+	}
+}
+
+func TestAnalyzeMixedArithmeticPromotesToWidestType(t *testing.T) {
+	irProg := parseProgram(t, `
+функция главная
+{
+    переменная целое = 1
+    переменная дробное = (Дробное) 1.5
+    переменная действительное = 2.5
+    переменная а = целое + дробное
+    переменная б = дробное + действительное
+}
+`)
+	fn := irProg.Functions[0]
+	a := fn.Body[3].(*ir.VarDecl)
+	if ir.TypeOf(a.Value) != ir.TypeFloat32 {
+		t.Fatalf("Целое + Дробное должно дать Дробное, получено %v", ir.TypeOf(a.Value))
+	}
+	b := fn.Body[4].(*ir.VarDecl)
+	if ir.TypeOf(b.Value) != ir.TypeFloat {
+		t.Fatalf("Дробное + Действительное должно дать Действительное, получено %v", ir.TypeOf(b.Value))
+	}
+}
+
+func TestAnalyzeCharAndByteAreOrderableButNotArithmetic(t *testing.T) {
+	irProg := parseProgram(t, `
+функция главная
+{
+    переменная а = 'а' < 'б'
+    переменная б = (Байт) 1 < (Байт) 2
+}
+`)
+	fn := irProg.Functions[0]
+	if ir.TypeOf(fn.Body[0].(*ir.VarDecl).Value) != ir.TypeBool {
+		t.Fatalf("сравнение Символ должно дать Логическое")
+	}
+	if ir.TypeOf(fn.Body[1].(*ir.VarDecl).Value) != ir.TypeBool {
+		t.Fatalf("сравнение Байт должно дать Логическое")
+	}
+
+	_, err := AnalyzeSource(t, `
+функция главная
+{
+    переменная а = 'а' + 'б'
+}
+`)
+	if err == nil {
+		t.Fatal("ожидалась ошибка - арифметика над Символ не поддерживается")
 	}
 }

@@ -4,17 +4,31 @@ type TypeKind int
 
 const (
 	KindUnknown TypeKind = iota
-	KindString
+	// KindByte - "Байт", 8 бит без знака ([0, 255]), C unsigned char.
+	KindByte
+	// KindInt - "Целое", 64-битное знаковое, C long long.
 	KindInt
+	// KindFloat32 - "Дробное", число с плавающей точкой одинарной точности
+	// (C float) - в отличие от KindFloat ("Действительное", двойная
+	// точность). Отдельный вид, не просто "более узкий KindFloat" - смешанная
+	// арифметика Дробное/Действительное явно приводит Дробное к
+	// Действительное (расширение), как и Целое->Действительное.
+	KindFloat32
+	// KindFloat - "Действительное", двойная точность, C double.
 	KindFloat
+	// KindChar - "Символ", один кодовый пункт Unicode (не байт, как C char -
+	// язык кириллический по духу, 'я' должен помещаться в один Символ). В C -
+	// int32_t, не char.
+	KindChar
+	KindString
 	KindBool
 	KindEntity
-	// KindFile - непрозрачный дескриптор открытого файла (шаг 8, файловый
-	// ввод-вывод) - без операторов, как и KindString.
+	// KindFile - непрозрачный дескриптор открытого файла - без операторов,
+	// как и KindString.
 	KindFile
-	// KindSocket - непрозрачный дескриптор сетевого сокета (шаг 8, сетевые
-	// примитивы) - как и KindFile, без операторов, платформенно-разное
-	// представление (POSIX fd/Windows SOCKET) решает каждый потребитель сам.
+	// KindSocket - непрозрачный дескриптор сетевого сокета - как и KindFile,
+	// без операторов, платформенно-разное представление (POSIX fd/Windows
+	// SOCKET) решает каждый потребитель сам.
 	KindSocket
 )
 
@@ -30,9 +44,12 @@ type Type struct {
 
 var (
 	TypeUnknown = Type{Kind: KindUnknown}
-	TypeString  = Type{Kind: KindString}
+	TypeByte    = Type{Kind: KindByte}
 	TypeInt     = Type{Kind: KindInt}
+	TypeFloat32 = Type{Kind: KindFloat32}
 	TypeFloat   = Type{Kind: KindFloat}
+	TypeChar    = Type{Kind: KindChar}
+	TypeString  = Type{Kind: KindString}
 	TypeBool    = Type{Kind: KindBool}
 	TypeFile    = Type{Kind: KindFile}
 	TypeSocket  = Type{Kind: KindSocket}
@@ -48,16 +65,18 @@ func (t Type) String() string {
 		return t.Entity
 	}
 	switch t.Kind {
-	case KindString:
-		return "Строка"
+	case KindByte:
+		return "Байт"
 	case KindInt:
 		return "Целое"
+	case KindFloat32:
+		return "Дробное"
 	case KindFloat:
-		// "Число" остаётся допустимым именем типа во входном исходнике
-		// (алиас, internal/semantic.resolveTypeName), но в сообщениях об
-		// ошибках компилятор всегда называет тип одинаково, чтобы не путать
-		// читателя двумя разными именами одного и того же типа.
 		return "Действительное"
+	case KindChar:
+		return "Символ"
+	case KindString:
+		return "Строка"
 	case KindBool:
 		return "Логическое"
 	case KindFile:

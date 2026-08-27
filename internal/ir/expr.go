@@ -172,6 +172,10 @@ func TypeOf(e Expr) Type {
 		return e.Type
 	case *IncDecExpr:
 		return e.Type
+	case *CharLiteral:
+		return TypeChar
+	case *CastExpr:
+		return e.To
 	default:
 		return TypeUnknown
 	}

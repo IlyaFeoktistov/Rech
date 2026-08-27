@@ -78,6 +78,12 @@ func (in *Interp) evalExpr(e ir.Expr, env *Env, cc *callCtx) (Value, error) {
 	case *ir.MethodCallExpr:
 		return in.evalMethodCallExpr(e, env, cc)
 
+	case *ir.CharLiteral:
+		return charValue(e.Value), nil
+
+	case *ir.CastExpr:
+		return in.evalCastExpr(e, env, cc)
+
 	default:
 		return Value{}, fmt.Errorf("вычисление: выражение %T не поддерживается интерпретатором", e)
 	}
@@ -90,10 +96,14 @@ func (in *Interp) evalUnary(e *ir.UnaryExpr, env *Env, cc *callCtx) (Value, erro
 	}
 	switch e.Op {
 	case "-":
-		if v.Type == ir.TypeFloat {
+		switch v.Type {
+		case ir.TypeFloat:
 			return floatValue(-v.F), nil
+		case ir.TypeFloat32:
+			return float32Value(-v.F), nil
+		default:
+			return intValue(-v.I), nil
 		}
-		return intValue(-v.I), nil
 	case "не":
 		return boolValue(!v.B), nil
 	case "~":
@@ -119,9 +129,12 @@ func (in *Interp) evalIncDec(e *ir.IncDecExpr, env *Env) (Value, error) {
 		delta = -1
 	}
 	var updated Value
-	if v.Type == ir.TypeFloat {
+	switch v.Type {
+	case ir.TypeFloat:
 		updated = floatValue(v.F + float64(delta))
-	} else {
+	case ir.TypeFloat32:
+		updated = float32Value(v.F + float64(delta))
+	default:
 		updated = intValue(v.I + delta)
 	}
 	env.set(e.Name, updated)
@@ -191,8 +204,12 @@ func (in *Interp) evalBinary(e *ir.BinaryExpr, env *Env, cc *callCtx) (Value, er
 	}
 }
 
-// arithmetic - "+" (нестроковый)/"-"/"*"/"/": та же промоция Целое->Число
-// при смешении, что и в cbackend.generateIRArithmetic (AST/IR-пути).
+// arithmetic - "+" (нестроковый)/"-"/"*"/"/": та же трёхуровневая промоция
+// Целое -> Дробное -> Действительное при смешении, что и в
+// cbackend.generateIRArithmetic - более широкий из двух операндов
+// определяет и тип результата, и точность вычисления (float32Value
+// округляет результат Дробное-арифметики до одинарной точности, как C
+// float).
 func arithmetic(op string, l, r Value) Value {
 	if l.Type == ir.TypeFloat || r.Type == ir.TypeFloat {
 		lf, rf := toFloat(l), toFloat(r)
@@ -205,6 +222,19 @@ func arithmetic(op string, l, r Value) Value {
 			return floatValue(lf * rf)
 		case "/":
 			return floatValue(lf / rf)
+		}
+	}
+	if l.Type == ir.TypeFloat32 || r.Type == ir.TypeFloat32 {
+		lf, rf := toFloat(l), toFloat(r)
+		switch op {
+		case "+":
+			return float32Value(lf + rf)
+		case "-":
+			return float32Value(lf - rf)
+		case "*":
+			return float32Value(lf * rf)
+		case "/":
+			return float32Value(lf / rf)
 		}
 	}
 	switch op {
@@ -223,11 +253,14 @@ func arithmetic(op string, l, r Value) Value {
 	return Value{}
 }
 
+// toFloat - числовое значение v как float64, независимо от того, в каком
+// поле оно физически хранится (I - Целое/Байт/Символ, F - Дробное/
+// Действительное).
 func toFloat(v Value) float64 {
-	if v.Type == ir.TypeInt {
-		return float64(v.I)
+	if v.Type == ir.TypeFloat || v.Type == ir.TypeFloat32 {
+		return v.F
 	}
-	return v.F
+	return float64(v.I)
 }
 
 func valuesEqual(l, r Value) bool {
@@ -236,7 +269,7 @@ func valuesEqual(l, r Value) bool {
 		return l.S == r.S
 	case l.Type == ir.TypeBool:
 		return l.B == r.B
-	case l.Type == ir.TypeFloat || r.Type == ir.TypeFloat:
+	case l.Type == ir.TypeFloat || r.Type == ir.TypeFloat || l.Type == ir.TypeFloat32 || r.Type == ir.TypeFloat32:
 		return toFloat(l) == toFloat(r)
 	default:
 		return l.I == r.I
@@ -244,7 +277,7 @@ func valuesEqual(l, r Value) bool {
 }
 
 func compareOrdered(op string, l, r Value) Value {
-	if l.Type == ir.TypeFloat || r.Type == ir.TypeFloat {
+	if l.Type == ir.TypeFloat || r.Type == ir.TypeFloat || l.Type == ir.TypeFloat32 || r.Type == ir.TypeFloat32 {
 		lf, rf := toFloat(l), toFloat(r)
 		switch op {
 		case "<":
@@ -438,10 +471,12 @@ func (in *Interp) printValue(v Value) {
 	switch v.Type.Kind {
 	case ir.KindString:
 		fmt.Fprintln(in.out, v.S)
-	case ir.KindInt:
+	case ir.KindInt, ir.KindByte:
 		fmt.Fprintln(in.out, strconv.FormatInt(v.I, 10))
-	case ir.KindFloat:
+	case ir.KindFloat, ir.KindFloat32:
 		fmt.Fprintln(in.out, formatFloatForPrint(v.F))
+	case ir.KindChar:
+		fmt.Fprintln(in.out, string(rune(v.I)))
 	case ir.KindBool:
 		if v.B {
 			fmt.Fprintln(in.out, "истина")
@@ -470,8 +505,14 @@ func (in *Interp) showValue(v Value) string {
 		return fmt.Sprintf("\"%s\" (Строка)", v.S)
 	case ir.KindInt:
 		return fmt.Sprintf("%s (Целое)", strconv.FormatInt(v.I, 10))
+	case ir.KindByte:
+		return fmt.Sprintf("%s (Байт)", strconv.FormatInt(v.I, 10))
+	case ir.KindFloat32:
+		return fmt.Sprintf("%s (Дробное)", formatFloatForPrint(v.F))
 	case ir.KindFloat:
 		return fmt.Sprintf("%s (Действительное)", formatFloatForPrint(v.F))
+	case ir.KindChar:
+		return fmt.Sprintf("%s (Символ)", string(rune(v.I)))
 	case ir.KindBool:
 		word := "ложь"
 		if v.B {

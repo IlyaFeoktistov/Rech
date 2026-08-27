@@ -15,16 +15,22 @@ func indent(depth int) string {
 // вместо ошибки компиляции или неопределённого поведения (printf("%s", ...)
 // на структуре) значение просто помечается своим видом, подробности - через
 // "показать" (см. generateIRShowExpr).
-func printCall(typ valueType, code string) string {
+func printCall(ctx *irGenCtx, typ valueType, code string) string {
 	switch typ {
 	case typeString:
 		return fmt.Sprintf(`printf("%%s\n", %s);`, code)
-	case typeInt:
-		return fmt.Sprintf(`printf("%%lld\n", %s);`, code)
-	case typeFloat:
-		return fmt.Sprintf(`printf("%%g\n", %s);`, code)
+	case typeInt, typeByte:
+		return fmt.Sprintf(`printf("%%lld\n", (long long)(%s));`, code)
+	case typeFloat, typeFloat32:
+		return fmt.Sprintf(`printf("%%g\n", (double)(%s));`, code)
 	case typeBool:
 		return fmt.Sprintf(`printf("%%s\n", (%s) ? "истина" : "ложь");`, code)
+	case typeChar:
+		// Символ печатается как сам символ (UTF-8), не как числовой код -
+		// та же кодировка кодовой точки в байты, что и у явного каста
+		// Символ -> Строка (rech_cast_char_to_str, castHelpers).
+		ctx.usesCast = true
+		return fmt.Sprintf(`printf("%%s\n", rech_cast_char_to_str(%s));`, code)
 	case typeFile:
 		return `printf("[файл]\n");`
 	case typeSocket:

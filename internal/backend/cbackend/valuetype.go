@@ -8,9 +8,12 @@ type valueTypeKind int
 
 const (
 	kindUnknown valueTypeKind = iota
-	kindString
+	kindByte
 	kindInt
+	kindFloat32
 	kindFloat
+	kindChar
+	kindString
 	kindBool
 	kindEntity
 	// kindFile - непрозрачный дескриптор открытого файла - представление в C
@@ -36,9 +39,12 @@ type valueType struct {
 
 var (
 	typeUnknown = valueType{kind: kindUnknown}
-	typeString  = valueType{kind: kindString}
+	typeByte    = valueType{kind: kindByte}
 	typeInt     = valueType{kind: kindInt}
+	typeFloat32 = valueType{kind: kindFloat32}
 	typeFloat   = valueType{kind: kindFloat}
+	typeChar    = valueType{kind: kindChar}
+	typeString  = valueType{kind: kindString}
 	typeBool    = valueType{kind: kindBool}
 	typeFile    = valueType{kind: kindFile}
 	typeSocket  = valueType{kind: kindSocket}
@@ -49,24 +55,27 @@ func entityType(name string) valueType {
 	return valueType{kind: kindEntity, entity: name}
 }
 
+// primitiveCTypes - valueType (не kindEntity/kindUnknown) -> C-тип.
+// kindChar - int32_t ("Символ" хранит кодовую точку Unicode, не байт, как C
+// char - язык кириллический по духу, 'я' должен помещаться в один Символ).
+var primitiveCTypes = map[valueType]string{
+	typeByte:    "unsigned char",
+	typeInt:     "long long",
+	typeFloat32: "float",
+	typeFloat:   "double",
+	typeChar:    "int32_t",
+	typeString:  "const char *",
+	typeBool:    "bool",
+	typeFile:    "rech_file_t",
+	typeSocket:  "rech_socket_t",
+}
+
 func (t valueType) cType() string {
 	if t.kind == kindEntity {
 		return mangleType(t.entity)
 	}
-	switch t {
-	case typeString:
-		return "const char *"
-	case typeInt:
-		return "long long"
-	case typeFloat:
-		return "double"
-	case typeBool:
-		return "bool"
-	case typeFile:
-		return "rech_file_t"
-	case typeSocket:
-		return "rech_socket_t"
-	default:
-		return "void *"
+	if c, ok := primitiveCTypes[t]; ok {
+		return c
 	}
+	return "void *"
 }

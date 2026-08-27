@@ -1,0 +1,52 @@
+package parser
+
+import (
+	"fmt"
+
+	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/lexer"
+)
+
+// primitiveCastTypes - типы, для которых допустим явный каст "(Тип)
+// значение" - только примитивы, не сущности (сущности создаются через
+// "новый", не приведением типа). Фиксированный набор нужен, чтобы разобрать
+// "(" IDENT ")" как каст уже во время разбора, не дожидаясь семантического
+// анализа - иначе нельзя было бы отличить "(Целое) x" (каст) от "(x)"
+// (скобки вокруг выражения) без таблицы типов на этапе разбора.
+var primitiveCastTypes = map[string]bool{
+	"Целое":          true,
+	"Действительное": true,
+	"Строка":         true,
+	"Логическое":     true,
+	"Дробное":        true,
+	"Символ":         true,
+	"Байт":           true,
+}
+
+// tryParseCast проверяет, не начинается ли текущая позиция с "(Тип)" (Тип -
+// одно из primitiveCastTypes) - если да, разбирает каст целиком, включая
+// операнд на том же уровне приоритета, что и остальные унарные операторы
+// (см. parseUnary - каст стоит первым в цепочке проверок, поэтому "(Целое)
+// -x" и "-(Целое) x" разбираются рекурсивно правильно без отдельной
+// грамматики). Если это не каст - позиция парсера не меняется (только
+// peek), вызывающая сторона продолжает обычный разбор.
+func (p *Parser) tryParseCast() (ast.Expr, bool, error) {
+	if p.cur().Type != lexer.LPAREN {
+		return nil, false, nil
+	}
+	typeTok := p.peekAt(1)
+	if typeTok.Type != lexer.IDENT || !primitiveCastTypes[typeTok.Value] {
+		return nil, false, nil
+	}
+	if p.peekAt(2).Type != lexer.RPAREN {
+		return nil, false, nil
+	}
+	lparen := p.advance() // "("
+	p.advance()           // Тип
+	p.advance()           // ")"
+	value, err := p.parseUnary()
+	if err != nil {
+		return nil, false, fmt.Errorf("после каста (%s) ожидалось выражение: %w", typeTok.Value, err)
+	}
+	return &ast.CastExpr{Type: typeTok.Value, Value: value, Line: lparen.Line}, true, nil
+}

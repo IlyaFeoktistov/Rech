@@ -65,3 +65,28 @@ func TestLexerIncrDoesNotClashWithPlus(t *testing.T) {
 		t.Fatalf("одиночный \"+\" должен остаться PLUS: %v", types)
 	}
 }
+
+func TestLexerCharLiteral(t *testing.T) {
+	toks, err := New(`'a' 'я' '\n' '\''`).Tokenize()
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	want := []string{"a", "я", "\n", "'"}
+	if len(toks) != len(want)+1 {
+		t.Fatalf("ожидалось %d токенов + EOF, получено %d: %v", len(want), len(toks), toks)
+	}
+	for i, w := range want {
+		if toks[i].Type != CHAR || toks[i].Value != w {
+			t.Fatalf("токен %d: ожидался CHAR %q, получено %s %q", i, w, toks[i].Type, toks[i].Value)
+		}
+	}
+}
+
+func TestLexerCharLiteralRejectsEmptyAndMultiChar(t *testing.T) {
+	if _, err := New(`''`).Tokenize(); err == nil {
+		t.Fatal("ожидалась ошибка на пустом символьном литерале")
+	}
+	if _, err := New(`'ab'`).Tokenize(); err == nil {
+		t.Fatal("ожидалась ошибка на символьном литерале из нескольких символов")
+	}
+}

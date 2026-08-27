@@ -746,3 +746,54 @@ func TestGenerateFromIRPrintOnEntityShowsFriendlyPlaceholder(t *testing.T) {
 		t.Fatalf("ожидался дружелюбный плейсхолдер, получено:\n%s", out)
 	}
 }
+
+// TestGenerateFromIRDirectNumericCastIsPlainCCast - приведения без участия
+// "Строка" (числа/Символ/Байт между собой) - обычный C-каст "((тип)(...))",
+// без рантайм-хелперов (см. internal/backend/cbackend/cast.go).
+func TestGenerateFromIRDirectNumericCastIsPlainCCast(t *testing.T) {
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "а", Value: &ir.CastExpr{Value: &ir.IntLiteral{Value: 97}, To: ir.TypeChar}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "((int32_t)(97LL))") {
+		t.Fatalf("ожидался прямой C-каст в int32_t, получено:\n%s", out)
+	}
+	if strings.Contains(out, "rech_cast_") {
+		t.Fatalf("прямой числовой каст не должен использовать рантайм-хелперы: %s", out)
+	}
+}
+
+// TestGenerateFromIRStringCastUsesRuntimeHelper - каст с участием "Строка"
+// (в обе стороны) - через рантайм-хелпер (castHelpers), не обычный C-каст,
+// потому что нужен разбор/форматирование, а не переинтерпретация битов.
+func TestGenerateFromIRStringCastUsesRuntimeHelper(t *testing.T) {
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.PrintStmt{Value: &ir.CastExpr{Value: &ir.StringLiteral{Value: "42"}, To: ir.TypeInt}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, `rech_cast_str_to_int("42", "Целое")`) {
+		t.Fatalf("ожидался вызов rech_cast_str_to_int, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "static long long rech_cast_str_to_int(") {
+		t.Fatalf("ожидалось определение rech_cast_str_to_int (castHelpers), получено:\n%s", out)
+	}
+}
+
+func TestGenerateFromIRCharLiteral(t *testing.T) {
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.PrintStmt{Value: &ir.CharLiteral{Value: 'я'}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "1103") {
+		t.Fatalf("ожидался код точки 'я' (1103) в выводе, получено:\n%s", out)
+	}
+}

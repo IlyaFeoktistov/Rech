@@ -237,7 +237,7 @@ func TestLinkRenamesOnImport(t *testing.T) {
 
 func TestLinkImportsExternFuncPreservingCNameButRenamingAlias(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "математика.rech", "внешняя функция sqrt как корень(x: Число): Число\n")
+	writeFile(t, dir, "математика.rech", "внешняя функция sqrt как корень(x: Действительное): Действительное\n")
 	entry := writeFile(t, dir, "главный.rech",
 		"использовать корень как корень2 из \"математика\"\n\nфункция главная\n{\n    вывести корень2(9.0)\n}\n")
 

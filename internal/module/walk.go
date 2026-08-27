@@ -9,20 +9,22 @@ import (
 )
 
 // builtinTypeBases - имена типов, встроенных в язык (не требуют ни
-// объявления, ни импорта): примитивы (включая "Число" - устаревший алиас
-// "Действительное"), "Файл"/"Сокет" (непрозрачные дескрипторы),
-// "Запрос"/"Ответ" (HTTP-клиент, internal/builtins.ReservedEntityNames) и
-// три generic-коллекции. У generic-инстанциации ("Список<Целое>") аргумент
-// внутри "<...>" сейчас может быть только примитивом
-// (internal/semantic.resolveGenericTypeName - "элементы встроенных
-// коллекций пока поддерживаются только для Строка/Целое/Действительное/
-// Логическое, не для сущностей"), поэтому у любой generic-инстанциации,
-// которую вообще можно написать, база уже входит сюда - resolveTypeRef
-// ниже этим пользуется, чтобы не резолвить аргумент отдельно.
+// объявления, ни импорта): примитивы, "Файл"/"Сокет" (непрозрачные
+// дескрипторы), "Запрос"/"Ответ" (HTTP-клиент,
+// internal/builtins.ReservedEntityNames) и три generic-коллекции. У
+// generic-инстанциации ("Список<Целое>") аргумент внутри "<...>" сейчас
+// может быть только примитивом (internal/semantic.resolveGenericTypeName -
+// "элементы встроенных коллекций пока поддерживаются только для
+// Строка/Целое/Действительное/Логическое, не для сущностей"), поэтому у
+// любой generic-инстанциации, которую вообще можно написать, база уже
+// входит сюда - resolveTypeRef ниже этим пользуется, чтобы не резолвить
+// аргумент отдельно.
 var builtinTypeBases = map[string]bool{
 	"Целое":          true,
-	"Число":          true,
 	"Действительное": true,
+	"Дробное":        true,
+	"Символ":         true,
+	"Байт":           true,
 	"Строка":         true,
 	"Логическое":     true,
 	"Файл":           true,
@@ -182,7 +184,7 @@ func (r *rewriter) rewriteExprs(exprs []ast.Expr) error {
 
 func (r *rewriter) rewriteExpr(e ast.Expr) error {
 	switch e := e.(type) {
-	case *ast.StringLiteral, *ast.IntLiteral, *ast.FloatLiteral, *ast.BoolLiteral, *ast.Identifier, *ast.ThisExpr, *ast.IncDecExpr:
+	case *ast.StringLiteral, *ast.IntLiteral, *ast.FloatLiteral, *ast.BoolLiteral, *ast.CharLiteral, *ast.Identifier, *ast.ThisExpr, *ast.IncDecExpr:
 		return nil
 	case *ast.CallExpr:
 		resolved, err := resolveBareName(e.Callee, r.names)
@@ -212,6 +214,8 @@ func (r *rewriter) rewriteExpr(e ast.Expr) error {
 		return r.rewriteExpr(e.Right)
 	case *ast.UnaryExpr:
 		return r.rewriteExpr(e.Operand)
+	case *ast.CastExpr:
+		return r.rewriteExpr(e.Value)
 	default:
 		return fmt.Errorf("внутренняя ошибка: неизвестное выражение %T", e)
 	}

@@ -1193,3 +1193,73 @@ func TestParseEntityConstantVisibilityWrongFormRejected(t *testing.T) {
 		t.Fatalf("ожидалась ошибка о требуемой форме \"приватная\" (согласование со словом \"константа\"), получено: %v", err)
 	}
 }
+
+func TestParseCharLiteral(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная {
+    переменная а = 'я'
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	decl := prog.Functions[0].Body[0].(*ast.VarDecl)
+	lit, ok := decl.Value.(*ast.CharLiteral)
+	if !ok || lit.Value != 'я' {
+		t.Fatalf("ожидался CharLiteral('я'), получено %+v", decl.Value)
+	}
+}
+
+func TestParseCastExpr(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная {
+    переменная а = (Целое) "42"
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	decl := prog.Functions[0].Body[0].(*ast.VarDecl)
+	cast, ok := decl.Value.(*ast.CastExpr)
+	if !ok || cast.Type != "Целое" {
+		t.Fatalf("ожидался CastExpr(Целое), получено %+v", decl.Value)
+	}
+	if _, ok := cast.Value.(*ast.StringLiteral); !ok {
+		t.Fatalf("ожидалось строковое значение внутри каста, получено %+v", cast.Value)
+	}
+}
+
+func TestParseCastNegativeOperandBindsAsUnary(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная {
+    переменная а = (Целое) -3.5
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	decl := prog.Functions[0].Body[0].(*ast.VarDecl)
+	cast, ok := decl.Value.(*ast.CastExpr)
+	if !ok {
+		t.Fatalf("ожидался CastExpr, получено %+v", decl.Value)
+	}
+	if _, ok := cast.Value.(*ast.UnaryExpr); !ok {
+		t.Fatalf("ожидался унарный \"-\" внутри каста, получено %+v", cast.Value)
+	}
+}
+
+func TestParseParenthesizedExprIsNotConfusedWithCast(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная {
+    переменная а = (1 + 2) * 3
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	decl := prog.Functions[0].Body[0].(*ast.VarDecl)
+	bin, ok := decl.Value.(*ast.BinaryExpr)
+	if !ok || bin.Op != "*" {
+		t.Fatalf("ожидалось обычное выражение в скобках, не каст, получено %+v", decl.Value)
+	}
+}

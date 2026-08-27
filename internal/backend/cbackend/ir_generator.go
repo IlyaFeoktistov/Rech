@@ -40,6 +40,11 @@ type irGenCtx struct {
 	// usesShow - нужны ли функции показа (rech_show_...) - генерируются
 	// только если "показать" реально встретилось в программе.
 	usesShow bool
+	// usesCast - нужны ли рантайм-хелперы явных кастов (castHelpers) - только
+	// для приведений с участием "Строка" (разбор/форматирование); прямые
+	// числовые приведения (Целое/Дробное/Действительное/Символ/Байт между
+	// собой) - обычный C-каст, без хелперов.
+	usesCast bool
 	entities map[string]*ir.Entity
 	// externCNames - Rech-facing имя (Alias) внешней функции -> настоящий
 	// C-символ (CName), из prog.ExternFuncs: CallExpr.Callee несёт Alias,
@@ -63,6 +68,7 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	for _, ext := range prog.ExternFuncs {
 		externCNames[ext.Alias] = ext.CName
 	}
+	ctx := &irGenCtx{entities: entities, externCNames: externCNames}
 
 	var typedefs strings.Builder
 	for _, ent := range prog.Entities {
@@ -97,10 +103,10 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	// генерации тел).
 	var showFuncs strings.Builder
 	for _, ent := range prog.Entities {
-		showFuncs.WriteString(generateIREntityShowFunc(ent))
+		showFuncs.WriteString(generateIREntityShowFunc(ctx, ent))
 	}
 	for _, g := range prog.Generics {
-		showFuncs.WriteString(generateIRGenericShowFunc(g))
+		showFuncs.WriteString(generateIRGenericShowFunc(ctx, g))
 	}
 
 	var protos strings.Builder
@@ -125,7 +131,6 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	}
 
 	var body strings.Builder
-	ctx := &irGenCtx{entities: entities, externCNames: externCNames}
 	for _, ent := range prog.Entities {
 		for _, m := range ent.Methods {
 			mCode, err := generateIRMethod(ctx, ent.Name, m)
@@ -147,10 +152,11 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	sb.WriteString("// Автоматически сгенерировано компилятором rech. Не редактировать руками.\n")
 	sb.WriteString("#include <stdio.h>\n")
 	sb.WriteString("#include <stdbool.h>\n")
-	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets {
+	sb.WriteString("#include <stdint.h>\n")
+	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast {
 		sb.WriteString("#include <string.h>\n")
 	}
-	if ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO {
+	if ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast {
 		sb.WriteString("#include <stdlib.h>\n")
 	}
 	if ctx.usesMath {
@@ -178,6 +184,10 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	}
 	if ctx.usesArgs {
 		sb.WriteString(argFuncHelper)
+		sb.WriteString("\n")
+	}
+	if ctx.usesCast {
+		sb.WriteString(castHelpers)
 		sb.WriteString("\n")
 	}
 	if ctx.usesIntDiv {
@@ -346,7 +356,7 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(sb, "%s%s\n", ind, printCall(typ, code))
+		fmt.Fprintf(sb, "%s%s\n", ind, printCall(ctx, typ, code))
 		return nil
 
 	case *ir.ShowStmt:
@@ -355,7 +365,7 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(sb, "%s%s;\n", ind, generateIRShowExpr(ir.TypeOf(s.Value), code))
+		fmt.Fprintf(sb, "%s%s;\n", ind, generateIRShowExpr(ctx, ir.TypeOf(s.Value), code))
 		fmt.Fprintf(sb, "%sprintf(\"\\n\");\n", ind)
 		return nil
 
@@ -569,9 +579,8 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 			}
 			argCodes[i] = code
 		}
-		// Порядок проверки - тот же, что и в cbackend.genCall (AST-путь):
-		// builtin (inline C-выражение) -> внешняя функция (настоящий
-		// C-символ, не mangleName) -> обычная функция программы.
+		// Порядок проверки: builtin (inline C-выражение) -> внешняя функция
+		// (настоящий C-символ, не mangleName) -> обычная функция программы.
 		if code, ok := builtinCallCode(&ctx.builtinFlags, e.Callee, argCodes); ok {
 			return code, fromIRType(e.Type), nil
 		}
@@ -593,13 +602,18 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 
 	case *ir.ThisExpr:
 		// "(*this_)" - разыменованный указатель this_ ведёт себя как
-		// lvalue сущностного типа, как и в AST-пути (genExpr, case
-		// *ast.ThisExpr) - тем же способом обходится без отдельной ветки
-		// на "->" в FieldAccess/FieldAssign.
+		// lvalue сущностного типа - тем же способом обходится без отдельной
+		// ветки на "->" в FieldAccess/FieldAssign.
 		return "(*this_)", entityType(e.Entity), nil
 
 	case *ir.MethodCallExpr:
 		return generateIRMethodCallExpr(ctx, e)
+
+	case *ir.CharLiteral:
+		return fmt.Sprintf("%d", e.Value), typeChar, nil
+
+	case *ir.CastExpr:
+		return generateIRCastExpr(ctx, e)
 
 	default:
 		return "", typeUnknown, fmt.Errorf("генерация C из IR: выражение %T пока не поддерживается", e)
@@ -750,23 +764,26 @@ func generateIRMethodCallExpr(ctx *irGenCtx, e *ir.MethodCallExpr) (string, valu
 // valueType (C-специфичный, этот пакет) - единственное место, где IR-путь
 // знает про valueType вообще, остальной generateIR* код работает через
 // ir.Type/ir.TypeOf.
+// irKindToValueType - ir.Kind -> valueType для всех примитивов (не
+// KindEntity - у него есть переменная часть, имя сущности, см. fromIRType).
+var irKindToValueType = map[ir.TypeKind]valueType{
+	ir.KindByte:    typeByte,
+	ir.KindInt:     typeInt,
+	ir.KindFloat32: typeFloat32,
+	ir.KindFloat:   typeFloat,
+	ir.KindChar:    typeChar,
+	ir.KindString:  typeString,
+	ir.KindBool:    typeBool,
+	ir.KindFile:    typeFile,
+	ir.KindSocket:  typeSocket,
+}
+
 func fromIRType(t ir.Type) valueType {
-	switch t.Kind {
-	case ir.KindString:
-		return typeString
-	case ir.KindInt:
-		return typeInt
-	case ir.KindFloat:
-		return typeFloat
-	case ir.KindBool:
-		return typeBool
-	case ir.KindFile:
-		return typeFile
-	case ir.KindSocket:
-		return typeSocket
-	case ir.KindEntity:
+	if t.Kind == ir.KindEntity {
 		return entityType(t.Entity)
-	default:
-		return typeUnknown
 	}
+	if vt, ok := irKindToValueType[t.Kind]; ok {
+		return vt
+	}
+	return typeUnknown
 }

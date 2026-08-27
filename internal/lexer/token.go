@@ -9,6 +9,7 @@ const (
 
 	IDENT  // идентификатор, например: главная, пользователь
 	STRING // строковый литерал в двойных кавычках
+	CHAR   // символьный литерал в одинарных кавычках: 'a', 'я'
 	INT    // целочисленный литерал: 42
 	FLOAT  // литерал с плавающей точкой: 3.14
 
@@ -147,6 +148,8 @@ func (t TokenType) String() string {
 		return "IDENT"
 	case STRING:
 		return "STRING"
+	case CHAR:
+		return "CHAR"
 	case INT:
 		return "INT"
 	case FLOAT:

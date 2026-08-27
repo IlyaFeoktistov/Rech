@@ -21,6 +21,12 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 	case *ast.BoolLiteral:
 		return &ir.BoolLiteral{Value: e.Value}, nil
 
+	case *ast.CharLiteral:
+		return &ir.CharLiteral{Value: e.Value}, nil
+
+	case *ast.CastExpr:
+		return analyzeCastExpr(sc, e)
+
 	case *ast.Identifier:
 		typ, exists := sc.lookup(e.Name)
 		if !exists {
@@ -293,7 +299,7 @@ func analyzeUnaryExpr(sc *ctx, e *ast.UnaryExpr) (ir.Expr, error) {
 	typ := ir.TypeOf(operand)
 	switch e.Op {
 	case "-":
-		if typ != ir.TypeInt && typ != ir.TypeFloat {
+		if _, ok := numericRanks[typ]; !ok {
 			return nil, fmt.Errorf("строка %d: унарный \"-\" применим только к числам, получен %s", e.Line, typ)
 		}
 		return &ir.UnaryExpr{Op: e.Op, Operand: operand, Type: typ}, nil
@@ -323,8 +329,8 @@ func analyzeIncDecExpr(sc *ctx, e *ast.IncDecExpr) (ir.Expr, error) {
 	if sc.isConst(e.Name) {
 		return nil, fmt.Errorf("строка %d: %q объявлено как \"константа\" - нельзя изменить (%s)", e.Line, e.Name, e.Op)
 	}
-	if typ != ir.TypeInt && typ != ir.TypeFloat {
-		return nil, fmt.Errorf("строка %d: оператор %q применим только к Целое/Действительное, получено %s", e.Line, e.Op, typ)
+	if _, ok := numericRanks[typ]; !ok {
+		return nil, fmt.Errorf("строка %d: оператор %q применим только к Целое/Дробное/Действительное, получено %s", e.Line, e.Op, typ)
 	}
 	return &ir.IncDecExpr{Name: e.Name, Op: e.Op, Prefix: e.Prefix, Type: typ}, nil
 }
@@ -354,13 +360,13 @@ func analyzeBinaryExpr(sc *ctx, e *ast.BinaryExpr) (ir.Expr, error) {
 		if lt == ir.TypeString && rt == ir.TypeString {
 			return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: ir.TypeBool}, nil
 		}
-		if lt != rt || (lt != ir.TypeInt && lt != ir.TypeFloat && lt != ir.TypeBool) {
+		if lt != rt || !equatableTypes[lt] {
 			return nil, fmt.Errorf("строка %d: оператор %q не поддерживается для типов %s и %s", e.Line, e.Op, lt, rt)
 		}
 		return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: ir.TypeBool}, nil
 
 	case "<", ">", "<=", ">=":
-		if lt != rt || (lt != ir.TypeInt && lt != ir.TypeFloat) {
+		if lt != rt || !orderableTypes[lt] {
 			return nil, fmt.Errorf("строка %d: оператор %q применим только к числам одного типа, получены %s и %s", e.Line, e.Op, lt, rt)
 		}
 		return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: ir.TypeBool}, nil
@@ -382,22 +388,23 @@ func analyzeBinaryExpr(sc *ctx, e *ast.BinaryExpr) (ir.Expr, error) {
 	}
 }
 
-// analyzeArithmetic - "+" (нестроковый)/"-"/"*"/"/": Целое+Целое -> Целое,
-// иначе (хотя бы один операнд Число) -> Число - та же промоция, что и в
-// cbackend.genArithmetic (шаг 1), только результат - тип в IR-узле, без
-// самого приведения ((double)...) - приведение операнда, если нужно,
-// решает backend при генерации кода конкретной платформы, глядя на Type
-// каждого операнда и Type результата.
+// analyzeArithmetic - "+" (нестроковый)/"-"/"*"/"/": результат - более
+// широкий из двух операндов по numericRanks (Целое -> Дробное ->
+// Действительное), тип в IR-узле, без самого приведения ((double)...) -
+// приведение операнда, если нужно, решает backend при генерации кода,
+// глядя на Type каждого операнда и Type результата.
 func analyzeArithmetic(e *ast.BinaryExpr, left ir.Expr, lt ir.Type, right ir.Expr, rt ir.Type) (ir.Expr, error) {
-	if lt != ir.TypeInt && lt != ir.TypeFloat {
+	lr, lok := numericRanks[lt]
+	if !lok {
 		return nil, fmt.Errorf("строка %d: оператор %q не поддерживается для типа %s", e.Line, e.Op, lt)
 	}
-	if rt != ir.TypeInt && rt != ir.TypeFloat {
+	rr, rok := numericRanks[rt]
+	if !rok {
 		return nil, fmt.Errorf("строка %d: оператор %q не поддерживается для типа %s", e.Line, e.Op, rt)
 	}
-	result := ir.TypeInt
-	if lt == ir.TypeFloat || rt == ir.TypeFloat {
-		result = ir.TypeFloat
+	result := lt
+	if rr > lr {
+		result = rt
 	}
 	return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: result}, nil
 }

@@ -8,23 +8,17 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
+var builtinKindTypes = map[builtins.Kind]ir.Type{
+	builtins.KindInt:    ir.TypeInt,
+	builtins.KindFloat:  ir.TypeFloat,
+	builtins.KindString: ir.TypeString,
+	builtins.KindBool:   ir.TypeBool,
+	builtins.KindFile:   ir.TypeFile,
+	builtins.KindSocket: ir.TypeSocket,
+}
+
 func builtinIRType(k builtins.Kind) ir.Type {
-	switch k {
-	case builtins.KindInt:
-		return ir.TypeInt
-	case builtins.KindFloat:
-		return ir.TypeFloat
-	case builtins.KindString:
-		return ir.TypeString
-	case builtins.KindBool:
-		return ir.TypeBool
-	case builtins.KindFile:
-		return ir.TypeFile
-	case builtins.KindSocket:
-		return ir.TypeSocket
-	default:
-		return ir.Type{}
-	}
+	return builtinKindTypes[k]
 }
 
 // registerBuiltinFuncs заполняет funcs встроенными функциями шага 8
@@ -41,6 +35,19 @@ func registerBuiltinFuncs(funcs map[string]funcSig) {
 	}
 }
 
+// primitiveTypes - имена встроенных примитивов Rech -> ir.Type.
+var primitiveTypes = map[string]ir.Type{
+	"Строка":         ir.TypeString,
+	"Целое":          ir.TypeInt,
+	"Действительное": ir.TypeFloat,
+	"Логическое":     ir.TypeBool,
+	"Файл":           ir.TypeFile,
+	"Сокет":          ir.TypeSocket,
+	"Дробное":        ir.TypeFloat32,
+	"Символ":         ir.TypeChar,
+	"Байт":           ir.TypeByte,
+}
+
 // resolveTypeName - единственное место, где имя типа Rech (строка из AST)
 // маппится на ir.Type: встроенные примитивы, уже собранная сущность
 // (entities - сигнатуры, собранные раньше по файлу, см. collectEntities;
@@ -52,22 +59,10 @@ func registerBuiltinFuncs(funcs map[string]funcSig) {
 // представления, как и в cbackend (genCtx.stateAliases), - или встроенная
 // generic-коллекция (шаг 4.2, resolveGenericTypeName).
 func resolveTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, name string) (ir.Type, error) {
+	if t, ok := primitiveTypes[name]; ok {
+		return t, nil
+	}
 	switch name {
-	case "Строка":
-		return ir.TypeString, nil
-	case "Целое":
-		return ir.TypeInt, nil
-	case "Число", "Действительное":
-		// "Число" - алиас "Действительное", сохранён ради уже написанного
-		// кода; канонический вывод типа в сообщениях об ошибках -
-		// "Действительное" (ir.Type.String()).
-		return ir.TypeFloat, nil
-	case "Логическое":
-		return ir.TypeBool, nil
-	case "Файл":
-		return ir.TypeFile, nil
-	case "Сокет":
-		return ir.TypeSocket, nil
 	case "Запрос":
 		registerHTTPEntity(entities, "Запрос", httpRequestFields)
 		return ir.EntityType("Запрос"), nil
@@ -237,7 +232,7 @@ func resolveGenericTypeName(entities map[string]entitySig, methods map[string]ma
 		return ir.TypeUnknown, fmt.Errorf("тип элемента %q в %q: %w", argName, name, err)
 	}
 	if elem.Kind == ir.KindEntity {
-		return ir.TypeUnknown, fmt.Errorf("%q: элементы встроенных коллекций поддерживаются только для Строка/Целое/Действительное/Логическое, не для сущностей", name)
+		return ir.TypeUnknown, fmt.Errorf("%q: элементы встроенных коллекций поддерживаются только для примитивов, не для сущностей", name)
 	}
 	sigs, ok := genericMethodSigs(template, elem)
 	if !ok {

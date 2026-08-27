@@ -94,6 +94,20 @@ func stringValue(v string) Value { return Value{Type: ir.TypeString, S: v} }
 func boolValue(v bool) Value     { return Value{Type: ir.TypeBool, B: v} }
 func fileValue(f *os.File) Value { return Value{Type: ir.TypeFile, File: f} }
 
+// charValue - "Символ", кодовая точка Unicode, хранится в I (как и Байт) -
+// значение отличает только Type.
+func charValue(v rune) Value { return Value{Type: ir.TypeChar, I: int64(v)} }
+
+// byteValue - "Байт", 8 бит без знака - маска на 0xFF воспроизводит
+// усечение C unsigned char (то же самое, что происходит в cbackend при
+// касте в Байт).
+func byteValue(v int64) Value { return Value{Type: ir.TypeByte, I: v & 0xFF} }
+
+// float32Value - "Дробное", одинарная точность - округление до float32 при
+// каждом создании воспроизводит фактическую потерю точности C float,
+// вместо того чтобы хранить полную точность float64 под именем "Дробное".
+func float32Value(v float64) Value { return Value{Type: ir.TypeFloat32, F: float64(float32(v))} }
+
 func listenerValue(l net.Listener) Value { return Value{Type: ir.TypeSocket, Listener: l} }
 func connValue(c net.Conn) Value         { return Value{Type: ir.TypeSocket, Conn: c} }
 

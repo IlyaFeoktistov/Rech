@@ -131,6 +131,11 @@ func (p *Parser) parseMultiplicative() (ast.Expr, error) {
 }
 
 func (p *Parser) parseUnary() (ast.Expr, error) {
+	if cast, ok, err := p.tryParseCast(); err != nil {
+		return nil, err
+	} else if ok {
+		return cast, nil
+	}
 	switch p.cur().Type {
 	case lexer.MINUS:
 		op := p.advance()
@@ -199,6 +204,10 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 	case lexer.STRING:
 		p.advance()
 		return &ast.StringLiteral{Value: tok.Value, Line: tok.Line}, nil
+	case lexer.CHAR:
+		p.advance()
+		r := []rune(tok.Value)[0]
+		return &ast.CharLiteral{Value: r, Line: tok.Line}, nil
 	case lexer.INT:
 		p.advance()
 		v, err := strconv.ParseInt(tok.Value, 10, 64)
