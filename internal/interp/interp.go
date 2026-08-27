@@ -226,9 +226,15 @@ func (e *Env) declare(name string, v Value) {
 // вложенных if/пока/для ОДНОГО И ТОГО ЖЕ вызова (execBlock передаёт тот же
 // cc дальше, не создаёт новый), но должен писать в одну и ту же ячейку,
 // которую в конце читает callFunction/callMethod этой активации.
+// dbg - THREAD этой активации, если программа исполняется под отладчиком
+// (internal/interp/debugger.go) - nil в обычном Run()/rech test, в отличие
+// от curLine НЕ пересоздаётся заново на каждый вызов, а передаётся от
+// вызывающей стороны как есть (тот же поток исполнения продолжает нести
+// один и тот же стек кадров отладчика) - см. callFunction/callMethod.
 type callCtx struct {
 	this    *entityObj
 	curLine *int
+	dbg     *dbgThread
 }
 
 // runtimeError - ошибка времени выполнения программы Rech (не компилятора) -
@@ -261,13 +267,17 @@ func panicRuntime(format string, args ...any) {
 	panic(&runtimeError{msg: rtmsg.PanicPrefix + fmt.Sprintf(format, args...)})
 }
 
-// Interp - состояние интерпретатора одной программы.
+// Interp - состояние интерпретатора одной программы. debugger - непусто
+// только при исполнении через NewDebugger (internal/interp/debugger.go,
+// "rech debug") - обычный Run/rech test его не заводит вовсе, поэтому не
+// платит ни за какие проверки/блокировки отладчика.
 type Interp struct {
 	out      io.Writer
 	stdin    *bufio.Reader
 	funcs    map[string]*ir.Function
 	entities map[string]*ir.Entity
 	generics map[string]ir.GenericInstantiation
+	debugger *Debugger
 }
 
 // Run исполняет prog: находит "главная" и выполняет её тело, печатая
@@ -289,16 +299,9 @@ type Interp struct {
 // иначе один упавший файл в "rech test" завершал бы весь прогон вместо
 // того, чтобы считаться одним неудачным тестом.
 func Run(prog *ir.Program, out io.Writer, stdin io.Reader) (err error) {
-	// Внешние функции (шаг 7, FFI) - явный, документированный пробел
-	// именно интерпретатора (docs/ROADMAP.md), не самого IR:
-	// semantic.Analyze производит ir.Program.ExternFuncs как обычно (у
-	// cbackend.GenerateFromIR это реально работает) - интерпретатор
-	// (чистый Go) не умеет вызвать произвольный C-символ без настоящей
-	// динамической линковки (dlopen/dlsym), которой пока нет, поэтому
-	// отказывается сам, здесь, а не молча игнорирует/падает глубже.
-	if len(prog.ExternFuncs) > 0 {
-		return fmt.Errorf("внешняя функция %q: внешние функции пока не поддерживаются интерпретатором/`rech test` - соберите и запустите программу через `rech build`/`rech run`",
-			prog.ExternFuncs[0].Alias)
+	in, main, err := newInterp(prog, out, stdin)
+	if err != nil {
+		return err
 	}
 	defer func() {
 		if r := recover(); r != nil {
@@ -309,7 +312,21 @@ func Run(prog *ir.Program, out io.Writer, stdin io.Reader) (err error) {
 			err = fmt.Errorf("внутренняя ошибка интерпретатора: %v", r)
 		}
 	}()
+	_, err = in.callFunction(main, nil, nil)
+	return err
+}
 
+// newInterp - общая подготовка Run и NewDebugger (internal/interp/
+// debugger.go): проверка внешних функций (шаг 7, FFI - интерпретатор,
+// чистый Go, не умеет вызвать произвольный C-символ без настоящей
+// динамической линковки, которой пока нет, поэтому отказывается сам, а не
+// молча игнорирует/падает глубже), таблицы функций/сущностей/generic-
+// инстанциаций программы по имени, точка входа "главная".
+func newInterp(prog *ir.Program, out io.Writer, stdin io.Reader) (*Interp, *ir.Function, error) {
+	if len(prog.ExternFuncs) > 0 {
+		return nil, nil, fmt.Errorf("внешняя функция %q: внешние функции пока не поддерживаются интерпретатором/`rech test` - соберите и запустите программу через `rech build`/`rech run`",
+			prog.ExternFuncs[0].Alias)
+	}
 	in := &Interp{
 		out:      out,
 		stdin:    bufio.NewReader(stdin),
@@ -328,10 +345,9 @@ func Run(prog *ir.Program, out io.Writer, stdin io.Reader) (err error) {
 	}
 	main, ok := in.funcs[entryPointName]
 	if !ok {
-		return fmt.Errorf("в программе не найдена функция %q - она служит точкой входа", entryPointName)
+		return nil, nil, fmt.Errorf("в программе не найдена функция %q - она служит точкой входа", entryPointName)
 	}
-	_, err = in.callFunction(main, nil)
-	return err
+	return in, main, nil
 }
 
 // callFunction/callMethod - см. package doc internal/interp/trace.go про то,
@@ -340,13 +356,23 @@ func Run(prog *ir.Program, out io.Writer, stdin io.Reader) (err error) {
 // panicRuntime (Go panic, разматывается снизу вверх сама, без явного стека -
 // см. runtimeError.trace) и обычная проверка err для thrownException
 // (пробрасывается как ЗНАЧЕНИЕ error, см. package doc exception.go).
+//
+// dbg - поток отладчика (internal/interp/debugger.go), nil у обычного Run/
+// rech test - тогда push/pop кадра дальше ничего не делают (см.
+// dbgThread.push/pop, nil-получатель безопасен). В отличие от cc,
+// пересоздаваемого заново, dbg передаётся ОТ ВЫЗЫВАЮЩЕЙ СТОРОНЫ как есть -
+// один и тот же поток исполнения несёт один и тот же стек кадров отладчика
+// через границы вызовов (новый dbg заводится только "запустить" -
+// concurrency.go, новая горутина - новый поток отладчика).
 
-func (in *Interp) callFunction(fn *ir.Function, args []Value) (result Value, err error) {
+func (in *Interp) callFunction(fn *ir.Function, args []Value, dbg *dbgThread) (result Value, err error) {
 	env := newEnv(nil)
 	for i, p := range fn.Params {
 		env.declare(p.Name, in.cloneValue(args[i]))
 	}
-	cc := &callCtx{curLine: new(int)}
+	cc := &callCtx{curLine: new(int), dbg: dbg}
+	dbg.push(fn.Name, fn.File)
+	defer dbg.pop()
 	defer func() {
 		if r := recover(); r != nil {
 			re, ok := r.(*runtimeError)
@@ -370,7 +396,7 @@ func (in *Interp) callFunction(fn *ir.Function, args []Value) (result Value, err
 	return Value{}, nil
 }
 
-func (in *Interp) callMethod(m *ir.Method, this *entityObj, args []Value) (result Value, err error) {
+func (in *Interp) callMethod(m *ir.Method, this *entityObj, args []Value, dbg *dbgThread) (result Value, err error) {
 	env := newEnv(nil)
 	for i, p := range m.Params {
 		env.declare(p.Name, in.cloneValue(args[i]))
@@ -383,21 +409,24 @@ func (in *Interp) callMethod(m *ir.Method, this *entityObj, args []Value) (resul
 		// cbackend.generateIREntityCtorInit (trace.go, tracePush).
 		name = "конструктор"
 	}
-	cc := &callCtx{this: this, curLine: new(int)}
+	displayName := this.typeName + "." + name
+	cc := &callCtx{this: this, curLine: new(int), dbg: dbg}
+	dbg.pushMethod(displayName, m.File, this)
+	defer dbg.pop()
 	defer func() {
 		if r := recover(); r != nil {
 			re, ok := r.(*runtimeError)
 			if !ok {
 				panic(r)
 			}
-			re.trace = append(re.trace, traceFrame{name: this.typeName + "." + name, line: *cc.curLine})
+			re.trace = append(re.trace, traceFrame{name: displayName, line: *cc.curLine})
 			panic(re)
 		}
 	}()
 	ctrl, execErr := in.execBlock(m.Body, env, cc)
 	if execErr != nil {
 		if te, ok := execErr.(*thrownException); ok {
-			te.trace = append(te.trace, traceFrame{name: this.typeName + "." + name, line: *cc.curLine})
+			te.trace = append(te.trace, traceFrame{name: displayName, line: *cc.curLine})
 		}
 		return Value{}, execErr
 	}

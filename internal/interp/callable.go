@@ -11,11 +11,16 @@ import (
 // исполняет тело - ссылку на функцию (evalFuncRefExpr) и лямбду
 // (evalLambdaExpr) роднит один и тот же интерфейс вызова, дальше
 // evalCallValueExpr не различает их вообще.
+// call принимает dbg - поток отладчика ВЫЗЫВАЮЩЕЙ стороны (передаётся из
+// evalCallValueExpr в момент вызова, не запомнен на момент СОЗДАНИЯ
+// значения) - тем же принципом, что и у callFunction/callMethod: тот же
+// поток исполнения продолжает нести один и тот же стек кадров отладчика
+// через границу вызова.
 type callableValue struct {
-	call func(args []Value) (Value, error)
+	call func(args []Value, dbg *dbgThread) (Value, error)
 }
 
-func callableTypeValue(t ir.Type, call func(args []Value) (Value, error)) Value {
+func callableTypeValue(t ir.Type, call func(args []Value, dbg *dbgThread) (Value, error)) Value {
 	return Value{Type: t, Callable: &callableValue{call: call}}
 }
 
@@ -28,8 +33,8 @@ func (in *Interp) evalFuncRefExpr(e *ir.FuncRefExpr) (Value, error) {
 	if !ok {
 		return Value{}, fmt.Errorf("функция %q не найдена во время исполнения", e.FuncName)
 	}
-	return callableTypeValue(e.Type, func(args []Value) (Value, error) {
-		return in.callFunction(fn, args)
+	return callableTypeValue(e.Type, func(args []Value, dbg *dbgThread) (Value, error) {
+		return in.callFunction(fn, args, dbg)
 	}), nil
 }
 
@@ -55,7 +60,7 @@ func (in *Interp) evalLambdaExpr(e *ir.LambdaExpr, env *Env) (Value, error) {
 		}
 		capturedEnv.declare(c.Name, in.cloneValue(v))
 	}
-	return callableTypeValue(e.Type, func(args []Value) (Value, error) {
+	return callableTypeValue(e.Type, func(args []Value, dbg *dbgThread) (Value, error) {
 		callEnv := newEnv(capturedEnv)
 		for i, p := range e.Params {
 			callEnv.declare(p.Name, in.cloneValue(args[i]))
@@ -64,8 +69,12 @@ func (in *Interp) evalLambdaExpr(e *ir.LambdaExpr, env *Env) (Value, error) {
 		// вызывающей стороны: паника внутри не заводит отдельный кадр стека
 		// вызовов (см. package doc internal/interp/trace.go) - execStmt всё
 		// равно обязан иметь куда писать текущую строку, не читает её здесь
-		// никто.
-		ctrl, err := in.execBlock(e.Body, callEnv, &callCtx{curLine: new(int)})
+		// никто. dbg, наоборот, ПЕРЕДАЁТСЯ дальше как есть (не сбрасывается
+		// в nil) - тело лямбды не заводит отдельный кадр в стеке отладчика
+		// (тот же принцип, что и у trace.go выше), но точки останова/шаги
+		// ВНУТРИ нею продолжают работать, относясь к кадру вызывающей
+		// стороны - её строки исходника лежат в том же файле.
+		ctrl, err := in.execBlock(e.Body, callEnv, &callCtx{curLine: new(int), dbg: dbg})
 		if err != nil {
 			return Value{}, err
 		}
@@ -97,5 +106,5 @@ func (in *Interp) evalCallValueExpr(e *ir.CallValueExpr, env *Env, cc *callCtx) 
 		}
 		args[i] = v
 	}
-	return fv.Callable.call(args)
+	return fv.Callable.call(args, cc.dbg)
 }

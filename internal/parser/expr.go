@@ -12,6 +12,26 @@ func (p *Parser) parseExpr() (ast.Expr, error) {
 	return p.parseOr()
 }
 
+// ParseExpr разбирает p.tokens как одно самостоятельное выражение (не всю
+// программу) - нужно отладчику (internal/interp, вычисление выражений в
+// остановленном кадре, "Debug Console") для разбора текста, введённого
+// пользователем. Естественный (падежный) вызов функции синтаксически
+// возможен только как отдельная инструкция, не как выражение (docs/SPEC.md,
+// "Вызов функции") - поэтому, в отличие от ParseProgram, здесь не нужен
+// предварительный проход collectFunctionSignatures (он существует только
+// ради разбора естественного вызова).
+func (p *Parser) ParseExpr() (ast.Expr, error) {
+	e, err := p.parseExpr()
+	if err != nil {
+		return nil, err
+	}
+	p.skipNewlines()
+	if p.cur().Type != lexer.EOF {
+		return nil, fmt.Errorf("строка %d, столбец %d: лишние символы после выражения: %q", p.cur().Line, p.cur().Col, p.cur().Value)
+	}
+	return e, nil
+}
+
 // parseLeftAssoc - общий шаблон левоассоциативного бинарного оператора:
 // разобрать операнд через next, затем в цикле, пока текущий токен есть в
 // ops, разобрать оператор и правый операнд тем же next, сворачивая в

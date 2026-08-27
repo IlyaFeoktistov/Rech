@@ -42,14 +42,27 @@ func (in *Interp) evalLaunchExpr(e *ir.LaunchExpr, env *Env, cc *callCtx) (Value
 		args[i] = in.cloneValue(v)
 	}
 	t := &taskValue{done: make(chan struct{})}
+	// thread - под отладчиком (in.debugger != nil, "rech debug") "запустить"
+	// заводит НОВЫЙ поток DAP (см. internal/interp/debugger.go) - новая
+	// горутина Go ведёт собственный, независимый стек кадров/собственные
+	// точки останова/шаги, а не продолжает cc.dbg вызывающей стороны (та
+	// исполняется в другой горутине). nil в обычном Run/rech test -
+	// callFunction/panicRuntime дальше с ним ничего не делают.
+	var thread *dbgThread
+	if in.debugger != nil {
+		thread = in.debugger.newThread("запустить " + e.Callee)
+	}
 	go func() {
 		defer close(t.done)
+		if thread != nil {
+			defer in.debugger.threadExited(thread)
+		}
 		defer func() {
 			if r := recover(); r != nil {
 				t.panicVal = r
 			}
 		}()
-		v, err := in.callFunction(fn, args)
+		v, err := in.callFunction(fn, args, thread)
 		if err != nil {
 			t.err = err
 			return

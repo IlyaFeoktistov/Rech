@@ -60,7 +60,7 @@ func (in *Interp) evalExpr(e ir.Expr, env *Env, cc *callCtx) (Value, error) {
 		if !ok {
 			return Value{}, fmt.Errorf("функция %q не найдена во время исполнения", e.Callee)
 		}
-		return in.callFunction(fn, args)
+		return in.callFunction(fn, args, cc.dbg)
 
 	case *ir.NewExpr:
 		return in.evalNewExpr(e, env, cc)
@@ -368,7 +368,7 @@ func (in *Interp) evalNewExprWithCtor(ent *ir.Entity, e *ir.NewExpr, env *Env, c
 		}
 		args[i] = v
 	}
-	if _, err := in.callMethod(ent.Ctor, obj, args); err != nil {
+	if _, err := in.callMethod(ent.Ctor, obj, args, cc.dbg); err != nil {
 		return Value{}, err
 	}
 	return Value{Type: ir.EntityType(e.Entity), Obj: obj}, nil
@@ -400,7 +400,7 @@ func (in *Interp) evalMethodCallExpr(e *ir.MethodCallExpr, env *Env, cc *callCtx
 		}
 		args[i] = v
 	}
-	return in.callMethod(m, recv.Obj, args)
+	return in.callMethod(m, recv.Obj, args, cc.dbg)
 }
 
 // evalCollectionMethod - встроенные методы Список/Стопка/Очередь

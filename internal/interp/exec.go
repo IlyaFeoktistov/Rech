@@ -20,6 +20,7 @@ import (
 func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 	if line := stmtLine(s); line > 0 {
 		*cc.curLine = line
+		cc.dbg.onStatement(env, line)
 	}
 	switch s := s.(type) {
 	case *ir.PrintStmt:
@@ -83,7 +84,7 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 		// (ctrlReturn от голого "вернуть" внутри тела базового конструктора,
 		// если оно есть) не несёт смысла для конструктора и отбрасывается,
 		// как и в самой callMethod для метода без объявленного результата.
-		if _, err := in.callMethod(baseEnt.Ctor, cc.this, args); err != nil {
+		if _, err := in.callMethod(baseEnt.Ctor, cc.this, args, cc.dbg); err != nil {
 			return ctrl{}, err
 		}
 		return ctrl{}, nil
