@@ -28,6 +28,13 @@ const (
 	// package doc internal/backend/cbackend/concurrency.go) - всегда
 	// указатель на собственную C-структуру этой функции.
 	kindTask
+	// kindCallable - значение типа "Вызываемый" (&имя/лямбда) -
+	// entity несёт каноническую строку сигнатуры (та же строка, что и
+	// ir.Type.Entity/ir.CallableSig.Name, см. internal/backend/cbackend/
+	// callable.go) - значение (не указатель): двухсловная структура
+	// {указатель на функцию, указатель на окружение замыкания} копируется
+	// как есть, тем же принципом, что и Go func-значения.
+	kindCallable
 )
 
 // valueType - тип значения выражения C-кодогенерации. Структура (не голое
@@ -66,6 +73,12 @@ func taskType(funcName string) valueType {
 	return valueType{kind: kindTask, entity: funcName}
 }
 
+// callableType возвращает valueType, соответствующий значению типа
+// "Вызываемый" с канонической сигнатурой name.
+func callableType(name string) valueType {
+	return valueType{kind: kindCallable, entity: name}
+}
+
 // primitiveCTypes - valueType (не kindEntity/kindUnknown) -> C-тип.
 // kindChar - int32_t ("Символ" хранит кодовую точку Unicode, не байт, как C
 // char - язык кириллический по духу, 'я' должен помещаться в один Символ).
@@ -94,6 +107,9 @@ func (t valueType) cType(ctx *irGenCtx) string {
 	}
 	if t.kind == kindTask {
 		return mangleTaskType(t.entity) + " *"
+	}
+	if t.kind == kindCallable {
+		return mangleCallableType(t.entity)
 	}
 	if c, ok := primitiveCTypes[t]; ok {
 		return c

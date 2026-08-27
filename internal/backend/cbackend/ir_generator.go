@@ -104,6 +104,46 @@ type irGenCtx struct {
 	launchedFuncs map[string]bool
 	taskCode      strings.Builder
 	usesThreads   bool
+
+	// funcRefTrampolines/lambdaFuncsEmitted/callableCode - см.
+	// internal/backend/cbackend/callable.go (ensureFuncRefTrampoline/
+	// ensureLambdaFunc) - тот же принцип "накопить один раз, вставить в
+	// файл в конце", что и taskCode выше.
+	funcRefTrampolines map[string]bool
+	lambdaFuncsEmitted map[string]bool
+	callableCode       strings.Builder
+	// usesMemcpy - лямбда с хотя бы одним захватом реально встретилась в
+	// программе (окружение замыкания строится через memcpy, см.
+	// generateIRLambdaExpr) - гейтит "#include <string.h>", как и
+	// usesConcat/usesCast и т. п.
+	usesMemcpy bool
+
+	// capturedRedirect - активно только во время генерации ТЕЛА лямбды
+	// (ensureLambdaFunc) с хотя бы одним захватом: имя захваченной
+	// переменной -> C-выражение, читающее/пишущее её через окружение
+	// (rech_captured->...), а не через обычную локальную C-переменную (см.
+	// varRef) - без этого запись внутри тела лямбды мутировала бы только
+	// временную копию, живущую до конца вызова, а не общее для ВСЕХ
+	// вызовов ОДНОГО И ТОГО ЖЕ значения лямбды хранилище (счётчик,
+	// накапливающий между вызовами - типичный сценарий замыкания).
+	// Сохраняется/восстанавливается вокруг вложенной лямбды (лямбда внутри
+	// лямбды может сама что-то захватывать транзитивно из внешней -
+	// её собственный capturedRedirect не должен добавляться к уже
+	// активному, а полностью его временно заменять на время своего тела).
+	capturedRedirect map[string]string
+}
+
+// varRef - C-выражение, читающее/пишущее переменную name в текущей точке
+// кодогенерации - обычная локальная C-переменная (mangleVar), кроме случая
+// "name - переменная, захваченная лямбдой, тело которой сейчас генерируется"
+// (см. ctx.capturedRedirect) - единственная точка, которую генерация
+// Identifier/Assign/IncDecExpr спрашивает про имя переменной, чтобы не
+// дублировать эту проверку в каждом из них по отдельности.
+func varRef(ctx *irGenCtx, name string) string {
+	if expr, ok := ctx.capturedRedirect[name]; ok {
+		return expr
+	}
+	return mangleVar(name)
 }
 
 // exceptionsUseDispatch - true, если системная сущность "Исключение"
@@ -260,6 +300,17 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 		}
 	}
 
+	// callableTypedefs - C-структуры {указатель на функцию, указатель на
+	// окружение замыкания} для каждой сигнатуры "Вызываемый", встретившейся
+	// в программе (prog.Callables - уже полный список, собранный
+	// internal/semantic, без ленивого "по первому использованию", в
+	// отличие от funcRefTrampolines/lambdaFuncsEmitted ниже) - см.
+	// internal/backend/cbackend/callable.go.
+	var callableTypedefs strings.Builder
+	for _, sig := range prog.Callables {
+		callableTypedefs.WriteString(callableStructTypedef(ctx, sig))
+	}
+
 	// showFuncs - функции показа ("показать") для каждой сущности и
 	// generic-коллекции программы - строятся всегда (дёшево, чистый текст),
 	// в итоговый файл попадают только если ctx.usesShow (см. ниже, после
@@ -344,7 +395,7 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	if ctx.usesGC || ctx.usesThreads {
 		sb.WriteString("#include <gc.h>\n")
 	}
-	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast {
+	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy {
 		sb.WriteString("#include <string.h>\n")
 	}
 	if ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions {
@@ -414,6 +465,9 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	if genericsCode.Len() > 0 {
 		sb.WriteString(genericsCode.String())
 	}
+	if callableTypedefs.Len() > 0 {
+		sb.WriteString(callableTypedefs.String())
+	}
 	if ctx.usesShow && showFuncs.Len() > 0 {
 		sb.WriteString(showFuncs.String())
 	}
@@ -444,6 +498,13 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	// уже готов к этому моменту, хотя размещается в файле раньше него.
 	if ctx.taskCode.Len() > 0 {
 		sb.WriteString(ctx.taskCode.String())
+	}
+	// callableCode - обёртки "&имя"/тела лямбд (internal/backend/cbackend/
+	// callable.go) - тот же принцип, что и taskCode выше: заполняется как
+	// побочный эффект генерации body, размещается в файле раньше него
+	// (ссылается на &rech_<имя> обёрнутых функций - нужны protos выше).
+	if ctx.callableCode.Len() > 0 {
+		sb.WriteString(ctx.callableCode.String())
 	}
 	sb.WriteString(body.String())
 	return sb.String(), nil
@@ -718,7 +779,7 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(sb, "%s%s = %s;\n", ind, mangleVar(s.Name), code)
+		fmt.Fprintf(sb, "%s%s = %s;\n", ind, varRef(ctx, s.Name), code)
 		return nil
 
 	case *ir.IfStmt:
@@ -822,6 +883,8 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 			call = s.IncDec
 		case s.Await != nil:
 			call = s.Await
+		case s.CallValue != nil:
+			call = s.CallValue
 		}
 		code, _, err := generateIRExpr(ctx, call)
 		if err != nil {
@@ -916,13 +979,13 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 		return "false", typeBool, nil
 
 	case *ir.Identifier:
-		return mangleVar(e.Name), fromIRType(e.Type), nil
+		return varRef(ctx, e.Name), fromIRType(e.Type), nil
 
 	case *ir.UnaryExpr:
 		return generateIRUnaryExpr(ctx, e)
 
 	case *ir.IncDecExpr:
-		name := mangleVar(e.Name)
+		name := varRef(ctx, e.Name)
 		if e.Prefix {
 			return fmt.Sprintf("(%s%s)", e.Op, name), fromIRType(e.Type), nil
 		}
@@ -998,6 +1061,15 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 
 	case *ir.AwaitExpr:
 		return generateIRAwaitExpr(ctx, e)
+
+	case *ir.FuncRefExpr:
+		return generateIRFuncRefExpr(ctx, e)
+
+	case *ir.LambdaExpr:
+		return generateIRLambdaExpr(ctx, e)
+
+	case *ir.CallValueExpr:
+		return generateIRCallValueExpr(ctx, e)
 
 	default:
 		return "", typeUnknown, fmt.Errorf("генерация C из IR: выражение %T пока не поддерживается", e)
@@ -1189,6 +1261,9 @@ func fromIRType(t ir.Type) valueType {
 	}
 	if t.Kind == ir.KindTask {
 		return taskType(t.Entity)
+	}
+	if t.Kind == ir.KindCallable {
+		return callableType(t.Entity)
 	}
 	if vt, ok := irKindToValueType[t.Kind]; ok {
 		return vt

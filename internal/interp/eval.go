@@ -78,6 +78,15 @@ func (in *Interp) evalExpr(e ir.Expr, env *Env, cc *callCtx) (Value, error) {
 	case *ir.MethodCallExpr:
 		return in.evalMethodCallExpr(e, env, cc)
 
+	case *ir.FuncRefExpr:
+		return in.evalFuncRefExpr(e)
+
+	case *ir.LambdaExpr:
+		return in.evalLambdaExpr(e, env)
+
+	case *ir.CallValueExpr:
+		return in.evalCallValueExpr(e, env, cc)
+
 	case *ir.CharLiteral:
 		return charValue(e.Value), nil
 

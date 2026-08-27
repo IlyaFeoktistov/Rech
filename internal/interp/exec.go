@@ -196,6 +196,8 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 			e = s.IncDec
 		case s.Await != nil:
 			e = s.Await
+		case s.CallValue != nil:
+			e = s.CallValue
 		}
 		_, err := in.evalExpr(e, env, cc)
 		return ctrl{}, err

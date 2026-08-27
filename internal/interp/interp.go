@@ -93,6 +93,10 @@ type Value struct {
 	// Task - непусто только при Type.Kind == ir.KindTask (шаг 15,
 	// "запустить"/"дождаться") - см. internal/interp/concurrency.go.
 	Task *taskValue
+
+	// Callable - непусто только при Type.Kind == ir.KindCallable
+	// ("Вызываемый", "&имя"/лямбда) - см. internal/interp/callable.go.
+	Callable *callableValue
 }
 
 func intValue(v int64) Value     { return Value{Type: ir.TypeInt, I: v} }
