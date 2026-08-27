@@ -8,7 +8,7 @@ import (
 
 func TestParseCallableTypeName(t *testing.T) {
 	prog, err := parseSource(t, `
-функция обработать(колбэк: Вызываемый<Целое, Строка>Целое): Целое
+функция обработать(колбэк: Вызываемый(Целое, Строка): Целое): Целое
 {
     вернуть 0
 }
@@ -26,7 +26,7 @@ func TestParseCallableTypeName(t *testing.T) {
 
 func TestParseCallableTypeNameNoParamsNoResult(t *testing.T) {
 	prog, err := parseSource(t, `
-функция обработать(колбэк: Вызываемый<>): Целое
+функция обработать(колбэк: Вызываемый()): Целое
 {
     вернуть 0
 }
@@ -37,6 +37,27 @@ func TestParseCallableTypeNameNoParamsNoResult(t *testing.T) {
 	}
 	if got := prog.Functions[0].Params[0].Type; got != "Вызываемый<>" {
 		t.Fatalf("ожидался тип параметра \"Вызываемый<>\", получено %q", got)
+	}
+}
+
+// TestParseCallableTypeNameGenericHeader - "<T>" перед скобками (параметр
+// типа самого значения "Вызываемый", package doc parseCallableTypeName) -
+// имя T годится внутри скобок/типа результата, потому что здесь оно уже
+// совпадает с собственным параметром типа объемлющей generic-функции.
+func TestParseCallableTypeNameGenericHeader(t *testing.T) {
+	prog, err := parseSource(t, `
+функция применить<T>(х: T, ф: Вызываемый<T>(T): T): T
+{
+    вернуть ф(х)
+}
+функция главная { вывести "ок" }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	want := "Вызываемый<T>T"
+	if got := prog.Functions[0].Params[1].Type; got != want {
+		t.Fatalf("ожидался тип параметра %q, получено %q", want, got)
 	}
 }
 

@@ -84,7 +84,7 @@ func TestAnalyzeLambdaCapture(t *testing.T) {
 
 func TestAnalyzeCallValueExpr(t *testing.T) {
 	prog := parseProgram(t, `
-функция применить(значение: Целое, ф: Вызываемый<Целое>Целое): Целое
+функция применить(значение: Целое, ф: Вызываемый(Целое): Целое): Целое
 {
     вернуть ф(значение)
 }
@@ -103,7 +103,7 @@ func TestAnalyzeCallValueExpr(t *testing.T) {
 
 func TestAnalyzeCallableTypeMismatch(t *testing.T) {
 	_, err := AnalyzeSource(t, `
-функция применить(значение: Целое, ф: Вызываемый<Целое>Целое): Целое
+функция применить(значение: Целое, ф: Вызываемый(Целое): Целое): Целое
 {
     вернуть ф(значение)
 }
@@ -122,7 +122,7 @@ func TestAnalyzeCallableTypeMismatch(t *testing.T) {
 // "Вызываемый<Вызываемый<Список<Целое>>Целое>Целое").
 func TestAnalyzeCallableNestedSignatureOrder(t *testing.T) {
 	prog := parseProgram(t, `
-функция обёртка(значение: Вызываемый<Вызываемый<Целое>Целое>Целое): Целое
+функция обёртка(значение: Вызываемый(Вызываемый(Целое): Целое): Целое): Целое
 {
     вернуть 0
 }
