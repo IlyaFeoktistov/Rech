@@ -1,12 +1,9 @@
-// Package semantic производит internal/ir.Program из ast.Program (шаг 5.b,
-// docs/ROADMAP.md) - проверка типов и разрешение имён на отдельном слое,
-// а не внутри backend'а, как сейчас (internal/backend/cbackend делает это
-// сам во время генерации C, шаг 1).
+// Package semantic производит internal/ir.Program из ast.Program - проверка
+// типов и разрешение имён на отдельном слое, а не внутри backend'а.
 //
-// Реализуется вертикальным срезом за срезом по конструкциям языка - см.
-// internal/ir, package doc. Analyze возвращает понятную ошибку "не
-// реализовано в IR" для всего, что ещё не перенесено - это не тихая
-// деградация, а явная граница текущего покрытия.
+// Analyze возвращает понятную ошибку "не реализовано в IR" для всего, что
+// ещё не перенесено - это не тихая деградация, а явная граница текущего
+// покрытия.
 package semantic
 
 import (
@@ -14,16 +11,22 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
-// Analyze производит IR из AST. Покрытие на данный момент - шаги 0-4
-// (`вывести`, переменные/арифметика, если/пока/для, функции с параметрами
-// и типом результата, вызов, сущности/поля/конструктор/методы/"этот"),
-// шаг 4.1 (состояния, упрощённая версия) и шаг 4.2 (встроенные generic-
-// коллекции) - см. internal/ir, package doc. Расширяется вместе с
-// internal/backend/cbackend.GenerateFromIR подшаг за подшагом, шаг 5.
+// Analyze производит IR из AST.
 func Analyze(prog *ast.Program) (*ir.Program, error) {
+	// Пользовательские generic-сущности/функции ("Коробка<T>") - раскрыты
+	// в обычные объявления ДО всего остального: дальше по конвейеру ничего
+	// не знает, что они когда-то были generic (см. package doc
+	// internal/semantic/generics.go).
+	instantiated, constraints, err := instantiateGenerics(prog)
+	if err != nil {
+		return nil, err
+	}
+	prog = instantiated
+
 	a := &Analyzer{
-		resolvedConsts:  map[string]ir.Expr{},
-		resolvingConsts: map[string]bool{},
+		resolvedConsts:     map[string]ir.Expr{},
+		resolvingConsts:    map[string]bool{},
+		genericConstraints: constraints,
 	}
 
 	// Интерфейсы - до сущностей: поле/параметр сущности может

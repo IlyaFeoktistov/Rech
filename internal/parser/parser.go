@@ -74,12 +74,15 @@ type Parser struct {
 	funcParams map[string][]ast.Param
 
 	// genericFuncs - имена функций, объявленных с параметром типа
-	// ("первый<T>(...)", шаг 16) - собрано тем же предварительным проходом,
+	// ("первый<T>(...)") - собрано тем же предварительным проходом,
 	// что и funcParams. Нужен, чтобы разобрать "имя<Тип>(...)" как generic-
 	// вызов, а не начало сравнения ("имя < ..."), не заглядывая внутрь "<...>"
 	// вслепую - обычная функция без параметра типа никогда не читает "<"
 	// сразу после своего имени как начало вызова.
 	genericFuncs map[string]bool
+
+	// pendingGT - см. expectCloseAngle/cur/advance.
+	pendingGT bool
 
 	// inMethodBody - true, пока парсер разбирает тело метода сущности
 	// (parseMethod). "этот" валиден только пока это поле true - структурное
@@ -119,7 +122,14 @@ func (p *Parser) registerNoun(name string) {
 	_ = p.dict.RegisterNoun(name, morph.AnimacyOf(name))
 }
 
+// cur/advance учитывают pendingGT (расщеплённая вторая половина ">>" -
+// см. expectCloseAngle) раньше настоящего p.tokens[p.pos]: пока она не
+// "использована", любой код, спрашивающий текущий токен, обязан увидеть
+// ">", а не то, что реально стоит в потоке дальше.
 func (p *Parser) cur() lexer.Token {
+	if p.pendingGT {
+		return lexer.Token{Type: lexer.GT, Value: ">", Line: p.tokens[p.pos].Line, Col: p.tokens[p.pos].Col}
+	}
 	return p.tokens[p.pos]
 }
 
@@ -132,11 +142,38 @@ func (p *Parser) peekAt(offset int) lexer.Token {
 }
 
 func (p *Parser) advance() lexer.Token {
+	if p.pendingGT {
+		p.pendingGT = false
+		return lexer.Token{Type: lexer.GT, Value: ">", Line: p.tokens[p.pos].Line, Col: p.tokens[p.pos].Col}
+	}
 	t := p.tokens[p.pos]
 	if p.pos < len(p.tokens)-1 {
 		p.pos++
 	}
 	return t
+}
+
+// expectCloseAngle разбирает закрывающий ">" списка параметров/аргументов
+// типа ("Коробка<T>") - лексер токенизирует "Коробка<Коробка<T>>" так, что
+// два подряд идущих ">" сливаются в один токен SHR (побитовый сдвиг,
+// значимый только в выражениях) - без расщепления вложенный generic
+// ("Коробка<Коробка<T>>") было бы вообще невозможно разобрать. Расщепление
+// затрагивает только эту позицию разбора (закрытие generic-скобок) -
+// cur()/advance() иначе видят SHR как есть, оператор сдвига в обычных
+// выражениях не задет.
+func (p *Parser) expectCloseAngle() error {
+	if p.cur().Type == lexer.GT {
+		p.advance()
+		return nil
+	}
+	if p.cur().Type == lexer.SHR && !p.pendingGT {
+		if p.pos < len(p.tokens)-1 {
+			p.pos++
+		}
+		p.pendingGT = true
+		return nil
+	}
+	return fmt.Errorf("строка %d, столбец %d: ожидался \">\", получен %q", p.cur().Line, p.cur().Col, p.cur().Value)
 }
 
 func (p *Parser) expect(tt lexer.TokenType) (lexer.Token, error) {

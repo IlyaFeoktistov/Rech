@@ -123,8 +123,8 @@ type EntityDecl struct {
 	// "сущность"/"класс" (не "структура" - см. IsStruct), как и
 	// BaseName/Interfaces.
 	Ctor *ConstructorDecl
-	// TypeParams - параметры типа после имени сущности ("Коробка<T>", шаг
-	// 16) - nil, если сущность не generic. Ограничено сущностями без
+	// TypeParams - параметры типа после имени сущности ("Коробка<T>") -
+	// nil, если сущность не generic. Ограничено сущностями без
 	// наследования/интерфейсов (BaseName/Interfaces пустые) - см. package
 	// doc GenericParam.
 	TypeParams []GenericParam
@@ -235,8 +235,8 @@ type FunctionDecl struct {
 	Params     []Param
 	ReturnType string // "" - тип результата не объявлен
 	Body       []Stmt
-	// TypeParams - параметры типа после имени функции ("первый<T>", шаг
-	// 16) - nil, если функция не generic. См. package doc GenericParam.
+	// TypeParams - параметры типа после имени функции ("первый<T>") - nil,
+	// если функция не generic. См. package doc GenericParam.
 	TypeParams []GenericParam
 	Line       int
 }

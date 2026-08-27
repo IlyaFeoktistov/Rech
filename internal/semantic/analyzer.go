@@ -28,6 +28,14 @@ type Analyzer struct {
 	// передаются по ссылке в каждый newCtx этого прохода.
 	resolvedConsts  map[string]ir.Expr
 	resolvingConsts map[string]bool
+
+	// genericConstraints - ограничения параметров типа каждой инстанциации
+	// пользовательского generic-типа ("Коробка<Целое>" -> ограничения T),
+	// по мангл-имени - собраны заранее (instantiateGenerics, до того как
+	// entities/interfaces вообще существуют), проверяются здесь, в
+	// processEntityDecl/processFunctionSig, когда до этой инстанциации
+	// доходит очередь и entities/interfaces уже известны.
+	genericConstraints map[string][]constraintCheck
 }
 
 // collectEntities - предварительный проход: поля, сигнатуры методов и
@@ -70,6 +78,9 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 		}
 		if _, exists := a.interfaces[ent.Name]; exists {
 			return fmt.Errorf("сущность %q: имя совпадает с уже объявленным интерфейсом", ent.Name)
+		}
+		if err := a.checkGenericConstraints(entities, methods, aliases, ent.Name); err != nil {
+			return err
 		}
 		var sig entitySig
 
@@ -208,6 +219,9 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 				return fmt.Errorf("функция %q - зарезервированное имя встроенной функции, нельзя объявить свою функцию с этим именем", fn.Name)
 			}
 			return fmt.Errorf("функция %q объявлена более одного раза", fn.Name)
+		}
+		if err := a.checkGenericConstraints(a.entities, a.methods, a.aliases, fn.Name); err != nil {
+			return err
 		}
 		params := make([]ir.Type, len(fn.Params))
 		paramStates := make([]string, len(fn.Params))
@@ -466,12 +480,26 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 		}
 		out.Interfaces = append(out.Interfaces, irIface)
 	}
+	// declaredEntityNames - имена, уже получившие настоящее ir.Entity в
+	// цикле ниже (обычные сущности программы, включая раскрытые
+	// generic-инстанциации - instantiateGenerics добавляет их в
+	// prog.Entities как обычные объявления) - исключены из скана
+	// "generic-имя в a.entities" дальше по функции: тот скан - только для
+	// ВСТРОЕННЫХ generic-коллекций (Список<T>/Стопка<T>/Очередь<T>), у
+	// которых нет собственного ast.EntityDecl вовсе (их C-представление -
+	// строковый шаблон, cbackend.listCollectionCCode и т.п., не обычная
+	// структура полей) - пользовательская generic-сущность ("Коробка<T>")
+	// уже получила настоящий ir.Entity здесь же, второй раз через тот
+	// механизм её эмитить не нужно (и нельзя - имя шаблона "Коробка" не
+	// входит в курируемый список cbackend, генерация упала бы).
+	declaredEntityNames := make(map[string]bool, len(prog.Entities))
 	for _, ent := range prog.Entities {
 		irEnt, err := a.analyzeEntity(ent)
 		if err != nil {
 			return nil, fmt.Errorf("сущность %q: %w", ent.Name, err)
 		}
 		out.Entities = append(out.Entities, irEnt)
+		declaredEntityNames[ent.Name] = true
 	}
 	// Запрос/Ответ - структуры (по значению): простые поля-контейнеры без
 	// методов и без сценария разделяемой мутации, копирование - естественное
@@ -496,7 +524,7 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 
 	names := make([]string, 0, len(a.entities))
 	for name := range a.entities {
-		if strings.Contains(name, "<") {
+		if strings.Contains(name, "<") && !declaredEntityNames[name] {
 			names = append(names, name)
 		}
 	}

@@ -50,20 +50,20 @@ func (p *Parser) parseGenericParams() ([]ast.GenericParam, error) {
 		}
 		p.advance() // ","
 	}
-	if _, err := p.expect(lexer.GT); err != nil {
-		return nil, fmt.Errorf("после параметров типа ожидалось \">\": %w", err)
+	if err := p.expectCloseAngle(); err != nil {
+		return nil, fmt.Errorf("после параметров типа: %w", err)
 	}
 	return params, nil
 }
 
 // parseGenericCallExpr разбирает "имя<Тип, ...>(<арг>, ...)" - явный вызов
-// generic-функции с аргументами типа (шаг 16, docs/SPEC.md - вывод типа
-// из аргументов не реализован, только явная форма). Позиция парсера на
+// generic-функции с аргументами типа (вывод типа из аргументов не
+// реализован, только явная форма). Позиция парсера на
 // входе - на IDENT имени функции (уже известного как generic -
 // p.genericFuncs, см. вызывающий код).
 func (p *Parser) parseGenericCallExpr() (*ast.CallExpr, error) {
 	name := p.advance() // IDENT
-	p.advance()          // "<"
+	p.advance()         // "<"
 	var typeArgs []string
 	for {
 		t, err := p.parseTypeName()
@@ -76,8 +76,8 @@ func (p *Parser) parseGenericCallExpr() (*ast.CallExpr, error) {
 		}
 		p.advance() // ","
 	}
-	if _, err := p.expect(lexer.GT); err != nil {
-		return nil, fmt.Errorf("после аргументов типа вызова %q ожидалось \">\": %w", name.Value, err)
+	if err := p.expectCloseAngle(); err != nil {
+		return nil, fmt.Errorf("после аргументов типа вызова %q: %w", name.Value, err)
 	}
 	args, err := p.parseArgList()
 	if err != nil {

@@ -293,7 +293,7 @@ func (p *Parser) parseParams() ([]ast.Param, error) {
 // обычное имя (примитив или сущность) либо generic-инстанциация вроде
 // "Список<Целое>" (встроенные коллекции, шаг 4.2) или "Коробка<Целое,
 // Строка>" (пользовательские generic-сущности/функции, несколько
-// параметров типа - шаг 16). Кодируется в одну строку - AST продолжает
+// параметров типа). Кодируется в одну строку - AST продолжает
 // хранить тип как string везде (Param.Type, Field.Type, ReturnType,
 // NewExpr.Type), backend сам разбирает и резолвит эту строку
 // (internal/backend/cbackend, resolveType). "<"/">" - уже существующие
@@ -320,8 +320,8 @@ func (p *Parser) parseTypeName() (string, error) {
 		}
 		p.advance() // ","
 	}
-	if _, err := p.expect(lexer.GT); err != nil {
-		return "", fmt.Errorf("после аргументов типа %q<%s> ожидалось \">\": %w", name.Value, strings.Join(args, ", "), err)
+	if err := p.expectCloseAngle(); err != nil {
+		return "", fmt.Errorf("после аргументов типа %q<%s>: %w", name.Value, strings.Join(args, ", "), err)
 	}
 	return fmt.Sprintf("%s<%s>", name.Value, strings.Join(args, ", ")), nil
 }

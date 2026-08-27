@@ -303,17 +303,26 @@ func analyzeMethodCallExpr(sc *ctx, e *ast.MethodCallExpr) (*ir.MethodCallExpr, 
 
 // analyzeCallExpr - общий разбор вызова функции для ExprStmt (результат
 // отбрасывается, HasReturn не важен) и для CallExpr-выражения (требует
-// HasReturn - проверяется вызывающей стороной, analyzeExpr).
+// HasReturn - проверяется вызывающей стороной, analyzeExpr). callee - имя,
+// под которым сигнатура зарегистрирована в sc.funcs: для обычного вызова -
+// e.Callee как есть, для generic-вызова ("первый<Целое>(...)") - мангл-имя
+// самой инстанциации ("первый<Целое>"), под которым её уже раскрыл
+// instantiateGenerics в обычную функцию, неотличимую для остального
+// анализа от любой другой.
 func analyzeCallExpr(sc *ctx, e *ast.CallExpr) (*ir.CallExpr, error) {
-	sig, ok := sc.funcs[e.Callee]
-	if !ok {
-		return nil, fmt.Errorf("строка %d: функция %q не объявлена", e.Line, e.Callee)
+	callee := e.Callee
+	if len(e.TypeArgs) > 0 {
+		callee = mangleGenericCallName(e.Callee, e.TypeArgs)
 	}
-	args, err := checkCallArgs(sc, e.Args, sig, e.Line, fmt.Sprintf("функция %q", e.Callee), fmt.Sprintf("вызова %q", e.Callee))
+	sig, ok := sc.funcs[callee]
+	if !ok {
+		return nil, fmt.Errorf("строка %d: функция %q не объявлена", e.Line, callee)
+	}
+	args, err := checkCallArgs(sc, e.Args, sig, e.Line, fmt.Sprintf("функция %q", callee), fmt.Sprintf("вызова %q", callee))
 	if err != nil {
 		return nil, err
 	}
-	return &ir.CallExpr{Callee: e.Callee, Args: args, Type: sig.ReturnType, HasReturn: sig.HasReturn}, nil
+	return &ir.CallExpr{Callee: callee, Args: args, Type: sig.ReturnType, HasReturn: sig.HasReturn}, nil
 }
 
 // checkCallArgs анализирует и проверяет аргументы вызова (обычной функции
