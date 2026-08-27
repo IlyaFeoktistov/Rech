@@ -15,10 +15,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 
 	"github.com/IlyaFeoktistov/Rech/internal/compiler"
 	"github.com/IlyaFeoktistov/Rech/internal/dap"
 	"github.com/IlyaFeoktistov/Rech/internal/interp"
+	"github.com/IlyaFeoktistov/Rech/internal/project"
 )
 
 // Run обслуживает одну сессию отладки поверх in/out (в реальном запуске -
@@ -123,6 +125,21 @@ type launchArgs struct {
 	StopOnEntry bool   `json:"stopOnEntry"`
 }
 
+// resolveProgram - program как есть (файл/каталог .rech), если это не файл
+// проекта; иначе - путь к его главному файлу (project.File.MainPath) - тот
+// же выбор цели, что и у "rech build"/"rech run" (cmd/rech/main.go),
+// приведён к общему коду, а не продублирован.
+func resolveProgram(program string) (string, error) {
+	if filepath.Ext(program) != ".rechproj" {
+		return program, nil
+	}
+	pf, err := project.Load(program)
+	if err != nil {
+		return "", err
+	}
+	return pf.MainPath(), nil
+}
+
 // handleLaunch строит программу (разбор + семантический анализ, БЕЗ
 // C-кодогенерации/системного компилятора - см. compiler.Compiler.BuildIR) и
 // готовит Debugger - само исполнение начинается позже, на
@@ -135,11 +152,16 @@ func (a *adapter) handleLaunch(req *dap.Request) {
 		return
 	}
 	if args.Program == "" {
-		a.fail(req, fmt.Errorf("launch: не указан \"program\" (файл или каталог .rech)"))
+		a.fail(req, fmt.Errorf("launch: не указан \"program\" (файл/каталог .rech или файл .rechproj)"))
+		return
+	}
+	target, err := resolveProgram(args.Program)
+	if err != nil {
+		a.fail(req, err)
 		return
 	}
 	c := compiler.NewCompiler(compiler.NewFrontend(), nil, nil)
-	prog, err := c.BuildIR(args.Program)
+	prog, err := c.BuildIR(target)
 	if err != nil {
 		a.fail(req, err)
 		return

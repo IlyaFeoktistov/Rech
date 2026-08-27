@@ -38,6 +38,7 @@ import (
 
 	"github.com/IlyaFeoktistov/Rech/internal/compiler"
 	"github.com/IlyaFeoktistov/Rech/internal/debugadapter"
+	"github.com/IlyaFeoktistov/Rech/internal/project"
 	"github.com/IlyaFeoktistov/Rech/internal/testrunner"
 	"github.com/IlyaFeoktistov/Rech/internal/version"
 )
@@ -104,7 +105,7 @@ func main() {
 	if !hasCode {
 		projPath := srcPath
 		if projPath == "" {
-			p, ferr := findProjectFile()
+			p, ferr := project.Find(".")
 			if ferr != nil {
 				fmt.Fprintln(os.Stderr, "ошибка:", ferr)
 				os.Exit(2)
@@ -112,7 +113,7 @@ func main() {
 			projPath = p
 		}
 		if projPath != "" && filepath.Ext(projPath) == ".rechproj" {
-			pf, perr := loadProjectFile(projPath)
+			pf, perr := project.Load(projPath)
 			if perr != nil {
 				fmt.Fprintln(os.Stderr, "ошибка:", perr)
 				os.Exit(1)
