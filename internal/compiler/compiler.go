@@ -16,6 +16,7 @@ import (
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend"
+	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 	"github.com/IlyaFeoktistov/Rech/internal/module"
 	"github.com/IlyaFeoktistov/Rech/internal/parser"
@@ -121,32 +122,51 @@ func NewCompiler(frontend Frontend, backend Backend, toolchain Toolchain) *Compi
 // --keep-c в cmd/rech) оставляет его - удобно для примеров и для того,
 // чтобы посмотреть, во что компилируется программа.
 func (c *Compiler) Build(srcPath string, keepC bool) (string, error) {
+	prog, base, err := c.ParseSource(srcPath)
+	if err != nil {
+		return "", err
+	}
+	return c.compileProgram(prog, base, keepC)
+}
+
+// ParseSource разбирает srcPath (файл .rech или каталог) в *ast.Program -
+// общая первая половина Build, вынесена отдельно ради internal/debugadapter
+// ("rech debug" не идёт дальше AST/IR - до C-кодогенерации/системного
+// компилятора дело не доходит, исполняет internal/interp). base - "имя без
+// расширения" (файл) или "путь/имя каталога" (каталог) - нужно только Build
+// (имя будущего бинарника), debugadapter его не использует.
+func (c *Compiler) ParseSource(srcPath string) (*ast.Program, string, error) {
 	info, err := os.Stat(srcPath)
 	if err != nil {
-		return "", fmt.Errorf("не удалось найти %q: %w", srcPath, err)
+		return nil, "", fmt.Errorf("не удалось найти %q: %w", srcPath, err)
 	}
-
-	var prog *ast.Program
-	var base string
 	if info.IsDir() {
-		prog, err = c.parseDir(srcPath)
+		prog, err := c.parseDir(srcPath)
 		if err != nil {
-			return "", err
+			return nil, "", err
 		}
 		absDir, err := filepath.Abs(srcPath)
 		if err != nil {
-			return "", err
+			return nil, "", err
 		}
-		base = filepath.Join(srcPath, filepath.Base(absDir))
-	} else {
-		prog, err = c.parseFile(srcPath)
-		if err != nil {
-			return "", err
-		}
-		base = strings.TrimSuffix(srcPath, filepath.Ext(srcPath))
+		return prog, filepath.Join(srcPath, filepath.Base(absDir)), nil
 	}
+	prog, err := c.parseFile(srcPath)
+	if err != nil {
+		return nil, "", err
+	}
+	return prog, strings.TrimSuffix(srcPath, filepath.Ext(srcPath)), nil
+}
 
-	return c.compileProgram(prog, base, keepC)
+// BuildIR разбирает и семантически анализирует srcPath, без кодогенерации/
+// системного компилятора - нужен internal/debugadapter ("rech debug"
+// исполняет IR напрямую через internal/interp.Debugger, C ему не нужен).
+func (c *Compiler) BuildIR(srcPath string) (*ir.Program, error) {
+	prog, _, err := c.ParseSource(srcPath)
+	if err != nil {
+		return nil, err
+	}
+	return semantic.Analyze(prog)
 }
 
 // BuildSource собирает src как программу без файла-источника (`rech

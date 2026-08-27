@@ -5,6 +5,7 @@
 //	rech build [--keep-c] <файл.rech>|<каталог>|-c "<код>"   - собрать бинарник
 //	rech run [--keep-c] <файл.rech>|<каталог>|-c "<код>"     - собрать и выполнить
 //	rech test <файл.rech>|<каталог>                          - найти и запустить тесты
+//	rech debug                                               - сервер DAP по stdin/stdout (для VS Code)
 //	rech version                                             - напечатать версию
 //
 // <каталог> у build/run (например, "." - как "go build .") собирает все
@@ -33,8 +34,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/compiler"
+	"github.com/IlyaFeoktistov/Rech/internal/debugadapter"
 	"github.com/IlyaFeoktistov/Rech/internal/testrunner"
 	"github.com/IlyaFeoktistov/Rech/internal/version"
 )
@@ -57,6 +60,19 @@ func main() {
 			name = os.Args[2]
 		}
 		if err := initProject(name); err != nil {
+			fmt.Fprintln(os.Stderr, "ошибка:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if cmd == "debug" {
+		// Без аргументов командной строки - в отличие от build/run/test,
+		// цель отладки ("program") приходит не отсюда, а внутри самого
+		// протокола DAP (запрос "launch"), VS Code запускает "rech debug"
+		// как внешний процесс и говорит с ним через stdin/stdout сразу
+		// после старта, до какого-либо файла. См. internal/debugadapter.
+		if err := debugadapter.Run(os.Stdin, os.Stdout, strings.NewReader("")); err != nil {
 			fmt.Fprintln(os.Stderr, "ошибка:", err)
 			os.Exit(1)
 		}
@@ -207,7 +223,7 @@ func parseBuildArgs(args []string) (srcPath, code string, keepC, hasCode bool, e
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "использование: rech build|run [--keep-c] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech test <файл.rech>|<каталог> | rech init [имя] | rech version")
+	fmt.Fprintln(os.Stderr, "использование: rech build|run [--keep-c] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech test <файл.rech>|<каталог> | rech debug | rech init [имя] | rech version")
 }
 
 // testDotsPerLine - сколько точек/"F" печатать в строке прогресса, прежде
