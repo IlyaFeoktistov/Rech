@@ -66,7 +66,9 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 }
 
 func (l *Lexer) next() (Token, error) {
-	l.skipInsignificantWhitespaceAndComments()
+	if err := l.skipInsignificantWhitespaceAndComments(); err != nil {
+		return Token{}, err
+	}
 
 	line, col := l.line, l.col
 
@@ -121,6 +123,8 @@ func (l *Lexer) next() (Token, error) {
 	case r == '*':
 		l.advance()
 		return Token{Type: STAR, Value: "*", Line: line, Col: col}, nil
+	case r == '/' && l.peekAt(1) == '*':
+		return l.readDocComment(line, col)
 	case r == '/':
 		l.advance()
 		return Token{Type: SLASH, Value: "/", Line: line, Col: col}, nil
@@ -193,10 +197,16 @@ func (l *Lexer) next() (Token, error) {
 	}
 }
 
-// skipInsignificantWhitespaceAndComments съедает пробелы, табуляции и
-// комментарии вида "// ...". Переносы строк здесь не трогаем - они значимы
-// как разделители инструкций и превращаются в токен NEWLINE.
-func (l *Lexer) skipInsignificantWhitespaceAndComments() {
+// skipInsignificantWhitespaceAndComments съедает пробелы, табуляции,
+// комментарии вида "// ..." и ОБЫЧНЫЕ блочные комментарии "/* ... */"
+// (перенос строки внутри такого комментария не превращается в NEWLINE -
+// комментарий целиком поглощается, как пробел). Doc-комментарий "/** ... */"
+// - особый случай: он должен стать собственным токеном (DOC_COMMENT, см.
+// readDocComment), а не быть съеден здесь - "/**" НЕ ЗАКРЫТОЕ сразу же (не
+// "/**/", это по-прежнему обычный пустой блочный комментарий) распознаётся
+// по третьему символу, цикл в этом случае просто возвращается, оставляя
+// "/**..." нетронутым для next().
+func (l *Lexer) skipInsignificantWhitespaceAndComments() error {
 	for l.pos < len(l.src) {
 		r := l.peek()
 		switch {
@@ -206,9 +216,59 @@ func (l *Lexer) skipInsignificantWhitespaceAndComments() {
 			for l.pos < len(l.src) && l.peek() != '\n' {
 				l.advance()
 			}
+		case r == '/' && l.peekAt(1) == '*' && isDocCommentStart(l):
+			return nil
+		case r == '/' && l.peekAt(1) == '*':
+			line, col := l.line, l.col
+			l.advance()
+			l.advance()
+			closed := false
+			for l.pos < len(l.src) {
+				if l.peek() == '*' && l.peekAt(1) == '/' {
+					l.advance()
+					l.advance()
+					closed = true
+					break
+				}
+				l.advance()
+			}
+			if !closed {
+				return fmt.Errorf("строка %d, столбец %d: комментарий не закрыт (нет \"*/\")", line, col)
+			}
 		default:
-			return
+			return nil
 		}
+	}
+	return nil
+}
+
+// isDocCommentStart - true, если позиция лексера стоит ровно на "/**", за
+// которым не следует немедленно "/" (иначе это "/**/" - обычный пустой
+// блочный комментарий, не doc-комментарий).
+func isDocCommentStart(l *Lexer) bool {
+	return l.peekAt(2) == '*' && l.peekAt(3) != '/'
+}
+
+// readDocComment разбирает "/** ... */" в токен DOC_COMMENT - Value несёт
+// текст между "/**" и "*/" как есть (без обрезки отступов построчно).
+// Недостающее "*/" до конца файла - ошибка компиляции (как и незакрытая
+// строка), а не тихо поглощённый остаток файла.
+func (l *Lexer) readDocComment(line, col int) (Token, error) {
+	l.advance() // '/'
+	l.advance() // '*'
+	l.advance() // '*'
+	start := l.pos
+	for {
+		if l.pos >= len(l.src) {
+			return Token{}, fmt.Errorf("строка %d, столбец %d: doc-комментарий не закрыт (нет \"*/\")", line, col)
+		}
+		if l.peek() == '*' && l.peekAt(1) == '/' {
+			text := string(l.src[start:l.pos])
+			l.advance()
+			l.advance()
+			return Token{Type: DOC_COMMENT, Value: text, Line: line, Col: col}, nil
+		}
+		l.advance()
 	}
 }
 

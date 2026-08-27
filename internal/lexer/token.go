@@ -13,6 +13,14 @@ const (
 	INT    // целочисленный литерал: 42
 	FLOAT  // литерал с плавающей точкой: 3.14
 
+	// DOC_COMMENT - "/** ... */" перед объявлением (Value - текст между
+	// "/**" и "*/", как есть, без обрезки отступов построчно - парсер сам
+	// решает, что с ним делать). Обычный "// ..." и обычный "/* ... */" не
+	// становятся токеном вообще - лексер съедает их как пробел
+	// (skipInsignificantWhitespaceAndComments), см. docs/SPEC.md,
+	// "Комментарии".
+	DOC_COMMENT
+
 	LBRACE    // {
 	RBRACE    // }
 	LPAREN    // (
@@ -185,6 +193,8 @@ func (t TokenType) String() string {
 		return "INT"
 	case FLOAT:
 		return "FLOAT"
+	case DOC_COMMENT:
+		return "DOC_COMMENT"
 	case LBRACE:
 		return "{"
 	case RBRACE:
