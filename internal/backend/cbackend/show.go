@@ -49,17 +49,27 @@ func generateIRShowExpr(ctx *irGenCtx, t ir.Type, cExpr string) string {
 // generateIREntityShowFunc строит определение функции показа
 // пользовательской сущности ent - печатает "Имя { поле: значение (Тип), ... }"
 // без завершающего переноса строки (его добавляет вызывающая сторона,
-// generateIRStmt на *ir.ShowStmt).
+// generateIRStmt на *ir.ShowStmt). Параметр v - указатель для ссылочной
+// "сущность"/"класс" (ctx.entityIsRef), значение для "структура" - та же
+// форма, в которой значение этого типа реально передаётся везде ещё
+// (см. ctx.entityIsRef/generateIRNewExpr/cType) - обращение к полю через
+// "->"/"." выбирается тем же способом.
 func generateIREntityShowFunc(ctx *irGenCtx, ent *ir.Entity) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "static void %s(%s v) {\n", showFuncName(ent.Name), mangleType(ent.Name))
+	paramType := mangleType(ent.Name)
+	op := "."
+	if ctx.entityIsRef(ent.Name) {
+		paramType += " *"
+		op = "->"
+	}
+	fmt.Fprintf(&sb, "static void %s(%s v) {\n", showFuncName(ent.Name), paramType)
 	fmt.Fprintf(&sb, "    printf(\"%s { \");\n", escapeCString(ent.Name))
 	for i, f := range ent.Fields {
 		if i > 0 {
 			sb.WriteString("    printf(\", \");\n")
 		}
 		fmt.Fprintf(&sb, "    printf(\"%s: \");\n", escapeCString(f.Name))
-		fmt.Fprintf(&sb, "    %s;\n", generateIRShowExpr(ctx, f.Type, "v."+mangleField(f.Name)))
+		fmt.Fprintf(&sb, "    %s;\n", generateIRShowExpr(ctx, f.Type, "v"+op+mangleField(f.Name)))
 	}
 	sb.WriteString("    printf(\" }\");\n")
 	sb.WriteString("}\n\n")

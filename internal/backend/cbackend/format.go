@@ -37,7 +37,11 @@ func printCall(ctx *irGenCtx, typ valueType, code string) string {
 		return `printf("[сокет]\n");`
 	default:
 		if typ.kind == kindEntity {
-			return fmt.Sprintf(`printf("[сущность]<%s>\n");`, escapeCString(typ.entity))
+			kind := "сущность"
+			if !ctx.entityIsRef(typ.entity) {
+				kind = "структура"
+			}
+			return fmt.Sprintf(`printf("[%s]<%s>\n");`, kind, escapeCString(typ.entity))
 		}
 		return fmt.Sprintf(`printf("%%s\n", %s);`, code)
 	}

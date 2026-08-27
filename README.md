@@ -32,7 +32,11 @@
 ## Сборка и запуск
 
 Нужен установленный системный C-компилятор (`cc`, `clang` или `gcc` в `PATH`,
-либо переменная окружения `CC`).
+либо переменная окружения `CC`) и библиотека Boehm GC (`libgc` - сборщик
+мусора для сгенерированного C, нужен любой программе с хотя бы одной
+`сущность`/`класс` - шаг 12, ссылочная семантика): Debian/Ubuntu -
+`apt install libgc-dev`, Fedora - `dnf install gc-devel`, macOS (Homebrew) -
+`brew install bdw-gc`, Windows (vcpkg) - `vcpkg install bdwgc`.
 
 ```sh
 go run ./cmd/rech run examples/основы/привет.rech

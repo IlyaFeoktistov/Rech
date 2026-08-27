@@ -35,7 +35,7 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 		if err != nil {
 			return ctrl{}, err
 		}
-		env.declare(s.Name, cloneValue(v))
+		env.declare(s.Name, in.cloneValue(v))
 		return ctrl{}, nil
 
 	case *ir.Assign:
@@ -43,7 +43,7 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 		if err != nil {
 			return ctrl{}, err
 		}
-		env.set(s.Name, cloneValue(v))
+		env.set(s.Name, in.cloneValue(v))
 		return ctrl{}, nil
 
 	case *ir.FieldAssign:
@@ -55,7 +55,7 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 		if err != nil {
 			return ctrl{}, err
 		}
-		recv.Obj.fields[s.Field] = cloneValue(v)
+		recv.Obj.fields[s.Field] = in.cloneValue(v)
 		return ctrl{}, nil
 
 	case *ir.BecomeStmt:
@@ -138,7 +138,7 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 		elems := collV.Obj.coll.elems
 		for _, elem := range elems {
 			loopEnv := newEnv(env)
-			loopEnv.declare(s.Var, cloneValue(elem))
+			loopEnv.declare(s.Var, in.cloneValue(elem))
 			c, err := in.execBlock(s.Body, loopEnv, cc)
 			if err != nil {
 				return ctrl{}, err
@@ -157,7 +157,7 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 		if err != nil {
 			return ctrl{}, err
 		}
-		return ctrl{kind: ctrlReturn, value: cloneValue(v)}, nil
+		return ctrl{kind: ctrlReturn, value: in.cloneValue(v)}, nil
 
 	case *ir.ExprStmt:
 		var e ir.Expr = s.Call

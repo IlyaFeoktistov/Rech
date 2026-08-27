@@ -192,17 +192,72 @@ func TestGenerateFromIREntityFieldsConstructorMethodsAndThis(t *testing.T) {
 	if !strings.Contains(out, "typedef struct {") || !strings.Contains(out, "long long f_vozrast;\n} rech_T_polzovatel;") {
 		t.Fatalf("ожидался typedef struct для сущности, получено:\n%s", out)
 	}
+	if !strings.Contains(out, "rech_T_polzovatel * v_polzovatel = rech_new_polzovatel(30LL);") {
+		t.Fatalf("ожидался вызов GC-конструктора (сущность - ссылочный тип по умолчанию), получено:\n%s", out)
+	}
+	if !strings.Contains(out, "static rech_T_polzovatel *rech_new_polzovatel(long long v_vozrast) {") ||
+		!strings.Contains(out, "rech_T_polzovatel *p = GC_MALLOC(sizeof(rech_T_polzovatel));") {
+		t.Fatalf("ожидалось определение GC-конструктора, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "rech_M_polzovatel_sostaritsya((v_polzovatel));") {
+		t.Fatalf("ожидался вызов метода с получателем-указателем как есть (без \"&\" - сущность уже ссылка), получено:\n%s", out)
+	}
+	if !strings.Contains(out, "(this_)->f_vozrast = ((this_)->f_vozrast + 1LL);") {
+		t.Fatalf("ожидалась мутация поля через \"этот\" (this_ - уже указатель), получено:\n%s", out)
+	}
+	if !strings.Contains(out, "return (this_)->f_vozrast;") {
+		t.Fatalf("ожидался возврат поля через \"этот\", получено:\n%s", out)
+	}
+}
+
+// TestGenerateFromIRStructFieldsConstructorMethodsAndThis - как
+// TestGenerateFromIREntityFieldsConstructorMethodsAndThis выше, но
+// IsStruct: true ("структура", не "сущность") - продолжает старую модель
+// "по значению" один-в-один: compound literal вместо GC-конструктора,
+// "&" при передаче получателя метода вместо готового указателя. Получатель
+// самого метода ("этот") - указатель в обоих случаях (общее исключение из
+// копирования, не меняется этой фичей вообще), поэтому мутация поля и
+// возврат через "этот" совпадают с ref-версией теста выше.
+func TestGenerateFromIRStructFieldsConstructorMethodsAndThis(t *testing.T) {
+	entity := &ir.Entity{
+		Name:     "Пользователь",
+		IsStruct: true,
+		Fields:   []ir.Field{{Name: "возраст", Type: ir.TypeInt}},
+		Methods: []*ir.Method{
+			{
+				Name: "состариться",
+				Body: []ir.Stmt{&ir.FieldAssign{
+					Receiver: &ir.ThisExpr{Entity: "Пользователь"},
+					Field:    "возраст",
+					Value: &ir.BinaryExpr{
+						Op: "+", Left: &ir.FieldAccess{Receiver: &ir.ThisExpr{Entity: "Пользователь"}, Field: "возраст", Type: ir.TypeInt},
+						Right: &ir.IntLiteral{Value: 1}, Type: ir.TypeInt,
+					},
+				}},
+			},
+		},
+	}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "пользователь", Value: &ir.NewExpr{Entity: "Пользователь", Args: []ir.Expr{&ir.IntLiteral{Value: 30}}}},
+		&ir.ExprStmt{MethodCall: &ir.MethodCallExpr{
+			Receiver: &ir.Identifier{Name: "пользователь", Type: ir.EntityType("Пользователь")}, Entity: "Пользователь", Method: "состариться",
+		}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Entities: []*ir.Entity{entity}, Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
 	if !strings.Contains(out, "rech_T_polzovatel v_polzovatel = (rech_T_polzovatel){.f_vozrast = 30LL};") {
-		t.Fatalf("ожидался конструктор (compound literal), получено:\n%s", out)
+		t.Fatalf("ожидался конструктор-значение (compound literal), получено:\n%s", out)
+	}
+	if strings.Contains(out, "rech_new_polzovatel") {
+		t.Fatalf("структура не должна получать GC-конструктор, получено:\n%s", out)
 	}
 	if !strings.Contains(out, "rech_M_polzovatel_sostaritsya(&(v_polzovatel));") {
-		t.Fatalf("ожидался вызов метода с адресом получателя, получено:\n%s", out)
+		t.Fatalf("ожидался вызов метода с адресом получателя (структура - значение, не указатель), получено:\n%s", out)
 	}
 	if !strings.Contains(out, "((*this_)).f_vozrast = (((*this_)).f_vozrast + 1LL);") {
-		t.Fatalf("ожидалась мутация поля через \"этот\", получено:\n%s", out)
-	}
-	if !strings.Contains(out, "return ((*this_)).f_vozrast;") {
-		t.Fatalf("ожидался возврат поля через \"этот\", получено:\n%s", out)
+		t.Fatalf("ожидалась мутация поля через \"этот\" (получатель метода - всегда указатель), получено:\n%s", out)
 	}
 }
 
@@ -678,10 +733,10 @@ func TestGenerateFromIRShowStmtEntityGeneratesShowFunc(t *testing.T) {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 	for _, want := range []string{
-		"static void rech_show_tochka(rech_T_tochka v) {",
+		"static void rech_show_tochka(rech_T_tochka * v) {",
 		`printf("Точка { ");`,
 		`printf("x: ");`,
-		`printf("%lld (Целое)", v.f_x);`,
+		`printf("%lld (Целое)", v->f_x);`,
 		"rech_show_tochka(v_p);",
 	} {
 		if !strings.Contains(out, want) {

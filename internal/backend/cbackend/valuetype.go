@@ -70,8 +70,15 @@ var primitiveCTypes = map[valueType]string{
 	typeSocket:  "rech_socket_t",
 }
 
-func (t valueType) cType() string {
+// cType - C-тип, соответствующий t. Для kindEntity зависит от того,
+// "сущность"/"класс" ли name (ссылка - указатель, GC_MALLOC) или
+// "структура" (значение - сама структура, как раньше единственно возможное
+// представление любой сущности) - см. ctx.entityIsRef.
+func (t valueType) cType(ctx *irGenCtx) string {
 	if t.kind == kindEntity {
+		if ctx.entityIsRef(t.entity) {
+			return mangleType(t.entity) + " *"
+		}
 		return mangleType(t.entity)
 	}
 	if c, ok := primitiveCTypes[t]; ok {

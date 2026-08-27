@@ -1263,3 +1263,61 @@ func TestParseParenthesizedExprIsNotConfusedWithCast(t *testing.T) {
 		t.Fatalf("ожидалось обычное выражение в скобках, не каст, получено %+v", decl.Value)
 	}
 }
+
+func TestParseStructDeclSetsIsStruct(t *testing.T) {
+	prog, err := parseSource(t, `
+структура Точка
+{
+    имеет:
+        x: Целое
+        y: Целое
+}
+функция главная { вывести "ок" }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if len(prog.Entities) != 1 || !prog.Entities[0].IsStruct {
+		t.Fatalf("ожидалась одна сущность с IsStruct == true, получено %+v", prog.Entities)
+	}
+	if prog.Entities[0].Name != "Точка" || len(prog.Entities[0].Fields) != 2 {
+		t.Fatalf("ожидалась структура \"Точка\" с двумя полями, получено %+v", prog.Entities[0])
+	}
+}
+
+func TestParseEntityAndClassDeclLeaveIsStructFalse(t *testing.T) {
+	prog, err := parseSource(t, `
+сущность А
+{
+    имеет:
+        x: Целое
+}
+класс Б
+{
+    имеет:
+        x: Целое
+}
+функция главная { вывести "ок" }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if len(prog.Entities) != 2 || prog.Entities[0].IsStruct || prog.Entities[1].IsStruct {
+		t.Fatalf("ожидалось IsStruct == false у \"сущность\"/\"класс\", получено %+v", prog.Entities)
+	}
+}
+
+func TestParseStructErrorMessageUsesStructLabel(t *testing.T) {
+	_, err := parseSource(t, `
+структура Точка
+{
+    имеет:
+        x: Целое
+    если
+}
+функция главная { вывести "ок" }
+`)
+	if err == nil || !strings.Contains(err.Error(), "структура \"Точка\"") {
+		t.Fatalf("ожидалась ошибка со словом \"структура\" (не \"сущность\"), получено: %v", err)
+	}
+}

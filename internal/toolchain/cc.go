@@ -30,7 +30,16 @@ func (*CC) CompileC(cPath, binPath string) error {
 	// неиспользуемой библиотеки безвредна, а решать здесь "нужна ли она"
 	// означало бы протаскивать это знание из cbackend через весь конвейер
 	// компиляции только ради этого одного флага.
-	args := []string{cPath, "-o", binPath, "-lm"}
+	//
+	// -lgc - Boehm GC (шаг 12, "сущность"/"класс" - ссылочная семантика по
+	// умолчанию, GC_MALLOC в сгенерированном C, gc.h подключается
+	// безусловно cbackend'ом) - тот же принцип, что и у -lm: всегда, даже
+	// для программы вообще без сущностей (GC_INIT() эмитится в main
+	// безусловно). Требует установленного libgc-dev (Debian/Ubuntu) /
+	// bdw-gc (Homebrew/vcpkg) - в отличие от -lm, не входит в состав
+	// стандартного C-тулчейна ни на одной платформе, это НОВОЕ требование
+	// к окружению сборки, см. README.
+	args := []string{cPath, "-o", binPath, "-lm", "-lgc"}
 	if runtime.GOOS == "windows" {
 		// -lshell32 - CommandLineToArgvW (шаг 8, internal/backend/cbackend.
 		// argFuncHelper/rech_init_args): argv, который сам даёт CRT на

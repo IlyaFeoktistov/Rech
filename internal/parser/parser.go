@@ -4,7 +4,7 @@
 // EBNF-набросок - docs/GRAMMAR.md):
 //
 //	program     := { newline } { ( function | entity ) { newline } }
-//	entity      := ( "сущность" | "класс" ) IDENT newline "{" [ constants_section ] [ states_section ] [ fields_section ] [ methods_section ] "}"
+//	entity      := ( "сущность" | "класс" | "структура" ) IDENT newline "{" [ constants_section ] [ states_section ] [ fields_section ] [ methods_section ] "}"
 //	states_section := "состояние" ":" { IDENT }        (* одна строка, шаг 4.1 *)
 //	fields_section := "имеет" ":" { field }
 //	field       := IDENT ":" IDENT
@@ -286,7 +286,7 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 				explicitMain = fn
 			}
 			prog.Functions = append(prog.Functions, fn)
-		case lexer.KwEntity, lexer.KwClass:
+		case lexer.KwEntity, lexer.KwClass, lexer.KwStruct:
 			ent, err := p.parseEntity()
 			if err != nil {
 				return nil, err
@@ -333,15 +333,22 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 	return prog, nil
 }
 
-// parseEntity разбирает "сущность"/"класс" (синонимы) и её тело.
+// parseEntity разбирает "сущность"/"класс" (синонимы, ссылочная семантика)
+// либо "структура" (та же форма тела, но семантика по значению - см.
+// ast.EntityDecl.IsStruct) и тело объявления.
 func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
-	kw := p.advance() // "сущность" или "класс"
+	kw := p.advance() // "сущность", "класс" или "структура"
+	label := "сущность"
+	if kw.Type == lexer.KwStruct {
+		label = "структура"
+	}
 
 	name, err := p.expect(lexer.IDENT)
 	if err != nil {
 		return nil, fmt.Errorf(
-			"после %q ожидалось имя сущности: %w",
+			"после %q ожидалось имя %s: %w",
 			kw.Value,
+			label,
 			err,
 		)
 	}
@@ -365,7 +372,8 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 			c, err := p.parseConstDecl()
 			if err != nil {
 				return nil, fmt.Errorf(
-					"сущность %q: %w",
+					"%s %q: %w",
+					label,
 					name.Value,
 					err,
 				)
@@ -377,7 +385,8 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 			parsedStates, err := p.parseStatesSection(name.Value)
 			if err != nil {
 				return nil, fmt.Errorf(
-					"сущность %q: %w",
+					"%s %q: %w",
+					label,
 					name.Value,
 					err,
 				)
@@ -389,7 +398,8 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 			parsedFields, err := p.parseFieldsSection()
 			if err != nil {
 				return nil, fmt.Errorf(
-					"сущность %q: %w",
+					"%s %q: %w",
+					label,
 					name.Value,
 					err,
 				)
@@ -401,7 +411,8 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 			m, err := p.parseMethod()
 			if err != nil {
 				return nil, fmt.Errorf(
-					"сущность %q: %w",
+					"%s %q: %w",
+					label,
 					name.Value,
 					err,
 				)
@@ -417,12 +428,13 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 			if p.peekAt(1).Type == lexer.KwConst {
 				visTok := p.advance()
 				if err := checkConstVisibilityAgreement(visTok); err != nil {
-					return nil, fmt.Errorf("сущность %q: %w", name.Value, err)
+					return nil, fmt.Errorf("%s %q: %w", label, name.Value, err)
 				}
 				c, err := p.parseConstDecl()
 				if err != nil {
 					return nil, fmt.Errorf(
-						"сущность %q: %w",
+						"%s %q: %w",
+						label,
 						name.Value,
 						err,
 					)
@@ -434,7 +446,8 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 			m2, err := p.parseMethod()
 			if err != nil {
 				return nil, fmt.Errorf(
-					"сущность %q: %w",
+					"%s %q: %w",
+					label,
 					name.Value,
 					err,
 				)
@@ -443,7 +456,8 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 
 		default:
 			return nil, fmt.Errorf(
-				"сущность %q: неожиданный токен %q",
+				"%s %q: неожиданный токен %q",
+				label,
 				name.Value,
 				p.cur().Value,
 			)
@@ -458,6 +472,7 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 
 	return &ast.EntityDecl{
 		Name:      name.Value,
+		IsStruct:  kw.Type == lexer.KwStruct,
 		Constants: constants,
 		States:    states,
 		Fields:    fields,

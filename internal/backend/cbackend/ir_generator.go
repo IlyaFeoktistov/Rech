@@ -54,6 +54,34 @@ type irGenCtx struct {
 	thisEntity   string
 }
 
+// receiverIsPointer - true, если C-выражение, которое сгенерирует
+// generateIRExpr(ctx, receiver), уже само по себе указатель ("Тип *"), а не
+// значение ("Тип"). Три места используют один и тот же ответ на один и тот
+// же вопрос: FieldAccess/FieldAssign (выбор "." против "->") и передача
+// получателя в вызов метода (нужен ли "&", чтобы получить указатель для
+// скрытого "Тип *this_"). ThisExpr не требует особого случая здесь - её
+// собственная кодогенерация (case *ir.ThisExpr) уже возвращает строку в
+// ТОЙ ЖЕ форме, что и любое другое выражение того же статического типа
+// (указатель "this_" для ссылочной сущности, разыменованное "(*this_)" для
+// структуры) - единообразие с TypeOf(receiver) держится сразу на обеих
+// сторонах.
+func (ctx *irGenCtx) receiverIsPointer(receiver ir.Expr) bool {
+	t := ir.TypeOf(receiver)
+	return t.Kind == ir.KindEntity && ctx.entityIsRef(t.Entity)
+}
+
+// entityIsRef - true, если name - объявленная "сущность"/"класс" (ссылочная
+// семантика по умолчанию, шаг 12 - сущность как указатель, GC_MALLOC), а не
+// "структура" (по значению). "Не найдено в ctx.entities" - generic-
+// инстанциация (Список<T> и т. п., они регистрируются отдельно, в
+// prog.Generics, не в prog.Entities) - продолжает существующее представление
+// "по значению" (обёртка-структура с полем-указателем на буфер), как и до
+// появления "структура"/ссылочной сущности.
+func (ctx *irGenCtx) entityIsRef(name string) bool {
+	ent, ok := ctx.entities[name]
+	return ok && !ent.IsStruct
+}
+
 // GenerateFromIR возвращает исходник на C, соответствующий программе prog.
 func GenerateFromIR(prog *ir.Program) (string, error) {
 	if err := checkManglingCollisions(prog); err != nil {
@@ -72,7 +100,18 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 
 	var typedefs strings.Builder
 	for _, ent := range prog.Entities {
-		typedefs.WriteString(generateIREntityStruct(ent))
+		typedefs.WriteString(generateIREntityStruct(ctx, ent))
+	}
+
+	// ctors - GC_MALLOC-конструкторы для ссылочных сущностей ("сущность"/
+	// "класс", не "структура") - см. generateIREntityCtor. "структура"
+	// продолжает конструироваться как compound literal прямо в месте
+	// вызова (generateIRNewExpr), без отдельной функции.
+	var ctors strings.Builder
+	for _, ent := range prog.Entities {
+		if ctx.entityIsRef(ent.Name) {
+			ctors.WriteString(generateIREntityCtor(ctx, ent))
+		}
 	}
 
 	// genericsCode - typedef struct + функции для встроенных generic-
@@ -84,7 +123,7 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	var genericsCode strings.Builder
 	usesGenerics := len(prog.Generics) > 0
 	for _, g := range prog.Generics {
-		elemC := fromIRType(g.ElemType).cType()
+		elemC := fromIRType(g.ElemType).cType(ctx)
 		switch g.Template {
 		case "Список":
 			genericsCode.WriteString(listCollectionCCode(g.Name, elemC))
@@ -111,11 +150,11 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 
 	var protos strings.Builder
 	for _, ext := range prog.ExternFuncs {
-		protos.WriteString(externPrototypeOfIR(ext))
+		protos.WriteString(externPrototypeOfIR(ctx, ext))
 	}
 	for _, ent := range prog.Entities {
 		for _, m := range ent.Methods {
-			fmt.Fprintf(&protos, "%s %s(%s);\n", cReturnTypeFor(m.HasReturn, m.ReturnType), mangleMethod(ent.Name, m.Name), cMethodParamListIR(ent.Name, m.Params))
+			fmt.Fprintf(&protos, "%s %s(%s);\n", cReturnTypeFor(ctx, m.HasReturn, m.ReturnType), mangleMethod(ent.Name, m.Name), cMethodParamListIR(ctx, ent.Name, m.Params))
 		}
 	}
 	hasEntryPoint := false
@@ -124,7 +163,7 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 			hasEntryPoint = true
 			continue
 		}
-		fmt.Fprintf(&protos, "%s %s(%s);\n", cReturnTypeFor(fn.HasReturn, fn.ReturnType), mangleName(fn.Name), cParamListIR(fn.Params))
+		fmt.Fprintf(&protos, "%s %s(%s);\n", cReturnTypeFor(ctx, fn.HasReturn, fn.ReturnType), mangleName(fn.Name), cParamListIR(ctx, fn.Params))
 	}
 	if !hasEntryPoint {
 		return "", fmt.Errorf("в программе не найдена функция %q - она служит точкой входа", entryPointName)
@@ -153,6 +192,11 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	sb.WriteString("#include <stdio.h>\n")
 	sb.WriteString("#include <stdbool.h>\n")
 	sb.WriteString("#include <stdint.h>\n")
+	// gc.h - Boehm GC (сущность/класс - ссылочная семантика, шаг 12,
+	// выделяются GC_MALLOC, см. generateIREntityCtor) - подключается
+	// безусловно, тем же принципом, что и -lm в internal/toolchain (дёшево
+	// и безвредно, даже если программа не объявляет ни одной сущности).
+	sb.WriteString("#include <gc.h>\n")
 	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast {
 		sb.WriteString("#include <string.h>\n")
 	}
@@ -209,6 +253,9 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	if typedefs.Len() > 0 {
 		sb.WriteString(typedefs.String())
 	}
+	if ctors.Len() > 0 {
+		sb.WriteString(ctors.String())
+	}
 	if genericsCode.Len() > 0 {
 		sb.WriteString(genericsCode.String())
 	}
@@ -231,16 +278,47 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 
 // generateIREntityStruct - C typedef struct для ent, как
 // C typedef struct для ent, по уже собранным internal/ir.Field.
-func generateIREntityStruct(ent *ir.Entity) string {
+func generateIREntityStruct(ctx *irGenCtx, ent *ir.Entity) string {
 	var sb strings.Builder
 	sb.WriteString("typedef struct {\n")
 	if len(ent.Fields) == 0 {
 		sb.WriteString("    char _rech_empty;\n")
 	}
 	for _, f := range ent.Fields {
-		fmt.Fprintf(&sb, "    %s %s;\n", fromIRType(f.Type).cType(), mangleField(f.Name))
+		fmt.Fprintf(&sb, "    %s %s;\n", fromIRType(f.Type).cType(ctx), mangleField(f.Name))
 	}
 	fmt.Fprintf(&sb, "} %s;\n\n", mangleType(ent.Name))
+	return sb.String()
+}
+
+// generateIREntityCtor - конструктор ссылочной сущности ("сущность"/
+// "класс", ctx.entityIsRef(ent.Name) == true): выделяет память под структуру
+// через GC_MALLOC (Boehm GC - решение пользователя, шаг 12, "Указатели/
+// ссылки... сущность по умолчанию") и заполняет поля позиционно (Args уже
+// позиционны по полю, см. package doc ir.NewExpr), возвращает указатель.
+// GC_MALLOC (не GC_MALLOC_ATOMIC) - поля сущности сами могут быть
+// указателями на другие GC-объекты (вложенная сущность), нужно сканирование.
+// В отличие от "структура" (generateIRNewExpr - compound literal прямо в
+// месте вызова), у ссылочной сущности ровно одна такая функция на тип, не
+// код на каждый "новый" - тот же принцип, что и у show-функций.
+func generateIREntityCtor(ctx *irGenCtx, ent *ir.Entity) string {
+	var sb strings.Builder
+	cType := mangleType(ent.Name)
+	params := make([]string, len(ent.Fields))
+	for i, f := range ent.Fields {
+		params[i] = fmt.Sprintf("%s %s", fromIRType(f.Type).cType(ctx), mangleVar(f.Name))
+	}
+	paramList := "void"
+	if len(params) > 0 {
+		paramList = strings.Join(params, ", ")
+	}
+	fmt.Fprintf(&sb, "static %s *%s(%s) {\n", cType, mangleCtor(ent.Name), paramList)
+	fmt.Fprintf(&sb, "    %s *p = GC_MALLOC(sizeof(%s));\n", cType, cType)
+	for _, f := range ent.Fields {
+		fmt.Fprintf(&sb, "    p->%s = %s;\n", mangleField(f.Name), mangleVar(f.Name))
+	}
+	sb.WriteString("    return p;\n")
+	sb.WriteString("}\n\n")
 	return sb.String()
 }
 
@@ -248,20 +326,20 @@ func generateIREntityStruct(ent *ir.Entity) string {
 // объявлен (hasReturn), иначе "int" - технический 0 в конце (не значение
 // "результата"), чтобы int-функция не осталась без return (для строгого
 // C - undefined behavior), как и в AST-пути.
-func cReturnTypeFor(hasReturn bool, returnType ir.Type) string {
+func cReturnTypeFor(ctx *irGenCtx, hasReturn bool, returnType ir.Type) string {
 	if hasReturn {
-		return fromIRType(returnType).cType()
+		return fromIRType(returnType).cType(ctx)
 	}
 	return "int"
 }
 
-func cParamListIR(params []ir.Param) string {
+func cParamListIR(ctx *irGenCtx, params []ir.Param) string {
 	if len(params) == 0 {
 		return "void"
 	}
 	parts := make([]string, len(params))
 	for i, p := range params {
-		parts[i] = fmt.Sprintf("%s %s", fromIRType(p.Type).cType(), mangleVar(p.Name))
+		parts[i] = fmt.Sprintf("%s %s", fromIRType(p.Type).cType(ctx), mangleVar(p.Name))
 	}
 	return strings.Join(parts, ", ")
 }
@@ -271,14 +349,14 @@ func cParamListIR(params []ir.Param) string {
 // C допускает анонимные параметры в прототипе, а сами имена
 // параметров Rech после семантического анализа уже не нужны ни для чего,
 // кроме сообщений об ошибках, которые уже показаны на этапе Analyze.
-func externPrototypeOfIR(ext *ir.ExternFuncDecl) string {
+func externPrototypeOfIR(ctx *irGenCtx, ext *ir.ExternFuncDecl) string {
 	cReturnType := "void"
 	if ext.HasReturn {
-		cReturnType = fromIRType(ext.ReturnType).cType()
+		cReturnType = fromIRType(ext.ReturnType).cType(ctx)
 	}
 	types := make([]string, len(ext.Params))
 	for i, p := range ext.Params {
-		types[i] = fromIRType(p).cType()
+		types[i] = fromIRType(p).cType(ctx)
 	}
 	return fmt.Sprintf("extern %s %s(%s);\n", cReturnType, ext.CName, strings.Join(types, ", "))
 }
@@ -287,11 +365,11 @@ func externPrototypeOfIR(ext *ir.ExternFuncDecl) string {
 // параметром "Тип *this_" (получатель по указателю, как и в AST-пути) -
 // у метода он есть всегда, поэтому в отличие от cParamListIR/
 // combineParamList не нужен отдельный случай "нет параметров -> void".
-func cMethodParamListIR(entityName string, params []ir.Param) string {
+func cMethodParamListIR(ctx *irGenCtx, entityName string, params []ir.Param) string {
 	parts := make([]string, len(params)+1)
 	parts[0] = fmt.Sprintf("%s *this_", mangleType(entityName))
 	for i, p := range params {
-		parts[i+1] = fmt.Sprintf("%s %s", fromIRType(p.Type).cType(), mangleVar(p.Name))
+		parts[i+1] = fmt.Sprintf("%s %s", fromIRType(p.Type).cType(ctx), mangleVar(p.Name))
 	}
 	return strings.Join(parts, ", ")
 }
@@ -300,7 +378,7 @@ func generateIRFunction(ctx *irGenCtx, fn *ir.Function) (string, error) {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "// %s\n", fn.Name)
 	cName := mangleName(fn.Name)
-	paramList := cParamListIR(fn.Params)
+	paramList := cParamListIR(ctx, fn.Params)
 	if cName == "main" {
 		// "главная" всегда получает настоящую C-сигнатуру main(int argc,
 		// char **argv) - как и в AST-пути (generateCallable) - количество_
@@ -309,8 +387,9 @@ func generateIRFunction(ctx *irGenCtx, fn *ir.Function) (string, error) {
 		// из главная.
 		paramList = "int argc, char **argv"
 	}
-	fmt.Fprintf(&sb, "%s %s(%s) {\n", cReturnTypeFor(fn.HasReturn, fn.ReturnType), cName, paramList)
+	fmt.Fprintf(&sb, "%s %s(%s) {\n", cReturnTypeFor(ctx, fn.HasReturn, fn.ReturnType), cName, paramList)
 	if cName == "main" {
+		sb.WriteString("    GC_INIT();\n")
 		sb.WriteString("    rech_init_console();\n")
 		sb.WriteString("    rech_init_args(argc, argv);\n")
 	}
@@ -333,7 +412,7 @@ func generateIRFunction(ctx *irGenCtx, fn *ir.Function) (string, error) {
 func generateIRMethod(ctx *irGenCtx, entityName string, m *ir.Method) (string, error) {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "// %s.%s\n", entityName, m.Name)
-	fmt.Fprintf(&sb, "%s %s(%s) {\n", cReturnTypeFor(m.HasReturn, m.ReturnType), mangleMethod(entityName, m.Name), cMethodParamListIR(entityName, m.Params))
+	fmt.Fprintf(&sb, "%s %s(%s) {\n", cReturnTypeFor(ctx, m.HasReturn, m.ReturnType), mangleMethod(entityName, m.Name), cMethodParamListIR(ctx, entityName, m.Params))
 	ctx.thisEntity = entityName
 	defer func() { ctx.thisEntity = "" }()
 	for _, s := range m.Body {
@@ -374,7 +453,7 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(sb, "%s%s %s = %s;\n", ind, typ.cType(), mangleVar(s.Name), code)
+		fmt.Fprintf(sb, "%s%s %s = %s;\n", ind, typ.cType(ctx), mangleVar(s.Name), code)
 		return nil
 
 	case *ir.Assign:
@@ -442,7 +521,11 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(sb, "%s(%s).%s = %s;\n", ind, receiverCode, mangleField(s.Field), code)
+		op := "."
+		if ctx.receiverIsPointer(s.Receiver) {
+			op = "->"
+		}
+		fmt.Fprintf(sb, "%s(%s)%s%s = %s;\n", ind, receiverCode, op, mangleField(s.Field), code)
 		return nil
 
 	case *ir.BecomeStmt:
@@ -523,7 +606,7 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 		varC := mangleVar(s.Var)
 		idxC := "rech_fe_i_" + varC
 		fmt.Fprintf(sb, "%sfor (long long %s = 0; %s < %s.len; %s++) {\n", ind, idxC, idxC, collCode, idxC)
-		fmt.Fprintf(sb, "%s%s %s = %s.data[%s];\n", indent(depth+1), fromIRType(s.ElemType).cType(), varC, collCode, idxC)
+		fmt.Fprintf(sb, "%s%s %s = %s.data[%s];\n", indent(depth+1), fromIRType(s.ElemType).cType(ctx), varC, collCode, idxC)
 		for _, st := range s.Body {
 			if err := generateIRStmt(sb, ctx, st, depth+1); err != nil {
 				return err
@@ -598,12 +681,26 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 		if err != nil {
 			return "", typeUnknown, err
 		}
-		return fmt.Sprintf("(%s).%s", code, mangleField(e.Field)), fromIRType(e.Type), nil
+		op := "."
+		if ctx.receiverIsPointer(e.Receiver) {
+			op = "->"
+		}
+		return fmt.Sprintf("(%s)%s%s", code, op, mangleField(e.Field)), fromIRType(e.Type), nil
 
 	case *ir.ThisExpr:
-		// "(*this_)" - разыменованный указатель this_ ведёт себя как
-		// lvalue сущностного типа - тем же способом обходится без отдельной
-		// ветки на "->" в FieldAccess/FieldAssign.
+		// this_ - параметр метода, указатель всегда, вне зависимости от
+		// того, "сущность" её тип или "структура" (получатель метода -
+		// общее исключение из копирования, см. ROADMAP.md, шаг 12). Но
+		// "видимая" форма ЗНАЧЕНИЯ этого типа - то, что ожидают FieldAccess/
+		// присваивание/возврат/передача параметром - должна совпадать с
+		// формой, в которой этот тип представлен everywhere: указатель для
+		// ссылочной сущности ("this_" как есть - тот же указатель, что и
+		// любая другая переменная этого типа), разыменованное значение для
+		// структуры ("(*this_)" - this_ здесь просто временный адрес для
+		// мутации через метод, не "истинное" представление значения).
+		if ctx.entityIsRef(e.Entity) {
+			return "this_", entityType(e.Entity), nil
+		}
 		return "(*this_)", entityType(e.Entity), nil
 
 	case *ir.MethodCallExpr:
@@ -715,18 +812,29 @@ func generateIRArithmetic(ctx *irGenCtx, op string, lc string, lt ir.Type, rc st
 	return fmt.Sprintf("(%s %s %s)", lc, op, rc), typeInt, nil
 }
 
-// generateIRNewExpr генерирует C99 compound literal для "новый Тип(...)" -
-// e.Args уже позиционны по полю (см. package doc ir.NewExpr), но без имён
-// полей - для designated initializer ("."+имя+"="+значение) имена берутся
-// из ctx.entities[e.Entity].Fields, собранных раньше в GenerateFromIR.
+// generateIRNewExpr генерирует "новый Тип(...)" - e.Args уже позиционны по
+// полю (см. package doc ir.NewExpr), имена берутся из ctx.entities[e.Entity]
+// .Fields, собранных раньше в GenerateFromIR. "структура" - C99 compound
+// literal прямо в месте вызова (значение, копируется дальше как обычно
+// присваиванием/передачей параметра); ссылочная "сущность"/"класс" - вызов
+// сгенерированного конструктора (generateIREntityCtor, GC_MALLOC), который
+// возвращает указатель - тот же аргументы, но позиционные параметры функции,
+// не designated initializer.
 func generateIRNewExpr(ctx *irGenCtx, e *ir.NewExpr) (string, valueType, error) {
 	ent := ctx.entities[e.Entity]
-	parts := make([]string, len(e.Args))
+	argCodes := make([]string, len(e.Args))
 	for i, a := range e.Args {
 		code, _, err := generateIRExpr(ctx, a)
 		if err != nil {
 			return "", typeUnknown, err
 		}
+		argCodes[i] = code
+	}
+	if ctx.entityIsRef(e.Entity) {
+		return fmt.Sprintf("%s(%s)", mangleCtor(e.Entity), strings.Join(argCodes, ", ")), entityType(e.Entity), nil
+	}
+	parts := make([]string, len(argCodes))
+	for i, code := range argCodes {
 		parts[i] = fmt.Sprintf(".%s = %s", mangleField(ent.Fields[i].Name), code)
 	}
 	initList := strings.Join(parts, ", ")
@@ -739,17 +847,24 @@ func generateIRNewExpr(ctx *irGenCtx, e *ir.NewExpr) (string, valueType, error) 
 	return fmt.Sprintf("(%s){%s}", mangleType(e.Entity), initList), entityType(e.Entity), nil
 }
 
-// generateIRMethodCallExpr генерирует вызов метода - получатель по адресу
-// (первый скрытый параметр this_), как и в AST-пути (genMethodCall):
-// мутация поля через "этот.поле = ..." внутри метода видна вызывающему
-// коду после возврата.
+// generateIRMethodCallExpr генерирует вызов метода - получатель по указателю
+// (первый скрытый параметр this_): мутация поля через "этот.поле = ..."
+// внутри метода видна вызывающему коду после возврата. Получатель ссылочной
+// сущности - уже указатель сам по себе (передаётся как есть, receiverIsPointer);
+// получатель "структура" (или получатель, порождённый ThisExpr) - значение,
+// нужен "&", чтобы получить указатель для this_ - тот же принцип, что и у
+// выбора "."/"->" в FieldAccess/FieldAssign.
 func generateIRMethodCallExpr(ctx *irGenCtx, e *ir.MethodCallExpr) (string, valueType, error) {
 	receiverCode, _, err := generateIRExpr(ctx, e.Receiver)
 	if err != nil {
 		return "", typeUnknown, err
 	}
 	argCodes := make([]string, len(e.Args)+1)
-	argCodes[0] = fmt.Sprintf("&(%s)", receiverCode)
+	if ctx.receiverIsPointer(e.Receiver) {
+		argCodes[0] = fmt.Sprintf("(%s)", receiverCode)
+	} else {
+		argCodes[0] = fmt.Sprintf("&(%s)", receiverCode)
+	}
 	for i, a := range e.Args {
 		code, _, err := generateIRExpr(ctx, a)
 		if err != nil {

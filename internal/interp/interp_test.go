@@ -428,7 +428,29 @@ func TestRunEntityFieldMutationVisibleAfterMethodReturn(t *testing.T) {
 	}
 }
 
-func TestRunEntityValueSemanticsCopyOnAssign(t *testing.T) {
+func TestRunStructValueSemanticsCopyOnAssign(t *testing.T) {
+	got := runSrc(t, `
+структура Точка
+{
+    имеет:
+        x: Целое
+}
+
+функция главная
+{
+    переменная a = новая Точка(1)
+    переменная b = a
+    b.x = 99
+    вывести a.x
+    вывести b.x
+}
+`)
+	if got != "1\n99\n" {
+		t.Fatalf("структуры должны копироваться при присваивании (значение, не ссылка), получили %q", got)
+	}
+}
+
+func TestRunEntityReferenceSemanticsSharedOnAssign(t *testing.T) {
 	got := runSrc(t, `
 сущность Точка
 {
@@ -445,8 +467,8 @@ func TestRunEntityValueSemanticsCopyOnAssign(t *testing.T) {
     вывести b.x
 }
 `)
-	if got != "1\n99\n" {
-		t.Fatalf("сущности должны копироваться при присваивании (значение, не ссылка), получили %q", got)
+	if got != "99\n99\n" {
+		t.Fatalf("сущности должны разделять один и тот же объект при присваивании (ссылка, не копия), получили %q", got)
 	}
 }
 

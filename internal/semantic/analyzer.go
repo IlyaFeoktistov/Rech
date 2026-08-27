@@ -310,7 +310,7 @@ func (a *Analyzer) analyzeEntity(ent *ast.EntityDecl) (*ir.Entity, error) {
 		}
 		irMethods[i] = irM
 	}
-	return &ir.Entity{Name: ent.Name, Constants: constants, Fields: fields, Methods: irMethods}, nil
+	return &ir.Entity{Name: ent.Name, IsStruct: ent.IsStruct, Constants: constants, Fields: fields, Methods: irMethods}, nil
 }
 
 func (a *Analyzer) analyzeMethod(ent *ast.EntityDecl, m *ast.MethodDecl) (*ir.Method, error) {
@@ -362,9 +362,12 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 		}
 		out.Entities = append(out.Entities, irEnt)
 	}
+	// Запрос/Ответ - структуры (по значению): простые поля-контейнеры без
+	// методов и без сценария разделяемой мутации, копирование - естественное
+	// и более предсказуемое поведение, чем ссылка на общий буфер.
 	out.Entities = append(out.Entities,
-		&ir.Entity{Name: "Запрос", Fields: httpRequestFields},
-		&ir.Entity{Name: "Ответ", Fields: httpResponseFields},
+		&ir.Entity{Name: "Запрос", IsStruct: true, Fields: httpRequestFields},
+		&ir.Entity{Name: "Ответ", IsStruct: true, Fields: httpResponseFields},
 	)
 	for _, fn := range prog.Functions {
 		irFn, err := a.analyzeFunction(fn)

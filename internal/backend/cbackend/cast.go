@@ -26,9 +26,9 @@ func generateIRCastExpr(ctx *irGenCtx, e *ir.CastExpr) (string, valueType, error
 		case typeChar:
 			return fmt.Sprintf("rech_cast_str_to_char(%s)", code), typeChar, nil
 		case typeFloat, typeFloat32:
-			return fmt.Sprintf("((%s)rech_cast_str_to_float(%s, \"%s\"))", to.cType(), code, escapeCString(e.To.String())), to, nil
+			return fmt.Sprintf("((%s)rech_cast_str_to_float(%s, \"%s\"))", to.cType(ctx), code, escapeCString(e.To.String())), to, nil
 		default: // typeInt, typeByte
-			return fmt.Sprintf("((%s)rech_cast_str_to_int(%s, \"%s\"))", to.cType(), code, escapeCString(e.To.String())), to, nil
+			return fmt.Sprintf("((%s)rech_cast_str_to_int(%s, \"%s\"))", to.cType(ctx), code, escapeCString(e.To.String())), to, nil
 		}
 	}
 	if to == typeString && from != typeString {
@@ -44,7 +44,7 @@ func generateIRCastExpr(ctx *irGenCtx, e *ir.CastExpr) (string, valueType, error
 
 	// Прямое числовое приведение (в т. ч. Символ<->Целое/Байт) - обычный
 	// C-каст, без рантайм-хелпера.
-	return fmt.Sprintf("((%s)(%s))", to.cType(), code), to, nil
+	return fmt.Sprintf("((%s)(%s))", to.cType(ctx), code), to, nil
 }
 
 // castHelpers - рантайм-хелперы для явных кастов, вовлекающих "Строка"

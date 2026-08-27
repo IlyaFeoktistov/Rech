@@ -16,14 +16,17 @@
 // здесь достаточно верификации по всем существующим примерам разом, без
 // пошагового наращивания.
 //
-// Семантика значений сущностей повторяет ту, что уже выбрана в cbackend:
-// сущности - значения (копируются при переменная/присваивание/передаче
-// аргумента/возврате), кроме получателя метода (мутация видна после
+// Семантика значений повторяет ту, что уже выбрана в cbackend: "структура" -
+// значение (копируется при переменная/присваивание/передаче аргумента/
+// возврате, см. cloneValue), "сущность"/"класс" - ссылка (все имена делят
+// один и тот же объект - естественно получается тем, что entityObj и так Go-
+// указатель, и cloneValue его не трогает). Получатель метода ("этот") - по
+// ссылке для ОБОИХ видов, даже для "структура" (мутация видна после
 // возврата - реализовано прямой передачей указателя на *entityObj, как
 // cbackend передаёт "Тип *this_"). Встроенные generic-коллекции (Список/
-// Стопка/Очередь) - единственное исключение: они физически представлены
-// растущим буфером (как growable array в сгенерированном C, structs с
-// полем-указателем), поэтому копирование значения такого типа копирует
+// Стопка/Очередь) - тем же принципом, что и "сущность": они физически
+// представлены растущим буфером (как growable array в сгенерированном C,
+// structs с полем-указателем), копирование значения такого типа копирует
 // сам объект-обёртку по ссылке (та же алиасинг-семантика, что даёт C при
 // копировании структуры "{T* data; long len; long cap}" - копируется
 // указатель, не буфер).
@@ -111,20 +114,28 @@ func float32Value(v float64) Value { return Value{Type: ir.TypeFloat32, F: float
 func listenerValue(l net.Listener) Value { return Value{Type: ir.TypeSocket, Listener: l} }
 func connValue(c net.Conn) Value         { return Value{Type: ir.TypeSocket, Conn: c} }
 
-// cloneValue - применяет значение-копирующую семантику сущностей (шаг 4,
-// docs/SPEC.md, "Сущности - значения") в момент "коммита" в новое хранилище
+// cloneValue - применяет значение-копирующую семантику "структура" (докс.
+// SPEC.md, "Структуры - значения") в момент "коммита" в новое хранилище
 // (переменная/параметр/поле/возврат) - навигация по цепочке чтения
 // (FieldAccess.Receiver, receiver вызова метода) саму по себе не клонирует,
 // иначе получатель метода не мог бы мутировать оригинал через "этот".
-// Generic-коллекции - исключение (см. package doc): та же обёртка
-// возвращается как есть, без глубокого клонирования буфера.
-func cloneValue(v Value) Value {
-	if v.Type.Kind != ir.KindEntity || v.Obj == nil || v.Obj.coll != nil {
+// "сущность"/"класс" (не структура) - ссылочная семантика по умолчанию:
+// тот же *entityObj возвращается как есть, оба имени делят один объект -
+// естественно получается ничего не делая, потому что entityObj и так Go-
+// указатель, а сборка мусора самого Go уже управляет его временем жизни.
+// Generic-коллекции - тот же принцип (обёртка не найдётся в in.entities,
+// т.к. они регистрируются отдельно, в in.generics, см. package doc) - без
+// глубокого клонирования буфера, как и раньше.
+func (in *Interp) cloneValue(v Value) Value {
+	if v.Type.Kind != ir.KindEntity || v.Obj == nil {
+		return v
+	}
+	if ent, ok := in.entities[v.Obj.typeName]; !ok || !ent.IsStruct {
 		return v
 	}
 	newFields := make(map[string]Value, len(v.Obj.fields))
 	for k, fv := range v.Obj.fields {
-		newFields[k] = cloneValue(fv)
+		newFields[k] = in.cloneValue(fv)
 	}
 	return Value{Type: v.Type, Obj: &entityObj{typeName: v.Obj.typeName, fields: newFields}}
 }
@@ -273,7 +284,7 @@ func Run(prog *ir.Program, out io.Writer, stdin io.Reader) (err error) {
 func (in *Interp) callFunction(fn *ir.Function, args []Value) (Value, error) {
 	env := newEnv(nil)
 	for i, p := range fn.Params {
-		env.declare(p.Name, cloneValue(args[i]))
+		env.declare(p.Name, in.cloneValue(args[i]))
 	}
 	ctrl, err := in.execBlock(fn.Body, env, &callCtx{})
 	if err != nil {
@@ -288,7 +299,7 @@ func (in *Interp) callFunction(fn *ir.Function, args []Value) (Value, error) {
 func (in *Interp) callMethod(m *ir.Method, this *entityObj, args []Value) (Value, error) {
 	env := newEnv(nil)
 	for i, p := range m.Params {
-		env.declare(p.Name, cloneValue(args[i]))
+		env.declare(p.Name, in.cloneValue(args[i]))
 	}
 	ctrl, err := in.execBlock(m.Body, env, &callCtx{this: this})
 	if err != nil {

@@ -71,6 +71,15 @@ func mangleField(name string) string {
 	return "f_" + transliterate(name)
 }
 
+// mangleCtor мангирует имя ссылочной сущности в имя её C-конструктора
+// (GC_MALLOC + заполнение полей, см. generateIREntityCtor) - отдельный
+// префикс от mangleType/mangleName по тому же принципу, что и у остальных
+// mangle*: разные пространства имён внутри одного C-неймспейса структурно
+// исключают коллизию.
+func mangleCtor(name string) string {
+	return "rech_new_" + transliterate(name)
+}
+
 // mangleMethod мангирует пару (сущность, метод) в имя C-функции. Отдельный
 // префикс (rech_M_, не rech_ у функций и не rech_T_ у типов) - в C
 // typedef-имена и имена функций делят один неймспейс, разные префиксы

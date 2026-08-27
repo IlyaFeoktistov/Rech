@@ -315,7 +315,7 @@ func (in *Interp) evalNewExpr(e *ir.NewExpr, env *Env, cc *callCtx) (Value, erro
 			if err != nil {
 				return Value{}, err
 			}
-			fields[f.Name] = cloneValue(v)
+			fields[f.Name] = in.cloneValue(v)
 		}
 		return Value{Type: ir.EntityType(e.Entity), Obj: &entityObj{typeName: e.Entity, fields: fields}}, nil
 	}
@@ -378,7 +378,7 @@ func (in *Interp) evalCollectionMethod(obj *entityObj, e *ir.MethodCallExpr, env
 	}
 	switch e.Method {
 	case "добавить", "положить":
-		obj.coll.elems = append(obj.coll.elems, cloneValue(args[0]))
+		obj.coll.elems = append(obj.coll.elems, in.cloneValue(args[0]))
 		return Value{}, nil
 
 	case "получить":
@@ -386,14 +386,14 @@ func (in *Interp) evalCollectionMethod(obj *entityObj, e *ir.MethodCallExpr, env
 		if idx < 0 || idx >= int64(len(obj.coll.elems)) {
 			panicRuntime("%s", rtmsg.IndexOutOfRange(obj.typeName))
 		}
-		return cloneValue(obj.coll.elems[idx]), nil
+		return in.cloneValue(obj.coll.elems[idx]), nil
 
 	case "установить":
 		idx := args[0].I
 		if idx < 0 || idx >= int64(len(obj.coll.elems)) {
 			panicRuntime("%s", rtmsg.IndexOutOfRange(obj.typeName))
 		}
-		obj.coll.elems[idx] = cloneValue(args[1])
+		obj.coll.elems[idx] = in.cloneValue(args[1])
 		return Value{}, nil
 
 	case "снять":
@@ -410,7 +410,7 @@ func (in *Interp) evalCollectionMethod(obj *entityObj, e *ir.MethodCallExpr, env
 		if n == 0 {
 			panicRuntime("%s", rtmsg.EmptyStackOp(obj.typeName))
 		}
-		return cloneValue(obj.coll.elems[n-1]), nil
+		return in.cloneValue(obj.coll.elems[n-1]), nil
 
 	case "извлечь":
 		if len(obj.coll.elems) == 0 {
@@ -424,7 +424,7 @@ func (in *Interp) evalCollectionMethod(obj *entityObj, e *ir.MethodCallExpr, env
 		if len(obj.coll.elems) == 0 {
 			panicRuntime("%s", rtmsg.EmptyQueueOp(obj.typeName))
 		}
-		return cloneValue(obj.coll.elems[0]), nil
+		return in.cloneValue(obj.coll.elems[0]), nil
 
 	case "длина":
 		return intValue(int64(len(obj.coll.elems))), nil
@@ -488,7 +488,11 @@ func (in *Interp) printValue(v Value) {
 	case ir.KindSocket:
 		fmt.Fprintln(in.out, "[сокет]")
 	case ir.KindEntity:
-		fmt.Fprintf(in.out, "[сущность]<%s>\n", v.Obj.typeName)
+		kind := "сущность"
+		if ent, ok := in.entities[v.Obj.typeName]; ok && ent.IsStruct {
+			kind = "структура"
+		}
+		fmt.Fprintf(in.out, "[%s]<%s>\n", kind, v.Obj.typeName)
 	default:
 		fmt.Fprintln(in.out, v.S)
 	}

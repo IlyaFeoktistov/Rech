@@ -64,6 +64,7 @@ const (
 	KwIn       // в (предлог предложного падежа в естественном вызове)
 	KwEntity   // сущность
 	KwClass    // класс (синоним "сущность")
+	KwStruct   // структура (тип, передаваемый по значению - в отличие от сущности/класса)
 	KwHas      // имеет
 	KwNew      // новый / новая / новое / новые
 	KwThis     // этот
@@ -105,6 +106,7 @@ var keywords = map[string]TokenType{
 	"в":            KwIn,
 	"сущность":     KwEntity,
 	"класс":        KwClass,
+	"структура":    KwStruct,
 	"имеет":        KwHas,
 	"новый":        KwNew,
 	"новая":        KwNew,
@@ -248,6 +250,8 @@ func (t TokenType) String() string {
 		return "сущность"
 	case KwClass:
 		return "класс"
+	case KwStruct:
+		return "структура"
 	case KwHas:
 		return "имеет"
 	case KwNew:

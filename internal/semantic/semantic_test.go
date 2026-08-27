@@ -1517,3 +1517,38 @@ func TestAnalyzeCharAndByteAreOrderableButNotArithmetic(t *testing.T) {
 		t.Fatal("ожидалась ошибка - арифметика над Символ не поддерживается")
 	}
 }
+
+func TestAnalyzeStructDeclSetsIRIsStruct(t *testing.T) {
+	irProg := parseProgram(t, `
+структура Точка
+{
+    имеет:
+        x: Целое
+}
+сущность Пользователь
+{
+    имеет:
+        имя: Строка
+}
+функция главная
+{
+    переменная p = новая Точка(1)
+    переменная u = новый Пользователь("Аня")
+}
+`)
+	var точка, пользователь *ir.Entity
+	for _, ent := range irProg.Entities {
+		switch ent.Name {
+		case "Точка":
+			точка = ent
+		case "Пользователь":
+			пользователь = ent
+		}
+	}
+	if точка == nil || !точка.IsStruct {
+		t.Fatalf("ожидался ir.Entity(\"Точка\").IsStruct == true, получено %+v", точка)
+	}
+	if пользователь == nil || пользователь.IsStruct {
+		t.Fatalf("ожидался ir.Entity(\"Пользователь\").IsStruct == false, получено %+v", пользователь)
+	}
+}
