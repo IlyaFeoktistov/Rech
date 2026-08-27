@@ -6,6 +6,7 @@
 //	rech run [--keep-c] <файл.rech>|<каталог>|-c "<код>"     - собрать и выполнить
 //	rech test <файл.rech>|<каталог>                          - найти и запустить тесты
 //	rech debug                                               - сервер DAP по stdin/stdout (для VS Code)
+//	rech lsp                                                 - сервер LSP по stdin/stdout (hover/автодополнение, для VS Code)
 //	rech version                                             - напечатать версию
 //
 // <каталог> у build/run (например, "." - как "go build .") собирает все
@@ -38,6 +39,7 @@ import (
 
 	"github.com/IlyaFeoktistov/Rech/internal/compiler"
 	"github.com/IlyaFeoktistov/Rech/internal/debugadapter"
+	"github.com/IlyaFeoktistov/Rech/internal/lsp"
 	"github.com/IlyaFeoktistov/Rech/internal/project"
 	"github.com/IlyaFeoktistov/Rech/internal/testrunner"
 	"github.com/IlyaFeoktistov/Rech/internal/version"
@@ -74,6 +76,18 @@ func main() {
 		// как внешний процесс и говорит с ним через stdin/stdout сразу
 		// после старта, до какого-либо файла. См. internal/debugadapter.
 		if err := debugadapter.Run(os.Stdin, os.Stdout, strings.NewReader("")); err != nil {
+			fmt.Fprintln(os.Stderr, "ошибка:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if cmd == "lsp" {
+		// Тем же принципом, что и "debug" выше - сервер протокола (LSP, не
+		// DAP) по stdin/stdout, цель (какие файлы редактируются) приходит
+		// внутри самого протокола (textDocument/didOpen), не как
+		// CLI-аргумент. См. internal/lsp.
+		if err := lsp.Run(os.Stdin, os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, "ошибка:", err)
 			os.Exit(1)
 		}
@@ -224,7 +238,7 @@ func parseBuildArgs(args []string) (srcPath, code string, keepC, hasCode bool, e
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "использование: rech build|run [--keep-c] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech test <файл.rech>|<каталог> | rech debug | rech init [имя] | rech version")
+	fmt.Fprintln(os.Stderr, "использование: rech build|run [--keep-c] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech test <файл.rech>|<каталог> | rech debug | rech lsp | rech init [имя] | rech version")
 }
 
 // testDotsPerLine - сколько точек/"F" печатать в строке прогресса, прежде

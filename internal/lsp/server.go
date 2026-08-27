@@ -1,0 +1,173 @@
+package lsp
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"sync"
+)
+
+// Run обслуживает одну сессию LSP поверх in/out (в реальном запуске -
+// stdin/stdout процесса "rech lsp") - блокируется до "exit" или закрытия
+// соединения клиентом.
+func Run(in io.Reader, out io.Writer) error {
+	s := &server{rpc: NewServer(in, out), docs: map[string]*doc{}}
+	for {
+		msg, err := s.rpc.ReadMessage()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		s.handle(msg)
+		if s.exit {
+			return nil
+		}
+	}
+}
+
+type server struct {
+	rpc  *Server
+	mu   sync.Mutex
+	docs map[string]*doc
+	exit bool
+}
+
+func (s *server) handle(msg *Message) {
+	if msg.IsNotification() {
+		s.handleNotification(msg)
+		return
+	}
+	s.handleRequest(msg)
+}
+
+func (s *server) handleRequest(msg *Message) {
+	switch msg.Method {
+	case "initialize":
+		_ = s.rpc.Reply(msg.ID, map[string]any{
+			"capabilities": map[string]any{
+				"textDocumentSync": 1, // Full - didChange несёт весь текст целиком, не диффы
+				"hoverProvider":    true,
+				"completionProvider": map[string]any{
+					"triggerCharacters": []string{"."},
+				},
+			},
+		}, nil)
+	case "shutdown":
+		_ = s.rpc.Reply(msg.ID, nil, nil)
+	case "textDocument/hover":
+		s.handleHover(msg)
+	case "textDocument/completion":
+		s.handleCompletion(msg)
+	default:
+		_ = s.rpc.Reply(msg.ID, nil, fmt.Errorf("метод %q не поддерживается", msg.Method))
+	}
+}
+
+func (s *server) handleNotification(msg *Message) {
+	switch msg.Method {
+	case "exit":
+		s.exit = true
+	case "textDocument/didOpen":
+		var p struct {
+			TextDocument struct {
+				URI  string `json:"uri"`
+				Text string `json:"text"`
+			} `json:"textDocument"`
+		}
+		if json.Unmarshal(msg.Params, &p) == nil {
+			s.mu.Lock()
+			s.docs[p.TextDocument.URI] = newDoc(p.TextDocument.URI, p.TextDocument.Text)
+			s.mu.Unlock()
+		}
+	case "textDocument/didChange":
+		var p struct {
+			TextDocument struct {
+				URI string `json:"uri"`
+			} `json:"textDocument"`
+			ContentChanges []struct {
+				Text string `json:"text"`
+			} `json:"contentChanges"`
+		}
+		if json.Unmarshal(msg.Params, &p) == nil && len(p.ContentChanges) > 0 {
+			// textDocumentSync: Full (см. initialize) - клиент шлёт ровно
+			// одно изменение с полным новым текстом, не список диффов.
+			text := p.ContentChanges[len(p.ContentChanges)-1].Text
+			s.mu.Lock()
+			if d, ok := s.docs[p.TextDocument.URI]; ok {
+				d.update(text)
+			} else {
+				s.docs[p.TextDocument.URI] = newDoc(p.TextDocument.URI, text)
+			}
+			s.mu.Unlock()
+		}
+	case "textDocument/didClose":
+		var p struct {
+			TextDocument struct {
+				URI string `json:"uri"`
+			} `json:"textDocument"`
+		}
+		if json.Unmarshal(msg.Params, &p) == nil {
+			s.mu.Lock()
+			delete(s.docs, p.TextDocument.URI)
+			s.mu.Unlock()
+		}
+	}
+}
+
+// docPosition - общая форма параметров hover/completion:
+// {textDocument: {uri}, position: {line, character}} - и line, и character
+// в LSP 0-индексные, здесь сразу переводятся в 1-индексные (см. package doc
+// resolve.go, lexer.Token.Line/Col).
+type docPosition struct {
+	TextDocument struct {
+		URI string `json:"uri"`
+	} `json:"textDocument"`
+	Position struct {
+		Line      int `json:"line"`
+		Character int `json:"character"`
+	} `json:"position"`
+}
+
+func (s *server) getDoc(uri string) *doc {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.docs[uri]
+}
+
+func (s *server) handleHover(msg *Message) {
+	var p docPosition
+	if err := json.Unmarshal(msg.Params, &p); err != nil {
+		_ = s.rpc.Reply(msg.ID, nil, err)
+		return
+	}
+	d := s.getDoc(p.TextDocument.URI)
+	if d == nil {
+		_ = s.rpc.Reply(msg.ID, nil, nil)
+		return
+	}
+	text, ok := d.hover(p.Position.Line+1, p.Position.Character+1)
+	if !ok {
+		_ = s.rpc.Reply(msg.ID, nil, nil)
+		return
+	}
+	_ = s.rpc.Reply(msg.ID, map[string]any{
+		"contents": map[string]any{"kind": "markdown", "value": text},
+	}, nil)
+}
+
+func (s *server) handleCompletion(msg *Message) {
+	var p docPosition
+	if err := json.Unmarshal(msg.Params, &p); err != nil {
+		_ = s.rpc.Reply(msg.ID, nil, err)
+		return
+	}
+	d := s.getDoc(p.TextDocument.URI)
+	if d == nil {
+		_ = s.rpc.Reply(msg.ID, []CompletionItem{}, nil)
+		return
+	}
+	items := d.completion(p.Position.Line+1, p.Position.Character+1)
+	_ = s.rpc.Reply(msg.ID, items, nil)
+}
