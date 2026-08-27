@@ -71,6 +71,11 @@ type funcSig struct {
 type entitySig struct {
 	FieldNames []string
 	FieldTypes []ir.Type
+	// FieldDocs - doc-комментарий соответствующего поля (тот же индекс, что
+	// и FieldNames/FieldTypes; "" - его не было) - см. ast.Field.Doc, нужен
+	// только internal/lsp (hover), в остальном семантическом анализе не
+	// участвует.
+	FieldDocs []string
 
 	// FieldVisibility - видимость соответствующего поля (тот же индекс,
 	// что и FieldNames/FieldTypes); nil у сущностей без ни одного
@@ -99,6 +104,9 @@ type entitySig struct {
 	// Сущность.Константа).
 	ConstNames []string
 	ConstExprs []ast.Expr
+	// ConstDocs - doc-комментарий соответствующей константы (тот же индекс,
+	// что и ConstNames/ConstExprs; "" - его не было) - см. ast.ConstDecl.Doc.
+	ConstDocs []string
 	// ConstVisibility - видимость соответствующей константы
 	ConstVisibility []ast.Visibility
 

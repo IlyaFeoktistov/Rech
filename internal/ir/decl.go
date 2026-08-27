@@ -102,6 +102,8 @@ type Function struct {
 	// ast.FunctionDecl.File) - нужен отладчику (internal/debugger) для
 	// сопоставления точки останова "файл:строка" с конкретным кадром вызова.
 	File string
+	// Doc - см. ast.FunctionDecl.Doc.
+	Doc string
 }
 
 // Param - один параметр функции/метода по позиции.
@@ -152,6 +154,10 @@ type Entity struct {
 	// applyInheritance) - "родитель(...)" внутри Ctor - явный, осознанный
 	// вызов тела ИМЕННО базового конструктора, не подразумеваемый.
 	Ctor *Method
+	// Doc - см. ast.EntityDecl.Doc - копируется без изменений семантическим
+	// анализом, нужен только internal/lsp (hover), сам компилятор его
+	// нигде не читает.
+	Doc string
 }
 
 // Constant - одно константное поле сущности
@@ -159,6 +165,8 @@ type Constant struct {
 	Name  string
 	Value Expr
 	Type  Type
+	// Doc - см. ast.ConstDecl.Doc.
+	Doc string
 }
 
 // Field - одно поле сущности, в порядке объявления (порядок значим -
@@ -166,6 +174,8 @@ type Constant struct {
 type Field struct {
 	Name string
 	Type Type
+	// Doc - см. ast.Field.Doc.
+	Doc string
 }
 
 // Method - метод сущности: как Function, но получатель ("этот") неявный -
@@ -184,6 +194,9 @@ type Method struct {
 	// получателя вызова: неизменённый унаследованный метод несёт файл
 	// БАЗОВОЙ сущности, где он реально написан, не сущности-потомка.
 	File string
+	// Doc - см. ast.MethodDecl.Doc (тем же принципом, что и File - метод,
+	// унаследованный без переопределения, несёт Doc БАЗОВОЙ сущности).
+	Doc string
 }
 
 // Stmt - общий маркерный интерфейс инструкций IR (как ast.Stmt).

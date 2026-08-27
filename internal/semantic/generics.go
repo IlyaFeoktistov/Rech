@@ -255,7 +255,7 @@ func substConstants(consts []*ast.ConstDecl, subst map[string]string) []*ast.Con
 	}
 	out := make([]*ast.ConstDecl, len(consts))
 	for i, c := range consts {
-		out[i] = &ast.ConstDecl{Name: c.Name, Value: substExpr(c.Value, subst), Visibility: c.Visibility, Line: c.Line}
+		out[i] = &ast.ConstDecl{Name: c.Name, Value: substExpr(c.Value, subst), Visibility: c.Visibility, Line: c.Line, Doc: c.Doc}
 	}
 	return out
 }
@@ -269,7 +269,7 @@ func substMethods(methods []*ast.MethodDecl, subst map[string]string) []*ast.Met
 		out[i] = &ast.MethodDecl{
 			Name: m.Name, Params: substParams(m.Params, subst),
 			ReturnType: substituteTypeString(m.ReturnType, subst), SelfReturn: m.SelfReturn,
-			Body: substStmts(m.Body, subst), Visibility: m.Visibility, Line: m.Line,
+			Body: substStmts(m.Body, subst), Visibility: m.Visibility, Line: m.Line, Doc: m.Doc,
 		}
 	}
 	return out

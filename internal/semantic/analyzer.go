@@ -109,6 +109,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 			}
 			sig.ConstNames = append(sig.ConstNames, c.Name)
 			sig.ConstExprs = append(sig.ConstExprs, c.Value)
+			sig.ConstDocs = append(sig.ConstDocs, c.Doc)
 			sig.ConstVisibility = append(sig.ConstVisibility, c.Visibility)
 		}
 
@@ -122,6 +123,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 			}
 			sig.FieldNames = append(sig.FieldNames, f.Name)
 			sig.FieldTypes = append(sig.FieldTypes, typ)
+			sig.FieldDocs = append(sig.FieldDocs, f.Doc)
 			sig.FieldVisibility = append(sig.FieldVisibility, f.Visibility)
 		}
 		if len(ent.States) > 0 {
@@ -375,7 +377,11 @@ func (a *Analyzer) analyzeEntity(ent *ast.EntityDecl) (*ir.Entity, error) {
 	sig := a.entities[ent.Name]
 	fields := make([]ir.Field, len(sig.FieldNames))
 	for i, name := range sig.FieldNames {
-		fields[i] = ir.Field{Name: name, Type: sig.FieldTypes[i]}
+		var doc string
+		if i < len(sig.FieldDocs) {
+			doc = sig.FieldDocs[i]
+		}
+		fields[i] = ir.Field{Name: name, Type: sig.FieldTypes[i], Doc: doc}
 	}
 	// Константы сущности - через resolveEntityConstant, ту же функцию, что
 	// использует доступ "Сущность.Константа"/"экземпляр.Константа" в
@@ -384,12 +390,16 @@ func (a *Analyzer) analyzeEntity(ent *ast.EntityDecl) (*ir.Entity, error) {
 	constants := make([]ir.Constant, 0, len(sig.ConstNames))
 	if len(sig.ConstNames) > 0 {
 		sc := newCtx(a, a.funcs, a.entities, a.methods, a.aliases, a.interfaces, a.enums, "", ir.Type{}, false, a.resolvedConsts, a.resolvingConsts)
-		for _, cname := range sig.ConstNames {
+		for i, cname := range sig.ConstNames {
 			val, err := resolveEntityConstant(sc, ent.Name, cname, ent.Line)
 			if err != nil {
 				return nil, fmt.Errorf("константа %q: %w", cname, err)
 			}
-			constants = append(constants, ir.Constant{Name: cname, Value: val, Type: ir.TypeOf(val)})
+			var doc string
+			if i < len(sig.ConstDocs) {
+				doc = sig.ConstDocs[i]
+			}
+			constants = append(constants, ir.Constant{Name: cname, Value: val, Type: ir.TypeOf(val), Doc: doc})
 		}
 	}
 	irMethods := make([]*ir.Method, len(ent.Methods))
@@ -408,7 +418,7 @@ func (a *Analyzer) analyzeEntity(ent *ast.EntityDecl) (*ir.Entity, error) {
 		}
 		ctor = irCtor
 	}
-	return &ir.Entity{Name: ent.Name, IsStruct: ent.IsStruct, BaseName: ent.BaseName, Interfaces: ent.Interfaces, Constants: constants, Fields: fields, Methods: irMethods, Ctor: ctor}, nil
+	return &ir.Entity{Name: ent.Name, IsStruct: ent.IsStruct, BaseName: ent.BaseName, Interfaces: ent.Interfaces, Constants: constants, Fields: fields, Methods: irMethods, Ctor: ctor, Doc: ent.Doc}, nil
 }
 
 // analyzeConstructor анализирует явное тело конструктора ent.Ctor - как
@@ -460,6 +470,7 @@ func (a *Analyzer) analyzeMethod(ent *ast.EntityDecl, m *ast.MethodDecl) (*ir.Me
 		HasReturn:  sig.HasReturn,
 		Body:       body,
 		File:       ent.File,
+		Doc:        m.Doc,
 	}, nil
 }
 
@@ -480,6 +491,7 @@ func (a *Analyzer) analyzeFunction(fn *ast.FunctionDecl) (*ir.Function, error) {
 		HasReturn:  sig.HasReturn,
 		Body:       body,
 		File:       fn.File,
+		Doc:        fn.Doc,
 	}, nil
 }
 
