@@ -29,7 +29,7 @@ func analyzeThrowStmt(sc *ctx, s *ast.ThrowStmt) (ir.Stmt, error) {
 	if typ.Kind != ir.KindEntity || !entityIsOrExtends(sc.entities, typ.Entity, systemExceptionEntity) {
 		return nil, fmt.Errorf("строка %d: \"выбросить\" ожидает значение сущности %q или наследника, получено %s", s.Line, systemExceptionEntity, typ)
 	}
-	return &ir.ThrowStmt{Value: value}, nil
+	return &ir.ThrowStmt{Value: value, Line: s.Line}, nil
 }
 
 // analyzeTryStmt - "попытаться { ... } поймать(<имя>: <Тип>[|<Тип>...]) { ... }".

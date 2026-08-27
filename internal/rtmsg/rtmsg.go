@@ -154,3 +154,31 @@ func UncaughtExceptionFormat(typeName, message string) string {
 func ArgIndexOutOfRangeFormat(index int64) string {
 	return fmt.Sprintf("аргумент: индекс %d вне диапазона", index)
 }
+
+// TraceHeader - строка-заголовок перед стеком вызовов, который печатается
+// вслед за сообщением об аварийном завершении/необработанном исключении.
+// Формат должен совпадать байт-в-байт между cbackend (internal/backend/
+// cbackend/trace.go) и internal/interp (internal/interp/trace.go).
+const TraceHeader = "стек вызовов:"
+
+// TraceFrameFormat - printf/fmt-шаблон одной строки стека вызовов: имя
+// функции/метода ("Тип.метод" у методов) и номер строки, на которой
+// выполнение этого уровня либо само запаниковало, либо вызвало следующий,
+// более глубокий уровень. cbackend встраивает этот же текст буквально в
+// сгенерированный C (rech_trace_print) вместо повторного вызова
+// TraceFrameLine - оба места должны остаться идентичны, если формат
+// изменится.
+const TraceFrameFormat = "  в %s, строка %d"
+
+// TraceFrameLine форматирует одну строку стека вызовов (см. TraceFrameFormat).
+func TraceFrameLine(name string, line int) string {
+	return fmt.Sprintf(TraceFrameFormat, name, line)
+}
+
+// TraceTruncated - строка, добавляемая в конец стека вызовов cbackend,
+// если глубина рекурсии превысила фиксированный размер массива кадров
+// (см. internal/backend/cbackend/trace.go) - интерпретатор такого предела
+// не имеет (обычный растущий срез Go), поэтому в этом (редком, глубокая
+// рекурсия) случае вывод двух backend'ов может разойтись - задокументированное
+// исключение из правила "побайтовое совпадение".
+const TraceTruncated = "  ... (глубже стек не показан)"

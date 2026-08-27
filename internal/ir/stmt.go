@@ -4,9 +4,19 @@ type Stmt interface {
 	stmt()
 }
 
-// PrintStmt соответствует "вывести <выражение>".
+// Line - номер исходной строки Rech, которую представляет инструкция.
+// Несёт его каждый вид Stmt, исполнение которого может само по себе
+// привести к панике или уйти вложенным вызовом (backend/интерпретатор
+// используют его для стека вызовов при аварийном завершении/необработанном
+// исключении - internal/backend/cbackend/trace.go, internal/interp/trace.go).
+// BecomeStmt его не несёт - "становится" не исполняется во время выполнения
+// (шаг 4.1, чисто компилятивная проверка).
+
+// PrintStmt соответствует "вывести <выражение>". Line - см. package doc,
+// "Строка исполнения для стека вызовов" ниже.
 type PrintStmt struct {
 	Value Expr
+	Line  int
 }
 
 func (*PrintStmt) stmt() {}
@@ -17,6 +27,7 @@ func (*PrintStmt) stmt() {}
 // имена полей сущности codegen берёт из Program.Entities по имени типа.
 type ShowStmt struct {
 	Value Expr
+	Line  int
 }
 
 func (*ShowStmt) stmt() {}
@@ -28,6 +39,7 @@ func (*ShowStmt) stmt() {}
 type VarDecl struct {
 	Name  string
 	Value Expr
+	Line  int
 }
 
 func (*VarDecl) stmt() {}
@@ -38,6 +50,7 @@ func (*VarDecl) stmt() {}
 type Assign struct {
 	Name  string
 	Value Expr
+	Line  int
 }
 
 func (*Assign) stmt() {}
@@ -49,6 +62,7 @@ type FieldAssign struct {
 	Receiver Expr
 	Field    string
 	Value    Expr
+	Line     int
 }
 
 func (*FieldAssign) stmt() {}
@@ -75,16 +89,16 @@ func (*BecomeStmt) stmt() {}
 type ParentCallStmt struct {
 	BaseEntity string
 	Args       []Expr
+	Line       int
 }
 
 func (*ParentCallStmt) stmt() {}
 
 // AssertStmt соответствует "утверждать <условие>" - Cond уже провалидирован
-// (тип Логическое) семантическим анализом. Line - единственное поле Line
-// среди узлов IR (остальные его не несут, см. package doc) - здесь оно
-// нужно backend'у/интерпретатору для сообщения об ошибке во время
-// исполнения ("утверждение не выполнено (строка N)"), которое иначе
-// указывало бы только "где-то в программе".
+// (тип Логическое) семантическим анализом. Line нужен backend'у/
+// интерпретатору для сообщения об ошибке во время исполнения ("утверждение
+// не выполнено (строка N)"), которое иначе указывало бы только "где-то в
+// программе".
 type AssertStmt struct {
 	Cond Expr
 	Line int
@@ -98,6 +112,7 @@ type IfStmt struct {
 	Cond Expr
 	Then []Stmt
 	Else []Stmt
+	Line int
 }
 
 func (*IfStmt) stmt() {}
@@ -106,6 +121,7 @@ func (*IfStmt) stmt() {}
 type WhileStmt struct {
 	Cond Expr
 	Body []Stmt
+	Line int
 }
 
 func (*WhileStmt) stmt() {}
@@ -118,6 +134,7 @@ type ForStmt struct {
 	From Expr
 	To   Expr
 	Body []Stmt
+	Line int
 }
 
 func (*ForStmt) stmt() {}
@@ -131,6 +148,7 @@ type ForEachStmt struct {
 	Collection Expr
 	ElemType   Type
 	Body       []Stmt
+	Line       int
 }
 
 func (*ForEachStmt) stmt() {}
@@ -141,6 +159,7 @@ func (*ForEachStmt) stmt() {}
 // проверен internal/semantic на совпадение с ReturnType функции/метода.
 type ReturnStmt struct {
 	Value Expr
+	Line  int
 }
 
 func (*ReturnStmt) stmt() {}
@@ -151,6 +170,7 @@ type ExprStmt struct {
 	MethodCall *MethodCallExpr
 	IncDec     *IncDecExpr
 	Await      *AwaitExpr
+	Line       int
 }
 
 func (*ExprStmt) stmt() {}

@@ -63,14 +63,14 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &ir.PrintStmt{Value: value}, nil
+		return &ir.PrintStmt{Value: value, Line: s.Line}, nil
 
 	case *ast.ShowStmt:
 		value, err := analyzeExpr(sc, s.Value)
 		if err != nil {
 			return nil, err
 		}
-		return &ir.ShowStmt{Value: value}, nil
+		return &ir.ShowStmt{Value: value, Line: s.Line}, nil
 
 	case *ast.VarDecl:
 		value, err := analyzeExpr(sc, s.Value)
@@ -86,7 +86,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			return nil, fmt.Errorf("строка %d: %w", s.Line, err)
 		}
 		sc.setEstablished(s.Name, newEstablished)
-		return &ir.VarDecl{Name: s.Name, Value: value}, nil
+		return &ir.VarDecl{Name: s.Name, Value: value, Line: s.Line}, nil
 
 	case *ast.ConstDecl:
 		// Полностью тот же код, что и VarDecl выше (одна и та же ir.VarDecl -
@@ -103,7 +103,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		}
 		sc.setEstablished(s.Name, newEstablished)
 		sc.markConst(s.Name)
-		return &ir.VarDecl{Name: s.Name, Value: value}, nil
+		return &ir.VarDecl{Name: s.Name, Value: value, Line: s.Line}, nil
 
 	case *ast.Assign:
 		declared, exists := sc.lookup(s.Name)
@@ -121,7 +121,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			return nil, fmt.Errorf("строка %d: переменной %q типа %s нельзя присвоить значение типа %s", s.Line, s.Name, declared, typ)
 		}
 		sc.setEstablished(s.Name, establishedForNewBinding(sc, s.Name, value))
-		return &ir.Assign{Name: s.Name, Value: value}, nil
+		return &ir.Assign{Name: s.Name, Value: value, Line: s.Line}, nil
 
 	case *ast.AssertStmt:
 		cond, err := analyzeExpr(sc, s.Cond)
@@ -167,7 +167,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			postElse = snapshotEstablished(sc.established)
 		}
 		sc.established = intersectEstablished(postThen, postElse)
-		return &ir.IfStmt{Cond: cond, Then: then, Else: elseBody}, nil
+		return &ir.IfStmt{Cond: cond, Then: then, Else: elseBody, Line: s.Line}, nil
 
 	case *ast.WhileStmt:
 		cond, err := analyzeExpr(sc, s.Cond)
@@ -187,7 +187,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &ir.WhileStmt{Cond: cond, Body: body}, nil
+		return &ir.WhileStmt{Cond: cond, Body: body, Line: s.Line}, nil
 
 	case *ast.ForStmt:
 		from, err := analyzeExpr(sc, s.From)
@@ -208,7 +208,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &ir.ForStmt{Var: s.Var, From: from, To: to, Body: body}, nil
+		return &ir.ForStmt{Var: s.Var, From: from, To: to, Body: body, Line: s.Line}, nil
 
 	case *ast.ForEachStmt:
 		collection, err := analyzeExpr(sc, s.Collection)
@@ -225,7 +225,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			if err != nil {
 				return nil, err
 			}
-			return &ir.ForEachStmt{Var: s.Var, Collection: collection, ElemType: ir.TypeString, Body: body}, nil
+			return &ir.ForEachStmt{Var: s.Var, Collection: collection, ElemType: ir.TypeString, Body: body, Line: s.Line}, nil
 		}
 		sig := sc.entities[typ.Entity]
 		if typ.Kind != ir.KindEntity || !sig.IsList {
@@ -235,14 +235,14 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &ir.ForEachStmt{Var: s.Var, Collection: collection, ElemType: sig.ElemType, Body: body}, nil
+		return &ir.ForEachStmt{Var: s.Var, Collection: collection, ElemType: sig.ElemType, Body: body, Line: s.Line}, nil
 
 	case *ast.ReturnStmt:
 		if s.Value == nil {
 			if sc.hasReturn {
 				return nil, fmt.Errorf("строка %d: функция с объявленным типом результата должна возвращать значение (\"вернуть <значение>\")", s.Line)
 			}
-			return &ir.ReturnStmt{}, nil
+			return &ir.ReturnStmt{Line: s.Line}, nil
 		}
 		if !sc.hasReturn {
 			return nil, fmt.Errorf("строка %d: у функции не объявлен тип результата - используйте \"вернуть\" без значения", s.Line)
@@ -254,7 +254,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if typ := ir.TypeOf(value); !isAssignable(sc.entities, typ, sc.returnType) {
 			return nil, fmt.Errorf("строка %d: функция объявлена с типом результата %s, но возвращается значение типа %s", s.Line, sc.returnType, typ)
 		}
-		return &ir.ReturnStmt{Value: value}, nil
+		return &ir.ReturnStmt{Value: value, Line: s.Line}, nil
 
 	case *ast.ExprStmt:
 		if s.Await != nil {
@@ -262,21 +262,21 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			if err != nil {
 				return nil, err
 			}
-			return &ir.ExprStmt{Await: await}, nil
+			return &ir.ExprStmt{Await: await, Line: s.Line}, nil
 		}
 		if s.MethodCall != nil {
 			call, err := analyzeMethodCallExpr(sc, s.MethodCall)
 			if err != nil {
 				return nil, err
 			}
-			return &ir.ExprStmt{MethodCall: call}, nil
+			return &ir.ExprStmt{MethodCall: call, Line: s.Line}, nil
 		}
 		if s.IncDec != nil {
 			incDec, err := analyzeIncDecExpr(sc, s.IncDec)
 			if err != nil {
 				return nil, err
 			}
-			return &ir.ExprStmt{IncDec: incDec.(*ir.IncDecExpr)}, nil
+			return &ir.ExprStmt{IncDec: incDec.(*ir.IncDecExpr), Line: s.Line}, nil
 		}
 		call, err := analyzeCallExpr(sc, s.Call)
 		if err != nil {
@@ -284,9 +284,9 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		}
 		switch call := call.(type) {
 		case *ir.CallExpr:
-			return &ir.ExprStmt{Call: call}, nil
+			return &ir.ExprStmt{Call: call, Line: s.Line}, nil
 		case *ir.CallValueExpr:
-			return &ir.ExprStmt{CallValue: call}, nil
+			return &ir.ExprStmt{CallValue: call, Line: s.Line}, nil
 		default:
 			return nil, fmt.Errorf("внутренняя ошибка: неизвестный вид вызова %T", call)
 		}
@@ -324,7 +324,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if vt := ir.TypeOf(value); !isAssignable(sc.entities, vt, sig.FieldTypes[idx]) {
 			return nil, fmt.Errorf("строка %d: полю %q типа %s нельзя присвоить значение типа %s", s.Line, s.Field, sig.FieldTypes[idx], vt)
 		}
-		return &ir.FieldAssign{Receiver: receiver, Field: s.Field, Value: value}, nil
+		return &ir.FieldAssign{Receiver: receiver, Field: s.Field, Value: value, Line: s.Line}, nil
 
 	case *ast.BecomeStmt:
 		receiver, err := analyzeExpr(sc, s.Receiver)
@@ -382,7 +382,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			}
 			args[i] = arg
 		}
-		return &ir.ParentCallStmt{BaseEntity: baseName, Args: args}, nil
+		return &ir.ParentCallStmt{BaseEntity: baseName, Args: args, Line: s.Line}, nil
 
 	case *ast.ThrowStmt:
 		return analyzeThrowStmt(sc, s)

@@ -5,6 +5,7 @@ package ir
 // или наследника (internal/semantic - systemExceptionEntity).
 type ThrowStmt struct {
 	Value Expr
+	Line  int
 }
 
 func (*ThrowStmt) stmt() {}
