@@ -30,6 +30,13 @@ const (
 	// без операторов, платформенно-разное представление (POSIX fd/Windows
 	// SOCKET) решает каждый потребитель сам.
 	KindSocket
+	// KindInterface - значение интерфейсного типа - контракт на
+	// набор методов, которому соответствует конкретная сущность за
+	// значением (хранит её имя в Entity, тем же полем, что и KindEntity -
+	// два вида различает только Kind, оба несут ровно "имя типа" и больше
+	// ничего). У интерфейсных значений нет полей (только методы) - в
+	// отличие от KindEntity, доступ через "." к полю - ошибка компиляции.
+	KindInterface
 )
 
 // Type - тип значения выражения IR, уже разрешённый семантическим анализом
@@ -38,8 +45,10 @@ const (
 // (Identifier.Type, BinaryExpr.Type, UnaryExpr.Type и т. п.) - у литералов
 // тип известен по самому Go-типу узла, см. TypeOf.
 type Type struct {
-	Kind   TypeKind
-	Entity string // валиден только при Kind == KindEntity
+	Kind TypeKind
+	// Entity - имя сущности (Kind == KindEntity) или интерфейса
+	// (Kind == KindInterface) - для остальных Kind не валидно.
+	Entity string
 }
 
 var (
@@ -60,8 +69,14 @@ func EntityType(name string) Type {
 	return Type{Kind: KindEntity, Entity: name}
 }
 
+// InterfaceType возвращает Type, соответствующий значению интерфейсного
+// типа name.
+func InterfaceType(name string) Type {
+	return Type{Kind: KindInterface, Entity: name}
+}
+
 func (t Type) String() string {
-	if t.Kind == KindEntity {
+	if t.Kind == KindEntity || t.Kind == KindInterface {
 		return t.Entity
 	}
 	switch t.Kind {

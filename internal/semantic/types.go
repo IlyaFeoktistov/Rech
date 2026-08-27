@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/builtins"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
@@ -58,7 +59,7 @@ var primitiveTypes = map[string]ir.Type{
 // собственный тип: производный тип - псевдоним без своего
 // представления, как и в cbackend (genCtx.stateAliases), - или встроенная
 // generic-коллекция (шаг 4.2, resolveGenericTypeName).
-func resolveTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, name string) (ir.Type, error) {
+func resolveTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, name string) (ir.Type, error) {
 	if t, ok := primitiveTypes[name]; ok {
 		return t, nil
 	}
@@ -70,13 +71,16 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 		registerHTTPEntity(entities, "Ответ", httpResponseFields)
 		return ir.EntityType("Ответ"), nil
 	}
+	if _, ok := interfaces[name]; ok {
+		return ir.InterfaceType(name), nil
+	}
 	if _, ok := entities[name]; ok {
 		return ir.EntityType(name), nil
 	}
 	if base, ok := aliases[name]; ok {
 		return ir.EntityType(base), nil
 	}
-	return resolveGenericTypeName(entities, methods, aliases, name)
+	return resolveGenericTypeName(entities, methods, aliases, interfaces, name)
 }
 
 // httpRequestFields/httpResponseFields - фиксированные поля встроенных
@@ -115,7 +119,7 @@ func registerHTTPEntity(entities map[string]entitySig, name string, fields []ir.
 	for _, f := range fields {
 		sig.FieldNames = append(sig.FieldNames, f.Name)
 		sig.FieldTypes = append(sig.FieldTypes, f.Type)
-		sig.FieldPrivate = append(sig.FieldPrivate, false)
+		sig.FieldVisibility = append(sig.FieldVisibility, ast.Public)
 	}
 	entities[name] = sig
 }
@@ -222,12 +226,12 @@ func genericMethodSigs(template string, elem ir.Type) (map[string]funcSig, bool)
 // один раз, дальше просто найдётся в карте) - дальше остальной
 // internal/semantic обращается с ней как с обычной сущностью, не зная,
 // пользовательская она или встроенная.
-func resolveGenericTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, name string) (ir.Type, error) {
+func resolveGenericTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, name string) (ir.Type, error) {
 	template, argName, ok := parseGenericTypeName(name)
 	if !ok {
 		return ir.TypeUnknown, fmt.Errorf("неизвестный тип %q", name)
 	}
-	elem, err := resolveTypeName(entities, methods, aliases, argName)
+	elem, err := resolveTypeName(entities, methods, aliases, interfaces, argName)
 	if err != nil {
 		return ir.TypeUnknown, fmt.Errorf("тип элемента %q в %q: %w", argName, name, err)
 	}

@@ -26,6 +26,14 @@ func Analyze(prog *ast.Program) (*ir.Program, error) {
 		resolvingConsts: map[string]bool{},
 	}
 
+	// Интерфейсы - до сущностей: поле/параметр сущности может
+	// быть интерфейсного типа, значит interfaceSig должны быть уже готовы
+	// (см. package doc internal/semantic/interfaces.go про обратное
+	// ограничение - интерфейс не может ссылаться на сущность).
+	if err := a.collectInterfaces(prog); err != nil {
+		return nil, err
+	}
+
 	if err := a.collectEntities(prog); err != nil {
 		return nil, err
 	}

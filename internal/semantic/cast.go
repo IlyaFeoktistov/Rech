@@ -96,7 +96,7 @@ var allowedCasts = map[ir.Type]map[ir.Type]bool{
 // приведения runtime-значения (разбор строки как числа и т.п.) проверяется
 // во время исполнения, не здесь.
 func analyzeCastExpr(sc *ctx, e *ast.CastExpr) (ir.Expr, error) {
-	to, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, e.Type)
+	to, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, e.Type)
 	if err != nil {
 		return nil, fmt.Errorf("строка %d: %w", e.Line, err)
 	}

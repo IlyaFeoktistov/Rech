@@ -310,6 +310,12 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 				return nil, err
 			}
 			prog.Enums = append(prog.Enums, enum)
+		case lexer.KwInterface:
+			iface, err := p.parseInterfaceDecl()
+			if err != nil {
+				return nil, err
+			}
+			prog.Interfaces = append(prog.Interfaces, iface)
 		default:
 			stmt, err := p.parseStatement()
 			if err != nil {
@@ -351,6 +357,34 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 			label,
 			err,
 		)
+	}
+
+	var baseName string
+	var interfaces []string
+	if p.cur().Type == lexer.KwInherits {
+		p.advance() // "наследует"
+		base, err := p.expect(lexer.IDENT)
+		if err != nil {
+			return nil, fmt.Errorf("%s %q: после \"наследует\" ожидалось имя базовой сущности: %w", label, name.Value, err)
+		}
+		baseName = base.Value
+	}
+	if p.cur().Type == lexer.KwImplements {
+		p.advance() // "реализует"
+		for {
+			iface, err := p.expect(lexer.IDENT)
+			if err != nil {
+				return nil, fmt.Errorf("%s %q: после \"реализует\" ожидалось имя интерфейса: %w", label, name.Value, err)
+			}
+			interfaces = append(interfaces, iface.Value)
+			if p.cur().Type != lexer.COMMA {
+				break
+			}
+			p.advance() // ","
+		}
+	}
+	if kw.Type == lexer.KwStruct && (baseName != "" || len(interfaces) > 0) {
+		return nil, fmt.Errorf("структура %q: \"наследует\"/\"реализует\" допустимы только у \"сущность\"/\"класс\" (наследование/интерфейсы ограничены ссылочными типами)", name.Value)
 	}
 
 	p.skipNewlines()
@@ -420,11 +454,12 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 
 			methods = append(methods, m)
 
-		case lexer.KwPrivate, lexer.KwPublic:
+		case lexer.KwPrivate, lexer.KwPublic, lexer.KwProtected:
 			// Модификатор видимости перед "константа" ("[приватная|
-			// публичная] константа ИМЯ = ...") либо модификатор видимости
-			// метода ("[приватный|публичный] МЕТОД...") - различаем по
-			// следующему токену без потребления текущего.
+			// публичная|защищённая] константа ИМЯ = ...") либо модификатор
+			// видимости метода ("[приватный|публичный|защищённый]
+			// МЕТОД...") - различаем по следующему токену без потребления
+			// текущего.
 			if p.peekAt(1).Type == lexer.KwConst {
 				visTok := p.advance()
 				if err := checkConstVisibilityAgreement(visTok); err != nil {
@@ -439,7 +474,7 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 						err,
 					)
 				}
-				c.Private = visTok.Type == lexer.KwPrivate
+				c.Visibility = visibilityFromToken(visTok)
 				constants = append(constants, c)
 				break
 			}
@@ -471,12 +506,14 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 	}
 
 	return &ast.EntityDecl{
-		Name:      name.Value,
-		IsStruct:  kw.Type == lexer.KwStruct,
-		Constants: constants,
-		States:    states,
-		Fields:    fields,
-		Methods:   methods,
-		Line:      kw.Line,
+		Name:       name.Value,
+		IsStruct:   kw.Type == lexer.KwStruct,
+		BaseName:   baseName,
+		Interfaces: interfaces,
+		Constants:  constants,
+		States:     states,
+		Fields:     fields,
+		Methods:    methods,
+		Line:       kw.Line,
 	}, nil
 }

@@ -1141,7 +1141,7 @@ func TestParseEntityConstantPlainIsPublic(t *testing.T) {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 	c := prog.Entities[0].Constants[0]
-	if c.Name != "ВЕРСИЯ" || c.Private {
+	if c.Name != "ВЕРСИЯ" || c.Visibility != ast.Public {
 		t.Fatalf("ожидалась публичная константа ВЕРСИЯ, получено %+v", c)
 	}
 }
@@ -1161,11 +1161,11 @@ func TestParseEntityConstantExplicitVisibility(t *testing.T) {
 		t.Fatalf("ожидалось 2 константы, получено %d", len(prog.Entities[0].Constants))
 	}
 	code := prog.Entities[0].Constants[0]
-	if code.Name != "КОД" || !code.Private {
+	if code.Name != "КОД" || code.Visibility != ast.Private {
 		t.Fatalf("ожидалась приватная константа КОД, получено %+v", code)
 	}
 	version := prog.Entities[0].Constants[1]
-	if version.Name != "ВЕРСИЯ" || version.Private {
+	if version.Name != "ВЕРСИЯ" || version.Visibility != ast.Public {
 		t.Fatalf("ожидалась публичная константа ВЕРСИЯ, получено %+v", version)
 	}
 }
@@ -1319,5 +1319,87 @@ func TestParseStructErrorMessageUsesStructLabel(t *testing.T) {
 `)
 	if err == nil || !strings.Contains(err.Error(), "структура \"Точка\"") {
 		t.Fatalf("ожидалась ошибка со словом \"структура\" (не \"сущность\"), получено: %v", err)
+	}
+}
+
+func TestParseInterfaceDecl(t *testing.T) {
+	prog, err := parseSource(t, `
+интерфейс Звучащий
+{
+    издать_звук(): Строка
+    замолчать()
+}
+функция главная { вывести "ок" }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if len(prog.Interfaces) != 1 {
+		t.Fatalf("ожидался один интерфейс, получено %+v", prog.Interfaces)
+	}
+	iface := prog.Interfaces[0]
+	if iface.Name != "Звучащий" || len(iface.Methods) != 2 {
+		t.Fatalf("ожидался интерфейс \"Звучащий\" с двумя методами, получено %+v", iface)
+	}
+	if iface.Methods[0].Name != "издать_звук" || iface.Methods[0].ReturnType != "Строка" {
+		t.Fatalf("ожидался метод издать_звук(): Строка, получено %+v", iface.Methods[0])
+	}
+	if iface.Methods[1].Name != "замолчать" || iface.Methods[1].ReturnType != "" {
+		t.Fatalf("ожидался метод замолчать() без результата, получено %+v", iface.Methods[1])
+	}
+}
+
+func TestParseEntityInheritsAndImplements(t *testing.T) {
+	prog, err := parseSource(t, `
+сущность Животное
+{
+    имеет:
+        имя: Строка
+}
+сущность Собака наследует Животное реализует Звучащий, Бегущий
+{
+    имеет:
+        порода: Строка
+}
+функция главная { вывести "ок" }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if len(prog.Entities) != 2 {
+		t.Fatalf("ожидались две сущности, получено %+v", prog.Entities)
+	}
+	dog := prog.Entities[1]
+	if dog.Name != "Собака" || dog.BaseName != "Животное" {
+		t.Fatalf("ожидалось Собака наследует Животное, получено %+v", dog)
+	}
+	if len(dog.Interfaces) != 2 || dog.Interfaces[0] != "Звучащий" || dog.Interfaces[1] != "Бегущий" {
+		t.Fatalf("ожидалось реализует Звучащий, Бегущий, получено %+v", dog.Interfaces)
+	}
+}
+
+func TestParseStructRejectsInheritsAndImplements(t *testing.T) {
+	_, err := parseSource(t, `
+структура Точка наследует Что_то
+{
+    имеет:
+        x: Целое
+}
+функция главная { вывести "ок" }
+`)
+	if err == nil || !strings.Contains(err.Error(), "структура") {
+		t.Fatalf("ожидалась ошибка - структура не может наследовать, получено: %v", err)
+	}
+
+	_, err = parseSource(t, `
+структура Точка реализует Что_то
+{
+    имеет:
+        x: Целое
+}
+функция главная { вывести "ок" }
+`)
+	if err == nil || !strings.Contains(err.Error(), "структура") {
+		t.Fatalf("ожидалась ошибка - структура не может реализовывать интерфейс, получено: %v", err)
 	}
 }

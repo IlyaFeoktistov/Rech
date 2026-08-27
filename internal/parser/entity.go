@@ -110,19 +110,17 @@ func (p *Parser) parseBecomeStmt() (ast.Stmt, error) {
 // "method"). Внутри тела метода включается p.inMethodBody - это то, что
 // делает "этот" валидным (parsePrimary, parseFieldAssign).
 //
-// Модификатор видимости (шаг 4.3) у метода не согласуется по роду, в отличие
+// Модификатор видимости у метода не согласуется по роду, в отличие
 // от поля (parseField) - у метода нет рода (называется глаголом), поэтому
-// допустима только форма мужского рода "приватный"/"публичный", любая другая
-// форма ("приватная" и т.п.) - ошибка компиляции, а не угаданное согласование.
+// допустима только форма мужского рода "приватный"/"публичный"/
+// "защищённый", любая другая форма ("приватная" и т.п.) - ошибка
+// компиляции, а не угаданное согласование.
 func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
-	var private bool
-	if p.cur().Type == lexer.KwPrivate || p.cur().Type == lexer.KwPublic {
+	var vis ast.Visibility
+	if isVisibilityKeyword(p.cur().Type) {
 		tok := p.advance()
-		private = tok.Type == lexer.KwPrivate
-		want := "публичный"
-		if private {
-			want = "приватный"
-		}
+		vis = visibilityFromToken(tok)
+		want := methodVisibilityWord(vis)
 		if tok.Value != want {
 			return nil, fmt.Errorf("строка %d, столбец %d: у метода модификатор видимости не согласуется по роду (метод - не существительное) - нужна форма %q, получено %q",
 				tok.Line, tok.Col, want, tok.Value)
@@ -157,7 +155,7 @@ func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ast.MethodDecl{Name: name.Value, Params: params, ReturnType: returnType, Body: body, Private: private, Line: name.Line}, nil
+	return &ast.MethodDecl{Name: name.Value, Params: params, ReturnType: returnType, Body: body, Visibility: vis, Line: name.Line}, nil
 }
 
 // parseFieldsSection разбирает "имеет:" и поля, отступленные относительно
@@ -197,13 +195,13 @@ func (p *Parser) parseFieldsSection() ([]ast.Field, error) {
 }
 
 // parseField разбирает одно поле, необязательно с модификатором видимости
-// (шаг 4.3) перед именем: "[приватный|публичный] имя: Тип". Модификатор
+// перед именем: "[приватный|публичный|защищённый] имя: Тип". Модификатор
 // согласуется по роду с именем поля тем же принципом, что и "новый"/"новая"
 // у конструктора (см. visibilityKeywordFor/checkVisibilityAgreement) - без
-// модификатора поле публичное (Field.Private == false).
+// модификатора поле публичное (Field.Visibility == ast.Public).
 func (p *Parser) parseField() (ast.Field, error) {
 	var visTok *lexer.Token
-	if p.cur().Type == lexer.KwPrivate || p.cur().Type == lexer.KwPublic {
+	if isVisibilityKeyword(p.cur().Type) {
 		tok := p.advance()
 		visTok = &tok
 	}
@@ -211,9 +209,10 @@ func (p *Parser) parseField() (ast.Field, error) {
 	if err != nil {
 		return ast.Field{}, fmt.Errorf("ожидалось имя поля: %w", err)
 	}
-	private := visTok != nil && visTok.Type == lexer.KwPrivate
+	var vis ast.Visibility
 	if visTok != nil {
-		if err := checkVisibilityAgreement(*visTok, private, name.Value); err != nil {
+		vis = visibilityFromToken(*visTok)
+		if err := checkVisibilityAgreement(*visTok, vis, name.Value); err != nil {
 			return ast.Field{}, fmt.Errorf("поле %q: %w", name.Value, err)
 		}
 	}
@@ -224,16 +223,42 @@ func (p *Parser) parseField() (ast.Field, error) {
 	if err != nil {
 		return ast.Field{}, fmt.Errorf("после \":\" у поля %q ожидалось имя типа: %w", name.Value, err)
 	}
-	return ast.Field{Name: name.Value, Type: typeName, Private: private, Line: name.Line}, nil
+	return ast.Field{Name: name.Value, Type: typeName, Visibility: vis, Line: name.Line}, nil
 }
 
-// visibilityKeywordFor возвращает форму модификатора видимости
-// ("приватный"/"публичный" и производные), согласованную с (gender, number) -
-// тот же принцип, что и newKeywordFor для конструктора.
-func visibilityKeywordFor(private bool, gender morph.Gender, number morph.Number) string {
+// isVisibilityKeyword - true для любого из трёх модификаторов видимости
+// (приватный/публичный/защищённый, в любой согласованной форме).
+func isVisibilityKeyword(t lexer.TokenType) bool {
+	return t == lexer.KwPrivate || t == lexer.KwPublic || t == lexer.KwProtected
+}
+
+// methodVisibilityWord - форма модификатора видимости у метода: всегда
+// мужской род единственного числа (метод называется глаголом, у него нет
+// рода, поэтому согласование по роду поля/константы к нему не относится).
+func methodVisibilityWord(vis ast.Visibility) string {
+	return visibilityKeywordFor(vis, morph.Masculine, morph.Singular)
+}
+
+// visibilityFromToken переводит токен-модификатор видимости
+// (KwPrivate/KwPublic/KwProtected) в ast.Visibility.
+func visibilityFromToken(tok lexer.Token) ast.Visibility {
+	switch tok.Type {
+	case lexer.KwPrivate:
+		return ast.Private
+	case lexer.KwProtected:
+		return ast.Protected
+	default:
+		return ast.Public
+	}
+}
+
+func visibilityKeywordFor(vis ast.Visibility, gender morph.Gender, number morph.Number) string {
 	stem := "публичн"
-	if private {
+	switch vis {
+	case ast.Private:
 		stem = "приватн"
+	case ast.Protected:
+		stem = "защищённ"
 	}
 	if number == morph.Plural {
 		return stem + "ые"
@@ -253,12 +278,12 @@ func visibilityKeywordFor(private bool, gender morph.Gender, number morph.Number
 // именем поля fieldName - permissive fallback, как и checkNewKeywordAgreement:
 // если morph.NounAgreement не смогла определить род/число имени поля,
 // подходит любая форма.
-func checkVisibilityAgreement(kw lexer.Token, private bool, fieldName string) error {
+func checkVisibilityAgreement(kw lexer.Token, vis ast.Visibility, fieldName string) error {
 	gender, number, ok := morph.NounAgreement(fieldName)
 	if !ok {
 		return nil
 	}
-	want := visibilityKeywordFor(private, gender, number)
+	want := visibilityKeywordFor(vis, gender, number)
 	if kw.Value != want {
 		return fmt.Errorf("строка %d, столбец %d: требует форму модификатора видимости %q, получено %q",
 			kw.Line, kw.Col, want, kw.Value)
@@ -274,7 +299,7 @@ func checkVisibilityAgreement(kw lexer.Token, private bool, fieldName string) er
 // узнает), а со словом "константа" - оно всегда женского рода единственного
 // числа, поэтому единственные допустимые формы - "приватная"/"публичная".
 func checkConstVisibilityAgreement(kw lexer.Token) error {
-	want := visibilityKeywordFor(kw.Type == lexer.KwPrivate, morph.Feminine, morph.Singular)
+	want := visibilityKeywordFor(visibilityFromToken(kw), morph.Feminine, morph.Singular)
 	if kw.Value != want {
 		return fmt.Errorf("строка %d, столбец %d: перед \"константа\" модификатор видимости согласуется со словом \"константа\" (женский род, единственное число) - ожидалось %q, получено %q",
 			kw.Line, kw.Col, want, kw.Value)

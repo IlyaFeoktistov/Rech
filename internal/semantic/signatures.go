@@ -16,9 +16,9 @@ type funcSig struct {
 	ReturnType ir.Type
 	HasReturn  bool
 
-	// Private - видимость метода (шаг 4.3, ast.MethodDecl.Private); всегда
-	// false для обычных функций - у них нет понятия видимости.
-	Private bool
+	// Visibility - видимость метода (ast.MethodDecl.Visibility); всегда
+	// ast.Public для обычных функций - у них нет понятия видимости.
+	Visibility ast.Visibility
 
 	// ParamStates - для параметра, объявленного производным типом
 	// состояния (шаг 4.1, "параметр: АвторизованныйПользователь"), краткая
@@ -50,10 +50,10 @@ type entitySig struct {
 	FieldNames []string
 	FieldTypes []ir.Type
 
-	// FieldPrivate - видимость соответствующего поля (шаг 4.3, тот же индекс,
-	// что и FieldNames/FieldTypes); nil у сущностей без ни одного приватного
-	// поля.
-	FieldPrivate []bool
+	// FieldVisibility - видимость соответствующего поля (тот же индекс,
+	// что и FieldNames/FieldTypes); nil у сущностей без ни одного
+	// непубличного поля.
+	FieldVisibility []ast.Visibility
 
 	// States - краткие формы, объявленные под "состояние:" (шаг 4.1,
 	// упрощённая версия) - для проверки BecomeStmt ("получатель становится
@@ -77,8 +77,24 @@ type entitySig struct {
 	// Сущность.Константа).
 	ConstNames []string
 	ConstExprs []ast.Expr
-	// ConstPrivate - видимость соответствующей константы (true - приватная)
-	ConstPrivate []bool
+	// ConstVisibility - видимость соответствующей константы
+	ConstVisibility []ast.Visibility
+
+	// IsStruct - см. ast.EntityDecl.IsStruct - нужно здесь, чтобы
+	// collectEntities мог отказать в "наследует"/"реализует" на базовую
+	// сущность, которая сама - "структура" (наследование/интерфейсы
+	// ограничены ссылочными типами), не только в обратную сторону
+	// (парсер уже не пропускает "структура ... наследует ...").
+	IsStruct bool
+	// BaseName - имя базовой сущности ("наследует"), "" - нет
+	// базовой. FieldNames/FieldTypes/... выше уже включают унаследованные
+	// поля (плоский список, база первой) - см. collectEntities.
+	BaseName string
+	// OwnInterfaces - имена интерфейсов из СОБСТВЕННОГО "реализует" этой
+	// сущности (не включает унаследованные через BaseName - см.
+	// entitySatisfies, которая обходит цепочку BaseName сама, а не
+	// полагается на предварительно свёрнутый список).
+	OwnInterfaces []string
 }
 
 func (s entitySig) constIndex(name string) int {

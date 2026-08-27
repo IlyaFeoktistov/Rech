@@ -19,10 +19,11 @@ type scope map[string]ir.Type
 // парсер уже это гарантирует). Аналог genCtx в cbackend, только на уровне
 // IR/семантики, не C.
 type ctx struct {
-	funcs    map[string]funcSig
-	entities map[string]entitySig
-	methods  map[string]map[string]funcSig
-	aliases  map[string]string
+	funcs      map[string]funcSig
+	entities   map[string]entitySig
+	methods    map[string]map[string]funcSig
+	aliases    map[string]string
+	interfaces map[string]interfaceSig
 	// enums - имя перечисления (шаг 12) -> имя члена -> значение (Целое,
 	// уже вычисленное - см. package doc ast.EnumDecl). Общая для всей
 	// программы карта (не меняется во время анализа тел, в отличие от
@@ -88,9 +89,9 @@ type ctx struct {
 	resolvingConsts map[string]bool
 }
 
-func newCtx(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, enums map[string]map[string]int64, thisEntity string, returnType ir.Type, hasReturn bool, resolvedConsts map[string]ir.Expr, resolvingConsts map[string]bool) *ctx {
+func newCtx(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64, thisEntity string, returnType ir.Type, hasReturn bool, resolvedConsts map[string]ir.Expr, resolvingConsts map[string]bool) *ctx {
 	return &ctx{
-		funcs: funcs, entities: entities, methods: methods, aliases: aliases, enums: enums, thisEntity: thisEntity,
+		funcs: funcs, entities: entities, methods: methods, aliases: aliases, interfaces: interfaces, enums: enums, thisEntity: thisEntity,
 		scopes: []scope{{}}, returnType: returnType, hasReturn: hasReturn,
 		established:     []map[string]map[string]bool{{}},
 		thisEstablished: map[string]bool{},

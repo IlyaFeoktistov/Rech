@@ -117,7 +117,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		if typ := ir.TypeOf(value); typ != declared {
+		if typ := ir.TypeOf(value); !isAssignable(sc.entities, typ, declared) {
 			return nil, fmt.Errorf("строка %d: переменной %q типа %s нельзя присвоить значение типа %s", s.Line, s.Name, declared, typ)
 		}
 		sc.setEstablished(s.Name, establishedForNewBinding(sc, s.Name, value))
@@ -251,7 +251,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		if typ := ir.TypeOf(value); typ != sc.returnType {
+		if typ := ir.TypeOf(value); !isAssignable(sc.entities, typ, sc.returnType) {
 			return nil, fmt.Errorf("строка %d: функция объявлена с типом результата %s, но возвращается значение типа %s", s.Line, sc.returnType, typ)
 		}
 		return &ir.ReturnStmt{Value: value}, nil
@@ -300,14 +300,14 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if idx == -1 {
 			return nil, fmt.Errorf("строка %d: у сущности %q нет поля %q", s.Line, typ.Entity, s.Field)
 		}
-		if err := checkFieldVisibility(sc, typ.Entity, s.Field, sig.FieldPrivate[idx], s.Line); err != nil {
+		if err := checkFieldVisibility(sc, typ.Entity, s.Field, sig.FieldVisibility[idx], s.Line); err != nil {
 			return nil, err
 		}
 		value, err := analyzeExpr(sc, s.Value)
 		if err != nil {
 			return nil, err
 		}
-		if vt := ir.TypeOf(value); vt != sig.FieldTypes[idx] {
+		if vt := ir.TypeOf(value); !isAssignable(sc.entities, vt, sig.FieldTypes[idx]) {
 			return nil, fmt.Errorf("строка %d: полю %q типа %s нельзя присвоить значение типа %s", s.Line, s.Field, sig.FieldTypes[idx], vt)
 		}
 		return &ir.FieldAssign{Receiver: receiver, Field: s.Field, Value: value}, nil

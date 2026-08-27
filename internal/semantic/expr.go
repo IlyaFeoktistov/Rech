@@ -78,7 +78,7 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 				// Константа, объявленная на уровне сущности (Сущность.Константа)
 				if sig, isEnt := sc.entities[ident.Name]; isEnt {
 					if idx := sig.constIndex(e.Field); idx != -1 {
-						if err := checkConstVisibility(sc, ident.Name, e.Field, sig.ConstPrivate[idx], e.Line); err != nil {
+						if err := checkConstVisibility(sc, ident.Name, e.Field, sig.ConstVisibility[idx], e.Line); err != nil {
 							return nil, err
 						}
 						return resolveEntityConstant(sc, ident.Name, e.Field, e.Line)
@@ -101,14 +101,14 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 			// и через экземпляр (Сущность.Константа и экземпляр.Константа -
 			// обе формы разрешены).
 			if cidx := sig.constIndex(e.Field); cidx != -1 {
-				if err := checkConstVisibility(sc, typ.Entity, e.Field, sig.ConstPrivate[cidx], e.Line); err != nil {
+				if err := checkConstVisibility(sc, typ.Entity, e.Field, sig.ConstVisibility[cidx], e.Line); err != nil {
 					return nil, err
 				}
 				return resolveEntityConstant(sc, typ.Entity, e.Field, e.Line)
 			}
 			return nil, fmt.Errorf("строка %d: у сущности %q нет поля %q", e.Line, typ.Entity, e.Field)
 		}
-		if err := checkFieldVisibility(sc, typ.Entity, e.Field, sig.FieldPrivate[idx], e.Line); err != nil {
+		if err := checkFieldVisibility(sc, typ.Entity, e.Field, sig.FieldVisibility[idx], e.Line); err != nil {
 			return nil, err
 		}
 		return &ir.FieldAccess{Receiver: receiver, Field: e.Field, Type: sig.FieldTypes[idx]}, nil
@@ -138,6 +138,9 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 // package doc ir.NewExpr) - backend'у после этого не нужно знать, какой
 // формой был написан конструктор в исходнике.
 func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
+	if _, ok := sc.interfaces[e.Type]; ok {
+		return nil, fmt.Errorf("строка %d: %q - интерфейс, у него нет реализации - создать можно только сущность, которая его \"реализует\"", e.Line, e.Type)
+	}
 	sig, ok := sc.entities[e.Type]
 	if !ok {
 		// Не пользовательская сущность и ещё не встречавшаяся generic-
@@ -145,7 +148,7 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 		// синтезирует её и зарегистрирует в sc.entities/sc.methods, как и
 		// resolveType в cbackend (AST-путь); если e.Type в принципе не
 		// тип - вернёт понятную ошибку.
-		if _, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, e.Type); err != nil {
+		if _, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, e.Type); err != nil {
 			return nil, fmt.Errorf("строка %d: %w", e.Line, err)
 		}
 		sig, ok = sc.entities[e.Type]
@@ -172,7 +175,7 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 			if err != nil {
 				return nil, err
 			}
-			if typ := ir.TypeOf(arg); typ != sig.FieldTypes[idx] {
+			if typ := ir.TypeOf(arg); !isAssignable(sc.entities, typ, sig.FieldTypes[idx]) {
 				return nil, fmt.Errorf("строка %d: поле %q сущности %q должно быть типа %s, получено %s", e.Line, label, e.Type, sig.FieldTypes[idx], typ)
 			}
 			args[idx] = arg
@@ -187,7 +190,7 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		if typ := ir.TypeOf(arg); typ != sig.FieldTypes[i] {
+		if typ := ir.TypeOf(arg); !isAssignable(sc.entities, typ, sig.FieldTypes[i]) {
 			return nil, fmt.Errorf("строка %d: аргумент %d конструктора %q должен быть типа %s, получен %s", e.Line, i+1, e.Type, sig.FieldTypes[i], typ)
 		}
 		args[i] = arg
@@ -208,15 +211,32 @@ func analyzeMethodCallExpr(sc *ctx, e *ast.MethodCallExpr) (*ir.MethodCallExpr, 
 		return nil, err
 	}
 	typ := ir.TypeOf(receiver)
-	if typ.Kind != ir.KindEntity {
-		return nil, fmt.Errorf("строка %d: нельзя вызвать метод %q - тип %s не сущность", e.Line, e.Method, typ)
-	}
-	sig, ok := sc.methods[typ.Entity][e.Method]
-	if !ok {
-		return nil, fmt.Errorf("строка %d: у сущности %q нет метода %q", e.Line, typ.Entity, e.Method)
-	}
-	if err := checkMethodVisibility(sc, typ.Entity, e.Method, sig.Private, e.Line); err != nil {
-		return nil, err
+	var sig funcSig
+	switch typ.Kind {
+	case ir.KindInterface:
+		// Интерфейс - методы без видимости (не бывает "приватный
+		// метод интерфейса", это просто контракт), поэтому checkMethodVisibility
+		// не вызывается вовсе, не только пропускается с sig.Visibility == ast.Public.
+		iface, ok := sc.interfaces[typ.Entity]
+		if !ok {
+			return nil, fmt.Errorf("строка %d: интерфейс %q не объявлен", e.Line, typ.Entity)
+		}
+		idx := iface.methodIndex(e.Method)
+		if idx == -1 {
+			return nil, fmt.Errorf("строка %d: у интерфейса %q нет метода %q", e.Line, typ.Entity, e.Method)
+		}
+		sig = iface.MethodSigs[idx]
+	case ir.KindEntity:
+		var ok bool
+		sig, ok = sc.methods[typ.Entity][e.Method]
+		if !ok {
+			return nil, fmt.Errorf("строка %d: у сущности %q нет метода %q", e.Line, typ.Entity, e.Method)
+		}
+		if err := checkMethodVisibility(sc, typ.Entity, e.Method, sig.Visibility, e.Line); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("строка %d: нельзя вызвать метод %q - тип %s не сущность и не интерфейс", e.Line, e.Method, typ)
 	}
 	args, err := checkCallArgs(sc, e.Args, sig, e.Line, fmt.Sprintf("метод %q", e.Method), fmt.Sprintf("вызова метода %q", e.Method))
 	if err != nil {
@@ -277,7 +297,7 @@ func checkCallArgs(sc *ctx, args []ast.Expr, sig funcSig, line int, callee, argL
 		if err != nil {
 			return nil, err
 		}
-		if t := ir.TypeOf(arg); t != sig.Params[i] {
+		if t := ir.TypeOf(arg); !isAssignable(sc.entities, t, sig.Params[i]) {
 			return nil, fmt.Errorf("строка %d: аргумент %d %s должен быть типа %s, получен %s", line, i+1, argLabel, sig.Params[i], t)
 		}
 		if i < len(sig.ParamStates) && sig.ParamStates[i] != "" {

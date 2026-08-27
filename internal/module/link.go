@@ -133,6 +133,10 @@ func (p *Program) Link() (*ast.Program, error) {
 		// только collectEnums (менее подробное сообщение, чем у мангла
 		// выше) - осознанный, а не забытый пробел этого среза.
 		merged.Enums = append(merged.Enums, m.AST.Enums...)
+		// Interfaces (шаг 13) - тот же принцип, что и у Enums выше: без
+		// мангла, "использовать" пока не умеет импортировать интерфейс по
+		// имени - осознанный, а не забытый пробел этого среза.
+		merged.Interfaces = append(merged.Interfaces, m.AST.Interfaces...)
 	}
 	return merged, nil
 }

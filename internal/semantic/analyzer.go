@@ -20,6 +20,7 @@ type Analyzer struct {
 	aliases     map[string]string
 	aliasState  map[string]string
 	enums       map[string]map[string]int64
+	interfaces  map[string]interfaceSig
 	externFuncs []*ir.ExternFuncDecl
 
 	// resolvedConsts/resolvingConsts - кэш и защита от цикла для констант
@@ -44,13 +45,16 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 	aliasState := map[string]string{}
 	for _, ent := range prog.Entities {
 		if builtins.ReservedEntityNames[ent.Name] {
-			return fmt.Errorf("сущность %q - зарезервированное имя встроенной сущности (шаг 9, HTTP-клиент), нельзя объявить свою сущность с этим именем", ent.Name)
+			return fmt.Errorf("сущность %q - зарезервированное имя встроенной сущности (HTTP-клиент), нельзя объявить свою сущность с этим именем", ent.Name)
 		}
 		if _, exists := entities[ent.Name]; exists {
 			return fmt.Errorf("сущность %q объявлена более одного раза", ent.Name)
 		}
 		if other, exists := aliases[ent.Name]; exists {
 			return fmt.Errorf("сущность %q: имя совпадает с производным типом состояния, уже занятым сущностью %q", ent.Name, other)
+		}
+		if _, exists := a.interfaces[ent.Name]; exists {
+			return fmt.Errorf("сущность %q: имя совпадает с уже объявленным интерфейсом", ent.Name)
 		}
 		var sig entitySig
 
@@ -64,20 +68,20 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 			}
 			sig.ConstNames = append(sig.ConstNames, c.Name)
 			sig.ConstExprs = append(sig.ConstExprs, c.Value)
-			sig.ConstPrivate = append(sig.ConstPrivate, c.Private)
+			sig.ConstVisibility = append(sig.ConstVisibility, c.Visibility)
 		}
 
 		for _, f := range ent.Fields {
 			if sig.fieldIndex(f.Name) != -1 {
 				return fmt.Errorf("сущность %q: поле %q объявлено более одного раза", ent.Name, f.Name)
 			}
-			typ, err := resolveTypeName(entities, methods, aliases, f.Type)
+			typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, f.Type)
 			if err != nil {
 				return fmt.Errorf("сущность %q: поле %q: %w", ent.Name, f.Name, err)
 			}
 			sig.FieldNames = append(sig.FieldNames, f.Name)
 			sig.FieldTypes = append(sig.FieldTypes, typ)
-			sig.FieldPrivate = append(sig.FieldPrivate, f.Private)
+			sig.FieldVisibility = append(sig.FieldVisibility, f.Visibility)
 		}
 		if len(ent.States) > 0 {
 			sig.States = map[string]bool{}
@@ -93,34 +97,53 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 				aliasState[st.TypeName] = st.Name
 			}
 		}
+		sig.IsStruct = ent.IsStruct
+		// Регистрируется уже сейчас (до разбора методов), не только после
+		// сплющивания с базовой сущностью ниже - иначе метод, ссылающийся
+		// на тип самой этой сущности в своей сигнатуре (параметр/результат),
+		// не смог бы её найти. Флаттенинг ниже просто перезапишет запись,
+		// когда будет готова - Type{Kind:KindEntity, Entity: ent.Name},
+		// который уже вернул resolveTypeName где угодно раньше, от этого
+		// не меняется (имя типа - не сама сигнатура по значению).
 		entities[ent.Name] = sig
 
-		methods[ent.Name] = map[string]funcSig{}
+		ownMethods := map[string]funcSig{}
 		for _, m := range ent.Methods {
-			if _, exists := methods[ent.Name][m.Name]; exists {
+			if _, exists := ownMethods[m.Name]; exists {
 				return fmt.Errorf("сущность %q: метод %q объявлен более одного раза", ent.Name, m.Name)
 			}
 			params := make([]ir.Type, len(m.Params))
 			paramStates := make([]string, len(m.Params))
 			for i, p := range m.Params {
-				typ, err := resolveTypeName(entities, methods, aliases, p.Type)
+				typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, p.Type)
 				if err != nil {
 					return fmt.Errorf("сущность %q: метод %q: параметр %q: %w", ent.Name, m.Name, p.Name, err)
 				}
 				params[i] = typ
 				paramStates[i] = aliasState[p.Type]
 			}
-			msig := funcSig{Params: params, ParamStates: paramStates, Private: m.Private}
+			msig := funcSig{Params: params, ParamStates: paramStates, Visibility: m.Visibility}
 			if m.ReturnType != "" {
-				typ, err := resolveTypeName(entities, methods, aliases, m.ReturnType)
+				typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, m.ReturnType)
 				if err != nil {
 					return fmt.Errorf("сущность %q: метод %q: тип результата: %w", ent.Name, m.Name, err)
 				}
 				msig.ReturnType = typ
 				msig.HasReturn = true
 			}
-			methods[ent.Name][m.Name] = msig
+			ownMethods[m.Name] = msig
 		}
+
+		// Наследование ("наследует")/интерфейсы ("реализует") -
+		// сплющивает sig/ownMethods с базовой сущностью, если она есть, и
+		// проверяет соответствие каждому объявленному интерфейсу - см.
+		// internal/semantic/inheritance.go.
+		flatSig, flatMethods, err := a.applyInheritance(entities, methods, ent, sig, ownMethods)
+		if err != nil {
+			return err
+		}
+		entities[ent.Name] = flatSig
+		methods[ent.Name] = flatMethods
 	}
 	a.entities = entities
 	a.methods = methods
@@ -151,7 +174,7 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 		params := make([]ir.Type, len(fn.Params))
 		paramStates := make([]string, len(fn.Params))
 		for i, p := range fn.Params {
-			typ, err := resolveTypeName(a.entities, a.methods, a.aliases, p.Type)
+			typ, err := resolveTypeName(a.entities, a.methods, a.aliases, a.interfaces, p.Type)
 			if err != nil {
 				return fmt.Errorf("функция %q: параметр %q: %w", fn.Name, p.Name, err)
 			}
@@ -160,7 +183,7 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 		}
 		sig := funcSig{Params: params, ParamStates: paramStates}
 		if fn.ReturnType != "" {
-			typ, err := resolveTypeName(a.entities, a.methods, a.aliases, fn.ReturnType)
+			typ, err := resolveTypeName(a.entities, a.methods, a.aliases, a.interfaces, fn.ReturnType)
 			if err != nil {
 				return fmt.Errorf("функция %q: тип результата: %w", fn.Name, err)
 			}
@@ -198,7 +221,7 @@ func (a *Analyzer) collectExternFuncSigs(funcs map[string]funcSig, entities map[
 		}
 		params := make([]ir.Type, len(ext.Params))
 		for i, p := range ext.Params {
-			typ, err := resolveTypeName(entities, methods, aliases, p.Type)
+			typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, p.Type)
 			if err != nil {
 				return nil, fmt.Errorf("%s: параметр %q: %w", label, p.Name, err)
 			}
@@ -210,7 +233,7 @@ func (a *Analyzer) collectExternFuncSigs(funcs map[string]funcSig, entities map[
 		decl := &ir.ExternFuncDecl{CName: ext.CName, Alias: ext.Alias, Params: params}
 		sig := funcSig{Params: params}
 		if ext.ReturnType != "" {
-			typ, err := resolveTypeName(entities, methods, aliases, ext.ReturnType)
+			typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, ext.ReturnType)
 			if err != nil {
 				return nil, fmt.Errorf("%s: тип результата: %w", label, err)
 			}
@@ -293,7 +316,7 @@ func (a *Analyzer) analyzeEntity(ent *ast.EntityDecl) (*ir.Entity, error) {
 	// (sc.resolvedConsts), с защитой от циклической ссылки.
 	constants := make([]ir.Constant, 0, len(sig.ConstNames))
 	if len(sig.ConstNames) > 0 {
-		sc := newCtx(a.funcs, a.entities, a.methods, a.aliases, a.enums, "", ir.Type{}, false, a.resolvedConsts, a.resolvingConsts)
+		sc := newCtx(a.funcs, a.entities, a.methods, a.aliases, a.interfaces, a.enums, "", ir.Type{}, false, a.resolvedConsts, a.resolvingConsts)
 		for _, cname := range sig.ConstNames {
 			val, err := resolveEntityConstant(sc, ent.Name, cname, ent.Line)
 			if err != nil {
@@ -310,12 +333,12 @@ func (a *Analyzer) analyzeEntity(ent *ast.EntityDecl) (*ir.Entity, error) {
 		}
 		irMethods[i] = irM
 	}
-	return &ir.Entity{Name: ent.Name, IsStruct: ent.IsStruct, Constants: constants, Fields: fields, Methods: irMethods}, nil
+	return &ir.Entity{Name: ent.Name, IsStruct: ent.IsStruct, BaseName: ent.BaseName, Interfaces: ent.Interfaces, Constants: constants, Fields: fields, Methods: irMethods}, nil
 }
 
 func (a *Analyzer) analyzeMethod(ent *ast.EntityDecl, m *ast.MethodDecl) (*ir.Method, error) {
 	sig := a.methods[ent.Name][m.Name]
-	sc := newCtx(a.funcs, a.entities, a.methods, a.aliases, a.enums, ent.Name, sig.ReturnType, sig.HasReturn, a.resolvedConsts, a.resolvingConsts)
+	sc := newCtx(a.funcs, a.entities, a.methods, a.aliases, a.interfaces, a.enums, ent.Name, sig.ReturnType, sig.HasReturn, a.resolvedConsts, a.resolvingConsts)
 	params, body, sig, err := a.analyzeParamsAndBody(sc, m.Params, sig, m.Body)
 	if err != nil {
 		return nil, err
@@ -336,7 +359,7 @@ func (a *Analyzer) analyzeMethod(ent *ast.EntityDecl, m *ast.MethodDecl) (*ir.Me
 
 func (a *Analyzer) analyzeFunction(fn *ast.FunctionDecl) (*ir.Function, error) {
 	sig := a.funcs[fn.Name]
-	sc := newCtx(a.funcs, a.entities, a.methods, a.aliases, a.enums, "", sig.ReturnType, sig.HasReturn, a.resolvedConsts, a.resolvingConsts)
+	sc := newCtx(a.funcs, a.entities, a.methods, a.aliases, a.interfaces, a.enums, "", sig.ReturnType, sig.HasReturn, a.resolvedConsts, a.resolvingConsts)
 	params, body, sig, err := a.analyzeParamsAndBody(sc, fn.Params, sig, fn.Body)
 	if err != nil {
 		return nil, err
@@ -355,6 +378,18 @@ func (a *Analyzer) analyzeFunction(fn *ast.FunctionDecl) (*ir.Function, error) {
 
 func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	out := &ir.Program{ExternFuncs: a.externFuncs}
+	for _, iface := range prog.Interfaces {
+		sig := a.interfaces[iface.Name]
+		irIface := &ir.Interface{Name: iface.Name}
+		for i, name := range sig.MethodNames {
+			m := sig.MethodSigs[i]
+			irIface.Methods = append(irIface.Methods, ir.InterfaceMethod{
+				Name: name, Params: paramsFromTypes(iface.Methods[i].Params, m.Params),
+				ReturnType: m.ReturnType, HasReturn: m.HasReturn,
+			})
+		}
+		out.Interfaces = append(out.Interfaces, irIface)
+	}
 	for _, ent := range prog.Entities {
 		irEnt, err := a.analyzeEntity(ent)
 		if err != nil {
