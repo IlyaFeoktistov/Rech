@@ -164,8 +164,9 @@ var ReservedFuncNames = map[string]bool{
 // при первом использовании (см. internal/semantic.resolveTypeName), нельзя
 // объявить свою сущность с этим именем.
 var ReservedEntityNames = map[string]bool{
-	"Запрос": true,
-	"Ответ":  true,
+	"Запрос":     true,
+	"Ответ":      true,
+	"Вызываемый": true,
 }
 
 // IsReservedName - true для обычной встроенной функции (All) или для имени

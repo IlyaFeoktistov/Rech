@@ -304,6 +304,9 @@ func (p *Parser) parseTypeName() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if name.Value == callableTypeName {
+		return p.parseCallableTypeName(name)
+	}
 	if p.cur().Type != lexer.LT {
 		return name.Value, nil
 	}

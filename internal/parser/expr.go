@@ -182,6 +182,13 @@ func (p *Parser) parseUnary() (ast.Expr, error) {
 		return &ast.UnaryExpr{Op: "~", Operand: operand, Line: op.Line}, nil
 	case lexer.INCR, lexer.DECR:
 		return p.parsePrefixIncDec()
+	case lexer.BITAND:
+		op := p.advance()
+		name, err := p.expect(lexer.IDENT)
+		if err != nil {
+			return nil, fmt.Errorf("после \"&\" ожидалось имя функции: %w", err)
+		}
+		return &ast.FuncRefExpr{Name: name.Value, Line: op.Line}, nil
 	}
 	return p.parsePostfix()
 }
@@ -283,6 +290,8 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 			return nil, fmt.Errorf("строка %d, столбец %d: \"этот\" валиден только внутри тела метода", tok.Line, tok.Col)
 		}
 		return &ast.ThisExpr{Line: tok.Line}, nil
+	case lexer.KwFunction:
+		return p.parseLambdaExpr()
 	case lexer.LPAREN:
 		p.advance()
 		inner, err := p.parseExpr()
