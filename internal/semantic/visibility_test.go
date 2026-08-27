@@ -85,7 +85,7 @@ func TestAnalyzePrivateMethodCannotSatisfyInterface(t *testing.T) {
         вернуть "мяу"
     }
 }
-функция главная { переменная к = новая Кошка() }
+функция главная { переменная кот = новая Кошка() }
 `)
 	if err == nil || !strings.Contains(err.Error(), "не публичный") {
 		t.Fatalf("ожидалась ошибка - приватный метод не может реализовать интерфейс, получено: %v", err)

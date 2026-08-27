@@ -67,6 +67,10 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 		return p.parseReturnStmt()
 	case lexer.KwParent:
 		return p.parseParentCallStmt()
+	case lexer.KwThrow:
+		return p.parseThrowStmt()
+	case lexer.KwTry:
+		return p.parseTryStmt()
 	case lexer.INCR, lexer.DECR:
 		expr, err := p.parsePrefixIncDec()
 		if err != nil {

@@ -46,7 +46,7 @@ func TestAnalyzeEntityNotImplementingInterfaceFails(t *testing.T) {
     имеет:
         вес: Целое
 }
-функция главная { переменная к = новый Камень(1) }
+функция главная { переменная кот = новый Камень(1) }
 `)
 	if err == nil || !strings.Contains(err.Error(), "не реализует метод") {
 		t.Fatalf("ожидалась ошибка про нереализованный метод, получено: %v", err)
@@ -66,7 +66,7 @@ func TestAnalyzeInterfaceMethodSignatureMismatchFails(t *testing.T) {
         вернуть 1
     }
 }
-функция главная { переменная к = новая Кошка() }
+функция главная { переменная кот = новая Кошка() }
 `)
 	if err == nil || !strings.Contains(err.Error(), "не совпадает по сигнатуре") {
 		t.Fatalf("ожидалась ошибка про несовпадение сигнатуры, получено: %v", err)

@@ -64,7 +64,7 @@ func TestAnalyzeMethodOverrideMustMatchBaseSignature(t *testing.T) {
         вернуть 1
     }
 }
-функция главная { переменная к = новая Кошка() }
+функция главная { переменная кот = новая Кошка() }
 `)
 	if err == nil || !strings.Contains(err.Error(), "не совпадает по сигнатуре с методом базовой сущности") {
 		t.Fatalf("ожидалась ошибка о несовпадении сигнатуры переопределения, получено: %v", err)
@@ -89,8 +89,8 @@ func TestAnalyzeMethodOverrideWithMatchingSignatureIsAllowed(t *testing.T) {
 }
 функция главная
 {
-    переменная к = новая Кошка()
-    вывести к.издать_звук()
+    переменная кот = новая Кошка()
+    вывести кот.издать_звук()
 }
 `)
 	var кошка *ir.Entity
@@ -111,7 +111,7 @@ func TestAnalyzeInheritFromUndeclaredEntityFails(t *testing.T) {
     имеет:
         x: Целое
 }
-функция главная { переменная к = новая Кошка(1) }
+функция главная { переменная кот = новая Кошка(1) }
 `)
 	if err == nil || !strings.Contains(err.Error(), "базовая сущность не объявлена") {
 		t.Fatalf("ожидалась ошибка про необъявленную базовую сущность, получено: %v", err)

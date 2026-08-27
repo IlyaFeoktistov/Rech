@@ -96,7 +96,14 @@ func New(tokens []lexer.Token) *Parser {
 	if err := morph.RegisterSystemVerbs(dict); err != nil {
 		panic(fmt.Sprintf("internal/morph.SystemVerbs: %v", err))
 	}
-	return &Parser{tokens: tokens, dict: dict}
+	p := &Parser{tokens: tokens, dict: dict}
+	// "Исключение" - системная сущность (internal/semantic), никогда не
+	// объявляется пользователем явно, поэтому обычная регистрация через
+	// registerNoun в parseEntity её не увидит - без этого "относится к
+	// Исключение" (неверный, именительный падеж вместо дательного) прошёл
+	// бы permissive fallback resolveDeclinedTypeRef молча, вместо ошибки.
+	p.registerNoun("Исключение")
+	return p
 }
 
 // registerNoun лучшим образом пытается зарегистрировать имя (переменной,
@@ -376,7 +383,7 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s %q: после \"наследует\" ожидалось имя базовой сущности: %w", label, name.Value, err)
 		}
-		baseName, err = p.resolveDeclinedTypeRef(base, verb.Value)
+		baseName, err = p.resolveDeclinedTypeRef(base, verb.Value, morph.Accusative)
 		if err != nil {
 			return nil, fmt.Errorf("%s %q: %w", label, name.Value, err)
 		}
@@ -388,7 +395,7 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 			if err != nil {
 				return nil, fmt.Errorf("%s %q: после \"реализует\" ожидалось имя интерфейса: %w", label, name.Value, err)
 			}
-			ifaceName, err := p.resolveDeclinedTypeRef(iface, verb.Value)
+			ifaceName, err := p.resolveDeclinedTypeRef(iface, verb.Value, morph.Accusative)
 			if err != nil {
 				return nil, fmt.Errorf("%s %q: %w", label, name.Value, err)
 			}

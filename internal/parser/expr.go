@@ -6,6 +6,7 @@ import (
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
+	"github.com/IlyaFeoktistov/Rech/internal/morph"
 )
 
 func (p *Parser) parseExpr() (ast.Expr, error) {
@@ -85,7 +86,31 @@ func (p *Parser) parseComparison() (ast.Expr, error) {
 		}
 		return &ast.BinaryExpr{Op: opStr, Left: left, Right: right, Line: op.Line}, nil
 	}
+	if p.cur().Type == lexer.KwRelates {
+		return p.parseIsExpr(left)
+	}
 	return left, nil
+}
+
+// parseIsExpr разбирает хвост "относится к <Тип>" уже после того, как left
+// (проверяемое выражение) разобран - та же не цепочная позиция, что и у
+// обычного сравнения (docs/SPEC.md). "к" - предлог дательного падежа
+// ("относиться к кому/чему"), поэтому Тип разбирается через склонение
+// (resolveDeclinedTypeRef), как и объект после "наследует"/"реализует".
+func (p *Parser) parseIsExpr(left ast.Expr) (ast.Expr, error) {
+	kw := p.advance() // "относится"
+	if _, err := p.expect(lexer.KwToward); err != nil {
+		return nil, fmt.Errorf("после \"относится\" ожидалось \"к\": %w", err)
+	}
+	target, err := p.expect(lexer.IDENT)
+	if err != nil {
+		return nil, fmt.Errorf("после \"относится к\" ожидалось имя типа: %w", err)
+	}
+	name, err := p.resolveDeclinedTypeRef(target, "относится к", morph.Dative)
+	if err != nil {
+		return nil, err
+	}
+	return &ast.IsExpr{Value: left, Target: name, Line: kw.Line}, nil
 }
 
 // parseBitOr/parseBitXor/parseBitAnd/parseShift - побитовые операторы

@@ -24,8 +24,8 @@ func TestRunOverriddenMethodDispatchesToConcreteTypeThroughBaseTypedParam(t *tes
 }
 функция главная
 {
-    переменная к = новая Кошка()
-    вывести озвучить(к)
+    переменная кот = новая Кошка()
+    вывести озвучить(кот)
 }
 `)
 	if got != "мяу\n" {
@@ -88,9 +88,9 @@ func TestRunInterfaceTypedParamDispatchesToConcreteImplementation(t *testing.T) 
 }
 функция главная
 {
-    переменная к = новая Кошка()
+    переменная кот = новая Кошка()
     переменная собака = новая Собака()
-    вывести озвучить(к)
+    вывести озвучить(кот)
     вывести озвучить(собака)
 }
 `)

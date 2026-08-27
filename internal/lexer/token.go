@@ -85,6 +85,11 @@ const (
 	KwImplements  // реализует (соответствие интерфейсу)
 	KwConstructor // конструктор (явное тело конструктора сущности/класса)
 	KwParent      // родитель (вызов конструктора базовой сущности)
+	KwTry         // попытаться
+	KwCatch       // поймать
+	KwThrow       // выбросить
+	KwRelates     // относится (проверка "относится к <Тип>")
+	KwToward      // к (предлог дательного падежа после "относится")
 )
 
 // keywords - таблица ключевых слов v0.1. Список сознательно узкий:
@@ -145,6 +150,11 @@ var keywords = map[string]TokenType{
 	"реализует":    KwImplements,
 	"конструктор":  KwConstructor,
 	"родитель":     KwParent,
+	"попытаться":   KwTry,
+	"поймать":      KwCatch,
+	"выбросить":    KwThrow,
+	"относится":    KwRelates,
+	"к":            KwToward,
 }
 
 // Token - одна лексема с позицией в исходном файле (для сообщений об ошибках).
@@ -307,6 +317,16 @@ func (t TokenType) String() string {
 		return "конструктор"
 	case KwParent:
 		return "родитель"
+	case KwTry:
+		return "попытаться"
+	case KwCatch:
+		return "поймать"
+	case KwThrow:
+		return "выбросить"
+	case KwRelates:
+		return "относится"
+	case KwToward:
+		return "к"
 	default:
 		return "UNKNOWN"
 	}
