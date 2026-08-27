@@ -57,16 +57,16 @@ func TestAnalyzeDocCommentsFlowIntoIR(t *testing.T) {
 	if ent == nil {
 		t.Fatalf("сущность Точка не найдена в IR")
 	}
-	if ent.Doc != " Точка на плоскости. " {
+	if ent.Doc != "Точка на плоскости." {
 		t.Fatalf("неожиданный Doc сущности: %q", ent.Doc)
 	}
-	if len(ent.Constants) != 1 || ent.Constants[0].Doc != " Предел координаты. " {
+	if len(ent.Constants) != 1 || ent.Constants[0].Doc != "Предел координаты." {
 		t.Fatalf("неожиданный Doc константы: %+v", ent.Constants)
 	}
-	if len(ent.Fields) != 1 || ent.Fields[0].Doc != " Горизонтальная координата. " {
+	if len(ent.Fields) != 1 || ent.Fields[0].Doc != "Горизонтальная координата." {
 		t.Fatalf("неожиданный Doc поля: %+v", ent.Fields)
 	}
-	if len(ent.Methods) != 1 || ent.Methods[0].Doc != " Расстояние до начала координат. " {
+	if len(ent.Methods) != 1 || ent.Methods[0].Doc != "Расстояние до начала координат." {
 		t.Fatalf("неожиданный Doc метода: %+v", ent.Methods)
 	}
 
@@ -74,7 +74,7 @@ func TestAnalyzeDocCommentsFlowIntoIR(t *testing.T) {
 	if fn == nil {
 		t.Fatalf("функция сложить не найдена в IR")
 	}
-	if fn.Doc != " Складывает два числа. " {
+	if fn.Doc != "Складывает два числа." {
 		t.Fatalf("неожиданный Doc функции: %q", fn.Doc)
 	}
 }

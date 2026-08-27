@@ -15,7 +15,7 @@ func TestParseDocCommentOnFunction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if prog.Functions[0].Doc != " Складывает два числа. " {
+	if prog.Functions[0].Doc != "Складывает два числа." {
 		t.Fatalf("неожиданный Doc: %q", prog.Functions[0].Doc)
 	}
 	if prog.Functions[1].Doc != "" {
@@ -49,19 +49,19 @@ func TestParseDocCommentOnEntityFieldMethodConst(t *testing.T) {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 	ent := prog.Entities[0]
-	if ent.Doc != " Точка на плоскости. " {
+	if ent.Doc != "Точка на плоскости." {
 		t.Fatalf("неожиданный Doc сущности: %q", ent.Doc)
 	}
-	if ent.Constants[0].Doc != " Максимально допустимая координата. " {
+	if ent.Constants[0].Doc != "Максимально допустимая координата." {
 		t.Fatalf("неожиданный Doc константы: %q", ent.Constants[0].Doc)
 	}
-	if ent.Fields[0].Doc != " Горизонтальная координата. " {
+	if ent.Fields[0].Doc != "Горизонтальная координата." {
 		t.Fatalf("неожиданный Doc поля x: %q", ent.Fields[0].Doc)
 	}
 	if ent.Fields[1].Doc != "" {
 		t.Fatalf("у поля y без doc-комментария Doc должен быть пуст, получено %q", ent.Fields[1].Doc)
 	}
-	if ent.Methods[0].Doc != " Расстояние от начала координат. " {
+	if ent.Methods[0].Doc != "Расстояние от начала координат." {
 		t.Fatalf("неожиданный Doc метода: %q", ent.Methods[0].Doc)
 	}
 }
@@ -76,6 +76,30 @@ func TestParseDocCommentBeforeStatementInsideBodyIsError(t *testing.T) {
 `
 	if _, err := parseSource(t, src); err == nil {
 		t.Fatalf("ожидалась ошибка - doc-комментарий перед обычной инструкцией внутри тела не поддержан")
+	}
+}
+
+// TestParseDocCommentJSDocStyleStripsLeadingStars - "/**\n * строка1\n *
+// строка2\n */" (JSDoc/Javadoc) - ведущие "*" каждой строки не должны
+// попасть в итоговый текст.
+func TestParseDocCommentJSDocStyleStripsLeadingStars(t *testing.T) {
+	src := `
+/**
+ * Складывает два числа.
+ * Работает только с Целое.
+ */
+функция сложить(кого: Целое, кому: Целое): Целое
+{
+    вернуть кого + кому
+}
+`
+	prog, err := parseSource(t, src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	want := "Складывает два числа.\nРаботает только с Целое."
+	if prog.Functions[0].Doc != want {
+		t.Fatalf("Doc = %q, ожидалось %q", prog.Functions[0].Doc, want)
 	}
 }
 

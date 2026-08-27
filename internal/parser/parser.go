@@ -39,6 +39,7 @@ package parser
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
@@ -202,10 +203,36 @@ func (p *Parser) consumeDoc() string {
 	if p.cur().Type != lexer.DOC_COMMENT {
 		return ""
 	}
-	doc := p.cur().Value
+	doc := normalizeDoc(p.cur().Value)
 	p.advance()
 	p.skipNewlines()
 	return doc
+}
+
+// normalizeDoc убирает построчное "оформление" многострочного
+// doc-комментария в стиле JSDoc/Javadoc:
+//
+//	/**
+//	 * Первая строка.
+//	 * Вторая строка.
+//	 */
+//
+// - с каждой строки снимаются ведущие пробелы/табы и ОДНА ведущая "*" (с
+// пробелом после неё, если он есть), затем снимаются висящие пробелы в
+// конце строки; строка без ведущей "*" (обычный многострочный текст без
+// оформления) остаётся как есть, кроме обрезки пробелов по краям - оба
+// стиля дают одинаково чистый результат. Результат в целом дополнительно
+// обрезается по краям (TrimSpace) - пустые первая/последняя строки вокруг
+// "/**"/"*/" не должны оставлять лишних пустых строк в hover.
+func normalizeDoc(raw string) string {
+	lines := strings.Split(raw, "\n")
+	for i, line := range lines {
+		line = strings.TrimLeft(line, " \t")
+		line = strings.TrimPrefix(line, "*")
+		line = strings.TrimPrefix(line, " ")
+		lines[i] = strings.TrimRight(line, " \t")
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
 // peekPastNewlines возвращает первый токен от текущей позиции, который не
