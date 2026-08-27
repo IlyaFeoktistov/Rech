@@ -336,6 +336,49 @@ func mainFuncIR() *ir.Function {
 	return &ir.Function{Name: "главная", Body: []ir.Stmt{&ir.PrintStmt{Value: &ir.StringLiteral{Value: "ок"}}}}
 }
 
+// TestGenerateFromIROmitsGCWithoutEntities - libgc не входит в стандартный
+// C-тулчейн ни на одной платформе (в отличие от -lm) - программа без
+// единой ссылочной сущности не должна требовать её установки, поэтому
+// "#include <gc.h>"/"GC_INIT()" эмитятся только при ctx.usesGC (см.
+// internal/toolchain.CC - решает про "-lgc" по этому же признаку в файле).
+func TestGenerateFromIROmitsGCWithoutEntities(t *testing.T) {
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{mainFuncIR()}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if strings.Contains(out, "gc.h") || strings.Contains(out, "GC_INIT") {
+		t.Fatalf("не ожидался Boehm GC в программе без сущностей, получено:\n%s", out)
+	}
+}
+
+func TestGenerateFromIRIncludesGCForRefEntity(t *testing.T) {
+	entity := &ir.Entity{Name: "Точка", Fields: []ir.Field{{Name: "x", Type: ir.TypeInt}}}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "p", Value: &ir.NewExpr{Entity: "Точка", Args: []ir.Expr{&ir.IntLiteral{Value: 1}}}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Entities: []*ir.Entity{entity}, Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "#include <gc.h>") || !strings.Contains(out, "GC_INIT();") {
+		t.Fatalf("ожидался Boehm GC для программы со ссылочной сущностью, получено:\n%s", out)
+	}
+}
+
+func TestGenerateFromIROmitsGCForStructOnlyProgram(t *testing.T) {
+	entity := &ir.Entity{Name: "Точка", IsStruct: true, Fields: []ir.Field{{Name: "x", Type: ir.TypeInt}}}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "p", Value: &ir.NewExpr{Entity: "Точка", Args: []ir.Expr{&ir.IntLiteral{Value: 1}}}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Entities: []*ir.Entity{entity}, Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if strings.Contains(out, "gc.h") || strings.Contains(out, "GC_INIT") {
+		t.Fatalf("не ожидался Boehm GC для программы только со \"структура\", получено:\n%s", out)
+	}
+}
+
 func TestGenerateFromIRListGenericAndForEach(t *testing.T) {
 	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
 		&ir.VarDecl{Name: "числа", Value: &ir.NewExpr{Entity: "Список<Целое>"}},

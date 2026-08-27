@@ -45,6 +45,16 @@ type irGenCtx struct {
 	// числовые приведения (Целое/Дробное/Действительное/Символ/Байт между
 	// собой) - обычный C-каст, без хелперов.
 	usesCast bool
+	// usesGC - нужен ли Boehm GC (#include <gc.h>, GC_INIT(), см.
+	// generateIREntityCtor) - только если в программе есть хотя бы одна
+	// ссылочная сущность ("сущность"/"класс", не "структура"). internal/
+	// toolchain.CC решает, добавлять ли "-lgc" при линковке, по тому же
+	// признаку (наличию "#include <gc.h>" в сгенерированном файле), не по
+	// отдельному флагу - libgc не входит в стандартный C-тулчейн ни на
+	// одной платформе (в отличие от -lm), линковать её для программы без
+	// единой сущности означало бы новое обязательное требование к
+	// окружению сборки без всякой на то нужды.
+	usesGC   bool
 	entities map[string]*ir.Entity
 	// externCNames - Rech-facing имя (Alias) внешней функции -> настоящий
 	// C-символ (CName), из prog.ExternFuncs: CallExpr.Callee несёт Alias,
@@ -89,14 +99,18 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	}
 
 	entities := map[string]*ir.Entity{}
+	usesGC := false
 	for _, ent := range prog.Entities {
 		entities[ent.Name] = ent
+		if !ent.IsStruct {
+			usesGC = true
+		}
 	}
 	externCNames := map[string]string{}
 	for _, ext := range prog.ExternFuncs {
 		externCNames[ext.Alias] = ext.CName
 	}
-	ctx := &irGenCtx{entities: entities, externCNames: externCNames}
+	ctx := &irGenCtx{entities: entities, externCNames: externCNames, usesGC: usesGC}
 
 	var typedefs strings.Builder
 	for _, ent := range prog.Entities {
@@ -193,10 +207,17 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	sb.WriteString("#include <stdbool.h>\n")
 	sb.WriteString("#include <stdint.h>\n")
 	// gc.h - Boehm GC (сущность/класс - ссылочная семантика, шаг 12,
-	// выделяются GC_MALLOC, см. generateIREntityCtor) - подключается
-	// безусловно, тем же принципом, что и -lm в internal/toolchain (дёшево
-	// и безвредно, даже если программа не объявляет ни одной сущности).
-	sb.WriteString("#include <gc.h>\n")
+	// выделяются GC_MALLOC, см. generateIREntityCtor) - только если в
+	// программе реально есть хотя бы одна ссылочная сущность (ctx.usesGC) -
+	// в отличие от -lm/остальных всегда-подключаемых заголовков, libgc не
+	// входит в стандартный C-тулчейн ни на одной платформе (проверено
+	// эмпирически - ни на Ubuntu, ни на MinGW-w64 её нет по умолчанию),
+	// программа без единой сущности не должна требовать её установки.
+	// internal/toolchain.CC ищет ровно эту строку в файле, чтобы решить,
+	// нужен ли "-lgc" при линковке.
+	if ctx.usesGC {
+		sb.WriteString("#include <gc.h>\n")
+	}
 	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast {
 		sb.WriteString("#include <string.h>\n")
 	}
@@ -389,7 +410,9 @@ func generateIRFunction(ctx *irGenCtx, fn *ir.Function) (string, error) {
 	}
 	fmt.Fprintf(&sb, "%s %s(%s) {\n", cReturnTypeFor(ctx, fn.HasReturn, fn.ReturnType), cName, paramList)
 	if cName == "main" {
-		sb.WriteString("    GC_INIT();\n")
+		if ctx.usesGC {
+			sb.WriteString("    GC_INIT();\n")
+		}
 		sb.WriteString("    rech_init_console();\n")
 		sb.WriteString("    rech_init_args(argc, argv);\n")
 	}

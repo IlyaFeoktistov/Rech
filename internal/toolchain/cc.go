@@ -3,6 +3,7 @@
 package toolchain
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -31,15 +32,26 @@ func (*CC) CompileC(cPath, binPath string) error {
 	// означало бы протаскивать это знание из cbackend через весь конвейер
 	// компиляции только ради этого одного флага.
 	//
+	src, err := os.ReadFile(cPath)
+	if err != nil {
+		return fmt.Errorf("не удалось прочитать сгенерированный файл %q: %w", cPath, err)
+	}
+	args := []string{cPath, "-o", binPath, "-lm"}
 	// -lgc - Boehm GC (шаг 12, "сущность"/"класс" - ссылочная семантика по
-	// умолчанию, GC_MALLOC в сгенерированном C, gc.h подключается
-	// безусловно cbackend'ом) - тот же принцип, что и у -lm: всегда, даже
-	// для программы вообще без сущностей (GC_INIT() эмитится в main
-	// безусловно). Требует установленного libgc-dev (Debian/Ubuntu) /
-	// bdw-gc (Homebrew/vcpkg) - в отличие от -lm, не входит в состав
-	// стандартного C-тулчейна ни на одной платформе, это НОВОЕ требование
-	// к окружению сборки, см. README.
-	args := []string{cPath, "-o", binPath, "-lm", "-lgc"}
+	// умолчанию, GC_MALLOC в сгенерированном C) - в отличие от -lm, НЕ
+	// входит в состав стандартного C-тулчейна ни на одной платформе
+	// (проверено эмпирически: ни на свежем Ubuntu, ни на MinGW-w64 её нет
+	// без отдельной установки) - линковать безусловно, как -lm, означало
+	// бы, что даже программа без единой сущности не соберётся без
+	// libgc-dev/bdw-gc/bdwgc. cbackend подключает "#include <gc.h>" в
+	// сгенерированном файле, только если в программе есть хотя бы одна
+	// ссылочная сущность (ctx.usesGC, см. internal/backend/cbackend/
+	// ir_generator.go) - этого же признака в самом файле достаточно, чтобы
+	// решить, нужен ли -lgc, без протаскивания отдельного флага через
+	// весь internal/compiler.Toolchain только ради этого.
+	if bytes.Contains(src, []byte("#include <gc.h>")) {
+		args = append(args, "-lgc")
+	}
 	if runtime.GOOS == "windows" {
 		// -lshell32 - CommandLineToArgvW (шаг 8, internal/backend/cbackend.
 		// argFuncHelper/rech_init_args): argv, который сам даёт CRT на
