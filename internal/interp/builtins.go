@@ -212,8 +212,8 @@ func (in *Interp) writeWholeFile(name, path, content string, flag int) {
 // cbackend побайтово) пробелы/табы по краям - тот же набор символов, что и
 // rech_trim_line в сгенерированном C. Конец ввода без единого прочитанного
 // байта - panicRuntime (аварийное завершение, как и rech_panic в C), не
-// error - в языке нет исключений (шаг 14), которые можно было бы этим
-// error'ом наполнить.
+// пользовательское исключение - конец стандартного ввода не то, что
+// программа обычно ожидает перехватывать и продолжать после.
 func (in *Interp) readLine() string {
 	line, err := in.stdin.ReadString('\n')
 	if err != nil && line == "" {

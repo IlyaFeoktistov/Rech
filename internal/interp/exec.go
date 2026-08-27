@@ -181,6 +181,12 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 		}
 		return ctrl{kind: ctrlReturn, value: in.cloneValue(v)}, nil
 
+	case *ir.ThrowStmt:
+		return in.execThrowStmt(s, env, cc)
+
+	case *ir.TryStmt:
+		return in.execTryStmt(s, env, cc)
+
 	case *ir.ExprStmt:
 		var e ir.Expr = s.Call
 		switch {

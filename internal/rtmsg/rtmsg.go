@@ -136,6 +136,16 @@ const (
 // ошибка).
 const HTTPRecvFailed = "запрос: ошибка получения ответа"
 
+// UncaughtExceptionFormat - сообщение при "выбросить", которое не поймал ни
+// один охватывающий "попытаться"/"поймать" - typeName - фактическая
+// сущность выброшенного значения (не обязательно "Исключение" само по
+// себе - может быть любой наследник), message - её поле "сообщение".
+// Формат должен совпадать байт-в-байт между cbackend (internal/backend/
+// cbackend/exceptions.go, rech_throw) и internal/interp.
+func UncaughtExceptionFormat(typeName, message string) string {
+	return fmt.Sprintf("необработанное исключение %s: %s", typeName, message)
+}
+
 // ArgIndexOutOfRangeFormat - сообщение при "аргумент", если индекс вне
 // диапазона [0, количество_аргументов()) - тот же принцип, что и у
 // IndexOutOfRange для встроенных коллекций, но с самим индексом в

@@ -230,9 +230,11 @@ func (e *runtimeError) Error() string { return e.msg }
 
 // panicRuntime останавливает исполнение текущей программы Rech как раз в
 // той точке, где встретилась ошибка (используется panic/recover Go как
-// внутренний механизм нелокального выхода - у самого языка Rech пока нет
-// исключений, шаг 14) - см. runtimeError и Run. rtmsg.PanicPrefix - тот же
-// префикс, что печатает rech_panic в сгенерированном C.
+// внутренний механизм нелокального выхода) - невосстановимая ошибка, в
+// отличие от "выбросить" (thrownException, exception.go), которую
+// пользовательский код может перехватить через "попытаться"/"поймать" -
+// см. runtimeError и Run. rtmsg.PanicPrefix - тот же префикс, что печатает
+// rech_panic в сгенерированном C.
 func panicRuntime(format string, args ...any) {
 	panic(&runtimeError{msg: rtmsg.PanicPrefix + fmt.Sprintf(format, args...)})
 }
