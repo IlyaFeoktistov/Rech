@@ -387,6 +387,7 @@ func (inst *instantiator) ensureEntity(name string, line int) error {
 		Ctor:      substCtor(template.Ctor, subst),
 		Line:      line,
 		File:      template.File,
+		Doc:       template.Doc,
 	}
 	inst.entities[name] = synthesized
 	if len(checks) > 0 {
@@ -430,6 +431,7 @@ func (inst *instantiator) ensureFunc(name string, line int) error {
 		Body:       substStmts(template.Body, subst),
 		Line:       line,
 		File:       template.File,
+		Doc:        template.Doc,
 	}
 	inst.funcs[name] = synthesized
 	if len(checks) > 0 {
