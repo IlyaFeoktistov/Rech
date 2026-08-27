@@ -339,14 +339,7 @@ func (in *Interp) evalMethodCallExpr(e *ir.MethodCallExpr, env *Env, cc *callCtx
 	if recv.Obj.coll != nil {
 		return in.evalCollectionMethod(recv.Obj, e, env, cc)
 	}
-	ent := in.entities[recv.Obj.typeName]
-	var m *ir.Method
-	for _, mm := range ent.Methods {
-		if mm.Name == e.Method {
-			m = mm
-			break
-		}
-	}
+	m := in.findMethod(recv.Obj.typeName, e.Method)
 	if m == nil {
 		return Value{}, fmt.Errorf("у сущности %q нет метода %q", recv.Obj.typeName, e.Method)
 	}
