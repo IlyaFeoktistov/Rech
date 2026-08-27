@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
@@ -58,14 +59,16 @@ func (d *doc) hoverBareName(name string, line int) (string, bool) {
 		}
 	}
 	if fn, ok := d.funcs[name]; ok {
-		return withDoc(codeBlock(functionSignature(fn.Name, fn.Params, fn.HasReturn, fn.ReturnType)), fn.Doc), true
+		block := withDoc(codeBlock(functionSignature(fn.Name, fn.Params, fn.HasReturn, fn.ReturnType)), fn.Doc)
+		return withRefCount(block, d.countFunctionRefs(name)), true
 	}
 	if ent, ok := d.entities[name]; ok {
 		kind := "сущность"
 		if ent.IsStruct {
 			kind = "структура"
 		}
-		return withDoc(codeBlock(fmt.Sprintf("%s %s", kind, ent.Name)), ent.Doc), true
+		block := withDoc(codeBlock(fmt.Sprintf("%s %s", kind, ent.Name)), ent.Doc)
+		return withRefCount(block, d.countEntityRefs(name)), true
 	}
 	return "", false
 }
@@ -75,20 +78,54 @@ func (d *doc) hoverBareName(name string, line int) (string, bool) {
 func (d *doc) hoverMember(ent *ir.Entity, name string) (string, bool) {
 	for _, f := range ent.Fields {
 		if f.Name == name {
-			return withDoc(codeBlock(fmt.Sprintf("%s.%s: %s", ent.Name, f.Name, f.Type)), f.Doc), true
+			block := withDoc(codeBlock(fmt.Sprintf("%s.%s: %s", ent.Name, f.Name, f.Type)), f.Doc)
+			return withRefCount(block, d.countMemberRefs(name)), true
 		}
 	}
 	for _, c := range ent.Constants {
 		if c.Name == name {
-			return withDoc(codeBlock(fmt.Sprintf("%s.%s: %s (константа)", ent.Name, c.Name, c.Type)), c.Doc), true
+			block := codeBlock(fmt.Sprintf("%s.%s: %s (константа)", ent.Name, c.Name, c.Type))
+			if lit, ok := literalText(c.Value); ok {
+				block += fmt.Sprintf("\n\nЗначение: `%s`", lit)
+			}
+			block = withDoc(block, c.Doc)
+			return withRefCount(block, d.countMemberRefs(name)), true
 		}
 	}
 	for _, m := range ent.Methods {
 		if m.Name == name {
-			return withDoc(codeBlock(functionSignature(ent.Name+"."+m.Name, m.Params, m.HasReturn, m.ReturnType)), m.Doc), true
+			block := withDoc(codeBlock(functionSignature(ent.Name+"."+m.Name, m.Params, m.HasReturn, m.ReturnType)), m.Doc)
+			return withRefCount(block, d.countMethodRefs(name)), true
 		}
 	}
 	return "", false
+}
+
+// literalText - текстовое представление значения константы, если оно уже
+// разрешилось до простого литерала (типичный случай - "константа ИМЯ =
+// 100") - "", false для любого более сложного выражения (арифметика,
+// обращение к другой константе, вызов функции - resolveEntityConstant
+// разрешает "любое выражение", но hover показывает значение только там,
+// где это один литерал, не пытаясь заново вычислить/напечатать
+// произвольное выражение).
+func literalText(v ir.Expr) (string, bool) {
+	switch v := v.(type) {
+	case *ir.IntLiteral:
+		return strconv.FormatInt(v.Value, 10), true
+	case *ir.FloatLiteral:
+		return strconv.FormatFloat(v.Value, 'g', -1, 64), true
+	case *ir.StringLiteral:
+		return strconv.Quote(v.Value), true
+	case *ir.BoolLiteral:
+		if v.Value {
+			return "истина", true
+		}
+		return "ложь", true
+	case *ir.CharLiteral:
+		return "'" + string(v.Value) + "'", true
+	default:
+		return "", false
+	}
 }
 
 // functionSignature - "функция имя(параметр: Тип, ...): ТипРезультата" -

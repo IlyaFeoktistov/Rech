@@ -47,8 +47,9 @@ func (s *server) handleRequest(msg *Message) {
 	case "initialize":
 		_ = s.rpc.Reply(msg.ID, map[string]any{
 			"capabilities": map[string]any{
-				"textDocumentSync": 1, // Full - didChange несёт весь текст целиком, не диффы
-				"hoverProvider":    true,
+				"textDocumentSync":   1, // Full - didChange несёт весь текст целиком, не диффы
+				"hoverProvider":      true,
+				"definitionProvider": true,
 				"completionProvider": map[string]any{
 					"triggerCharacters": []string{"."},
 				},
@@ -58,6 +59,8 @@ func (s *server) handleRequest(msg *Message) {
 		_ = s.rpc.Reply(msg.ID, nil, nil)
 	case "textDocument/hover":
 		s.handleHover(msg)
+	case "textDocument/definition":
+		s.handleDefinition(msg)
 	case "textDocument/completion":
 		s.handleCompletion(msg)
 	default:
@@ -154,6 +157,31 @@ func (s *server) handleHover(msg *Message) {
 	}
 	_ = s.rpc.Reply(msg.ID, map[string]any{
 		"contents": map[string]any{"kind": "markdown", "value": text},
+	}, nil)
+}
+
+func (s *server) handleDefinition(msg *Message) {
+	var p docPosition
+	if err := json.Unmarshal(msg.Params, &p); err != nil {
+		_ = s.rpc.Reply(msg.ID, nil, err)
+		return
+	}
+	d := s.getDoc(p.TextDocument.URI)
+	if d == nil {
+		_ = s.rpc.Reply(msg.ID, nil, nil)
+		return
+	}
+	pos, ok := d.definition(p.Position.Line+1, p.Position.Character+1)
+	if !ok {
+		_ = s.rpc.Reply(msg.ID, nil, nil)
+		return
+	}
+	_ = s.rpc.Reply(msg.ID, map[string]any{
+		"uri": p.TextDocument.URI,
+		"range": map[string]any{
+			"start": map[string]any{"line": pos.Line - 1, "character": pos.Col - 1},
+			"end":   map[string]any{"line": pos.Line - 1, "character": pos.Col - 1 + pos.Len},
+		},
 	}, nil)
 }
 
