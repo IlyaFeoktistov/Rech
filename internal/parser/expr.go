@@ -6,7 +6,6 @@ import (
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
-	"github.com/IlyaFeoktistov/Rech/internal/morph"
 )
 
 func (p *Parser) parseExpr() (ast.Expr, error) {
@@ -94,9 +93,18 @@ func (p *Parser) parseComparison() (ast.Expr, error) {
 
 // parseIsExpr разбирает хвост "относится к <Тип>" уже после того, как left
 // (проверяемое выражение) разобран - та же не цепочная позиция, что и у
-// обычного сравнения (docs/SPEC.md). "к" - предлог дательного падежа
-// ("относиться к кому/чему"), поэтому Тип разбирается через склонение
-// (resolveDeclinedTypeRef), как и объект после "наследует"/"реализует".
+// обычного сравнения (docs/SPEC.md). "к" грамматически требует дательного
+// падежа ("относиться к кому/чему"), но Тип берётся словарной формой как
+// есть, БЕЗ проверки склонения (в отличие от "наследует"/"реализует",
+// resolveDeclinedTypeRef) - курируемый классификатор Фазы A слепо склоняет
+// хвост всей строки составного имени как одно простое слово, что для
+// частого в языке паттерна "Голова+РодительныйДовесок" (например,
+// "ОшибкаДеления") даёт грамматически бессмысленную форму ("ОшибкаДелении"
+// вместо осмысленного "Ошибке Деления" - голова должна склоняться, а не
+// хвост) - решение пользователя: не подключать здесь заведомо неверное
+// склонение, дождаться настоящего морфологического движка, который умеет
+// разбирать составные имена. См. docs/GRAMMAR.md, "Открытый вопрос:
+// склонение составных имён".
 func (p *Parser) parseIsExpr(left ast.Expr) (ast.Expr, error) {
 	kw := p.advance() // "относится"
 	if _, err := p.expect(lexer.KwToward); err != nil {
@@ -106,11 +114,7 @@ func (p *Parser) parseIsExpr(left ast.Expr) (ast.Expr, error) {
 	if err != nil {
 		return nil, fmt.Errorf("после \"относится к\" ожидалось имя типа: %w", err)
 	}
-	name, err := p.resolveDeclinedTypeRef(target, "относится к", morph.Dative)
-	if err != nil {
-		return nil, err
-	}
-	return &ast.IsExpr{Value: left, Target: name, Line: kw.Line}, nil
+	return &ast.IsExpr{Value: left, Target: target.Value, Line: kw.Line}, nil
 }
 
 // parseBitOr/parseBitXor/parseBitAnd/parseShift - побитовые операторы

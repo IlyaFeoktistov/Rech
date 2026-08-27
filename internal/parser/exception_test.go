@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
@@ -50,7 +49,13 @@ func TestParseTryCatchThrow(t *testing.T) {
 	}
 }
 
-func TestParseIsExprRequiresDativeCase(t *testing.T) {
+// TestParseIsExprTakesTargetLiterallyWithoutDeclension - "относится к"
+// грамматически требует дательного падежа, но Target берётся словарной
+// формой как написано, без проверки/резолюции склонения (в отличие от
+// "наследует"/"реализует") - решение, что подключать здесь реальное
+// склонение стоит только вместе с настоящим морфологическим движком,
+// который умеет разбирать составные имена (см. package doc parseIsExpr).
+func TestParseIsExprTakesTargetLiterallyWithoutDeclension(t *testing.T) {
 	prog, err := parseSource(t, `
 сущность Пользователь
 {
@@ -60,7 +65,7 @@ func TestParseIsExprRequiresDativeCase(t *testing.T) {
 функция главная
 {
     переменная кто = новый Пользователь("Аня")
-    если кто относится к Пользователю {
+    если кто относится к Пользователь {
         вывести "да"
     }
 }
@@ -78,27 +83,7 @@ func TestParseIsExprRequiresDativeCase(t *testing.T) {
 		t.Fatalf("ожидался IsExpr, получено %T", ifStmt.Cond)
 	}
 	if isExpr.Target != "Пользователь" {
-		t.Fatalf("ожидалось разрешение дательной формы в имя типа %q, получено %q", "Пользователь", isExpr.Target)
-	}
-}
-
-func TestParseIsExprRejectsNominativeWhenDativeDiffers(t *testing.T) {
-	_, err := parseSource(t, `
-сущность Пользователь
-{
-    имеет:
-        имя: Строка
-}
-функция главная
-{
-    переменная кто = новый Пользователь("Аня")
-    если кто относится к Пользователь {
-        вывести "да"
-    }
-}
-`)
-	if err == nil || !strings.Contains(err.Error(), "ожидается дательный падеж") || !strings.Contains(err.Error(), "Пользователю") {
-		t.Fatalf("ожидалась ошибка про требуемую дательную форму \"Пользователю\", получено: %v", err)
+		t.Fatalf("ожидался Target %q без склонения, получено %q", "Пользователь", isExpr.Target)
 	}
 }
 
@@ -109,7 +94,7 @@ func TestParseIsExprAgainstSystemExceptionEntity(t *testing.T) {
     попытаться {
         выбросить новое Исключение("что-то пошло не так")
     } поймать(иск: Исключение) {
-        если иск относится к Исключению {
+        если иск относится к Исключение {
             вывести "да"
         }
     }
@@ -122,6 +107,6 @@ func TestParseIsExprAgainstSystemExceptionEntity(t *testing.T) {
 	ifStmt := try.CatchBody[0].(*ast.IfStmt)
 	isExpr := ifStmt.Cond.(*ast.IsExpr)
 	if isExpr.Target != "Исключение" {
-		t.Fatalf("ожидалось разрешение дательной формы \"Исключению\" в лемму %q, получено %q", "Исключение", isExpr.Target)
+		t.Fatalf("ожидался Target %q, получено %q", "Исключение", isExpr.Target)
 	}
 }
