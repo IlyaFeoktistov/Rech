@@ -269,7 +269,7 @@ func (a *Analyzer) collectExternFuncSigs(funcs map[string]funcSig, entities map[
 			params[i] = typ
 		}
 		decl := &ir.ExternFuncDecl{CName: ext.CName, Alias: ext.Alias, Params: params}
-		sig := funcSig{Params: params}
+		sig := funcSig{Params: params, IsExtern: true}
 		if ext.ReturnType != "" {
 			typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, ext.ReturnType)
 			if err != nil {

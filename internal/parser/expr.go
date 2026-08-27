@@ -270,6 +270,10 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 		return &ast.Identifier{Name: tok.Value, Line: tok.Line}, nil
 	case lexer.KwNew:
 		return p.parseNewExpr()
+	case lexer.KwLaunch:
+		return p.parseLaunchExpr()
+	case lexer.KwAwait:
+		return p.parseAwaitExpr()
 	case lexer.KwThis:
 		p.advance()
 		if !p.inMethodBody {

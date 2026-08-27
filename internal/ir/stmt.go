@@ -149,6 +149,7 @@ type ExprStmt struct {
 	Call       *CallExpr
 	MethodCall *MethodCallExpr
 	IncDec     *IncDecExpr
+	Await      *AwaitExpr
 }
 
 func (*ExprStmt) stmt() {}

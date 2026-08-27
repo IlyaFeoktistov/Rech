@@ -90,6 +90,8 @@ const (
 	KwThrow       // выбросить
 	KwRelates     // относится (проверка "относится к <Тип>")
 	KwToward      // к (предлог дательного падежа после "относится")
+	KwLaunch      // запустить (запуск функции в отдельном потоке ОС)
+	KwAwait       // дождаться (ожидание завершения задачи)
 )
 
 // keywords - таблица ключевых слов v0.1. Список сознательно узкий:
@@ -155,6 +157,8 @@ var keywords = map[string]TokenType{
 	"выбросить":    KwThrow,
 	"относится":    KwRelates,
 	"к":            KwToward,
+	"запустить":    KwLaunch,
+	"дождаться":    KwAwait,
 }
 
 // Token - одна лексема с позицией в исходном файле (для сообщений об ошибках).
@@ -327,6 +331,10 @@ func (t TokenType) String() string {
 		return "относится"
 	case KwToward:
 		return "к"
+	case KwLaunch:
+		return "запустить"
+	case KwAwait:
+		return "дождаться"
 	default:
 		return "UNKNOWN"
 	}

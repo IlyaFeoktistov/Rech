@@ -170,6 +170,9 @@ func (r *rewriter) rewriteStmt(s ast.Stmt) error {
 		if s.MethodCall != nil {
 			return r.rewriteExpr(s.MethodCall)
 		}
+		if s.Await != nil {
+			return r.rewriteExpr(s.Await)
+		}
 		return nil
 	case *ast.ThrowStmt:
 		return r.rewriteExpr(s.Value)
@@ -240,6 +243,10 @@ func (r *rewriter) rewriteExpr(e ast.Expr) error {
 		}
 		e.Target = resolved
 		return r.rewriteExpr(e.Value)
+	case *ast.LaunchExpr:
+		return r.rewriteExpr(e.Call)
+	case *ast.AwaitExpr:
+		return r.rewriteExpr(e.Task)
 	default:
 		return fmt.Errorf("внутренняя ошибка: неизвестное выражение %T", e)
 	}

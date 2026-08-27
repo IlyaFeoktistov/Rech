@@ -178,6 +178,10 @@ func TypeOf(e Expr) Type {
 		return e.To
 	case *IsExpr:
 		return TypeBool
+	case *LaunchExpr:
+		return TaskType(e.Callee)
+	case *AwaitExpr:
+		return e.Type
 	default:
 		return TypeUnknown
 	}

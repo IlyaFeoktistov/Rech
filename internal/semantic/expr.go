@@ -30,6 +30,19 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 	case *ast.IsExpr:
 		return analyzeIsExpr(sc, e)
 
+	case *ast.LaunchExpr:
+		return analyzeLaunchExpr(sc, e)
+
+	case *ast.AwaitExpr:
+		await, err := analyzeAwaitExpr(sc, e)
+		if err != nil {
+			return nil, err
+		}
+		if !await.HasReturn {
+			return nil, fmt.Errorf("строка %d: функция %q не имеет объявленного типа результата - \"дождаться\" здесь нельзя использовать как выражение", e.Line, await.Callee)
+		}
+		return await, nil
+
 	case *ast.Identifier:
 		typ, exists := sc.lookup(e.Name)
 		if !exists {

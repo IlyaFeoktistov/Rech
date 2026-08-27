@@ -37,6 +37,14 @@ const (
 	// ничего). У интерфейсных значений нет полей (только методы) - в
 	// отличие от KindEntity, доступ через "." к полю - ошибка компиляции.
 	KindInterface
+	// KindTask - значение-дескриптор задачи, запущенной "запустить
+	// <имя>(...)" в отдельном потоке ОС (шаг 15) - Entity несёт имя
+	// обёрнутой функции (тем же полем, что KindEntity/KindInterface несут
+	// имя сущности/интерфейса), не тип результата: у каждой когда-либо
+	// запущенной функции - собственная C-обёртка (аргументы разной формы у
+	// разных функций делают представление "по типу результата" негодным,
+	// см. package doc internal/backend/cbackend/concurrency.go).
+	KindTask
 )
 
 // Type - тип значения выражения IR, уже разрешённый семантическим анализом
@@ -75,9 +83,18 @@ func InterfaceType(name string) Type {
 	return Type{Kind: KindInterface, Entity: name}
 }
 
+// TaskType возвращает Type, соответствующий значению-дескриптору задачи,
+// запущенной "запустить funcName(...)".
+func TaskType(funcName string) Type {
+	return Type{Kind: KindTask, Entity: funcName}
+}
+
 func (t Type) String() string {
 	if t.Kind == KindEntity || t.Kind == KindInterface {
 		return t.Entity
+	}
+	if t.Kind == KindTask {
+		return "Задача<" + t.Entity + ">"
 	}
 	switch t.Kind {
 	case KindByte:
