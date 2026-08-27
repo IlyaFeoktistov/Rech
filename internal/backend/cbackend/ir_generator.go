@@ -417,6 +417,14 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 		sb.WriteString("#ifndef _WIN32\n#include <pthread.h>\n#endif\n")
 	}
 	sb.WriteString("\n")
+	// RECH_THREAD_LOCAL - определён здесь, безусловно, ОДИН раз (не C11
+	// _Thread_local, см. exceptions.go) - используется и traceHelper ниже
+	// (стек вызовов, эмитится всегда), и exceptionRuntimeCode (только при
+	// ctx.usesExceptions, см. exceptions.go) - раньше определялся только
+	// там, теперь общий для обоих потребителей.
+	sb.WriteString("#if defined(_WIN32)\n#define RECH_THREAD_LOCAL __declspec(thread)\n#else\n#define RECH_THREAD_LOCAL __thread\n#endif\n")
+	sb.WriteString(traceHelper)
+	sb.WriteString("\n")
 	sb.WriteString(consoleInitHelper)
 	sb.WriteString("\n")
 	sb.WriteString(argsGlobals)
@@ -596,6 +604,7 @@ func generateIREntityCtorInit(ctx *irGenCtx, ent *ir.Entity) (string, error) {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "// %s: конструктор\n", ent.Name)
 	fmt.Fprintf(&sb, "static void %s(%s) {\n", mangleCtorInit(ent.Name), cMethodParamListIR(ctx, ent.Name, ent.Ctor.Params))
+	fmt.Fprintf(&sb, "    %s", tracePush(ent.Name+".конструктор"))
 	ctx.thisEntity = ent.Name
 	defer func() { ctx.thisEntity = "" }()
 	for _, s := range ent.Ctor.Body {
@@ -603,6 +612,7 @@ func generateIREntityCtorInit(ctx *irGenCtx, ent *ir.Entity) (string, error) {
 			return "", err
 		}
 	}
+	fmt.Fprintf(&sb, "    %s", tracePop)
 	sb.WriteString("}\n\n")
 	return sb.String(), nil
 }
@@ -704,6 +714,7 @@ func generateIRFunction(ctx *irGenCtx, fn *ir.Function) (string, error) {
 		paramList = "int argc, char **argv"
 	}
 	fmt.Fprintf(&sb, "%s %s(%s) {\n", cReturnTypeFor(ctx, fn.HasReturn, fn.ReturnType), cName, paramList)
+	fmt.Fprintf(&sb, "    %s", tracePush(fn.Name))
 	if cName == "main" {
 		if ctx.usesGC {
 			sb.WriteString("    GC_INIT();\n")
@@ -717,6 +728,7 @@ func generateIRFunction(ctx *irGenCtx, fn *ir.Function) (string, error) {
 		}
 	}
 	if !fn.HasReturn {
+		fmt.Fprintf(&sb, "    %s", tracePop)
 		sb.WriteString("    return 0;\n")
 	}
 	sb.WriteString("}\n\n")
@@ -731,6 +743,7 @@ func generateIRMethod(ctx *irGenCtx, entityName string, m *ir.Method) (string, e
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "// %s.%s\n", entityName, m.Name)
 	fmt.Fprintf(&sb, "%s %s(%s) {\n", cReturnTypeFor(ctx, m.HasReturn, m.ReturnType), mangleMethod(entityName, m.Name), cMethodParamListIR(ctx, entityName, m.Params))
+	fmt.Fprintf(&sb, "    %s", tracePush(entityName+"."+m.Name))
 	ctx.thisEntity = entityName
 	defer func() { ctx.thisEntity = "" }()
 	for _, s := range m.Body {
@@ -739,6 +752,7 @@ func generateIRMethod(ctx *irGenCtx, entityName string, m *ir.Method) (string, e
 		}
 	}
 	if !m.HasReturn {
+		fmt.Fprintf(&sb, "    %s", tracePop)
 		sb.WriteString("    return 0;\n")
 	}
 	sb.WriteString("}\n\n")
@@ -747,6 +761,13 @@ func generateIRMethod(ctx *irGenCtx, entityName string, m *ir.Method) (string, e
 
 func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) error {
 	ind := indent(depth)
+	// Строка ТЕКУЩЕЙ инструкции обновляет верхний кадр стека вызовов
+	// (rech_trace_line) ДО генерации собственно инструкции - если внутри
+	// неё (вложенным вызовом или напрямую) случится паника, кадр уже
+	// покажет правильную строку. См. stmtLine/trace.go.
+	if line := stmtLine(s); line > 0 {
+		fmt.Fprintf(sb, "%srech_trace_line(%d);\n", ind, line)
+	}
 	switch s := s.(type) {
 	case *ir.PrintStmt:
 		code, typ, err := generateIRExpr(ctx, s.Value)
@@ -820,14 +841,25 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 
 	case *ir.ReturnStmt:
 		if s.Value == nil {
-			fmt.Fprintf(sb, "%sreturn 0;\n", ind)
+			fmt.Fprintf(sb, "%s%s%sreturn 0;\n", ind, tracePop, ind)
 			return nil
 		}
-		code, _, err := generateIRExpr(ctx, s.Value)
+		code, typ, err := generateIRExpr(ctx, s.Value)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(sb, "%sreturn %s;\n", ind, code)
+		// Значение вычисляется во временную переменную ДО rech_trace_pop() -
+		// если сам code (вложенный вызов) паникует, кадр этой функции ещё
+		// обязан быть на стеке (см. package doc trace.go). "return code;"
+		// сразу после pop() вычислил бы code уже без него. Обёрнуто в
+		// собственный "{ }" - имя переменной одно и то же на каждом "вернуть"
+		// функции, отдельная область видимости на каждый исключает
+		// повторное объявление, даже если "вернуть" встречается более
+		// одного раза (разные ветки "если").
+		fmt.Fprintf(sb, "%s{\n", ind)
+		fmt.Fprintf(sb, "%s    %s %s = %s;\n", ind, typ.cType(ctx), returnTmpVar, code)
+		fmt.Fprintf(sb, "%s    %s%s    return %s;\n", ind, tracePop, ind, returnTmpVar)
+		fmt.Fprintf(sb, "%s}\n", ind)
 		return nil
 
 	case *ir.FieldAssign:

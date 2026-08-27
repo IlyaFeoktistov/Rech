@@ -289,6 +289,7 @@ const argFuncHelper = `static const char *rech_arg(long long i) {
 // исключительная ситуация во внешних данных/окружении.
 var panicHelper = fmt.Sprintf(`static void rech_panic(const char *msg) {
     fprintf(stderr, "%s%%s\n", msg);
+    rech_trace_print();
     exit(1);
 }
 `, rtmsg.PanicPrefix)

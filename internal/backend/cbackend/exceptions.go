@@ -117,12 +117,12 @@ func exceptionRuntimeCode(ctx *irGenCtx) string {
 	fmt.Fprintf(&sb, "} %s;\n", catchFrameType)
 	// rech_catch_top - per-поток (не общий на процесс): без этого
 	// "попытаться" в одном потоке ОС (шаг 15) видело бы/портило кадры
-	// другого - __declspec(thread)/__thread - переносимая пара для этого
-	// (не C11 _Thread_local - не на всех тулчейнах, которые нужно
-	// поддерживать, есть <threads.h>). Тред-локальность не вредит и
+	// другого - RECH_THREAD_LOCAL (__declspec(thread)/__thread, не C11
+	// _Thread_local - не на всех тулчейнах, которые нужно поддерживать)
+	// определён безусловно в GenerateFromIR (нужен и rech_trace, trace.go,
+	// эмитится всегда). Тред-локальность не вредит и
 	// однопоточной программе (то же поведение, что и у обычного static) -
 	// не гейтится отдельно от usesExceptions самим usesThreads.
-	sb.WriteString("#if defined(_WIN32)\n#define RECH_THREAD_LOCAL __declspec(thread)\n#else\n#define RECH_THREAD_LOCAL __thread\n#endif\n")
 	fmt.Fprintf(&sb, "static RECH_THREAD_LOCAL %s *%s = NULL;\n\n", catchFrameType, catchTopVar)
 
 	// rech_isa/rech_type_names - общие для ЛЮБОГО участника диспетчеризации
@@ -164,6 +164,7 @@ func exceptionRuntimeCode(ctx *irGenCtx) string {
 	fmt.Fprintf(&sb, "static void %s(void *exc, const char *type_name) {\n", throwFunc)
 	fmt.Fprintf(&sb, "    if (%s == NULL) {\n", catchTopVar)
 	fmt.Fprintf(&sb, "        fprintf(stderr, \"%s\\n\", type_name, %s);\n", escapeCString(template), msgField)
+	sb.WriteString("        rech_trace_print();\n")
 	sb.WriteString("        exit(1);\n")
 	sb.WriteString("    }\n")
 	fmt.Fprintf(&sb, "    %s *f = %s;\n", catchFrameType, catchTopVar)
@@ -222,7 +223,15 @@ func generateIRTryStmt(sb *strings.Builder, ctx *irGenCtx, s *ir.TryStmt, depth 
 	in2 := indent(depth + 2)
 	in3 := indent(depth + 3)
 
+	// traceVar - глубина стека вызовов (rech_trace, trace.go) на момент
+	// входа в "попытаться". longjmp у rech_throw пропускает обычный
+	// rech_trace_pop() каждого размотанного уровня между местом "выбросить"
+	// и этим "поймать" - без восстановления эти кадры остались бы висеть в
+	// rech_trace (следующая паника ПОСЛЕ этого catch увидела бы чужой, уже
+	// завершившийся стек вызовов вперемешку со своим).
+	traceVar := frame + "_trace"
 	fmt.Fprintf(sb, "%s{\n", ind)
+	fmt.Fprintf(sb, "%sint %s = rech_trace_top;\n", in1, traceVar)
 	fmt.Fprintf(sb, "%s%s %s;\n", in1, catchFrameType, frame)
 	fmt.Fprintf(sb, "%s%s.prev = %s;\n", in1, frame, catchTopVar)
 	fmt.Fprintf(sb, "%s%s = &%s;\n", in1, catchTopVar, frame)
@@ -235,6 +244,7 @@ func generateIRTryStmt(sb *strings.Builder, ctx *irGenCtx, s *ir.TryStmt, depth 
 	fmt.Fprintf(sb, "%s%s = %s.prev;\n", in2, catchTopVar, frame)
 	fmt.Fprintf(sb, "%s} else {\n", in1)
 	fmt.Fprintf(sb, "%s%s = %s.prev;\n", in2, catchTopVar, frame)
+	fmt.Fprintf(sb, "%srech_trace_top = %s;\n", in2, traceVar)
 	fmt.Fprintf(sb, "%svoid *%s_exc = %s.exc;\n", in2, frame, frame)
 
 	catchVarC := fromIRType(s.CatchVarType).cType(ctx)

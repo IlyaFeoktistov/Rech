@@ -143,7 +143,7 @@ func TestGenerateFromIRFunctionWithParamsCallAndReturn(t *testing.T) {
 	if !strings.Contains(out, "long long rech_slozhit(long long v_chto, long long v_kem) {") {
 		t.Fatalf("ожидалось определение функции, получено:\n%s", out)
 	}
-	if !strings.Contains(out, "return (v_chto + v_kem);") {
+	if !strings.Contains(out, "rech_ret_tmp = (v_chto + v_kem);") || !strings.Contains(out, "return rech_ret_tmp;") {
 		t.Fatalf("ожидался возврат значения, получено:\n%s", out)
 	}
 	if !strings.Contains(out, "rech_slozhit(2LL, 3LL)") {
@@ -205,7 +205,7 @@ func TestGenerateFromIREntityFieldsConstructorMethodsAndThis(t *testing.T) {
 	if !strings.Contains(out, "(this_)->f_vozrast = ((this_)->f_vozrast + 1LL);") {
 		t.Fatalf("ожидалась мутация поля через \"этот\" (this_ - уже указатель), получено:\n%s", out)
 	}
-	if !strings.Contains(out, "return (this_)->f_vozrast;") {
+	if !strings.Contains(out, "rech_ret_tmp = (this_)->f_vozrast;") || !strings.Contains(out, "return rech_ret_tmp;") {
 		t.Fatalf("ожидался возврат поля через \"этот\", получено:\n%s", out)
 	}
 }
@@ -275,7 +275,7 @@ func TestGenerateFromIRBecomeStmtEmitsNoCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, "int rech_M_polzovatel_avtorizovat(rech_T_polzovatel *this_) {\n    return 0;\n}") {
+	if !strings.Contains(out, "int rech_M_polzovatel_avtorizovat(rech_T_polzovatel *this_) {\n    rech_trace_push(\"Пользователь.авторизовать\");\n    rech_trace_pop();\n    return 0;\n}") {
 		t.Fatalf("ожидалось пустое тело метода (\"становится\" не эмитит код), получено:\n%s", out)
 	}
 }
