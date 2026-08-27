@@ -383,6 +383,7 @@ func (inst *instantiator) ensureEntity(name string, line int) error {
 		Methods:   substMethods(template.Methods, subst),
 		Ctor:      substCtor(template.Ctor, subst),
 		Line:      line,
+		File:      template.File,
 	}
 	inst.entities[name] = synthesized
 	if len(checks) > 0 {
@@ -425,6 +426,7 @@ func (inst *instantiator) ensureFunc(name string, line int) error {
 		ReturnType: substituteTypeString(template.ReturnType, subst),
 		Body:       substStmts(template.Body, subst),
 		Line:       line,
+		File:       template.File,
 	}
 	inst.funcs[name] = synthesized
 	if len(checks) > 0 {

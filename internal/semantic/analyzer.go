@@ -438,7 +438,7 @@ func (a *Analyzer) analyzeConstructor(ent *ast.EntityDecl) (*ir.Method, error) {
 		}
 		body[i] = irst
 	}
-	return &ir.Method{Params: params, Body: body}, nil
+	return &ir.Method{Params: params, Body: body, File: ent.File}, nil
 }
 
 func (a *Analyzer) analyzeMethod(ent *ast.EntityDecl, m *ast.MethodDecl) (*ir.Method, error) {
@@ -459,6 +459,7 @@ func (a *Analyzer) analyzeMethod(ent *ast.EntityDecl, m *ast.MethodDecl) (*ir.Me
 		ReturnType: sig.ReturnType,
 		HasReturn:  sig.HasReturn,
 		Body:       body,
+		File:       ent.File,
 	}, nil
 }
 
@@ -478,6 +479,7 @@ func (a *Analyzer) analyzeFunction(fn *ast.FunctionDecl) (*ir.Function, error) {
 		ReturnType: sig.ReturnType,
 		HasReturn:  sig.HasReturn,
 		Body:       body,
+		File:       fn.File,
 	}, nil
 }
 

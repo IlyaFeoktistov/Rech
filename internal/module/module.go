@@ -192,6 +192,7 @@ func (l *loader) load(path string, stack []string) (*Module, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+	ast.StampFile(prog, path)
 
 	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	m := &Module{Path: path, Qualifier: Qualifier(base), AST: prog}

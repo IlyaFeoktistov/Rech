@@ -129,6 +129,17 @@ type EntityDecl struct {
 	// doc GenericParam.
 	TypeParams []GenericParam
 	Line       int
+	// File - путь исходного файла, из которого объявлена сущность (методы/
+	// конструктор объявлены внутри её же тела, отдельного File для них не
+	// нужно) - проставляется НЕ парсером (он не знает свой путь), а
+	// вызывающим кодом сразу после разбора файла (internal/compiler.
+	// parseFileRaw, internal/module.loader.load) - нужен отладчику
+	// (internal/debugger) для сопоставления точки останова "файл:строка" с
+	// конкретной функцией/методом/конструктором в объединённой программе
+	// (после module.Link несколько файлов сливаются в одну *ast.Program,
+	// без File по одному Line нельзя было бы понять, к какому файлу он
+	// относится).
+	File string
 }
 
 func (*EntityDecl) node() {}
@@ -239,6 +250,8 @@ type FunctionDecl struct {
 	// если функция не generic. См. package doc GenericParam.
 	TypeParams []GenericParam
 	Line       int
+	// File - см. EntityDecl.File.
+	File string
 }
 
 func (*FunctionDecl) node() {}

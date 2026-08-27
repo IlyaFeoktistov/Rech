@@ -264,7 +264,12 @@ func (c *Compiler) parseFileRaw(srcPath string) (*ast.Program, error) {
 	if err != nil {
 		return nil, fmt.Errorf("не удалось прочитать файл: %w", err)
 	}
-	return c.Frontend.Parse(string(srcBytes))
+	prog, err := c.Frontend.Parse(string(srcBytes))
+	if err != nil {
+		return nil, err
+	}
+	ast.StampFile(prog, srcPath)
+	return prog, nil
 }
 
 // parseFile разбирает srcPath как единицу компиляции верхнего уровня
