@@ -16,13 +16,20 @@ import (
 // стек до ближайшего "попытаться" или до самого верха, если такого нет.
 type thrownException struct {
 	value Value
+	// trace - стек вызовов (internal/interp/trace.go), заполняется
+	// callFunction/callMethod по мере того, как исключение (обычная error,
+	// не Go panic) проходит через них необработанным - см. package doc там
+	// же. Пуст, если исключение поймано раньше, чем дошло до границы
+	// какого-либо вызова (execTryStmt внутри той же активации) - в этом
+	// случае .Error() у него никто не спрашивает.
+	trace []traceFrame
 }
 
 // Error - текст, который увидит вызывающий код (rech run/rech test), если
 // исключение дошло до самого верха необработанным - см.
 // rtmsg.UncaughtExceptionFormat (тот же формат, что и у cbackend.rech_throw).
 func (e *thrownException) Error() string {
-	return rtmsg.PanicPrefix + rtmsg.UncaughtExceptionFormat(e.value.Obj.typeName, e.value.Obj.fields["сообщение"].S)
+	return rtmsg.PanicPrefix + rtmsg.UncaughtExceptionFormat(e.value.Obj.typeName, e.value.Obj.fields["сообщение"].S) + traceSuffix(e.trace)
 }
 
 // isA - "относится к": typeName == target, или один из предков typeName по

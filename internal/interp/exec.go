@@ -12,7 +12,15 @@ import (
 
 // execStmt исполняет одну инструкцию - см. execBlock (interp.go) про то, как
 // ctrlReturn прерывает выполнение вверх по стеку блоков/вызову.
+//
+// Строка ТЕКУЩЕЙ инструкции обновляет *cc.curLine ДО её исполнения - см.
+// package doc internal/interp/trace.go - если внутри неё (вложенным
+// вызовом или напрямую) случится паника/исключение, кадр этой активации
+// уже покажет правильную строку.
 func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
+	if line := stmtLine(s); line > 0 {
+		*cc.curLine = line
+	}
 	switch s := s.(type) {
 	case *ir.PrintStmt:
 		v, err := in.evalExpr(s.Value, env, cc)

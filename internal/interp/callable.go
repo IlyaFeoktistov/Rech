@@ -60,7 +60,12 @@ func (in *Interp) evalLambdaExpr(e *ir.LambdaExpr, env *Env) (Value, error) {
 		for i, p := range e.Params {
 			callEnv.declare(p.Name, in.cloneValue(args[i]))
 		}
-		ctrl, err := in.execBlock(e.Body, callEnv, &callCtx{})
+		// curLine - собственная ячейка тела лямбды, не связанная с cc
+		// вызывающей стороны: паника внутри не заводит отдельный кадр стека
+		// вызовов (см. package doc internal/interp/trace.go) - execStmt всё
+		// равно обязан иметь куда писать текущую строку, не читает её здесь
+		// никто.
+		ctrl, err := in.execBlock(e.Body, callEnv, &callCtx{curLine: new(int)})
 		if err != nil {
 			return Value{}, err
 		}

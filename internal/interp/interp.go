@@ -219,8 +219,16 @@ func (e *Env) declare(name string, v Value) {
 // (nil у свободной функции) - передаётся отдельно от Env, а не через него,
 // потому что не меняется внутри вложенных блоков одного вызова и не должен
 // наследоваться через границу вызова (новый вызов - новый callCtx).
+//
+// curLine - строка исполняемой сейчас инструкции ЭТОЙ активации вызова (см.
+// package doc internal/interp/trace.go) - указатель, а не int, потому что
+// execStmt получает cc по значению интерфейса callCtx на каждом уровне
+// вложенных if/пока/для ОДНОГО И ТОГО ЖЕ вызова (execBlock передаёт тот же
+// cc дальше, не создаёт новый), но должен писать в одну и ту же ячейку,
+// которую в конце читает callFunction/callMethod этой активации.
 type callCtx struct {
-	this *entityObj
+	this    *entityObj
+	curLine *int
 }
 
 // runtimeError - ошибка времени выполнения программы Rech (не компилятора) -
@@ -232,9 +240,15 @@ type callCtx struct {
 // завершать ли процесс целиком (`rech run`-подобный сценарий) или считать
 // одним неудачным тестом среди многих и продолжить (`rech test`) - на
 // стороне вызывающего кода, не этого пакета.
-type runtimeError struct{ msg string }
+// trace - стек вызовов (internal/interp/trace.go), пуст сразу после
+// panicRuntime и заполняется по мере того, как паника проходит через
+// callFunction/callMethod вверх до Run.
+type runtimeError struct {
+	msg   string
+	trace []traceFrame
+}
 
-func (e *runtimeError) Error() string { return e.msg }
+func (e *runtimeError) Error() string { return e.msg + traceSuffix(e.trace) }
 
 // panicRuntime останавливает исполнение текущей программы Rech как раз в
 // той точке, где встретилась ошибка (используется panic/recover Go как
@@ -320,14 +334,35 @@ func Run(prog *ir.Program, out io.Writer, stdin io.Reader) (err error) {
 	return err
 }
 
-func (in *Interp) callFunction(fn *ir.Function, args []Value) (Value, error) {
+// callFunction/callMethod - см. package doc internal/interp/trace.go про то,
+// как именно кадр этого вызова (name/*cc.curLine) попадает в trace паники/
+// исключения, проходящей через эту активацию: defer/recover для
+// panicRuntime (Go panic, разматывается снизу вверх сама, без явного стека -
+// см. runtimeError.trace) и обычная проверка err для thrownException
+// (пробрасывается как ЗНАЧЕНИЕ error, см. package doc exception.go).
+
+func (in *Interp) callFunction(fn *ir.Function, args []Value) (result Value, err error) {
 	env := newEnv(nil)
 	for i, p := range fn.Params {
 		env.declare(p.Name, in.cloneValue(args[i]))
 	}
-	ctrl, err := in.execBlock(fn.Body, env, &callCtx{})
-	if err != nil {
-		return Value{}, err
+	cc := &callCtx{curLine: new(int)}
+	defer func() {
+		if r := recover(); r != nil {
+			re, ok := r.(*runtimeError)
+			if !ok {
+				panic(r)
+			}
+			re.trace = append(re.trace, traceFrame{name: fn.Name, line: *cc.curLine})
+			panic(re)
+		}
+	}()
+	ctrl, execErr := in.execBlock(fn.Body, env, cc)
+	if execErr != nil {
+		if te, ok := execErr.(*thrownException); ok {
+			te.trace = append(te.trace, traceFrame{name: fn.Name, line: *cc.curLine})
+		}
+		return Value{}, execErr
 	}
 	if ctrl.kind == ctrlReturn {
 		return ctrl.value, nil
@@ -335,14 +370,36 @@ func (in *Interp) callFunction(fn *ir.Function, args []Value) (Value, error) {
 	return Value{}, nil
 }
 
-func (in *Interp) callMethod(m *ir.Method, this *entityObj, args []Value) (Value, error) {
+func (in *Interp) callMethod(m *ir.Method, this *entityObj, args []Value) (result Value, err error) {
 	env := newEnv(nil)
 	for i, p := range m.Params {
 		env.declare(p.Name, in.cloneValue(args[i]))
 	}
-	ctrl, err := in.execBlock(m.Body, env, &callCtx{this: this})
-	if err != nil {
-		return Value{}, err
+	name := m.Name
+	if name == "" {
+		// ent.Ctor (явный конструктор сущности) не несёт своего имени -
+		// callMethod вызывается для него и напрямую (evalNewExprWithCtor),
+		// и через "родитель(...)" (ParentCallStmt) - тот же текст, что и
+		// cbackend.generateIREntityCtorInit (trace.go, tracePush).
+		name = "конструктор"
+	}
+	cc := &callCtx{this: this, curLine: new(int)}
+	defer func() {
+		if r := recover(); r != nil {
+			re, ok := r.(*runtimeError)
+			if !ok {
+				panic(r)
+			}
+			re.trace = append(re.trace, traceFrame{name: this.typeName + "." + name, line: *cc.curLine})
+			panic(re)
+		}
+	}()
+	ctrl, execErr := in.execBlock(m.Body, env, cc)
+	if execErr != nil {
+		if te, ok := execErr.(*thrownException); ok {
+			te.trace = append(te.trace, traceFrame{name: this.typeName + "." + name, line: *cc.curLine})
+		}
+		return Value{}, execErr
 	}
 	if ctrl.kind == ctrlReturn {
 		return ctrl.value, nil
