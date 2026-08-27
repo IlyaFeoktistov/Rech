@@ -33,10 +33,27 @@
 
 Нужен установленный системный C-компилятор (`cc`, `clang` или `gcc` в `PATH`,
 либо переменная окружения `CC`) и библиотека Boehm GC (`libgc` - сборщик
-мусора для сгенерированного C, нужен любой программе с хотя бы одной
-`сущность`/`класс` - шаг 12, ссылочная семантика): Debian/Ubuntu -
-`apt install libgc-dev`, Fedora - `dnf install gc-devel`, macOS (Homebrew) -
-`brew install bdw-gc`, Windows (vcpkg) - `vcpkg install bdwgc`.
+мусора для сгенерированного C, нужен только программе хотя бы с одной
+`сущность`/`класс` - шаг 12, ссылочная семантика; `структура` и программы
+совсем без сущностей `libgc` не требуют):
+
+- Debian/Ubuntu - `apt install libgc-dev`.
+- Fedora - `dnf install gc-devel`.
+- macOS (Homebrew) - `brew install bdw-gc`.
+- Windows с vcpkg - `vcpkg install bdwgc` (не проверялось напрямую - vcpkg
+  не был установлен на тестовой машине).
+- **Windows с MinGW-w64 (проверено, например WinLibs)** - vcpkg не нужен,
+  собрать `bdwgc` из исходников через уже имеющиеся `cmake`/`mingw32-make`
+  из состава дистрибутива:
+  ```
+  curl -LO https://github.com/ivmai/bdwgc/releases/download/v8.2.6/gc-8.2.6.tar.gz
+  tar xzf gc-8.2.6.tar.gz && cd gc-8.2.6 && mkdir build && cd build
+  cmake -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release -Denable_cplusplus=OFF -DBUILD_SHARED_LIBS=OFF ..
+  mingw32-make
+  ```
+  Затем скопировать `include/*.h` (и `include/extra/`) в `<mingw64>/include`,
+  `build/libgc.a` в `<mingw64>/lib` - тот же `<mingw64>`, где лежит сам
+  `gcc.exe` (стандартные пути поиска компилятора, без правки `CC`/флагов).
 
 ```sh
 go run ./cmd/rech run examples/основы/привет.rech
