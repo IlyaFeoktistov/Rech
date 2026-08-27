@@ -87,6 +87,15 @@ type ctx struct {
 	// программы состояние - как entities/enums).
 	resolvedConsts  map[string]ir.Expr
 	resolvingConsts map[string]bool
+
+	// allowParentCall - true РОВНО во время анализа инструкции с индексом 0
+	// тела конструктора (analyzeConstructor) - то, что делает "родитель(...)"
+	// (ParentCallStmt) допустимым только там: сама case-ветка сбрасывает
+	// его сразу после использования (не более одного вызова), а push()
+	// ниже сбрасывает его при входе в любой вложенный блок (если/пока/для)
+	// - "родитель(...)" внутри "если ... { родитель(...) }" на первом месте
+	// тела конструктора тоже отклоняется, не только "не первым по счёту".
+	allowParentCall bool
 }
 
 func newCtx(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64, thisEntity string, returnType ir.Type, hasReturn bool, resolvedConsts map[string]ir.Expr, resolvingConsts map[string]bool) *ctx {
@@ -105,6 +114,7 @@ func (c *ctx) push() {
 	c.scopes = append(c.scopes, scope{})
 	c.established = append(c.established, map[string]map[string]bool{})
 	c.consts = append(c.consts, map[string]bool{})
+	c.allowParentCall = false
 }
 
 func (c *ctx) pop() {

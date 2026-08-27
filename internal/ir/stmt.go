@@ -65,6 +65,20 @@ type BecomeStmt struct {
 
 func (*BecomeStmt) stmt() {}
 
+// ParentCallStmt соответствует "родитель(<арг>, ...)" внутри тела
+// конструктора - вызывает Entity.Ctor базовой сущности целиком на том же
+// объекте ("этот" вызывающего конструктора). BaseEntity - имя базовой
+// сущности (семантический анализ уже проверил, что она объявлена, что у
+// неё есть собственный Ctor, и что это первая инструкция тела - см. package
+// doc internal/semantic/inheritance.go) - backend просто вызывает её Ctor
+// напрямую по имени, без повторного поиска по цепочке BaseName.
+type ParentCallStmt struct {
+	BaseEntity string
+	Args       []Expr
+}
+
+func (*ParentCallStmt) stmt() {}
+
 // AssertStmt соответствует "утверждать <условие>" - Cond уже провалидирован
 // (тип Логическое) семантическим анализом. Line - единственное поле Line
 // среди узлов IR (остальные его не несут, см. package doc) - здесь оно

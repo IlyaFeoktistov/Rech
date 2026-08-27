@@ -58,6 +58,28 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 		recv.Obj.fields[s.Field] = in.cloneValue(v)
 		return ctrl{}, nil
 
+	case *ir.ParentCallStmt:
+		baseEnt := in.entities[s.BaseEntity]
+		args := make([]Value, len(s.Args))
+		for i, a := range s.Args {
+			v, err := in.evalExpr(a, env, cc)
+			if err != nil {
+				return ctrl{}, err
+			}
+			args[i] = v
+		}
+		// callMethod - тот же путь, что и обычный метод: заводит новый Env
+		// для параметров конструктора базовой сущности, но исполняет его
+		// тело на ТОМ ЖЕ cc.this (тот же *entityObj, ещё строящийся) - см.
+		// package doc ir.ParentCallStmt. Возвращаемое значение
+		// (ctrlReturn от голого "вернуть" внутри тела базового конструктора,
+		// если оно есть) не несёт смысла для конструктора и отбрасывается,
+		// как и в самой callMethod для метода без объявленного результата.
+		if _, err := in.callMethod(baseEnt.Ctor, cc.this, args); err != nil {
+			return ctrl{}, err
+		}
+		return ctrl{}, nil
+
 	case *ir.BecomeStmt:
 		// Шаг 4.1, упрощённая версия: "становится" структурно проверено
 		// семантическим анализом и не несёт значения во время исполнения -

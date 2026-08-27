@@ -309,6 +309,9 @@ func compareOrdered(op string, l, r Value) Value {
 // пустым), см. package doc про то, почему у генериков нет ir.Entity-узла.
 func (in *Interp) evalNewExpr(e *ir.NewExpr, env *Env, cc *callCtx) (Value, error) {
 	if ent, ok := in.entities[e.Entity]; ok {
+		if ent.Ctor != nil {
+			return in.evalNewExprWithCtor(ent, e, env, cc)
+		}
 		fields := make(map[string]Value, len(ent.Fields))
 		for i, f := range ent.Fields {
 			v, err := in.evalExpr(e.Args[i], env, cc)
@@ -323,6 +326,34 @@ func (in *Interp) evalNewExpr(e *ir.NewExpr, env *Env, cc *callCtx) (Value, erro
 		return Value{Type: ir.EntityType(e.Entity), Obj: &entityObj{typeName: e.Entity, coll: &collection{template: g.Template}}}, nil
 	}
 	return Value{}, fmt.Errorf("сущность %q не найдена во время исполнения", e.Entity)
+}
+
+// evalNewExprWithCtor - "новый Тип(...)" у сущности с явным конструктором
+// (ent.Ctor != nil): в отличие от неявной формы выше, поля НЕ заполняются
+// один-в-один из e.Args (Args здесь - аргументы самого конструктора, не
+// обязаны совпадать с полями числом/порядком) - объект заводится с нулевыми
+// значениями всех полей (та же гарантия, что и GC_MALLOC в cbackend -
+// generateIREntityCtor, зависящая от неё логика в теле конструктора должна
+// видеть согласованный ноль, а не отсутствие ключа в map), затем тело
+// конструктора исполняется на нём как обычный метод (callMethod) и само
+// присваивает нужные поля через "этот.поле = значение"/"родитель(...)".
+func (in *Interp) evalNewExprWithCtor(ent *ir.Entity, e *ir.NewExpr, env *Env, cc *callCtx) (Value, error) {
+	obj := &entityObj{typeName: e.Entity, fields: make(map[string]Value, len(ent.Fields))}
+	for _, f := range ent.Fields {
+		obj.fields[f.Name] = zeroValue(f.Type)
+	}
+	args := make([]Value, len(e.Args))
+	for i, a := range e.Args {
+		v, err := in.evalExpr(a, env, cc)
+		if err != nil {
+			return Value{}, err
+		}
+		args[i] = v
+	}
+	if _, err := in.callMethod(ent.Ctor, obj, args); err != nil {
+		return Value{}, err
+	}
+	return Value{Type: ir.EntityType(e.Entity), Obj: obj}, nil
 }
 
 // evalMethodCallExpr - "receiver.метод(...)". Receiver вычисляется без

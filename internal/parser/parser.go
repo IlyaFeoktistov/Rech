@@ -78,6 +78,13 @@ type Parser struct {
 	// свойство (где мы сейчас в дереве разбора), не зависящее от типов,
 	// поэтому проверяется здесь, а не в backend'е.
 	inMethodBody bool
+
+	// inConstructorBody - true, пока парсер разбирает тело явного
+	// конструктора (parseConstructor) - то, что делает "родитель(...)"
+	// валидным (parseParentCallStmt), тем же принципом, что и inMethodBody
+	// у "этот". Тело конструктора всегда одновременно и inMethodBody (в нём
+	// тоже валиден "этот.поле = ..."), поэтому оба поля включаются вместе.
+	inConstructorBody bool
 }
 
 func New(tokens []lexer.Token) *Parser {
@@ -399,9 +406,20 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 	var states []ast.StateDecl
 	var fields []ast.Field
 	var methods []*ast.MethodDecl
+	var ctor *ast.ConstructorDecl
 
 	for p.cur().Type != lexer.RBRACE {
 		switch p.cur().Type {
+		case lexer.KwConstructor:
+			if ctor != nil {
+				return nil, fmt.Errorf("%s %q: конструктор объявлен более одного раза", label, name.Value)
+			}
+			c, err := p.parseConstructor()
+			if err != nil {
+				return nil, fmt.Errorf("%s %q: %w", label, name.Value, err)
+			}
+			ctor = c
+
 		case lexer.KwConst:
 			c, err := p.parseConstDecl()
 			if err != nil {
@@ -505,6 +523,10 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 		return nil, err
 	}
 
+	if kw.Type == lexer.KwStruct && ctor != nil {
+		return nil, fmt.Errorf("структура %q: \"конструктор\" допустим только у \"сущность\"/\"класс\" (структура продолжает неявное позиционное присваивание полей)", name.Value)
+	}
+
 	return &ast.EntityDecl{
 		Name:       name.Value,
 		IsStruct:   kw.Type == lexer.KwStruct,
@@ -514,6 +536,7 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 		States:     states,
 		Fields:     fields,
 		Methods:    methods,
+		Ctor:       ctor,
 		Line:       kw.Line,
 	}, nil
 }

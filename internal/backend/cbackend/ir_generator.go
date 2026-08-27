@@ -156,7 +156,11 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	var ctors strings.Builder
 	for _, ent := range prog.Entities {
 		if ctx.entityIsRef(ent.Name) {
-			ctors.WriteString(generateIREntityCtor(ctx, ent))
+			code, err := generateIREntityCtor(ctx, ent)
+			if err != nil {
+				return "", fmt.Errorf("сущность %q: конструктор: %w", ent.Name, err)
+			}
+			ctors.WriteString(code)
 		}
 	}
 
@@ -362,14 +366,30 @@ func generateIREntityStruct(ctx *irGenCtx, ent *ir.Entity) string {
 // generateIREntityCtor - конструктор ссылочной сущности ("сущность"/
 // "класс", ctx.entityIsRef(ent.Name) == true): выделяет память под структуру
 // через GC_MALLOC (Boehm GC - решение пользователя, шаг 12, "Указатели/
-// ссылки... сущность по умолчанию") и заполняет поля позиционно (Args уже
-// позиционны по полю, см. package doc ir.NewExpr), возвращает указатель.
-// GC_MALLOC (не GC_MALLOC_ATOMIC) - поля сущности сами могут быть
-// указателями на другие GC-объекты (вложенная сущность), нужно сканирование.
+// ссылки... сущность по умолчанию") и возвращает указатель. GC_MALLOC (не
+// GC_MALLOC_ATOMIC) - поля сущности сами могут быть указателями на другие
+// GC-объекты (вложенная сущность), нужно сканирование; она же зануляет
+// выделенную память (документированная гарантия Boehm GC, в отличие от
+// обычного malloc) - опора для explicit-конструктора ниже, чьё тело не
+// обязано присвоить каждое поле явно.
+//
+// Без ent.Ctor - заполняет поля позиционно (Args уже позиционны по полю,
+// см. package doc ir.NewExpr) прямо здесь, одной функцией. С ent.Ctor -
+// выделение памяти отделено от самого тела конструктора
+// (generateIREntityCtorInit) - см. её package doc про то, зачем именно.
+//
 // В отличие от "структура" (generateIRNewExpr - compound literal прямо в
-// месте вызова), у ссылочной сущности ровно одна такая функция на тип, не
-// код на каждый "новый" - тот же принцип, что и у show-функций.
-func generateIREntityCtor(ctx *irGenCtx, ent *ir.Entity) string {
+// месте вызова, структуры не участвуют в явных конструкторах - см.
+// ast.EntityDecl.Ctor), у ссылочной сущности ровно одна такая функция на
+// тип, не код на каждый "новый" - тот же принцип, что и у show-функций.
+func generateIREntityCtor(ctx *irGenCtx, ent *ir.Entity) (string, error) {
+	if ent.Ctor != nil {
+		initCode, err := generateIREntityCtorInit(ctx, ent)
+		if err != nil {
+			return "", err
+		}
+		return initCode + generateIREntityCtorNewWithInit(ctx, ent), nil
+	}
 	var sb strings.Builder
 	cType := mangleType(ent.Name)
 	params := make([]string, len(ent.Fields))
@@ -388,6 +408,61 @@ func generateIREntityCtor(ctx *irGenCtx, ent *ir.Entity) string {
 	for _, f := range ent.Fields {
 		fmt.Fprintf(&sb, "    p->%s = %s;\n", mangleField(f.Name), mangleVar(f.Name))
 	}
+	sb.WriteString("    return p;\n")
+	sb.WriteString("}\n\n")
+	return sb.String(), nil
+}
+
+// generateIREntityCtorInit - тело явного конструктора ent.Ctor как отдельная
+// C-функция, с тем же "Тип *this_" первым скрытым параметром, что и у
+// метода (cMethodParamListIR/ctx.thisEntity - буквально тот же путь
+// кодогенерации тела, что и generateIRMethod, включая "этот"). Отделена от
+// выделения памяти (generateIREntityCtorNewWithInit) ровно для того, чтобы
+// "родитель(...)" производного конструктора (ir.ParentCallStmt) мог вызвать
+// её напрямую на уже существующем объекте, не создавая новый - единый
+// объект строится последовательными вызовами тел конструкторов вверх по
+// цепочке BaseName, а не вложенными "новый".
+func generateIREntityCtorInit(ctx *irGenCtx, ent *ir.Entity) (string, error) {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "// %s: конструктор\n", ent.Name)
+	fmt.Fprintf(&sb, "static void %s(%s) {\n", mangleCtorInit(ent.Name), cMethodParamListIR(ctx, ent.Name, ent.Ctor.Params))
+	ctx.thisEntity = ent.Name
+	defer func() { ctx.thisEntity = "" }()
+	for _, s := range ent.Ctor.Body {
+		if err := generateIRStmt(&sb, ctx, s, 1); err != nil {
+			return "", err
+		}
+	}
+	sb.WriteString("}\n\n")
+	return sb.String(), nil
+}
+
+// generateIREntityCtorNewWithInit - "rech_new_X" когда есть явный
+// конструктор: GC_MALLOC (зануляет память) + вызов тела конструктора
+// (generateIREntityCtorInit) на свежевыделенном указателе + возврат его.
+// Определена ПОСЛЕ generateIREntityCtorInit в общем тексте (см.
+// generateIREntityCtor) - обращение к mangleCtorInit(ent.Name) здесь уже
+// после её определения, C не нуждается в отдельном прототипе. Порядок
+// сущностей в prog.Entities - порядок объявления в файле (buildIR сохраняет
+// его как есть), а базовая сущность обязана быть объявлена раньше
+// производной (semantic.applyInheritance) - поэтому и "родитель(...)"
+// производного конструктора всегда ссылается на уже определённую
+// rech_init_БАЗА к моменту, когда до неё доходит очередь в этом же цикле
+// (GenerateFromIR), без отдельного прототипа и для этого случая тоже.
+func generateIREntityCtorNewWithInit(ctx *irGenCtx, ent *ir.Entity) string {
+	var sb strings.Builder
+	cType := mangleType(ent.Name)
+	fmt.Fprintf(&sb, "static %s *%s(%s) {\n", cType, mangleCtor(ent.Name), cParamListIR(ctx, ent.Ctor.Params))
+	fmt.Fprintf(&sb, "    %s *p = GC_MALLOC(sizeof(%s));\n", cType, cType)
+	if ctx.dispatchParticipants[ent.Name] {
+		fmt.Fprintf(&sb, "    p->vt = &%s;\n", vtableInstanceName(ent.Name))
+	}
+	initArgs := make([]string, len(ent.Ctor.Params)+1)
+	initArgs[0] = "p"
+	for i, p := range ent.Ctor.Params {
+		initArgs[i+1] = mangleVar(p.Name)
+	}
+	fmt.Fprintf(&sb, "    %s(%s);\n", mangleCtorInit(ent.Name), strings.Join(initArgs, ", "))
 	sb.WriteString("    return p;\n")
 	sb.WriteString("}\n\n")
 	return sb.String()
@@ -605,6 +680,19 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 		// Шаг 4.1, упрощённая версия: состояние уже проверено семантическим
 		// анализом как объявленное - typestate чисто компилятивный на этом
 		// шаге, "становится" не эмитит C-код, как и в AST-пути.
+		return nil
+
+	case *ir.ParentCallStmt:
+		argCodes := make([]string, len(s.Args)+1)
+		argCodes[0] = "this_"
+		for i, a := range s.Args {
+			code, _, err := generateIRExpr(ctx, a)
+			if err != nil {
+				return err
+			}
+			argCodes[i+1] = code
+		}
+		fmt.Fprintf(sb, "%s%s(%s);\n", ind, mangleCtorInit(s.BaseEntity), strings.Join(argCodes, ", "))
 		return nil
 
 	case *ir.AssertStmt:

@@ -63,6 +63,12 @@ func checkManglingCollisions(prog *ir.Program) error {
 				return fmt.Errorf("сущность %q: метод %q: %w", ent.Name, m.Name, err)
 			}
 		}
+
+		if ent.Ctor != nil {
+			if err := checkParamsAndBodyMangling(ent.Ctor.Params, ent.Ctor.Body); err != nil {
+				return fmt.Errorf("сущность %q: конструктор: %w", ent.Name, err)
+			}
+		}
 	}
 	return nil
 }

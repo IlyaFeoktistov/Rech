@@ -134,6 +134,19 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 			ownMethods[m.Name] = msig
 		}
 
+		if ent.Ctor != nil {
+			ctorParams := make([]ir.Type, len(ent.Ctor.Params))
+			for i, p := range ent.Ctor.Params {
+				typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, p.Type)
+				if err != nil {
+					return fmt.Errorf("сущность %q: конструктор: параметр %q: %w", ent.Name, p.Name, err)
+				}
+				ctorParams[i] = typ
+			}
+			sig.HasCtor = true
+			sig.CtorParams = ctorParams
+		}
+
 		// Наследование ("наследует")/интерфейсы ("реализует") -
 		// сплющивает sig/ownMethods с базовой сущностью, если она есть, и
 		// проверяет соответствие каждому объявленному интерфейсу - см.
@@ -333,7 +346,45 @@ func (a *Analyzer) analyzeEntity(ent *ast.EntityDecl) (*ir.Entity, error) {
 		}
 		irMethods[i] = irM
 	}
-	return &ir.Entity{Name: ent.Name, IsStruct: ent.IsStruct, BaseName: ent.BaseName, Interfaces: ent.Interfaces, Constants: constants, Fields: fields, Methods: irMethods}, nil
+	var ctor *ir.Method
+	if ent.Ctor != nil {
+		irCtor, err := a.analyzeConstructor(ent)
+		if err != nil {
+			return nil, fmt.Errorf("конструктор: %w", err)
+		}
+		ctor = irCtor
+	}
+	return &ir.Entity{Name: ent.Name, IsStruct: ent.IsStruct, BaseName: ent.BaseName, Interfaces: ent.Interfaces, Constants: constants, Fields: fields, Methods: irMethods, Ctor: ctor}, nil
+}
+
+// analyzeConstructor анализирует явное тело конструктора ent.Ctor - как
+// analyzeMethod (тот же ctx с ent.Name как thisEntity, тот же путь
+// параметр-объявление/тело), но без типа результата (конструктор не
+// возвращает значение - объект уже выделен вызывающей стороной backend'а)
+// и с ручным проходом по инструкциям верхнего уровня тела, а не через
+// analyzeBlock: sc.allowParentCall включается ровно на инструкцию с
+// индексом 0 - см. package doc ctx.allowParentCall/ast.ParentCallStmt.
+func (a *Analyzer) analyzeConstructor(ent *ast.EntityDecl) (*ir.Method, error) {
+	c := ent.Ctor
+	sig := a.entities[ent.Name]
+	sc := newCtx(a.funcs, a.entities, a.methods, a.aliases, a.interfaces, a.enums, ent.Name, ir.Type{}, false, a.resolvedConsts, a.resolvingConsts)
+	params := make([]ir.Param, len(c.Params))
+	for i, p := range c.Params {
+		params[i] = ir.Param{Name: p.Name, Type: sig.CtorParams[i]}
+		if err := sc.declare(p.Name, sig.CtorParams[i]); err != nil {
+			return nil, fmt.Errorf("строка %d: параметр %q: %w", p.Line, p.Name, err)
+		}
+	}
+	body := make([]ir.Stmt, len(c.Body))
+	for i, st := range c.Body {
+		sc.allowParentCall = i == 0
+		irst, err := analyzeStmt(sc, st)
+		if err != nil {
+			return nil, err
+		}
+		body[i] = irst
+	}
+	return &ir.Method{Params: params, Body: body}, nil
 }
 
 func (a *Analyzer) analyzeMethod(ent *ast.EntityDecl, m *ast.MethodDecl) (*ir.Method, error) {

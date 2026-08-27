@@ -118,7 +118,12 @@ type EntityDecl struct {
 	States     []StateDecl
 	Fields     []Field
 	Methods    []*MethodDecl
-	Line       int
+	// Ctor - явное тело конструктора, nil - нет ("новый Тип(...)" остаётся
+	// неявным позиционным/именованным присваиванием полей). Только у
+	// "сущность"/"класс" (не "структура" - см. IsStruct), как и
+	// BaseName/Interfaces.
+	Ctor *ConstructorDecl
+	Line int
 }
 
 func (*EntityDecl) node() {}

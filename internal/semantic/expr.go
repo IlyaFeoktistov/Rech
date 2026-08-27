@@ -156,6 +156,26 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 			return nil, fmt.Errorf("строка %d: сущность %q не объявлена", e.Line, e.Type)
 		}
 	}
+	if sig.HasCtor {
+		if e.FieldNames != nil {
+			return nil, fmt.Errorf("строка %d: у сущности %q явный конструктор - именованная форма (поле: значение) недоступна, аргументы передаются позиционно, по объявлению конструктора", e.Line, e.Type)
+		}
+		if len(e.Args) != len(sig.CtorParams) {
+			return nil, fmt.Errorf("строка %d: конструктор %q ожидает аргументов: %d, передано: %d", e.Line, e.Type, len(sig.CtorParams), len(e.Args))
+		}
+		args := make([]ir.Expr, len(e.Args))
+		for i, a := range e.Args {
+			arg, err := analyzeExpr(sc, a)
+			if err != nil {
+				return nil, err
+			}
+			if typ := ir.TypeOf(arg); !isAssignable(sc.entities, typ, sig.CtorParams[i]) {
+				return nil, fmt.Errorf("строка %d: аргумент %d конструктора %q должен быть типа %s, получен %s", e.Line, i+1, e.Type, sig.CtorParams[i], typ)
+			}
+			args[i] = arg
+		}
+		return &ir.NewExpr{Entity: e.Type, Args: args}, nil
+	}
 	args := make([]ir.Expr, len(sig.FieldNames))
 	if e.FieldNames != nil {
 		if len(e.FieldNames) != len(sig.FieldNames) {

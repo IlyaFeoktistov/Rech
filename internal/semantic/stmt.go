@@ -341,6 +341,35 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		}
 		return &ir.BecomeStmt{Receiver: receiver, State: s.State}, nil
 
+	case *ast.ParentCallStmt:
+		if !sc.allowParentCall {
+			return nil, fmt.Errorf("строка %d: \"родитель(...)\" допустимо только первой инструкцией тела конструктора", s.Line)
+		}
+		sc.allowParentCall = false
+		baseName := sc.entities[sc.thisEntity].BaseName
+		if baseName == "" {
+			return nil, fmt.Errorf("строка %d: у сущности %q нет базовой сущности - \"родитель(...)\" вызывать нечего", s.Line, sc.thisEntity)
+		}
+		baseSig := sc.entities[baseName]
+		if !baseSig.HasCtor {
+			return nil, fmt.Errorf("строка %d: у базовой сущности %q нет собственного конструктора - вызывать нечего, присвойте унаследованные поля напрямую через \"этот.поле = ...\"", s.Line, baseName)
+		}
+		if len(s.Args) != len(baseSig.CtorParams) {
+			return nil, fmt.Errorf("строка %d: конструктор %q ожидает аргументов: %d, передано: %d", s.Line, baseName, len(baseSig.CtorParams), len(s.Args))
+		}
+		args := make([]ir.Expr, len(s.Args))
+		for i, a := range s.Args {
+			arg, err := analyzeExpr(sc, a)
+			if err != nil {
+				return nil, err
+			}
+			if typ := ir.TypeOf(arg); !isAssignable(sc.entities, typ, baseSig.CtorParams[i]) {
+				return nil, fmt.Errorf("строка %d: аргумент %d конструктора %q должен быть типа %s, получен %s", s.Line, i+1, baseName, baseSig.CtorParams[i], typ)
+			}
+			args[i] = arg
+		}
+		return &ir.ParentCallStmt{BaseEntity: baseName, Args: args}, nil
+
 	default:
 		return nil, fmt.Errorf("инструкция %T не поддерживается", s)
 	}

@@ -60,6 +60,10 @@ func (a *Analyzer) applyInheritance(entities map[string]entitySig, methods map[s
 			IsStruct:        ownSig.IsStruct,
 			BaseName:        ent.BaseName,
 			OwnInterfaces:   ent.Interfaces,
+			// HasCtor/CtorParams - НЕ из baseSig: собственный конструктор
+			// каждой сущности независим, см. package doc entitySig.
+			HasCtor:    ownSig.HasCtor,
+			CtorParams: ownSig.CtorParams,
 		}
 
 		baseMethods := methods[ent.BaseName]

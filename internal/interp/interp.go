@@ -114,6 +114,35 @@ func float32Value(v float64) Value { return Value{Type: ir.TypeFloat32, F: float
 func listenerValue(l net.Listener) Value { return Value{Type: ir.TypeSocket, Listener: l} }
 func connValue(c net.Conn) Value         { return Value{Type: ir.TypeSocket, Conn: c} }
 
+// zeroValue - нулевое значение типа t, нужно только явному конструктору
+// сущности (evalNewExprWithCtor) - объект заводится с нулевыми полями ДО
+// исполнения тела конструктора (тело может не присвоить все поля явно, как
+// и GC_MALLOC в cbackend, который зануляет всю память под структуру перед
+// запуском тела конструктора - см. package doc evalNewExprWithCtor). Поле
+// типа сущности/интерфейса - Value{Obj: nil}: язык пока не различает
+// "ещё не присвоено" и "пусто" (docs/ROADMAP.md, будущее Ничто/nullable) -
+// не эта фича должна это решать.
+func zeroValue(t ir.Type) Value {
+	switch t.Kind {
+	case ir.KindInt:
+		return intValue(0)
+	case ir.KindFloat32:
+		return float32Value(0)
+	case ir.KindFloat:
+		return floatValue(0)
+	case ir.KindChar:
+		return charValue(0)
+	case ir.KindByte:
+		return byteValue(0)
+	case ir.KindString:
+		return stringValue("")
+	case ir.KindBool:
+		return boolValue(false)
+	default:
+		return Value{Type: t}
+	}
+}
+
 // cloneValue - применяет значение-копирующую семантику "структура" (докс.
 // SPEC.md, "Структуры - значения") в момент "коммита" в новое хранилище
 // (переменная/параметр/поле/возврат) - навигация по цепочке чтения

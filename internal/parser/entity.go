@@ -158,6 +158,55 @@ func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
 	return &ast.MethodDecl{Name: name.Value, Params: params, ReturnType: returnType, Body: body, Visibility: vis, Line: name.Line}, nil
 }
 
+// parseConstructor разбирает явное тело конструктора: "конструктор" "("
+// [ params ] ")" block - как parseMethod, но без имени, типа результата и
+// модификатора видимости (конструктор не может быть переопределён/вызван
+// как обычный метод, видимость к нему неприменима в этом срезе). Внутри
+// тела включаются оба inMethodBody (нужен для "этот") и inConstructorBody
+// (нужен для "родитель(...)", parseParentCallStmt).
+func (p *Parser) parseConstructor() (*ast.ConstructorDecl, error) {
+	kw, err := p.expect(lexer.KwConstructor)
+	if err != nil {
+		return nil, err
+	}
+	if p.cur().Type != lexer.LPAREN {
+		return nil, fmt.Errorf("строка %d, столбец %d: после \"конструктор\" ожидалось \"(\" (даже без параметров - \"()\")",
+			p.cur().Line, p.cur().Col)
+	}
+	params, err := p.parseParams()
+	if err != nil {
+		return nil, fmt.Errorf("в списке параметров конструктора: %w", err)
+	}
+	p.skipNewlines()
+	prevInMethod, prevInCtor := p.inMethodBody, p.inConstructorBody
+	p.inMethodBody, p.inConstructorBody = true, true
+	body, err := p.parseBlock()
+	p.inMethodBody, p.inConstructorBody = prevInMethod, prevInCtor
+	if err != nil {
+		return nil, err
+	}
+	return &ast.ConstructorDecl{Params: params, Body: body, Line: kw.Line}, nil
+}
+
+// parseParentCallStmt разбирает "родитель(<арг>, ...)" - вызов конструктора
+// базовой сущности (docs, ast.ParentCallStmt). Валиден только внутри тела
+// конструктора - структурная проверка здесь же (inConstructorBody), не в
+// backend'е. Позиция парсера на входе - на "родитель".
+func (p *Parser) parseParentCallStmt() (ast.Stmt, error) {
+	kw := p.advance() // "родитель"
+	if !p.inConstructorBody {
+		return nil, fmt.Errorf("строка %d, столбец %d: \"родитель(...)\" валидно только внутри тела конструктора", kw.Line, kw.Col)
+	}
+	if p.cur().Type != lexer.LPAREN {
+		return nil, fmt.Errorf("строка %d, столбец %d: после \"родитель\" ожидалось \"(\"", p.cur().Line, p.cur().Col)
+	}
+	args, err := p.parseArgList()
+	if err != nil {
+		return nil, fmt.Errorf("в аргументах \"родитель(...)\": %w", err)
+	}
+	return &ast.ParentCallStmt{Args: args, Line: kw.Line}, nil
+}
+
 // parseFieldsSection разбирает "имеет:" и поля, отступленные относительно
 // самого слова "имеет" (docs/GRAMMAR.md, "Секции внутри объявления
 // сущности"): поле принадлежит секции, пока отступ (Col) его первого
