@@ -29,6 +29,15 @@ type Analyzer struct {
 	resolvedConsts  map[string]ir.Expr
 	resolvingConsts map[string]bool
 
+	// resolvedFieldDefaults - кэш значений по умолчанию полей ("Сущность.
+	// поле" -> уже разрешённый ir.Expr), тем же принципом, что и
+	// resolvedConsts (см. resolveFieldDefault) - без своего множества
+	// "resolvingFieldDefaults": в отличие от константы, значение поля не
+	// видит соседние поля (thisEntity пуст при разборе), значит сослаться
+	// само на себя оно не может - цикл через resolveEntityConstant внутри
+	// уже защищён resolvingConsts.
+	resolvedFieldDefaults map[string]ir.Expr
+
 	// genericConstraints - ограничения параметров типа каждой инстанциации
 	// пользовательского generic-типа ("Коробка<Целое>" -> ограничения T),
 	// по мангл-имени - собраны заранее (instantiateGenerics, до того как
@@ -125,6 +134,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 			sig.FieldTypes = append(sig.FieldTypes, typ)
 			sig.FieldDocs = append(sig.FieldDocs, f.Doc)
 			sig.FieldVisibility = append(sig.FieldVisibility, f.Visibility)
+			sig.FieldDefaultExprs = append(sig.FieldDefaultExprs, f.Default)
 		}
 		if len(ent.States) > 0 {
 			sig.States = map[string]bool{}
@@ -376,12 +386,21 @@ func (a *Analyzer) analyzeParamsAndBody(sc *ctx, astParams []ast.Param, sig func
 func (a *Analyzer) analyzeEntity(ent *ast.EntityDecl) (*ir.Entity, error) {
 	sig := a.entities[ent.Name]
 	fields := make([]ir.Field, len(sig.FieldNames))
+	fsc := newCtx(a, a.funcs, a.entities, a.methods, a.aliases, a.interfaces, a.enums, "", ir.Type{}, false, a.resolvedConsts, a.resolvingConsts)
 	for i, name := range sig.FieldNames {
 		var doc string
 		if i < len(sig.FieldDocs) {
 			doc = sig.FieldDocs[i]
 		}
-		fields[i] = ir.Field{Name: name, Type: sig.FieldTypes[i], Doc: doc}
+		var def ir.Expr
+		if i < len(sig.FieldDefaultExprs) && sig.FieldDefaultExprs[i] != nil {
+			val, err := resolveFieldDefault(fsc, ent.Name, name, ent.Line)
+			if err != nil {
+				return nil, fmt.Errorf("поле %q: %w", name, err)
+			}
+			def = val
+		}
+		fields[i] = ir.Field{Name: name, Type: sig.FieldTypes[i], Doc: doc, Default: def}
 	}
 	// Константы сущности - через resolveEntityConstant, ту же функцию, что
 	// использует доступ "Сущность.Константа"/"экземпляр.Константа" в

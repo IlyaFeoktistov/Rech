@@ -352,12 +352,22 @@ func (in *Interp) evalNewExpr(e *ir.NewExpr, env *Env, cc *callCtx) (Value, erro
 // обязаны совпадать с полями числом/порядком) - объект заводится с нулевыми
 // значениями всех полей (та же гарантия, что и GC_MALLOC в cbackend -
 // generateIREntityCtor, зависящая от неё логика в теле конструктора должна
-// видеть согласованный ноль, а не отсутствие ключа в map), затем тело
-// конструктора исполняется на нём как обычный метод (callMethod) и само
-// присваивает нужные поля через "этот.поле = значение"/"родитель(...)".
+// видеть согласованный ноль, а не отсутствие ключа в map) - кроме полей с
+// "имеет: имя: Тип = выражение" (docs/SPEC.md): такое поле начинается со
+// своего значения по умолчанию, не с нуля. Затем тело конструктора
+// исполняется на нём как обычный метод (callMethod) и может переопределить
+// любое из них через "этот.поле = значение"/"родитель(...)".
 func (in *Interp) evalNewExprWithCtor(ent *ir.Entity, e *ir.NewExpr, env *Env, cc *callCtx) (Value, error) {
 	obj := &entityObj{typeName: e.Entity, fields: make(map[string]Value, len(ent.Fields))}
 	for _, f := range ent.Fields {
+		if f.Default != nil {
+			v, err := in.evalExpr(f.Default, env, cc)
+			if err != nil {
+				return Value{}, err
+			}
+			obj.fields[f.Name] = in.cloneValue(v)
+			continue
+		}
 		obj.fields[f.Name] = zeroValue(f.Type)
 	}
 	args := make([]Value, len(e.Args))

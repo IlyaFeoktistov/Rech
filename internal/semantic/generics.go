@@ -114,6 +114,9 @@ func substFields(fields []ast.Field, subst map[string]string) []ast.Field {
 	for i, f := range fields {
 		out[i] = f
 		out[i].Type = substituteTypeString(f.Type, subst)
+		if f.Default != nil {
+			out[i].Default = substExpr(f.Default, subst)
+		}
 	}
 	return out
 }

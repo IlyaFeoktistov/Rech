@@ -101,6 +101,36 @@ func resolveEntityConstant(sc *ctx, entityName, constName string, line int) (ir.
 	return val, nil
 }
 
+// resolveFieldDefault возвращает значение по умолчанию поля entityName.
+// fieldName (см. ast.Field.Default) - тем же принципом, что и
+// resolveEntityConstant: вычисляется через analyzeExpr РОВНО один раз на
+// весь Analyze, результат кэшируется в sc.a.resolvedFieldDefaults и
+// переиспользуется на каждый вызов "новый Тип(...)", пропустивший это поле
+// (тот же resolved ir.Expr подставляется в ir.NewExpr.Args каждого такого
+// места). sc передаётся как есть (та область видимости, откуда впервые
+// потребовалось значение) - thisEntity в ней может быть пустым или чужим,
+// значения это не меняет: выражение по умолчанию не видит "этот" и не
+// ссылается на другие поля этой же сущности синтаксически (поле - не
+// переменная в scopes), только на константы (в т.ч. через "Сущность.
+// КОНСТАНТА").
+func resolveFieldDefault(sc *ctx, entityName, fieldName string, line int) (ir.Expr, error) {
+	key := entityName + "." + fieldName
+	if v, ok := sc.a.resolvedFieldDefaults[key]; ok {
+		return v, nil
+	}
+	sig := sc.entities[entityName]
+	idx := sig.fieldIndex(fieldName)
+	val, err := analyzeExpr(sc, sig.FieldDefaultExprs[idx])
+	if err != nil {
+		return nil, fmt.Errorf("строка %d: значение по умолчанию поля %q сущности %q: %w", line, fieldName, entityName, err)
+	}
+	if typ := ir.TypeOf(val); !isAssignable(sc.entities, typ, sig.FieldTypes[idx]) {
+		return nil, fmt.Errorf("строка %d: значение по умолчанию поля %q сущности %q должно быть типа %s, получено %s", line, fieldName, entityName, sig.FieldTypes[idx], typ)
+	}
+	sc.a.resolvedFieldDefaults[key] = val
+	return val, nil
+}
+
 // checkMethodVisibility - то же самое для вызова непубличного метода.
 func checkMethodVisibility(sc *ctx, entityName, methodName string, vis ast.Visibility, line int) error {
 	return checkVisibility(sc, "метод", "ый", "вызов", entityName, methodName, vis, line)

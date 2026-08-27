@@ -24,10 +24,11 @@ func Analyze(prog *ast.Program) (*ir.Program, error) {
 	prog = instantiated
 
 	a := &Analyzer{
-		resolvedConsts:     map[string]ir.Expr{},
-		resolvingConsts:    map[string]bool{},
-		genericConstraints: constraints,
-		callablesSeen:      map[string]bool{},
+		resolvedConsts:        map[string]ir.Expr{},
+		resolvingConsts:       map[string]bool{},
+		resolvedFieldDefaults: map[string]ir.Expr{},
+		genericConstraints:    constraints,
+		callablesSeen:         map[string]bool{},
 	}
 
 	// Интерфейсы - до сущностей: поле/параметр сущности может

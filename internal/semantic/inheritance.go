@@ -50,18 +50,19 @@ func (a *Analyzer) applyInheritance(entities map[string]entitySig, methods map[s
 		}
 
 		flat = entitySig{
-			FieldNames:      append(append([]string{}, baseSig.FieldNames...), ownSig.FieldNames...),
-			FieldTypes:      append(append([]ir.Type{}, baseSig.FieldTypes...), ownSig.FieldTypes...),
-			FieldDocs:       append(append([]string{}, baseSig.FieldDocs...), ownSig.FieldDocs...),
-			FieldVisibility: append(append([]ast.Visibility{}, baseSig.FieldVisibility...), ownSig.FieldVisibility...),
-			ConstNames:      append(append([]string{}, baseSig.ConstNames...), ownSig.ConstNames...),
-			ConstExprs:      append(append([]ast.Expr{}, baseSig.ConstExprs...), ownSig.ConstExprs...),
-			ConstDocs:       append(append([]string{}, baseSig.ConstDocs...), ownSig.ConstDocs...),
-			ConstVisibility: append(append([]ast.Visibility{}, baseSig.ConstVisibility...), ownSig.ConstVisibility...),
-			States:          ownSig.States,
-			IsStruct:        ownSig.IsStruct,
-			BaseName:        ent.BaseName,
-			OwnInterfaces:   ent.Interfaces,
+			FieldNames:        append(append([]string{}, baseSig.FieldNames...), ownSig.FieldNames...),
+			FieldTypes:        append(append([]ir.Type{}, baseSig.FieldTypes...), ownSig.FieldTypes...),
+			FieldDocs:         append(append([]string{}, baseSig.FieldDocs...), ownSig.FieldDocs...),
+			FieldVisibility:   append(append([]ast.Visibility{}, baseSig.FieldVisibility...), ownSig.FieldVisibility...),
+			FieldDefaultExprs: append(append([]ast.Expr{}, baseSig.FieldDefaultExprs...), ownSig.FieldDefaultExprs...),
+			ConstNames:        append(append([]string{}, baseSig.ConstNames...), ownSig.ConstNames...),
+			ConstExprs:        append(append([]ast.Expr{}, baseSig.ConstExprs...), ownSig.ConstExprs...),
+			ConstDocs:         append(append([]string{}, baseSig.ConstDocs...), ownSig.ConstDocs...),
+			ConstVisibility:   append(append([]ast.Visibility{}, baseSig.ConstVisibility...), ownSig.ConstVisibility...),
+			States:            ownSig.States,
+			IsStruct:          ownSig.IsStruct,
+			BaseName:          ent.BaseName,
+			OwnInterfaces:     ent.Interfaces,
 			// HasCtor/CtorParams - НЕ из baseSig: собственный конструктор
 			// каждой сущности независим, см. package doc entitySig.
 			HasCtor:    ownSig.HasCtor,

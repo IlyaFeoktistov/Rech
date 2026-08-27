@@ -82,6 +82,13 @@ type entitySig struct {
 	// непубличного поля.
 	FieldVisibility []ast.Visibility
 
+	// FieldDefaultExprs - AST-выражение значения по умолчанию поля (после
+	// "=" в объявлении, см. ast.Field.Default), тот же индекс, что и
+	// FieldNames/FieldTypes; nil-элемент - у поля нет значения по
+	// умолчанию. Разрешается в ir.Expr лениво и ровно один раз на весь
+	// Analyze - тем же принципом, что и ConstExprs, см. resolveFieldDefault.
+	FieldDefaultExprs []ast.Expr
+
 	// States - краткие формы, объявленные под "состояние:" (шаг 4.1,
 	// упрощённая версия) - для проверки BecomeStmt ("получатель становится
 	// <состояние>"). nil у сущностей без "состояние:".

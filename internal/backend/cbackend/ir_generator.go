@@ -607,6 +607,20 @@ func generateIREntityCtorInit(ctx *irGenCtx, ent *ir.Entity) (string, error) {
 	fmt.Fprintf(&sb, "    %s", tracePush(ent.Name+".конструктор"))
 	ctx.thisEntity = ent.Name
 	defer func() { ctx.thisEntity = "" }()
+	// Поле с "имеет: имя: Тип = выражение" начинается со своего значения по
+	// умолчанию ещё до тела явного конструктора (docs/SPEC.md) - GC_MALLOC
+	// зануляет память, этого достаточно для полей без default, но не для
+	// полей с ним. Тело конструктора (ниже) может переопределить любое из
+	// них через "этот.поле = ...".
+	for _, f := range ent.Fields {
+		if f.Default == nil {
+			continue
+		}
+		assign := &ir.FieldAssign{Receiver: &ir.ThisExpr{Entity: ent.Name}, Field: f.Name, Value: f.Default}
+		if err := generateIRStmt(&sb, ctx, assign, 1); err != nil {
+			return "", err
+		}
+	}
 	for _, s := range ent.Ctor.Body {
 		if err := generateIRStmt(&sb, ctx, s, 1); err != nil {
 			return "", err

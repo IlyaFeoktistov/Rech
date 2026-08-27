@@ -99,6 +99,84 @@ func TestRunParentCallStmtRunsBaseConstructorOnSameObject(t *testing.T) {
 // СВОЕГО "конструктор" - "новый" остаётся неявным позиционным
 // присваиванием всех полей (включая унаследованные), даже если у базовой
 // сущности есть явный конструктор - см. package doc entitySig.HasCtor.
+// TestRunImplicitConstructorOmitsTrailingDefaultField - без явного
+// "конструктор" поле со значением по умолчанию ("имеет: y: Целое = 0")
+// можно пропустить в позиционном "новый Тип(...)" - тем самым оно
+// становится последним, необязательным.
+func TestRunImplicitConstructorOmitsTrailingDefaultField(t *testing.T) {
+	got := runSrc(t, `
+сущность Точка
+{
+    имеет:
+        x: Целое
+        y: Целое = 9
+}
+функция главная
+{
+    переменная а = новая Точка(1)
+    переменная б = новая Точка(1, 2)
+    вывести а.x
+    вывести а.y
+    вывести б.x
+    вывести б.y
+}
+`)
+	if got != "1\n9\n1\n2\n" {
+		t.Fatalf("ожидалось значение по умолчанию для пропущенного поля, получили %q", got)
+	}
+}
+
+// TestRunImplicitConstructorNamedFormOmitsDefaultField - та же гарантия, но
+// в именованной форме "новый Тип(поле: значение)".
+func TestRunImplicitConstructorNamedFormOmitsDefaultField(t *testing.T) {
+	got := runSrc(t, `
+сущность Пользователь
+{
+    имеет:
+        имя: Строка
+        роль: Строка = "гость"
+}
+функция главная
+{
+    переменная п = новый Пользователь(имя: "Аня")
+    вывести п.имя
+    вывести п.роль
+}
+`)
+	if got != "Аня\nгость\n" {
+		t.Fatalf("ожидалось значение по умолчанию для поля роль, получили %q", got)
+	}
+}
+
+// TestRunExplicitConstructorFieldStartsAtDefaultBeforeBody - у сущности с
+// явным конструктором поле со значением по умолчанию начинает с него, ещё
+// до тела конструктора, а не с нулевого значения - тело может
+// переопределить его явным присваиванием.
+func TestRunExplicitConstructorFieldStartsAtDefaultBeforeBody(t *testing.T) {
+	got := runSrc(t, `
+сущность Счётчик
+{
+    имеет:
+        шаг: Целое = 1
+        значение: Целое = 100
+
+    конструктор(значение: Целое)
+    {
+        этот.значение = значение
+    }
+}
+функция главная
+{
+    переменная сч = новый Счётчик(5)
+    вывести сч.шаг
+    вывести сч.значение
+}
+`)
+	if got != "1\n5\n" {
+		t.Fatalf("ожидался дефолт для поля шаг и переопределённое конструктором значение, получили %q", got)
+	}
+}
+
 func TestRunEntityWithoutOwnConstructorKeepsImplicitForm(t *testing.T) {
 	got := runSrc(t, `
 сущность Пользователь

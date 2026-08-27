@@ -200,8 +200,8 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 	}
 	args := make([]ir.Expr, len(sig.FieldNames))
 	if e.FieldNames != nil {
-		if len(e.FieldNames) != len(sig.FieldNames) {
-			return nil, fmt.Errorf("строка %d: конструктор %q ожидает значений полей: %d, передано: %d", e.Line, e.Type, len(sig.FieldNames), len(e.FieldNames))
+		if len(e.FieldNames) > len(sig.FieldNames) {
+			return nil, fmt.Errorf("строка %d: конструктор %q ожидает значений полей: не более %d, передано: %d", e.Line, e.Type, len(sig.FieldNames), len(e.FieldNames))
 		}
 		seen := make([]bool, len(sig.FieldNames))
 		for i, label := range e.FieldNames {
@@ -222,10 +222,23 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 			}
 			args[idx] = arg
 		}
+		for idx, ok := range seen {
+			if ok {
+				continue
+			}
+			if idx >= len(sig.FieldDefaultExprs) || sig.FieldDefaultExprs[idx] == nil {
+				return nil, fmt.Errorf("строка %d: конструктор %q: не указано значение поля %q (у поля нет значения по умолчанию)", e.Line, e.Type, sig.FieldNames[idx])
+			}
+			val, err := resolveFieldDefault(sc, e.Type, sig.FieldNames[idx], e.Line)
+			if err != nil {
+				return nil, err
+			}
+			args[idx] = val
+		}
 		return &ir.NewExpr{Entity: e.Type, Args: args}, nil
 	}
-	if len(e.Args) != len(sig.FieldNames) {
-		return nil, fmt.Errorf("строка %d: конструктор %q ожидает значений полей: %d, передано: %d", e.Line, e.Type, len(sig.FieldNames), len(e.Args))
+	if len(e.Args) > len(sig.FieldNames) {
+		return nil, fmt.Errorf("строка %d: конструктор %q ожидает значений полей: не более %d, передано: %d", e.Line, e.Type, len(sig.FieldNames), len(e.Args))
 	}
 	for i, a := range e.Args {
 		arg, err := analyzeExpr(sc, a)
@@ -236,6 +249,16 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 			return nil, fmt.Errorf("строка %d: аргумент %d конструктора %q должен быть типа %s, получен %s", e.Line, i+1, e.Type, sig.FieldTypes[i], typ)
 		}
 		args[i] = arg
+	}
+	for i := len(e.Args); i < len(sig.FieldNames); i++ {
+		if i >= len(sig.FieldDefaultExprs) || sig.FieldDefaultExprs[i] == nil {
+			return nil, fmt.Errorf("строка %d: конструктор %q: пропущено значение поля %q (у поля нет значения по умолчанию)", e.Line, e.Type, sig.FieldNames[i])
+		}
+		val, err := resolveFieldDefault(sc, e.Type, sig.FieldNames[i], e.Line)
+		if err != nil {
+			return nil, err
+		}
+		args[i] = val
 	}
 	return &ir.NewExpr{Entity: e.Type, Args: args}, nil
 }
