@@ -119,15 +119,22 @@ func declaredNames(prog *ast.Program) map[string]bool {
 }
 
 // localTypeNames - declaredNames плюс производные типы состояний
-// (StateDecl.TypeName) - используется для разрешения ссылок на тип внутри
-// самого файла, который их объявил (link.go), а не для проверки
-// "использовать" (там - только declaredNames).
+// (StateDecl.TypeName) и интерфейсы (InterfaceDecl.Name) - используется
+// для разрешения ссылок на тип внутри самого файла, который их объявил
+// (link.go), а не для проверки "использовать" (там - только
+// declaredNames): ни производные типы состояний, ни интерфейсы пока не
+// участвуют в системе импортов, но должны резолвиться как тип параметра/
+// поля/результата в пределах одного файла, даже когда файл вообще не
+// содержит "использовать" - Link() всё равно проходит по нему.
 func localTypeNames(prog *ast.Program) map[string]bool {
 	names := declaredNames(prog)
 	for _, ent := range prog.Entities {
 		for _, st := range ent.States {
 			names[st.TypeName] = true
 		}
+	}
+	for _, iface := range prog.Interfaces {
+		names[iface.Name] = true
 	}
 	return names
 }

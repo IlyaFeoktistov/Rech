@@ -62,6 +62,15 @@ type irGenCtx struct {
 	// к настоящему символу).
 	externCNames map[string]string
 	thisEntity   string
+
+	// interfaces - интерфейсы программы по имени (см.
+	// internal/backend/cbackend/vtable.go).
+	interfaces map[string]*ir.Interface
+	// dispatchSlots/dispatchParticipants/usesVtable - см. package doc
+	// vtable.go, computeDispatch.
+	dispatchSlots        map[string]int
+	dispatchParticipants map[string]bool
+	usesVtable           bool
 }
 
 // receiverIsPointer - true, если C-выражение, которое сгенерирует
@@ -110,11 +119,34 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	for _, ext := range prog.ExternFuncs {
 		externCNames[ext.Alias] = ext.CName
 	}
-	ctx := &irGenCtx{entities: entities, externCNames: externCNames, usesGC: usesGC}
+	interfaces := map[string]*ir.Interface{}
+	for _, iface := range prog.Interfaces {
+		interfaces[iface.Name] = iface
+	}
+	participants, slots := computeDispatch(prog)
+	ctx := &irGenCtx{
+		entities: entities, externCNames: externCNames, usesGC: usesGC,
+		interfaces: interfaces, dispatchParticipants: participants, dispatchSlots: slots,
+		usesVtable: len(slots) > 0,
+	}
 
 	var typedefs strings.Builder
+	if ctx.usesVtable {
+		typedefs.WriteString(vtableTypedefs(len(slots)))
+	}
 	for _, ent := range prog.Entities {
 		typedefs.WriteString(generateIREntityStruct(ctx, ent))
+	}
+
+	// vtables - статические таблицы диспетчеризации участвующих сущностей
+	// (см. vtable.go) - ссылаются на C-функции методов по адресу, поэтому
+	// должны идти в файле ПОСЛЕ protos (иначе &rech_M_... указывал бы на
+	// ещё не объявленную функцию - неявного объявления функций в C99 нет).
+	var vtables strings.Builder
+	for _, ent := range prog.Entities {
+		if ctx.dispatchParticipants[ent.Name] {
+			vtables.WriteString(generateVtableInstance(ctx, ent))
+		}
 	}
 
 	// ctors - GC_MALLOC-конструкторы для ссылочных сущностей ("сущность"/
@@ -274,9 +306,6 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	if typedefs.Len() > 0 {
 		sb.WriteString(typedefs.String())
 	}
-	if ctors.Len() > 0 {
-		sb.WriteString(ctors.String())
-	}
 	if genericsCode.Len() > 0 {
 		sb.WriteString(genericsCode.String())
 	}
@@ -293,6 +322,16 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 		sb.WriteString(protos.String())
 		sb.WriteString("\n")
 	}
+	// vtables (ссылается на &rech_M_... - нужны protos выше) и ctors
+	// (ссылается на &rech_VT_... у участвующих в диспетчеризации сущностей
+	// - нужны vtables) - строго в этом порядке, оба перед body (который их
+	// использует).
+	if vtables.Len() > 0 {
+		sb.WriteString(vtables.String())
+	}
+	if ctors.Len() > 0 {
+		sb.WriteString(ctors.String())
+	}
 	sb.WriteString(body.String())
 	return sb.String(), nil
 }
@@ -302,7 +341,15 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 func generateIREntityStruct(ctx *irGenCtx, ent *ir.Entity) string {
 	var sb strings.Builder
 	sb.WriteString("typedef struct {\n")
-	if len(ent.Fields) == 0 {
+	participates := ctx.dispatchParticipants[ent.Name]
+	if participates {
+		// "vt" - первым полем и всегда (не только у собственно
+		// объявляющей сущности, но и у каждого её потомка) - общий
+		// начальный кусок структуры делает приведение к vtableHeaderType
+		// определённым для чтения (см. package doc vtable.go).
+		fmt.Fprintf(&sb, "    const %s *vt;\n", vtableType)
+	}
+	if len(ent.Fields) == 0 && !participates {
 		sb.WriteString("    char _rech_empty;\n")
 	}
 	for _, f := range ent.Fields {
@@ -335,6 +382,9 @@ func generateIREntityCtor(ctx *irGenCtx, ent *ir.Entity) string {
 	}
 	fmt.Fprintf(&sb, "static %s *%s(%s) {\n", cType, mangleCtor(ent.Name), paramList)
 	fmt.Fprintf(&sb, "    %s *p = GC_MALLOC(sizeof(%s));\n", cType, cType)
+	if ctx.dispatchParticipants[ent.Name] {
+		fmt.Fprintf(&sb, "    p->vt = &%s;\n", vtableInstanceName(ent.Name))
+	}
 	for _, f := range ent.Fields {
 		fmt.Fprintf(&sb, "    p->%s = %s;\n", mangleField(f.Name), mangleVar(f.Name))
 	}
@@ -894,6 +944,9 @@ func generateIRMethodCallExpr(ctx *irGenCtx, e *ir.MethodCallExpr) (string, valu
 			return "", typeUnknown, err
 		}
 		argCodes[i+1] = code
+	}
+	if ctx.needsDispatch(e.Entity) {
+		return generateDispatchCall(ctx, e, receiverCode, argCodes)
 	}
 	return fmt.Sprintf("%s(%s)", mangleMethod(e.Entity, e.Method), strings.Join(argCodes, ", ")), fromIRType(e.Type), nil
 }
