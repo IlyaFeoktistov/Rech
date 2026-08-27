@@ -12,7 +12,7 @@
 // см. rtmsg.TraceHeader/TraceFrameFormat (общий текст с internal/interp).
 //
 // Гранулярность - по инструкции (rech_trace_line эмитится перед КАЖДОЙ
-// инструкцией верхнего уровня тела функции/метода, см. stmtLine/
+// инструкцией верхнего уровня тела функции/метода, см. ir.LineOf/
 // generateIRStmt), не по каждому вложенному вызову внутри составного
 // выражения - для типичного стиля Rech (один вызов на инструкцию) этого
 // достаточно, чтобы номер строки в кадре совпадал с местом настоящего
@@ -26,7 +26,6 @@ package cbackend
 import (
 	"fmt"
 
-	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
@@ -96,43 +95,3 @@ const tracePop = "rech_trace_pop();\n"
 // функции должен оставаться на стеке, пока вычисляется само выражение
 // (может содержать вложенный вызов, который паникует).
 const returnTmpVar = "rech_ret_tmp"
-
-// stmtLine - номер исходной строки s, если её вид несёт Line (см. package
-// doc ir.Stmt в internal/ir/stmt.go), иначе 0 (rech_trace_line не эмитится -
-// см. generateIRStmt). Управляющие конструкции (IfStmt/WhileStmt/...) несут
-// номер строки самого заголовка ("если <условие>" и т. п.) - строка внутри
-// тела перезаписывает её на следующей же вложенной инструкции.
-func stmtLine(s ir.Stmt) int {
-	switch s := s.(type) {
-	case *ir.PrintStmt:
-		return s.Line
-	case *ir.ShowStmt:
-		return s.Line
-	case *ir.VarDecl:
-		return s.Line
-	case *ir.Assign:
-		return s.Line
-	case *ir.FieldAssign:
-		return s.Line
-	case *ir.ParentCallStmt:
-		return s.Line
-	case *ir.AssertStmt:
-		return s.Line
-	case *ir.IfStmt:
-		return s.Line
-	case *ir.WhileStmt:
-		return s.Line
-	case *ir.ForStmt:
-		return s.Line
-	case *ir.ForEachStmt:
-		return s.Line
-	case *ir.ReturnStmt:
-		return s.Line
-	case *ir.ExprStmt:
-		return s.Line
-	case *ir.ThrowStmt:
-		return s.Line
-	default:
-		return 0
-	}
-}

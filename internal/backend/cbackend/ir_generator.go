@@ -765,7 +765,7 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 	// (rech_trace_line) ДО генерации собственно инструкции - если внутри
 	// неё (вложенным вызовом или напрямую) случится паника, кадр уже
 	// покажет правильную строку. См. stmtLine/trace.go.
-	if line := stmtLine(s); line > 0 {
+	if line := ir.LineOf(s); line > 0 {
 		fmt.Fprintf(sb, "%srech_trace_line(%d);\n", ind, line)
 	}
 	switch s := s.(type) {

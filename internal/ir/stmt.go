@@ -8,9 +8,49 @@ type Stmt interface {
 // Несёт его каждый вид Stmt, исполнение которого может само по себе
 // привести к панике или уйти вложенным вызовом (backend/интерпретатор
 // используют его для стека вызовов при аварийном завершении/необработанном
-// исключении - internal/backend/cbackend/trace.go, internal/interp/trace.go).
-// BecomeStmt его не несёт - "становится" не исполняется во время выполнения
-// (шаг 4.1, чисто компилятивная проверка).
+// исключении - internal/backend/cbackend/trace.go, internal/interp/trace.go;
+// internal/lsp - чтобы определить область видимости локальных переменных по
+// позиции курсора). BecomeStmt его не несёт - "становится" не исполняется
+// во время выполнения (шаг 4.1, чисто компилятивная проверка).
+
+// LineOf возвращает Line инструкции s, 0 - если её вид Line не несёт
+// (BecomeStmt или неизвестный внешнему коду вид). Общий хелпер для всех
+// потребителей (см. package doc Line выше) - раньше был отдельной копией
+// в internal/backend/cbackend и internal/interp по отдельности.
+func LineOf(s Stmt) int {
+	switch s := s.(type) {
+	case *PrintStmt:
+		return s.Line
+	case *ShowStmt:
+		return s.Line
+	case *VarDecl:
+		return s.Line
+	case *Assign:
+		return s.Line
+	case *FieldAssign:
+		return s.Line
+	case *ParentCallStmt:
+		return s.Line
+	case *AssertStmt:
+		return s.Line
+	case *IfStmt:
+		return s.Line
+	case *WhileStmt:
+		return s.Line
+	case *ForStmt:
+		return s.Line
+	case *ForEachStmt:
+		return s.Line
+	case *ReturnStmt:
+		return s.Line
+	case *ExprStmt:
+		return s.Line
+	case *ThrowStmt:
+		return s.Line
+	default:
+		return 0
+	}
+}
 
 // PrintStmt соответствует "вывести <выражение>". Line - см. package doc,
 // "Строка исполнения для стека вызовов" ниже.

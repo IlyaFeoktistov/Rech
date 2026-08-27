@@ -18,7 +18,7 @@ import (
 // вызовом или напрямую) случится паника/исключение, кадр этой активации
 // уже покажет правильную строку.
 func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
-	if line := stmtLine(s); line > 0 {
+	if line := ir.LineOf(s); line > 0 {
 		*cc.curLine = line
 		cc.dbg.onStatement(env, line)
 	}

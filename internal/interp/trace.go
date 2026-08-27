@@ -18,7 +18,7 @@
 // разойтись (см. rtmsg.TraceTruncated).
 //
 // Гранулярность - по инструкции (execStmt обновляет *cc.curLine перед
-// исполнением каждой инструкции верхнего уровня тела, см. stmtLine), не по
+// исполнением каждой инструкции верхнего уровня тела, см. ir.LineOf), не по
 // каждому вложенному вызову внутри составного выражения - тот же принцип,
 // что и у cbackend (trace.go, package doc).
 //
@@ -32,7 +32,6 @@ package interp
 import (
 	"strings"
 
-	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
@@ -62,43 +61,4 @@ func traceSuffix(frames []traceFrame) string {
 		sb.WriteString(rtmsg.TraceFrameLine(f.name, f.line))
 	}
 	return sb.String()
-}
-
-// stmtLine - номер исходной строки s, если её вид несёт Line (см. package
-// doc ir.Stmt в internal/ir/stmt.go), иначе 0 (execStmt не обновляет
-// *cc.curLine - см. package doc). Тот же список видов, что и у
-// cbackend.stmtLine.
-func stmtLine(s ir.Stmt) int {
-	switch s := s.(type) {
-	case *ir.PrintStmt:
-		return s.Line
-	case *ir.ShowStmt:
-		return s.Line
-	case *ir.VarDecl:
-		return s.Line
-	case *ir.Assign:
-		return s.Line
-	case *ir.FieldAssign:
-		return s.Line
-	case *ir.ParentCallStmt:
-		return s.Line
-	case *ir.AssertStmt:
-		return s.Line
-	case *ir.IfStmt:
-		return s.Line
-	case *ir.WhileStmt:
-		return s.Line
-	case *ir.ForStmt:
-		return s.Line
-	case *ir.ForEachStmt:
-		return s.Line
-	case *ir.ReturnStmt:
-		return s.Line
-	case *ir.ExprStmt:
-		return s.Line
-	case *ir.ThrowStmt:
-		return s.Line
-	default:
-		return 0
-	}
 }
