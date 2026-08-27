@@ -58,7 +58,18 @@ func (a *Analyzer) collectInterfaces(prog *ast.Program) error {
 				params[i] = typ
 			}
 			msig := funcSig{Params: params}
-			if m.ReturnType != "" {
+			switch {
+			case m.SelfReturn:
+				// "этот" как тип результата контракта - через интерфейсное
+				// значение конкретный тип реализующей сущности статически
+				// не известен, поэтому резолвится в сам интерфейс
+				// (InterfaceType) - самое узкое, что можно утверждать в
+				// месте вызова через интерфейсную ссылку (см. package doc
+				// funcSig.SelfReturn/sigsMatch).
+				msig.ReturnType = ir.InterfaceType(iface.Name)
+				msig.HasReturn = true
+				msig.SelfReturn = true
+			case m.ReturnType != "":
 				typ, err := resolveTypeName(nil, nil, nil, interfaces, m.ReturnType)
 				if err != nil {
 					return fmt.Errorf("интерфейс %q: метод %q: тип результата: %w", iface.Name, m.Name, err)
@@ -79,9 +90,12 @@ func (a *Analyzer) collectInterfaces(prog *ast.Program) error {
 // flatMethods несёт её собственные и унаследованные методы, см.
 // collectEntities) реализует интерфейс ifaceName целиком: каждый метод
 // контракта должен присутствовать у сущности с точно совпадающей
-// сигнатурой (число/типы параметров, тип результата) - без ковариантности
-// и без частичной реализации, тот же принцип строгости, что и у остальных
-// проверок типов языка ("без неявных преобразований, ни здесь").
+// сигнатурой (число/типы параметров, тип результата) - без частичной
+// реализации, тот же принцип строгости, что и у остальных проверок типов
+// языка ("без неявных преобразований, ни здесь"). Единственное управляемое
+// исключение - тип результата "этот" (SelfReturn, sigsMatch) - у него
+// сравнивается сам факт "результат - self", не конкретный резолвленный
+// тип (тот у интерфейса и у реализации законно разный).
 func checkImplements(interfaces map[string]interfaceSig, entityName string, flatMethods map[string]funcSig, ifaceName string, line int) error {
 	iface, ok := interfaces[ifaceName]
 	if !ok {
@@ -111,8 +125,21 @@ func checkImplements(interfaces map[string]interfaceSig, entityName string, flat
 // sigsMatch - совпадают ли две сигнатуры по числу/типам параметров и типу
 // результата (Private/ParamStates/GuaranteedThisStates не сравниваются -
 // это свойства конкретного объявления, не часть контракта вызова).
+//
+// Тип результата "этот" (SelfReturn) сравнивается ПО ФЛАГУ, а не по уже
+// резолвленному ReturnType: у a и b он почти всегда законно разный
+// (EntityType/InterfaceType СВОЕЙ сущности/интерфейса - см. package doc
+// funcSig.SelfReturn) - это и есть совместимость, а не расхождение.
+// Переопределение/реализация обязаны совпадать именно по факту "результат -
+// self или нет" - переопределить SelfReturn-метод обычным конкретным типом
+// результата (и наоборот) запрещено, чтобы не разбирать на этапе
+// диспетчеризации (cbackend/vtable.go), какой из двух смыслов имелся в
+// виду у конкретного слота.
 func sigsMatch(a, b funcSig) bool {
-	if a.HasReturn != b.HasReturn || (a.HasReturn && a.ReturnType != b.ReturnType) {
+	if a.SelfReturn != b.SelfReturn {
+		return false
+	}
+	if !a.SelfReturn && (a.HasReturn != b.HasReturn || (a.HasReturn && a.ReturnType != b.ReturnType)) {
 		return false
 	}
 	if len(a.Params) != len(b.Params) {

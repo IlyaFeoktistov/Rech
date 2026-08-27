@@ -194,9 +194,24 @@ type EnumMember struct {
 // рода ("приватный", не "приватная"/"приватное"/"приватные"), проверяется
 // парсером. Без модификатора метод публичный (Visibility == Public).
 type MethodDecl struct {
-	Name       string
-	Params     []Param
+	Name   string
+	Params []Param
+	// ReturnType - имя типа результата, "" - не объявлен. Не читается,
+	// когда SelfReturn - true (см. SelfReturn).
 	ReturnType string
+	// SelfReturn - тип результата объявлен как "этот" ("имя(...): этот"),
+	// а не именем конкретного типа - ковариантный "self type" (как `this`
+	// в TypeScript/`Self` в Swift): результат типизируется КОНКРЕТНЫМ
+	// статическим типом получателя в месте вызова, а не тем типом, который
+	// объявляет метод - нужен для цепочек вызовов ("fluent"-методов) через
+	// наследование, где переопределённый в подклассе метод не обязателен,
+	// а базовый должен возвращать именно подкласс, если вызван через него.
+	// Разрешается в internal/semantic - каждая сущность/интерфейс
+	// собственноручно резолвит "этот" в EntityType(себя)/InterfaceType(себя)
+	// при сборе своей сигнатуры (см. package doc internal/semantic/
+	// inheritance.go, applyInheritance) - НЕ наследуется как единое
+	// конкретное значение, только как сам факт "тип результата - self".
+	SelfReturn bool
 	Body       []Stmt
 	Visibility Visibility
 	Line       int

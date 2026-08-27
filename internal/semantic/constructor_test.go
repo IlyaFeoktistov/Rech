@@ -97,7 +97,7 @@ func TestAnalyzeParentCallRunsBaseConstructor(t *testing.T) {
         этот.имя = имя
     }
 }
-сущность Сотрудник наследует Пользователь
+сущность Сотрудник наследует Пользователя
 {
     имеет:
         зарплата: Целое
@@ -143,7 +143,7 @@ func TestAnalyzeParentCallMustBeFirstStatement(t *testing.T) {
         этот.имя = имя
     }
 }
-сущность Сотрудник наследует Пользователь
+сущность Сотрудник наследует Пользователя
 {
     имеет:
         зарплата: Целое
@@ -171,7 +171,7 @@ func TestAnalyzeParentCallWithoutBaseConstructorFails(t *testing.T) {
     имеет:
         имя: Строка
 }
-сущность Сотрудник наследует Пользователь
+сущность Сотрудник наследует Пользователя
 {
     имеет:
         зарплата: Целое
@@ -231,7 +231,7 @@ func TestAnalyzeEntityWithoutOwnCtorDoesNotInheritBaseCtor(t *testing.T) {
         этот.имя = имя
     }
 }
-сущность Гость наследует Пользователь
+сущность Гость наследует Пользователя
 {
     имеет:
         код: Целое

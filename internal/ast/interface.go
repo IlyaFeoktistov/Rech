@@ -30,5 +30,9 @@ type InterfaceMethod struct {
 	Name       string
 	Params     []Param
 	ReturnType string
+	// SelfReturn - см. MethodDecl.SelfReturn: у метода интерфейса означает
+	// "результат - конкретный тип реализующей сущности/тип получателя в
+	// месте вызова", не сам интерфейс дословно.
+	SelfReturn bool
 	Line       int
 }

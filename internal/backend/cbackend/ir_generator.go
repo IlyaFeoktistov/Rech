@@ -84,8 +84,20 @@ type irGenCtx struct {
 // (указатель "this_" для ссылочной сущности, разыменованное "(*this_)" для
 // структуры) - единообразие с TypeOf(receiver) держится сразу на обеих
 // сторонах.
+//
+// KindInterface - всегда указатель (представлен как "void *", как и общий
+// vtable-заголовок - см. package doc vtable.go), безусловно, без отдельного
+// случая "интерфейс по значению": в языке такого нет вовсе, у интерфейса
+// нет полей, значит нет и compound-literal представления. FieldAccess/
+// FieldAssign сюда с интерфейсным получателем никогда не попадают
+// (семантический анализ отклоняет доступ к полю через интерфейсное
+// значение раньше) - это ветвление имеет значение только для получателя
+// вызова метода.
 func (ctx *irGenCtx) receiverIsPointer(receiver ir.Expr) bool {
 	t := ir.TypeOf(receiver)
+	if t.Kind == ir.KindInterface {
+		return true
+	}
 	return t.Kind == ir.KindEntity && ctx.entityIsRef(t.Entity)
 }
 

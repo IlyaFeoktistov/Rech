@@ -44,3 +44,29 @@ func lookupGenderViaGomorphy(nomSg string) (Gender, bool) {
 	}
 	return 0, false
 }
+
+// lookupAnimacyViaGomorphy - тот же узкий источник и то же ограничение, что
+// и у lookupGenderViaGomorphy (только один маркер из тега gomorphy, не
+// полный разбор) - для одушевлённости (anim/inan), не рода. Даёт AnimacyOf
+// работать не только для курируемого списка nounAnimacy (сейчас там всего
+// одно слово), а для любого существительного, которое знает словарь
+// OpenCorpora - "сотрудник"/"админ"/"гость" и т.п. без необходимости
+// перечислять каждое вручную.
+func lookupAnimacyViaGomorphy(nomSg string) (Animacy, bool) {
+	if sharedGomorphy == nil {
+		return 0, false
+	}
+	tag := sharedGomorphy.Tag(nomSg)
+	if tag == "" || !strings.HasPrefix(tag, "NOUN") {
+		return 0, false
+	}
+	for _, tok := range strings.FieldsFunc(tag, func(r rune) bool { return r == ',' || r == ' ' }) {
+		switch tok {
+		case "anim":
+			return Animate, true
+		case "inan":
+			return Inanimate, true
+		}
+	}
+	return 0, false
+}

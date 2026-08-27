@@ -14,6 +14,13 @@ type Lemma struct {
 
 	Noun *NounInfo // POS == Noun
 	Verb *VerbInfo // POS == Verb
+
+	// Forms - парадигма леммы (POS == Noun) - та же самая, что уже
+	// посчитана при регистрации и разошлась по обратному индексу (reverse) -
+	// хранится ещё и здесь, чтобы можно было спросить "какая словоформа
+	// нужна для ЭТОЙ леммы в ЭТОМ падеже" (FormOf) в прямом направлении, не
+	// только в обратном (Analyze). nil у глаголов.
+	Forms Paradigm
 }
 
 // NounInfo - грамматические признаки существительного, зафиксированные при
@@ -106,9 +113,10 @@ func (d *Dictionary) RegisterNounExplicit(nomSg string, class DeclensionClass, g
 		return err
 	}
 	d.lemmas[nomSg] = &Lemma{
-		Text: nomSg,
-		POS:  Noun,
-		Noun: &NounInfo{Class: class, Gender: gender, Animacy: animacy},
+		Text:  nomSg,
+		POS:   Noun,
+		Noun:  &NounInfo{Class: class, Gender: gender, Animacy: animacy},
+		Forms: paradigm,
 	}
 	for tag, form := range paradigm {
 		d.addReverse(form, Analysis{Lemma: nomSg, POS: Noun, Tag: tag})
@@ -129,9 +137,10 @@ func (d *Dictionary) registerNounWithParadigm(nomSg string, gender Gender, anima
 	maps.Copy(p, paradigm)
 	fillAccusative(p, animacy, "")
 	d.lemmas[nomSg] = &Lemma{
-		Text: nomSg,
-		POS:  Noun,
-		Noun: &NounInfo{Class: ClassIrregular, Gender: gender, Animacy: animacy},
+		Text:  nomSg,
+		POS:   Noun,
+		Noun:  &NounInfo{Class: ClassIrregular, Gender: gender, Animacy: animacy},
+		Forms: p,
 	}
 	for tag, form := range p {
 		d.addReverse(form, Analysis{Lemma: nomSg, POS: Noun, Tag: tag})
@@ -170,6 +179,21 @@ func (d *Dictionary) RegisterVerb(infinitive string, forms VerbForms) error {
 func (d *Dictionary) Lookup(lemma string) (*Lemma, bool) {
 	l, ok := d.lemmas[lemma]
 	return l, ok
+}
+
+// FormOf возвращает словоформу lemma (существительного) в падеже c,
+// единственного числа - нужен там, где известна лемма и нужна ИМЕННО эта
+// форма (например, чтобы показать её в сообщении об ошибке "ожидался
+// винительный падеж - %q"), в отличие от Analyze, который идёт в обратную
+// сторону (от словоформы к лемме). false - lemma не существительное или не
+// зарегистрирована вовсе.
+func (d *Dictionary) FormOf(lemma string, c Case) (string, bool) {
+	l, ok := d.lemmas[lemma]
+	if !ok || l.Forms == nil {
+		return "", false
+	}
+	form, ok := l.Forms[Tag{Case: c, Number: Singular}]
+	return form, ok
 }
 
 // Analyze возвращает все известные разборы словоформы. Пустой срез - слово

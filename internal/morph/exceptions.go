@@ -208,10 +208,22 @@ var nounAnimacy = map[string]Animacy{
 	"пользователь": Animate,
 }
 
-// AnimacyOf возвращает одушевлённость, курируемую для nomSg, или Inanimate,
-// если слова нет в таблице (см. nounAnimacy).
+// AnimacyOf возвращает одушевлённость nomSg: сначала курируемый список
+// исключений (nounAnimacy - для случаев, где нужно явно зафиксировать
+// решение), затем словарь OpenCorpora через gomorphy
+// (lookupAnimacyViaGomorphy - тот же узкий источник, что и у рода в
+// NounAgreement), иначе Inanimate по умолчанию - безопасное умолчание:
+// большинство идентификаторов программы называют значения, а не людей/
+// животных. Приводит к нижнему регистру перед поиском - тем же принципом,
+// что и NounAgreement ниже - иначе имя сущности ("Пользователь", заглавная
+// буква) не находило бы запись, заведённую под словарной формой
+// ("пользователь").
 func AnimacyOf(nomSg string) Animacy {
-	if a, ok := nounAnimacy[nomSg]; ok {
+	lower := strings.ToLower(nomSg)
+	if a, ok := nounAnimacy[lower]; ok {
+		return a
+	}
+	if a, ok := lookupAnimacyViaGomorphy(lower); ok {
 		return a
 	}
 	return Inanimate

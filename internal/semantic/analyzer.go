@@ -123,7 +123,17 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 				paramStates[i] = aliasState[p.Type]
 			}
 			msig := funcSig{Params: params, ParamStates: paramStates, Visibility: m.Visibility}
-			if m.ReturnType != "" {
+			switch {
+			case m.SelfReturn:
+				// "этот" как тип результата - собственный метод сущности X
+				// резолвится в EntityType(X) сразу же: applyInheritance
+				// перерезолвит копию этой сигнатуры в EntityType(Y) для
+				// каждой Y, которая унаследует метод без переопределения -
+				// см. package doc funcSig.SelfReturn.
+				msig.ReturnType = ir.EntityType(ent.Name)
+				msig.HasReturn = true
+				msig.SelfReturn = true
+			case m.ReturnType != "":
 				typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, m.ReturnType)
 				if err != nil {
 					return fmt.Errorf("сущность %q: метод %q: тип результата: %w", ent.Name, m.Name, err)

@@ -71,7 +71,7 @@ func TestRunParentCallStmtRunsBaseConstructorOnSameObject(t *testing.T) {
         этот.возраст = 0
     }
 }
-сущность Сотрудник наследует Пользователь
+сущность Сотрудник наследует Пользователя
 {
     имеет:
         зарплата: Целое
@@ -111,7 +111,7 @@ func TestRunEntityWithoutOwnConstructorKeepsImplicitForm(t *testing.T) {
         этот.имя = имя
     }
 }
-сущность Гость наследует Пользователь
+сущность Гость наследует Пользователя
 {
     имеет:
         код: Целое

@@ -69,6 +69,13 @@ func (a *Analyzer) applyInheritance(entities map[string]entitySig, methods map[s
 		baseMethods := methods[ent.BaseName]
 		flatMethods = make(map[string]funcSig, len(baseMethods)+len(ownMethods))
 		for name, sig := range baseMethods {
+			if sig.SelfReturn {
+				// Унаследованный без переопределения метод с "этот" как
+				// типом результата - перерезолвливается в ЭТУ (ent.Name)
+				// сущность заново, а не тащит ReturnType базовой сущности
+				// дальше как есть - см. package doc funcSig.SelfReturn.
+				sig.ReturnType = ir.EntityType(ent.Name)
+			}
 			flatMethods[name] = sig
 		}
 		for name, sig := range ownMethods {

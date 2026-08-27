@@ -139,12 +139,18 @@ func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
 		return nil, fmt.Errorf("в списке параметров метода %q: %w", name.Value, err)
 	}
 	returnType := ""
+	selfReturn := false
 	if p.cur().Type == lexer.COLON {
 		p.advance()
-		var err error
-		returnType, err = p.parseTypeName()
-		if err != nil {
-			return nil, fmt.Errorf("после \":\" у метода %q ожидалось имя типа результата: %w", name.Value, err)
+		if p.cur().Type == lexer.KwThis {
+			p.advance()
+			selfReturn = true
+		} else {
+			var err error
+			returnType, err = p.parseTypeName()
+			if err != nil {
+				return nil, fmt.Errorf("после \":\" у метода %q ожидалось имя типа результата: %w", name.Value, err)
+			}
 		}
 	}
 	p.skipNewlines()
@@ -155,7 +161,44 @@ func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ast.MethodDecl{Name: name.Value, Params: params, ReturnType: returnType, Body: body, Visibility: vis, Line: name.Line}, nil
+	return &ast.MethodDecl{Name: name.Value, Params: params, ReturnType: returnType, SelfReturn: selfReturn, Body: body, Visibility: vis, Line: name.Line}, nil
+}
+
+// resolveDeclinedTypeRef разбирает имя после "наследует"/"реализует" -
+// оба глагола переходные и управляют винительным падежом ("наследовать
+// кого/что", "реализовать что"), поэтому объект склоняется, а не берётся
+// словарной формой как ключевое слово (тот же принцип, что и у падежного
+// сопоставления аргументов естественного вызова - docs/GRAMMAR.md). tok -
+// уже прочитанный IDENT-токен объекта, verb - "наследует"/"реализует" (для
+// сообщения об ошибке).
+//
+// Три исхода: (1) tok.Value - известная винительная форма зарегистрированной
+// сущности/интерфейса (p.registerNoun вызывается при разборе каждого
+// объявления) - возвращает её именительную лемму (настоящее имя типа); (2)
+// tok.Value - ИМЕНИТЕЛЬНАЯ форма такой сущности/интерфейса, у которой
+// винительный отличается - явная ошибка (та же строгость, что и у
+// checkNewKeywordAgreement/checkVisibilityAgreement, не тихое принятие
+// неверной формы); (3) склонение неопределимо (имя не зарегистрировано или
+// вне покрытия Фазы A - например, интерфейсы часто называются
+// прилагательными/причастиями вроде "Звучащий", которые в этом словаре не
+// классифицируются как существительные вовсе) - permissive fallback,
+// tok.Value принимается как есть, тем же принципом, что и везде в языке.
+func (p *Parser) resolveDeclinedTypeRef(tok lexer.Token, verb string) (string, error) {
+	for _, a := range p.dict.Analyze(tok.Value) {
+		if a.POS == morph.Noun && a.Tag.Case == morph.Accusative {
+			return a.Lemma, nil
+		}
+	}
+	for _, a := range p.dict.Analyze(tok.Value) {
+		if a.POS != morph.Noun || a.Tag.Case != morph.Nominative {
+			continue
+		}
+		if acc, ok := p.dict.FormOf(a.Lemma, morph.Accusative); ok && acc != tok.Value {
+			return "", fmt.Errorf("строка %d, столбец %d: после %q ожидается винительный падеж - %q, получено %q (именительный)",
+				tok.Line, tok.Col, verb, acc, tok.Value)
+		}
+	}
+	return tok.Value, nil
 }
 
 // parseConstructor разбирает явное тело конструктора: "конструктор" "("

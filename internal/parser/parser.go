@@ -99,13 +99,14 @@ func New(tokens []lexer.Token) *Parser {
 	return &Parser{tokens: tokens, dict: dict}
 }
 
-// registerNoun лучшим образом пытается зарегистрировать имя переменной как
-// существительное в dict. Ошибку намеренно игнорирует - не всякий
-// идентификатор пригоден как русское существительное (однобуквенные имена
-// вроде "i", латиница, слова с окончанием, которое ClassifyByEnding не
-// берёт и которого нет в курируемых исключениях): такие переменные просто
-// не будут доступны для естественного вызова, только для строгого - это
-// не ошибка компиляции.
+// registerNoun лучшим образом пытается зарегистрировать имя (переменной,
+// сущности, интерфейса) как существительное в dict. Ошибку намеренно
+// игнорирует - не всякий идентификатор пригоден как русское
+// существительное (однобуквенные имена вроде "i", латиница, слова с
+// окончанием, которое ClassifyByEnding не берёт и которого нет в
+// курируемых исключениях): такое имя просто не будет доступно для
+// естественного вызова/склонения (например, объекта "наследует"/
+// "реализует", см. resolveDeclinedTypeRef) - это не ошибка компиляции.
 func (p *Parser) registerNoun(name string) {
 	_ = p.dict.RegisterNoun(name, morph.AnimacyOf(name))
 }
@@ -365,25 +366,33 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 			err,
 		)
 	}
+	p.registerNoun(name.Value)
 
 	var baseName string
 	var interfaces []string
 	if p.cur().Type == lexer.KwInherits {
-		p.advance() // "наследует"
+		verb := p.advance() // "наследует"
 		base, err := p.expect(lexer.IDENT)
 		if err != nil {
 			return nil, fmt.Errorf("%s %q: после \"наследует\" ожидалось имя базовой сущности: %w", label, name.Value, err)
 		}
-		baseName = base.Value
+		baseName, err = p.resolveDeclinedTypeRef(base, verb.Value)
+		if err != nil {
+			return nil, fmt.Errorf("%s %q: %w", label, name.Value, err)
+		}
 	}
 	if p.cur().Type == lexer.KwImplements {
-		p.advance() // "реализует"
+		verb := p.advance() // "реализует"
 		for {
 			iface, err := p.expect(lexer.IDENT)
 			if err != nil {
 				return nil, fmt.Errorf("%s %q: после \"реализует\" ожидалось имя интерфейса: %w", label, name.Value, err)
 			}
-			interfaces = append(interfaces, iface.Value)
+			ifaceName, err := p.resolveDeclinedTypeRef(iface, verb.Value)
+			if err != nil {
+				return nil, fmt.Errorf("%s %q: %w", label, name.Value, err)
+			}
+			interfaces = append(interfaces, ifaceName)
 			if p.cur().Type != lexer.COMMA {
 				break
 			}

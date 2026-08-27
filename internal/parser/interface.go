@@ -17,6 +17,7 @@ func (p *Parser) parseInterfaceDecl() (*ast.InterfaceDecl, error) {
 	if err != nil {
 		return nil, fmt.Errorf("после %q ожидалось имя интерфейса: %w", kw.Value, err)
 	}
+	p.registerNoun(name.Value)
 	p.skipNewlines()
 	if _, err := p.expect(lexer.LBRACE); err != nil {
 		return nil, err
@@ -56,12 +57,18 @@ func (p *Parser) parseInterfaceMethod() (ast.InterfaceMethod, error) {
 		return ast.InterfaceMethod{}, fmt.Errorf("в списке параметров метода %q: %w", name.Value, err)
 	}
 	returnType := ""
+	selfReturn := false
 	if p.cur().Type == lexer.COLON {
 		p.advance()
-		returnType, err = p.parseTypeName()
-		if err != nil {
-			return ast.InterfaceMethod{}, fmt.Errorf("после \":\" у метода %q ожидалось имя типа результата: %w", name.Value, err)
+		if p.cur().Type == lexer.KwThis {
+			p.advance()
+			selfReturn = true
+		} else {
+			returnType, err = p.parseTypeName()
+			if err != nil {
+				return ast.InterfaceMethod{}, fmt.Errorf("после \":\" у метода %q ожидалось имя типа результата: %w", name.Value, err)
+			}
 		}
 	}
-	return ast.InterfaceMethod{Name: name.Value, Params: params, ReturnType: returnType, Line: name.Line}, nil
+	return ast.InterfaceMethod{Name: name.Value, Params: params, ReturnType: returnType, SelfReturn: selfReturn, Line: name.Line}, nil
 }
