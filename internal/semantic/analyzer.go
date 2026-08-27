@@ -36,6 +36,21 @@ type Analyzer struct {
 	// processEntityDecl/processFunctionSig, когда до этой инстанциации
 	// доходит очередь и entities/interfaces уже известны.
 	genericConstraints map[string][]constraintCheck
+
+	// callablesSeen/callableOrder - дедупликация сигнатур "Вызываемый"
+	// на весь Analyze, тем же принципом, что entities/methods -
+	// см. registerCallable. callableOrder идёт прямо в Program.Callables
+	// (buildIR) в порядке первой встречи.
+	callablesSeen map[string]bool
+	callableOrder []ir.CallableSig
+
+	// lambdaCounter - следующий порядковый номер для имени лямбды
+	// "__лямбда_N") - общий на весь Analyze счётчик, чтобы имя было
+	// уникально во всей программе (backend использует его напрямую как
+	// базовое имя генерируемой C-функции, не изобретая собственный
+	// счётчик - иначе cbackend/interp завели бы два независимых способа
+	// нумерации одних и тех же лямбд).
+	lambdaCounter int
 }
 
 // collectEntities - предварительный проход: поля, сигнатуры методов и
@@ -368,7 +383,7 @@ func (a *Analyzer) analyzeEntity(ent *ast.EntityDecl) (*ir.Entity, error) {
 	// (sc.resolvedConsts), с защитой от циклической ссылки.
 	constants := make([]ir.Constant, 0, len(sig.ConstNames))
 	if len(sig.ConstNames) > 0 {
-		sc := newCtx(a.funcs, a.entities, a.methods, a.aliases, a.interfaces, a.enums, "", ir.Type{}, false, a.resolvedConsts, a.resolvingConsts)
+		sc := newCtx(a, a.funcs, a.entities, a.methods, a.aliases, a.interfaces, a.enums, "", ir.Type{}, false, a.resolvedConsts, a.resolvingConsts)
 		for _, cname := range sig.ConstNames {
 			val, err := resolveEntityConstant(sc, ent.Name, cname, ent.Line)
 			if err != nil {
@@ -406,7 +421,7 @@ func (a *Analyzer) analyzeEntity(ent *ast.EntityDecl) (*ir.Entity, error) {
 func (a *Analyzer) analyzeConstructor(ent *ast.EntityDecl) (*ir.Method, error) {
 	c := ent.Ctor
 	sig := a.entities[ent.Name]
-	sc := newCtx(a.funcs, a.entities, a.methods, a.aliases, a.interfaces, a.enums, ent.Name, ir.Type{}, false, a.resolvedConsts, a.resolvingConsts)
+	sc := newCtx(a, a.funcs, a.entities, a.methods, a.aliases, a.interfaces, a.enums, ent.Name, ir.Type{}, false, a.resolvedConsts, a.resolvingConsts)
 	params := make([]ir.Param, len(c.Params))
 	for i, p := range c.Params {
 		params[i] = ir.Param{Name: p.Name, Type: sig.CtorParams[i]}
@@ -428,7 +443,7 @@ func (a *Analyzer) analyzeConstructor(ent *ast.EntityDecl) (*ir.Method, error) {
 
 func (a *Analyzer) analyzeMethod(ent *ast.EntityDecl, m *ast.MethodDecl) (*ir.Method, error) {
 	sig := a.methods[ent.Name][m.Name]
-	sc := newCtx(a.funcs, a.entities, a.methods, a.aliases, a.interfaces, a.enums, ent.Name, sig.ReturnType, sig.HasReturn, a.resolvedConsts, a.resolvingConsts)
+	sc := newCtx(a, a.funcs, a.entities, a.methods, a.aliases, a.interfaces, a.enums, ent.Name, sig.ReturnType, sig.HasReturn, a.resolvedConsts, a.resolvingConsts)
 	params, body, sig, err := a.analyzeParamsAndBody(sc, m.Params, sig, m.Body)
 	if err != nil {
 		return nil, err
@@ -449,7 +464,7 @@ func (a *Analyzer) analyzeMethod(ent *ast.EntityDecl, m *ast.MethodDecl) (*ir.Me
 
 func (a *Analyzer) analyzeFunction(fn *ast.FunctionDecl) (*ir.Function, error) {
 	sig := a.funcs[fn.Name]
-	sc := newCtx(a.funcs, a.entities, a.methods, a.aliases, a.interfaces, a.enums, "", sig.ReturnType, sig.HasReturn, a.resolvedConsts, a.resolvingConsts)
+	sc := newCtx(a, a.funcs, a.entities, a.methods, a.aliases, a.interfaces, a.enums, "", sig.ReturnType, sig.HasReturn, a.resolvedConsts, a.resolvingConsts)
 	params, body, sig, err := a.analyzeParamsAndBody(sc, fn.Params, sig, fn.Body)
 	if err != nil {
 		return nil, err
@@ -537,5 +552,68 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 			ElemType: a.entities[name].ElemType,
 		})
 	}
+
+	if err := a.collectCallables(out); err != nil {
+		return nil, err
+	}
+	out.Callables = a.callableOrder
 	return out, nil
+}
+
+// collectCallables регистрирует (см. registerCallable) сигнатуры
+// "Вызываемый", объявленные прямо в сигнатуре программы -
+// параметр/поле/тип результата функции, метода или конструктора сущности,
+// метода интерфейса - независимо от того, построено ли где-то в программе
+// хоть одно значение именно такой сигнатуры (analyzeFuncRefExpr/
+// analyzeLambdaExpr регистрируют свои сигнатуры сами, в момент построения
+// значения, но объявленный, а не построенный, тип без этого обхода остался
+// бы без сгенерированной под него C-структуры).
+func (a *Analyzer) collectCallables(prog *ir.Program) error {
+	registerParams := func(params []ir.Param) error {
+		for _, p := range params {
+			if err := a.registerCallable(p.Type); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	registerFunc := func(params []ir.Param, returnType ir.Type, hasReturn bool) error {
+		if err := registerParams(params); err != nil {
+			return err
+		}
+		if hasReturn {
+			return a.registerCallable(returnType)
+		}
+		return nil
+	}
+	for _, fn := range prog.Functions {
+		if err := registerFunc(fn.Params, fn.ReturnType, fn.HasReturn); err != nil {
+			return err
+		}
+	}
+	for _, ent := range prog.Entities {
+		for _, f := range ent.Fields {
+			if err := a.registerCallable(f.Type); err != nil {
+				return err
+			}
+		}
+		for _, m := range ent.Methods {
+			if err := registerFunc(m.Params, m.ReturnType, m.HasReturn); err != nil {
+				return err
+			}
+		}
+		if ent.Ctor != nil {
+			if err := registerParams(ent.Ctor.Params); err != nil {
+				return err
+			}
+		}
+	}
+	for _, iface := range prog.Interfaces {
+		for _, m := range iface.Methods {
+			if err := registerFunc(m.Params, m.ReturnType, m.HasReturn); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

@@ -54,6 +54,7 @@ func (p *Program) Link() (*ast.Program, error) {
 		names := buildNames(m, p.Entry)
 		r := &rewriter{names: names}
 		for _, fn := range m.AST.Functions {
+			r.locals = nil
 			if err := r.rewriteTypeParams(fn.TypeParams); err != nil {
 				return nil, fmt.Errorf("%s: функция %q: %w", m.Path, fn.Name, err)
 			}
@@ -80,6 +81,7 @@ func (p *Program) Link() (*ast.Program, error) {
 				return nil, fmt.Errorf("%s: сущность %q: %w", m.Path, ent.Name, err)
 			}
 			for _, meth := range ent.Methods {
+				r.locals = nil
 				if err := r.rewriteParams(meth.Params); err != nil {
 					return nil, fmt.Errorf("%s: сущность %q: метод %q: %w", m.Path, ent.Name, meth.Name, err)
 				}

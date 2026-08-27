@@ -1,5 +1,7 @@
 package ir
 
+import "strings"
+
 type TypeKind int
 
 const (
@@ -45,6 +47,18 @@ const (
 	// разных функций делают представление "по типу результата" негодным,
 	// см. package doc internal/backend/cbackend/concurrency.go).
 	KindTask
+	// KindCallable - значение "функции как значения" ("Вызываемый",
+	// "функция как значение") - функция/метод, взятая по ссылке (&имя), или лямбда,
+	// присвоенная переменной/переданная аргументом. Entity несёт
+	// каноническую строку сигнатуры вида "Вызываемый<Целое, Строка>Целое"
+	// (параметры через запятую внутри "<...>", тип результата сразу после
+	// закрывающей ">" без разделителя, пусто - без результата) - тем же
+	// принципом, что KindTask несёт имя функции: сама структура сигнатуры
+	// (список типов параметров, тип результата) не помещается в Type без
+	// потери сравнимости через "==" (slice - несравнимый тип в Go), поэтому
+	// разобранная форма живёт отдельно, в Program.Callables, под тем же
+	// ключом-строкой, см. CallableSig.
+	KindCallable
 )
 
 // Type - тип значения выражения IR, уже разрешённый семантическим анализом
@@ -89,8 +103,34 @@ func TaskType(funcName string) Type {
 	return Type{Kind: KindTask, Entity: funcName}
 }
 
+// CallableTypeName - зарезервированное имя типа "функция как значение".
+const CallableTypeName = "Вызываемый"
+
+// CallableType возвращает Type "функции как значения" с указанной
+// сигнатурой - Entity несёт каноническую строку (см. KindCallable),
+// построенную рекурсивным String() каждого параметра/результата, поэтому
+// два семантически одинаковых значения-типа (например, оба построены из
+// "Целое") дают текстуально одинаковую строку и поэтому равны через "=="
+// как и любой другой Type. result == nil - без типа результата.
+func CallableType(params []Type, result *Type) Type {
+	var b strings.Builder
+	b.WriteString(CallableTypeName)
+	b.WriteByte('<')
+	for i, p := range params {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(p.String())
+	}
+	b.WriteByte('>')
+	if result != nil {
+		b.WriteString(result.String())
+	}
+	return Type{Kind: KindCallable, Entity: b.String()}
+}
+
 func (t Type) String() string {
-	if t.Kind == KindEntity || t.Kind == KindInterface {
+	if t.Kind == KindEntity || t.Kind == KindInterface || t.Kind == KindCallable {
 		return t.Entity
 	}
 	if t.Kind == KindTask {

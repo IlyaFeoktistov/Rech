@@ -147,6 +147,7 @@ func (*ReturnStmt) stmt() {}
 
 type ExprStmt struct {
 	Call       *CallExpr
+	CallValue  *CallValueExpr
 	MethodCall *MethodCallExpr
 	IncDec     *IncDecExpr
 	Await      *AwaitExpr

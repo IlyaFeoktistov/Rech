@@ -182,6 +182,12 @@ func TypeOf(e Expr) Type {
 		return TaskType(e.Callee)
 	case *AwaitExpr:
 		return e.Type
+	case *FuncRefExpr:
+		return e.Type
+	case *LambdaExpr:
+		return e.Type
+	case *CallValueExpr:
+		return e.Type
 	default:
 		return TypeUnknown
 	}

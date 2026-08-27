@@ -96,10 +96,28 @@ type ctx struct {
 	// - "родитель(...)" внутри "если ... { родитель(...) }" на первом месте
 	// тела конструктора тоже отклоняется, не только "не первым по счёту".
 	allowParentCall bool
+
+	// a - владеющий Analyzer, нужен свободным функциям analyzeExpr/
+	// analyzeStmt (принимают только *ctx, не *Analyzer) для доступа к
+	// состоянию на весь Analyze, для которого нет места среди
+	// entities/methods/... - сейчас единственный потребитель -
+	// registerCallable ("Вызываемый" - см. analyzeFuncRefExpr/
+	// analyzeLambdaExpr).
+	a *Analyzer
+
+	// parent - объемлющий ctx - не nil только для тела лямбды:
+	// lookup, не найдя имя в собственных scopes, ищет его в parent и, если
+	// нашёл, запоминает как захват (captures/captureOrder) - так лямбда
+	// узнаёт, какие внешние переменные скопировать в собственное окружение
+	// замыкания при кодогенерации (см. analyzeLambdaExpr).
+	parent       *ctx
+	captures     map[string]ir.Type
+	captureOrder []string
 }
 
-func newCtx(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64, thisEntity string, returnType ir.Type, hasReturn bool, resolvedConsts map[string]ir.Expr, resolvingConsts map[string]bool) *ctx {
+func newCtx(a *Analyzer, funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64, thisEntity string, returnType ir.Type, hasReturn bool, resolvedConsts map[string]ir.Expr, resolvingConsts map[string]bool) *ctx {
 	return &ctx{
+		a:     a,
 		funcs: funcs, entities: entities, methods: methods, aliases: aliases, interfaces: interfaces, enums: enums, thisEntity: thisEntity,
 		scopes: []scope{{}}, returnType: returnType, hasReturn: hasReturn,
 		established:     []map[string]map[string]bool{{}},
@@ -108,6 +126,17 @@ func newCtx(funcs map[string]funcSig, entities map[string]entitySig, methods map
 		resolvedConsts:  resolvedConsts,
 		resolvingConsts: resolvingConsts,
 	}
+}
+
+// newLambdaCtx строит ctx для тела лямбды - как newCtx, но с
+// parent = sc (захват свободных переменных, см. package doc ctx.parent) и
+// без доступа к "этот"/allowParentCall объемлющего метода: лямбда внутри
+// метода не наследует его получателя (thisEntity: "") - оставлено на
+// будущее расширение, не решение этого среза.
+func newLambdaCtx(sc *ctx, returnType ir.Type, hasReturn bool) *ctx {
+	c := newCtx(sc.a, sc.funcs, sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, "", returnType, hasReturn, sc.resolvedConsts, sc.resolvingConsts)
+	c.parent = sc
+	return c
 }
 
 func (c *ctx) push() {
@@ -250,13 +279,32 @@ func (c *ctx) declare(name string, typ ir.Type) error {
 	return nil
 }
 
+// lookup ищет name в собственных scopes (от самой внутренней области видимости
+// к внешним), а если не нашёл и c.parent != nil (тело лямбды) -
+// рекурсивно в объемлющем ctx: найденное там имя - свободная переменная тела
+// лямбды, запоминается в c.captures/c.captureOrder (в порядке первого
+// использования, без повторов) - см. package doc ctx.parent.
 func (c *ctx) lookup(name string) (ir.Type, bool) {
 	for _, sc := range slices.Backward(c.scopes) {
 		if typ, ok := sc[name]; ok {
 			return typ, true
 		}
 	}
-	return ir.TypeUnknown, false
+	if c.parent == nil {
+		return ir.TypeUnknown, false
+	}
+	typ, ok := c.parent.lookup(name)
+	if !ok {
+		return ir.TypeUnknown, false
+	}
+	if _, already := c.captures[name]; !already {
+		if c.captures == nil {
+			c.captures = map[string]ir.Type{}
+		}
+		c.captures[name] = typ
+		c.captureOrder = append(c.captureOrder, name)
+	}
+	return typ, true
 }
 
 // markConst помечает уже объявленную (declare уже вызван) переменную name

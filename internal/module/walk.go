@@ -80,6 +80,27 @@ func resolveTypeRef(typeName string, names map[string]string) (string, error) {
 type rewriter struct {
 	names      map[string]string
 	typeParams map[string]bool
+	// locals - имена, объявленные внутри тела функции/метода, которое
+	// сейчас переписывается (параметры, "переменная"/"константа",
+	// переменная цикла "для"/"для...в", "поймать(...)") - у локальной
+	// переменной типа "Вызываемый", вызванной как "ф(...)" ("ф" не найдено
+	// в names - это не файловая декларация), отсутствие записи в names не
+	// ошибка видимости, в отличие от истинно необъявленного/
+	// неимпортированного имени - см. CallExpr case в rewriteExpr.
+	// Сбрасывается вызывающим кодом (link.go) перед каждым новым телом
+	// функции/метода верхнего уровня - не настоящая вложенная область
+	// видимости (переменная одной ветки "если" считается локальной для
+	// всего тела), но ложноположительный исход (пропущенная ошибка
+	// видимости при случайном совпадении имени) безопаснее
+	// ложноотрицательного (сломанный вызов значения).
+	locals map[string]bool
+}
+
+func (r *rewriter) addLocal(name string) {
+	if r.locals == nil {
+		r.locals = map[string]bool{}
+	}
+	r.locals[name] = true
 }
 
 // typeParamSet - имена параметров типа params в виде множества, для
@@ -111,6 +132,7 @@ func (r *rewriter) rewriteParams(params []ast.Param) error {
 			return fmt.Errorf("параметр %q: %w", p.Name, err)
 		}
 		params[i].Type = resolved
+		r.addLocal(p.Name)
 	}
 	return nil
 }
@@ -163,8 +185,10 @@ func (r *rewriter) rewriteStmt(s ast.Stmt) error {
 	case *ast.ShowStmt:
 		return r.rewriteExpr(s.Value)
 	case *ast.VarDecl:
+		r.addLocal(s.Name)
 		return r.rewriteExpr(s.Value)
 	case *ast.ConstDecl:
+		r.addLocal(s.Name)
 		return r.rewriteExpr(s.Value)
 	case *ast.Assign:
 		return r.rewriteExpr(s.Value)
@@ -191,6 +215,7 @@ func (r *rewriter) rewriteStmt(s ast.Stmt) error {
 		}
 		return r.rewriteStmts(s.Body)
 	case *ast.ForStmt:
+		r.addLocal(s.Var)
 		if err := r.rewriteExpr(s.From); err != nil {
 			return err
 		}
@@ -199,6 +224,7 @@ func (r *rewriter) rewriteStmt(s ast.Stmt) error {
 		}
 		return r.rewriteStmts(s.Body)
 	case *ast.ForEachStmt:
+		r.addLocal(s.Var)
 		if err := r.rewriteExpr(s.Collection); err != nil {
 			return err
 		}
@@ -222,6 +248,9 @@ func (r *rewriter) rewriteStmt(s ast.Stmt) error {
 	case *ast.ThrowStmt:
 		return r.rewriteExpr(s.Value)
 	case *ast.TryStmt:
+		if s.CatchVar != "" {
+			r.addLocal(s.CatchVar)
+		}
 		if err := r.rewriteStmts(s.Body); err != nil {
 			return err
 		}
@@ -252,11 +281,21 @@ func (r *rewriter) rewriteExpr(e ast.Expr) error {
 	case *ast.StringLiteral, *ast.IntLiteral, *ast.FloatLiteral, *ast.BoolLiteral, *ast.CharLiteral, *ast.Identifier, *ast.ThisExpr, *ast.IncDecExpr:
 		return nil
 	case *ast.CallExpr:
+		// Callee здесь может называть либо объявленную функцию (обычный
+		// случай), либо локальную переменную типа "Вызываемый"
+		// ("ф(<арг>, ...)") - у локальных имён нет записи в r.names (это
+		// не файловая/импортированная декларация), и в отличие от истинно
+		// необъявленного/неимпортированного имени, отсутствие записи
+		// здесь не ошибка, если имя есть среди r.locals (см. package doc
+		// rewriter.locals).
 		resolved, err := resolveBareName(e.Callee, r.names)
 		if err != nil {
-			return fmt.Errorf("строка %d: %w", e.Line, err)
+			if !r.locals[e.Callee] {
+				return fmt.Errorf("строка %d: %w", e.Line, err)
+			}
+		} else {
+			e.Callee = resolved
 		}
-		e.Callee = resolved
 		for i, t := range e.TypeArgs {
 			resolvedType, err := resolveTypeRef(t, r.names)
 			if err != nil {
@@ -299,6 +338,27 @@ func (r *rewriter) rewriteExpr(e ast.Expr) error {
 		return r.rewriteExpr(e.Call)
 	case *ast.AwaitExpr:
 		return r.rewriteExpr(e.Task)
+	case *ast.FuncRefExpr:
+		// В отличие от CallExpr.Callee - "&имя" синтаксически может
+		// называть только объявленную функцию, никогда локальную
+		// переменную (грамматика - "&" IDENT, r.locals здесь не
+		// проверяется), поэтому обычная строгая резолюция, без исключений.
+		resolved, err := resolveBareName(e.Name, r.names)
+		if err != nil {
+			return fmt.Errorf("строка %d: %w", e.Line, err)
+		}
+		e.Name = resolved
+		return nil
+	case *ast.LambdaExpr:
+		if err := r.rewriteParams(e.Params); err != nil {
+			return fmt.Errorf("строка %d: лямбда: %w", e.Line, err)
+		}
+		resolved, err := r.rewriteReturnType(e.ReturnType)
+		if err != nil {
+			return fmt.Errorf("строка %d: лямбда: %w", e.Line, err)
+		}
+		e.ReturnType = resolved
+		return r.rewriteStmts(e.Body)
 	default:
 		return fmt.Errorf("внутренняя ошибка: неизвестное выражение %T", e)
 	}

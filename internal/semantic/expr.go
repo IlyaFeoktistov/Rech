@@ -64,10 +64,16 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		if !call.HasReturn {
-			return nil, fmt.Errorf("строка %d: функция %q не имеет объявленного типа результата - её нельзя использовать как выражение", e.Line, e.Callee)
+		if !callHasReturn(call) {
+			return nil, fmt.Errorf("строка %d: %q не имеет объявленного типа результата - её нельзя использовать как выражение", e.Line, e.Callee)
 		}
 		return call, nil
+
+	case *ast.FuncRefExpr:
+		return analyzeFuncRefExpr(sc, e)
+
+	case *ast.LambdaExpr:
+		return analyzeLambdaExpr(sc, e)
 
 	case *ast.NewExpr:
 		return analyzeNewExpr(sc, e)
@@ -309,20 +315,83 @@ func analyzeMethodCallExpr(sc *ctx, e *ast.MethodCallExpr) (*ir.MethodCallExpr, 
 // самой инстанциации ("первый<Целое>"), под которым её уже раскрыл
 // instantiateGenerics в обычную функцию, неотличимую для остального
 // анализа от любой другой.
-func analyzeCallExpr(sc *ctx, e *ast.CallExpr) (*ir.CallExpr, error) {
+// analyzeCallExpr разбирает "имя(<арг>, ...)" - вызов по статически
+// известному имени функции (обычный случай) ИЛИ, если имя не найдено среди
+// объявленных функций, но названо локальной переменной/полем типа
+// "Вызываемый" - вызов ЗНАЧЕНИЯ ("ф(<арг>, ...)", где ф - не имя
+// функции). Естественный (падежный) вызов ко второй форме не относится -
+// falls через ту же грамматику "имя(...)", но analyzeExpr(e.Callee) как
+// произвольного выражения делает падежные роли параметров бессмысленными,
+// поэтому вызов значения поддерживает только позиционные аргументы (как и
+// решено при проектировании - "только обычный вызов ф(...)").
+func analyzeCallExpr(sc *ctx, e *ast.CallExpr) (ir.Expr, error) {
 	callee := e.Callee
 	if len(e.TypeArgs) > 0 {
 		callee = mangleGenericCallName(e.Callee, e.TypeArgs)
 	}
-	sig, ok := sc.funcs[callee]
-	if !ok {
-		return nil, fmt.Errorf("строка %d: функция %q не объявлена", e.Line, callee)
+	if sig, ok := sc.funcs[callee]; ok {
+		args, err := checkCallArgs(sc, e.Args, sig, e.Line, fmt.Sprintf("функция %q", callee), fmt.Sprintf("вызова %q", callee))
+		if err != nil {
+			return nil, err
+		}
+		return &ir.CallExpr{Callee: callee, Args: args, Type: sig.ReturnType, HasReturn: sig.HasReturn}, nil
 	}
-	args, err := checkCallArgs(sc, e.Args, sig, e.Line, fmt.Sprintf("функция %q", callee), fmt.Sprintf("вызова %q", callee))
+	if len(e.TypeArgs) == 0 {
+		if typ, ok := sc.lookup(e.Callee); ok && typ.Kind == ir.KindCallable {
+			return analyzeCallValueExpr(sc, &ir.Identifier{Name: e.Callee, Type: typ}, e)
+		}
+	}
+	return nil, fmt.Errorf("строка %d: функция %q не объявлена", e.Line, callee)
+}
+
+// analyzeCallValueExpr - общая часть analyzeCallExpr (Callee - простое имя
+// переменной) для вызова значения типа "Вызываемый" - value уже
+// проанализирован (Identifier выше, либо в будущем произвольное выражение,
+// если естественный вызов расширится на .поле и т. п.). Сигнатура value
+// (Params/Result) берётся из Program.Callables по каноническому имени
+// (value.Type.Entity) - a.resolveCallableSig, та же функция, что и
+// registerCallable, дважды не резолвит по-разному.
+func analyzeCallValueExpr(sc *ctx, value ir.Expr, e *ast.CallExpr) (*ir.CallValueExpr, error) {
+	typ := ir.TypeOf(value)
+	sig, err := sc.a.resolveCallableSig(typ.Entity)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("строка %d: %w", e.Line, err)
 	}
-	return &ir.CallExpr{Callee: callee, Args: args, Type: sig.ReturnType, HasReturn: sig.HasReturn}, nil
+	if len(e.Args) != len(sig.Params) {
+		return nil, fmt.Errorf("строка %d: %s ожидает аргументов: %d, передано: %d", e.Line, typ, len(sig.Params), len(e.Args))
+	}
+	args := make([]ir.Expr, len(e.Args))
+	for i, a := range e.Args {
+		arg, err := analyzeExpr(sc, a)
+		if err != nil {
+			return nil, err
+		}
+		if t := ir.TypeOf(arg); !isAssignable(sc.entities, t, sig.Params[i]) {
+			return nil, fmt.Errorf("строка %d: аргумент %d вызова %s должен быть типа %s, получен %s", e.Line, i+1, typ, sig.Params[i], t)
+		}
+		args[i] = arg
+	}
+	resultType := ir.TypeUnknown
+	hasReturn := sig.Result != nil
+	if hasReturn {
+		resultType = *sig.Result
+	}
+	return &ir.CallValueExpr{Value: value, Args: args, Type: resultType, HasReturn: hasReturn}, nil
+}
+
+// callHasReturn - HasReturn общего вида для обеих конкретных форм, в
+// которые может развернуться analyzeCallExpr (обычный вызов по имени или
+// вызов значения) - используется там, где раньше был прямой доступ к
+// (*ir.CallExpr).HasReturn.
+func callHasReturn(e ir.Expr) bool {
+	switch e := e.(type) {
+	case *ir.CallExpr:
+		return e.HasReturn
+	case *ir.CallValueExpr:
+		return e.HasReturn
+	default:
+		return false
+	}
 }
 
 // checkCallArgs анализирует и проверяет аргументы вызова (обычной функции

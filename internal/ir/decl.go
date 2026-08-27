@@ -31,6 +31,7 @@ type Program struct {
 	Generics    []GenericInstantiation
 	ExternFuncs []*ExternFuncDecl
 	Interfaces  []*Interface
+	Callables   []CallableSig
 }
 
 // ExternFuncDecl соответствует "внешняя функция <CName> [как <Alias>](...)"
@@ -66,6 +67,20 @@ type GenericInstantiation struct {
 	Name     string // "Список<Целое>"
 	Template string // "Список" | "Стопка" | "Очередь"
 	ElemType Type
+}
+
+// CallableSig - конкретная сигнатура "функции как значения" (
+// "Вызываемый<...>..."), встретившаяся в программе - как
+// GenericInstantiation, называет одну точку кодогенерации без отдельного
+// узла в дереве типов (Type для KindCallable несёт только Name, готовый
+// разобранный список Params/Result живёт здесь, потому что Type не может
+// хранить slice и остаться сравнимым через "=="). Backend один раз
+// генерирует C-структуру (указатель на функцию + указатель на окружение
+// замыкания) и функцию вызова по Name.
+type CallableSig struct {
+	Name   string // "Вызываемый<Целое, Строка>Целое", он же Type.Entity
+	Params []Type
+	Result *Type // nil - без результата
 }
 
 // Function - функция программы после семантического анализа. Name - имя

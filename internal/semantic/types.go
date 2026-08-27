@@ -80,6 +80,13 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 	if base, ok := aliases[name]; ok {
 		return ir.EntityType(base), nil
 	}
+	if strings.HasPrefix(name, ir.CallableTypeName+"<") {
+		params, result, err := resolveCallableTypeName(entities, methods, aliases, interfaces, name)
+		if err != nil {
+			return ir.TypeUnknown, err
+		}
+		return ir.CallableType(params, result), nil
+	}
 	return resolveGenericTypeName(entities, methods, aliases, interfaces, name)
 }
 

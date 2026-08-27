@@ -282,7 +282,14 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &ir.ExprStmt{Call: call}, nil
+		switch call := call.(type) {
+		case *ir.CallExpr:
+			return &ir.ExprStmt{Call: call}, nil
+		case *ir.CallValueExpr:
+			return &ir.ExprStmt{CallValue: call}, nil
+		default:
+			return nil, fmt.Errorf("внутренняя ошибка: неизвестный вид вызова %T", call)
+		}
 
 	case *ast.FieldAssign:
 		if !receiverAddressable(s.Receiver) {

@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
 // splitTopLevelArgs разбивает список аргументов типа на верхнем уровне по
@@ -63,6 +64,22 @@ func parseGenericTypeNameMulti(name string) (template string, args []string, ok 
 func substituteTypeString(s string, subst map[string]string) string {
 	if repl, ok := subst[s]; ok {
 		return repl
+	}
+	// "Вызываемый<...>..." - отдельная форма (parseGenericTypeNameMulti
+	// требует, чтобы имя заканчивалось на ">", а тут после закрывающей
+	// "<...>" может идти ещё тип результата без разделителя) - разбирается
+	// собственным разбором (splitCallableTypeString, internal/semantic/
+	// callable.go), не обычным generic-механизмом ниже.
+	if params, result, ok := splitCallableTypeString(s); ok {
+		newParams := make([]string, len(params))
+		for i, p := range params {
+			newParams[i] = substituteTypeString(p, subst)
+		}
+		newResult := result
+		if result != "" {
+			newResult = substituteTypeString(result, subst)
+		}
+		return fmt.Sprintf("%s<%s>%s", ir.CallableTypeName, strings.Join(newParams, ", "), newResult)
 	}
 	tpl, args, ok := parseGenericTypeNameMulti(s)
 	if !ok {
@@ -220,6 +237,13 @@ func substExpr(e ast.Expr, subst map[string]string) ast.Expr {
 		return &ast.AwaitExpr{Task: substExpr(e.Task, subst), Line: e.Line}
 	case *ast.IsExpr:
 		return &ast.IsExpr{Value: substExpr(e.Value, subst), Target: substituteTypeString(e.Target, subst), Line: e.Line}
+	case *ast.FuncRefExpr:
+		return e
+	case *ast.LambdaExpr:
+		return &ast.LambdaExpr{
+			Params: substParams(e.Params, subst), ReturnType: substituteTypeString(e.ReturnType, subst),
+			Body: substStmts(e.Body, subst), Line: e.Line,
+		}
 	default:
 		return e
 	}
@@ -610,6 +634,18 @@ func (inst *instantiator) scanExpr(e ast.Expr) error {
 			return err
 		}
 		return inst.ensureEntity(e.Target, e.Line)
+	case *ast.LambdaExpr:
+		for _, p := range e.Params {
+			if err := inst.ensureEntity(p.Type, e.Line); err != nil {
+				return err
+			}
+		}
+		if e.ReturnType != "" {
+			if err := inst.ensureEntity(e.ReturnType, e.Line); err != nil {
+				return err
+			}
+		}
+		return inst.scanStmts(e.Body)
 	default:
 		return nil
 	}
