@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strconv"
 	"testing"
+
+	"github.com/IlyaFeoktistov/Rech/internal/rpcframe"
 )
 
 // TestServerRequestResponseRoundTrip - клиент шлёт запрос в формате
@@ -40,9 +42,9 @@ func TestServerRequestResponseRoundTrip(t *testing.T) {
 	// out теперь содержит фрейм ответа - разбираем его тем же читателем,
 	// что и клиент бы разобрал (проверка формата, не только содержимого).
 	respServer := NewServer(&out, &bytes.Buffer{})
-	raw, err := readMessage(respServer.in)
+	raw, err := rpcframe.ReadFrame(respServer.in)
 	if err != nil {
-		t.Fatalf("readMessage ответа: %v", err)
+		t.Fatalf("ReadFrame ответа: %v", err)
 	}
 	var resp Response
 	if err := json.Unmarshal(raw, &resp); err != nil {

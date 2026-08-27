@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"strconv"
-	"strings"
 	"sync"
+
+	"github.com/IlyaFeoktistov/Rech/internal/rpcframe"
 )
 
 // Server - транспорт DAP поверх in/out (в реальном использовании - stdin/
@@ -35,7 +35,7 @@ func NewServer(in io.Reader, out io.Writer) *Server {
 // клиент закрыл соединение (VS Code завершил сессию отладки).
 func (s *Server) ReadRequest() (*Request, error) {
 	for {
-		raw, err := readMessage(s.in)
+		raw, err := rpcframe.ReadFrame(s.in)
 		if err != nil {
 			return nil, err
 		}
@@ -101,50 +101,5 @@ func (s *Server) send(msg *ProtocolMessage, v any) error {
 	defer s.outMu.Unlock()
 	s.seq++
 	msg.Seq = s.seq
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(s.out, "Content-Length: %d\r\n\r\n", len(b)); err != nil {
-		return err
-	}
-	_, err = s.out.Write(b)
-	return err
-}
-
-// readMessage читает один DAP-фрейм: заголовки до пустой строки (только
-// "Content-Length" реально используется - DAP допускает и другие,
-// например, "Content-Type", но клиенты его не шлют), затем ровно N байт
-// тела.
-func readMessage(r *bufio.Reader) (json.RawMessage, error) {
-	length := -1
-	for {
-		line, err := r.ReadString('\n')
-		if err != nil {
-			return nil, err
-		}
-		line = strings.TrimRight(line, "\r\n")
-		if line == "" {
-			break
-		}
-		name, value, ok := strings.Cut(line, ":")
-		if !ok {
-			continue
-		}
-		if strings.EqualFold(strings.TrimSpace(name), "Content-Length") {
-			n, err := strconv.Atoi(strings.TrimSpace(value))
-			if err != nil {
-				return nil, fmt.Errorf("dap: некорректный Content-Length %q: %w", value, err)
-			}
-			length = n
-		}
-	}
-	if length < 0 {
-		return nil, fmt.Errorf("dap: сообщение без заголовка Content-Length")
-	}
-	body := make([]byte, length)
-	if _, err := io.ReadFull(r, body); err != nil {
-		return nil, err
-	}
-	return body, nil
+	return rpcframe.WriteFrame(s.out, v)
 }
