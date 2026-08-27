@@ -89,6 +89,10 @@ type Value struct {
 	// явной проверкой (см. evalBuiltinCall, rtmsg.SocketWrongKind).
 	Listener net.Listener
 	Conn     net.Conn
+
+	// Task - непусто только при Type.Kind == ir.KindTask (шаг 15,
+	// "запустить"/"дождаться") - см. internal/interp/concurrency.go.
+	Task *taskValue
 }
 
 func intValue(v int64) Value     { return Value{Type: ir.TypeInt, I: v} }

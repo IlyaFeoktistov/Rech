@@ -87,6 +87,12 @@ func (in *Interp) evalExpr(e ir.Expr, env *Env, cc *callCtx) (Value, error) {
 	case *ir.IsExpr:
 		return in.evalIsExpr(e, env, cc)
 
+	case *ir.LaunchExpr:
+		return in.evalLaunchExpr(e, env, cc)
+
+	case *ir.AwaitExpr:
+		return in.evalAwaitExpr(e, env, cc)
+
 	default:
 		return Value{}, fmt.Errorf("вычисление: выражение %T не поддерживается интерпретатором", e)
 	}
