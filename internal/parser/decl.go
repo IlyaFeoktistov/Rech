@@ -3,6 +3,7 @@ package parser
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
@@ -217,6 +218,13 @@ func (p *Parser) parseFunction() (*ast.FunctionDecl, error) {
 	if err != nil {
 		return nil, fmt.Errorf("после \"функция\" ожидалось имя функции: %w", err)
 	}
+	typeParams, err := p.parseGenericParams()
+	if err != nil {
+		return nil, fmt.Errorf("функция %q: %w", name.Value, err)
+	}
+	if name.Value == entryPointName && typeParams != nil {
+		return nil, fmt.Errorf("строка %d: %q - точка входа программы, не может быть generic", kw.Line, entryPointName)
+	}
 
 	var params []ast.Param
 	if p.cur().Type == lexer.LPAREN {
@@ -245,7 +253,7 @@ func (p *Parser) parseFunction() (*ast.FunctionDecl, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ast.FunctionDecl{Name: name.Value, Params: params, ReturnType: returnType, Body: body, Line: kw.Line}, nil
+	return &ast.FunctionDecl{Name: name.Value, Params: params, ReturnType: returnType, Body: body, TypeParams: typeParams, Line: kw.Line}, nil
 }
 
 // parseParams разбирает "(" [ param { "," param } ] ")". Позиция парсера
@@ -281,9 +289,11 @@ func (p *Parser) parseParams() ([]ast.Param, error) {
 	return params, nil
 }
 
-// parseTypeName разбирает имя типа: IDENT [ "<" type_name ">" ] - обычное
-// имя (примитив или сущность) либо generic-инстанциация вроде
-// "Список<Целое>" (шаг 4.2). Кодируется в одну строку - AST продолжает
+// parseTypeName разбирает имя типа: IDENT [ "<" type_name { "," type_name } ">" ] -
+// обычное имя (примитив или сущность) либо generic-инстанциация вроде
+// "Список<Целое>" (встроенные коллекции, шаг 4.2) или "Коробка<Целое,
+// Строка>" (пользовательские generic-сущности/функции, несколько
+// параметров типа - шаг 16). Кодируется в одну строку - AST продолжает
 // хранить тип как string везде (Param.Type, Field.Type, ReturnType,
 // NewExpr.Type), backend сам разбирает и резолвит эту строку
 // (internal/backend/cbackend, resolveType). "<"/">" - уже существующие
@@ -298,14 +308,22 @@ func (p *Parser) parseTypeName() (string, error) {
 		return name.Value, nil
 	}
 	p.advance() // "<"
-	arg, err := p.parseTypeName()
-	if err != nil {
-		return "", fmt.Errorf("в аргументе типа %q: %w", name.Value, err)
+	var args []string
+	for {
+		arg, err := p.parseTypeName()
+		if err != nil {
+			return "", fmt.Errorf("в аргументе типа %q: %w", name.Value, err)
+		}
+		args = append(args, arg)
+		if p.cur().Type != lexer.COMMA {
+			break
+		}
+		p.advance() // ","
 	}
 	if _, err := p.expect(lexer.GT); err != nil {
-		return "", fmt.Errorf("после аргумента типа %q<%s> ожидалось \">\": %w", name.Value, arg, err)
+		return "", fmt.Errorf("после аргументов типа %q<%s> ожидалось \">\": %w", name.Value, strings.Join(args, ", "), err)
 	}
-	return fmt.Sprintf("%s<%s>", name.Value, arg), nil
+	return fmt.Sprintf("%s<%s>", name.Value, strings.Join(args, ", ")), nil
 }
 
 // parseParam разбирает параметр в одной из двух форм:

@@ -54,6 +54,10 @@ func (p *Program) Link() (*ast.Program, error) {
 		names := buildNames(m, p.Entry)
 		r := &rewriter{names: names}
 		for _, fn := range m.AST.Functions {
+			if err := r.rewriteTypeParams(fn.TypeParams); err != nil {
+				return nil, fmt.Errorf("%s: функция %q: %w", m.Path, fn.Name, err)
+			}
+			r.typeParams = typeParamSet(fn.TypeParams)
 			if err := r.rewriteParams(fn.Params); err != nil {
 				return nil, fmt.Errorf("%s: функция %q: %w", m.Path, fn.Name, err)
 			}
@@ -65,8 +69,13 @@ func (p *Program) Link() (*ast.Program, error) {
 			if err := r.rewriteStmts(fn.Body); err != nil {
 				return nil, fmt.Errorf("%s: функция %q: %w", m.Path, fn.Name, err)
 			}
+			r.typeParams = nil
 		}
 		for _, ent := range m.AST.Entities {
+			if err := r.rewriteTypeParams(ent.TypeParams); err != nil {
+				return nil, fmt.Errorf("%s: сущность %q: %w", m.Path, ent.Name, err)
+			}
+			r.typeParams = typeParamSet(ent.TypeParams)
 			if err := r.rewriteFields(ent.Fields); err != nil {
 				return nil, fmt.Errorf("%s: сущность %q: %w", m.Path, ent.Name, err)
 			}
@@ -83,6 +92,7 @@ func (p *Program) Link() (*ast.Program, error) {
 					return nil, fmt.Errorf("%s: сущность %q: метод %q: %w", m.Path, ent.Name, meth.Name, err)
 				}
 			}
+			r.typeParams = nil
 		}
 		for _, ext := range m.AST.ExternFuncs {
 			if err := r.rewriteParams(ext.Params); err != nil {

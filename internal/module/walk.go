@@ -71,14 +71,42 @@ func resolveTypeRef(typeName string, names map[string]string) (string, error) {
 }
 
 // rewriter переписывает каждую ссылку на глобальное имя (вызов функции,
-// имя типа) в дереве по names - см. link.go, buildNames.
+// имя типа) в дереве по names - см. link.go, buildNames. typeParams - имена
+// параметров типа generic-сущности/функции, чьи поля/параметры/тип
+// результата сейчас переписываются (шаг 16) - локальные заглушки ("T"), не
+// ссылки на объявленный где-то тип, поэтому исключены из резолюции;
+// выставляется/сбрасывается вызывающим кодом (link.go) перед/после каждого
+// generic-объявления, nil - вне такого объявления (обычная резолюция).
 type rewriter struct {
-	names map[string]string
+	names      map[string]string
+	typeParams map[string]bool
+}
+
+// typeParamSet - имена параметров типа params в виде множества, для
+// rewriter.typeParams - nil, если params пуст (не generic-объявление).
+func typeParamSet(params []ast.GenericParam) map[string]bool {
+	if len(params) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(params))
+	for _, p := range params {
+		set[p.Name] = true
+	}
+	return set
+}
+
+// resolveType - resolveTypeRef, но пропускающий типы, равные одному из
+// typeParams как есть (см. package doc rewriter).
+func (r *rewriter) resolveType(typeName string) (string, error) {
+	if r.typeParams[typeName] {
+		return typeName, nil
+	}
+	return resolveTypeRef(typeName, r.names)
 }
 
 func (r *rewriter) rewriteParams(params []ast.Param) error {
 	for i, p := range params {
-		resolved, err := resolveTypeRef(p.Type, r.names)
+		resolved, err := r.resolveType(p.Type)
 		if err != nil {
 			return fmt.Errorf("параметр %q: %w", p.Name, err)
 		}
@@ -89,7 +117,7 @@ func (r *rewriter) rewriteParams(params []ast.Param) error {
 
 func (r *rewriter) rewriteFields(fields []ast.Field) error {
 	for i, f := range fields {
-		resolved, err := resolveTypeRef(f.Type, r.names)
+		resolved, err := r.resolveType(f.Type)
 		if err != nil {
 			return fmt.Errorf("поле %q: %w", f.Name, err)
 		}
@@ -99,7 +127,24 @@ func (r *rewriter) rewriteFields(fields []ast.Field) error {
 }
 
 func (r *rewriter) rewriteReturnType(returnType string) (string, error) {
-	return resolveTypeRef(returnType, r.names)
+	return r.resolveType(returnType)
+}
+
+// rewriteTypeParams переписывает имена типов внутри ограничений параметров
+// типа generic-сущности/функции (шаг 16) - сами имена параметров (T, U)
+// НЕ переписываются (это не ссылки на объявленные где-то типы, а
+// локальные заглушки, вводимые прямо здесь).
+func (r *rewriter) rewriteTypeParams(params []ast.GenericParam) error {
+	for i, p := range params {
+		for j, c := range p.Constraints {
+			resolved, err := resolveTypeRef(c, r.names)
+			if err != nil {
+				return fmt.Errorf("параметр типа %q: %w", p.Name, err)
+			}
+			params[i].Constraints[j] = resolved
+		}
+	}
+	return nil
 }
 
 func (r *rewriter) rewriteStmts(stmts []ast.Stmt) error {
@@ -212,9 +257,16 @@ func (r *rewriter) rewriteExpr(e ast.Expr) error {
 			return fmt.Errorf("строка %d: %w", e.Line, err)
 		}
 		e.Callee = resolved
+		for i, t := range e.TypeArgs {
+			resolvedType, err := resolveTypeRef(t, r.names)
+			if err != nil {
+				return fmt.Errorf("строка %d: аргумент типа: %w", e.Line, err)
+			}
+			e.TypeArgs[i] = resolvedType
+		}
 		return r.rewriteExprs(e.Args)
 	case *ast.NewExpr:
-		resolved, err := resolveTypeRef(e.Type, r.names)
+		resolved, err := r.resolveType(e.Type)
 		if err != nil {
 			return fmt.Errorf("строка %d: %w", e.Line, err)
 		}
@@ -237,7 +289,7 @@ func (r *rewriter) rewriteExpr(e ast.Expr) error {
 	case *ast.CastExpr:
 		return r.rewriteExpr(e.Value)
 	case *ast.IsExpr:
-		resolved, err := resolveTypeRef(e.Target, r.names)
+		resolved, err := r.resolveType(e.Target)
 		if err != nil {
 			return fmt.Errorf("строка %d: %w", e.Line, err)
 		}

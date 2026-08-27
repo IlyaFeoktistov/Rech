@@ -261,6 +261,9 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 		if p.peekAt(1).Type == lexer.LPAREN {
 			return p.parseCallExpr()
 		}
+		if p.genericFuncs[tok.Value] && p.peekAt(1).Type == lexer.LT {
+			return p.parseGenericCallExpr()
+		}
 		if p.peekAt(1).Type == lexer.INCR || p.peekAt(1).Type == lexer.DECR {
 			p.advance()
 			op := p.advance()

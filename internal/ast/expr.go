@@ -62,7 +62,10 @@ func (*Identifier) expr() {}
 type CallExpr struct {
 	Callee string
 	Args   []Expr
-	Line   int
+	// TypeArgs - явные аргументы типа ("первый<Целое>(...)", шаг 16) - nil
+	// у вызова обычной (не generic) функции.
+	TypeArgs []string
+	Line     int
 }
 
 func (*CallExpr) node() {}

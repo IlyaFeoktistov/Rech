@@ -103,6 +103,13 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 			}
 			return &ast.ExprStmt{Call: call, Line: call.Line}, nil
 		}
+		if p.genericFuncs[p.cur().Value] && p.peekAt(1).Type == lexer.LT {
+			call, err := p.parseGenericCallExpr()
+			if err != nil {
+				return nil, err
+			}
+			return &ast.ExprStmt{Call: call, Line: call.Line}, nil
+		}
 		if params, ok := p.funcParams[p.cur().Value]; ok {
 			call, err := p.parseNaturalCall(params)
 			if err != nil {

@@ -73,6 +73,14 @@ type Parser struct {
 	// раньше, и позже места вызова, как и для строгого вызова, шаг 3.2).
 	funcParams map[string][]ast.Param
 
+	// genericFuncs - имена функций, объявленных с параметром типа
+	// ("первый<T>(...)", шаг 16) - собрано тем же предварительным проходом,
+	// что и funcParams. Нужен, чтобы разобрать "имя<Тип>(...)" как generic-
+	// вызов, а не начало сравнения ("имя < ..."), не заглядывая внутрь "<...>"
+	// вслепую - обычная функция без параметра типа никогда не читает "<"
+	// сразу после своего имени как начало вызова.
+	genericFuncs map[string]bool
+
 	// inMethodBody - true, пока парсер разбирает тело метода сущности
 	// (parseMethod). "этот" валиден только пока это поле true - структурное
 	// свойство (где мы сейчас в дереве разбора), не зависящее от типов,
@@ -202,6 +210,7 @@ func (p *Parser) collectFunctionSignatures() error {
 	p.pos = 0
 
 	sigs := map[string][]ast.Param{}
+	generics := map[string]bool{}
 	for p.cur().Type != lexer.EOF {
 		switch p.cur().Type {
 		case lexer.KwFunction:
@@ -209,6 +218,13 @@ func (p *Parser) collectFunctionSignatures() error {
 			name, err := p.expect(lexer.IDENT)
 			if err != nil {
 				return fmt.Errorf("после \"функция\" ожидалось имя функции: %w", err)
+			}
+			typeParams, err := p.parseGenericParams()
+			if err != nil {
+				return fmt.Errorf("функция %q: %w", name.Value, err)
+			}
+			if typeParams != nil {
+				generics[name.Value] = true
 			}
 			var params []ast.Param
 			if p.cur().Type == lexer.LPAREN {
@@ -238,6 +254,7 @@ func (p *Parser) collectFunctionSignatures() error {
 		}
 	}
 	p.funcParams = sigs
+	p.genericFuncs = generics
 	return nil
 }
 
@@ -368,6 +385,11 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 	}
 	p.registerNoun(name.Value)
 
+	typeParams, err := p.parseGenericParams()
+	if err != nil {
+		return nil, fmt.Errorf("%s %q: %w", label, name.Value, err)
+	}
+
 	var baseName string
 	var interfaces []string
 	if p.cur().Type == lexer.KwInherits {
@@ -401,6 +423,9 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 	}
 	if kw.Type == lexer.KwStruct && (baseName != "" || len(interfaces) > 0) {
 		return nil, fmt.Errorf("структура %q: \"наследует\"/\"реализует\" допустимы только у \"сущность\"/\"класс\" (наследование/интерфейсы ограничены ссылочными типами)", name.Value)
+	}
+	if typeParams != nil && (baseName != "" || len(interfaces) > 0) {
+		return nil, fmt.Errorf("%s %q: generic-%s (с параметром типа) не может наследовать/реализовывать - не реализовано в этом срезе", label, name.Value, label)
 	}
 
 	p.skipNewlines()
@@ -546,6 +571,7 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 		Fields:     fields,
 		Methods:    methods,
 		Ctor:       ctor,
+		TypeParams: typeParams,
 		Line:       kw.Line,
 	}, nil
 }
