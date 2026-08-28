@@ -74,7 +74,10 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 	if _, ok := interfaces[name]; ok {
 		return ir.InterfaceType(name), nil
 	}
-	if _, ok := entities[name]; ok {
+	if sig, ok := entities[name]; ok {
+		if sig.IsExternOpaque {
+			return ir.ExternEntityType(name), nil
+		}
 		return ir.EntityType(name), nil
 	}
 	if base, ok := aliases[name]; ok {
@@ -262,16 +265,42 @@ func resolveGenericTypeName(entities map[string]entitySig, methods map[string]ma
 // шаг 4.1 (состояния, упрощённая версия) и шаг 4.2 (встроенные generic-
 // коллекции) - см. internal/ir, package doc. Расширяется вместе с
 
-// (шаг 7, FFI) - тот же принцип, что и cbackend.isFFIScalar (AST-путь):
-// ни сущности, ни generic-коллекции не имеют стабильного, задокументированного
+// isFFIScalar - t допустим в сигнатуре "внешняя функция" и в поле "внешняя
+// структура" (FFI, докс/SPEC.md, раздел 12): примитив со стабильным,
+// задокументированным C-представлением - Целое (long long), Действительное
+// (double), Дробное (float), Строка (const char *), Логическое (bool),
+// Байт (unsigned char), Символ (int32_t, тот же C-тип, что и обычный C
+// "int"/"int32_t" - подходит и для 4-байтного целочисленного поля реальной
+// C-структуры, не только для кодовых точек Unicode). Сущность (кроме уже
+// экспортированной/внешней) и generic-коллекция не имеют стабильного
 // C-представления, на которое мог бы полагаться сторонний C-код.
 func isFFIScalar(t ir.Type) bool {
 	switch t.Kind {
-	case ir.KindInt, ir.KindFloat, ir.KindString, ir.KindBool:
+	case ir.KindInt, ir.KindFloat, ir.KindFloat32, ir.KindString, ir.KindBool, ir.KindByte, ir.KindChar:
 		return true
 	default:
 		return false
 	}
+}
+
+// isFFIType - t допустим в сигнатуре "внешняя функция"/поле "внешняя
+// структура": isFFIScalar (примитивы), KindExternEntity - непрозрачный
+// указатель, объявленный "внешняя сущность" (стабильное C-представление -
+// void *, см. cbackend/valuetype.go, kindExternEntity), или сама
+// "внешняя структура" (entitySig.IsExternStruct) - у неё уже проверены все
+// поля этой же функцией на этапе собственного объявления, значит она сама
+// по значению - тоже стабильный C-тип, годный для вложения в другую
+// внешнюю структуру или для передачи в другую внешнюю функцию. Обычная
+// (не внешняя) "структура" не допускается - её поля не гарантированно
+// FFI-безопасны (могли бы содержать Список/сущность/интерфейс).
+func isFFIType(entities map[string]entitySig, t ir.Type) bool {
+	if isFFIScalar(t) || t.Kind == ir.KindExternEntity {
+		return true
+	}
+	if t.Kind == ir.KindEntity {
+		return entities[t.Entity].IsExternStruct
+	}
+	return false
 }
 
 // endsWithReturnValue - true, если последняя инструкция тела (верхнего

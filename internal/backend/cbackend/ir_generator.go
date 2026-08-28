@@ -346,16 +346,9 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	}
 
 	// showFuncs - функции показа ("показать") для каждой сущности и
-	// generic-коллекции программы - строятся всегда (дёшево, чистый текст),
-	// в итоговый файл попадают только если ctx.usesShow (см. ниже, после
-	// генерации тел).
+	// generic-коллекции программы - заполняется НИЖЕ, после генерации тел
+	// (body), а не здесь - см. package doc там.
 	var showFuncs strings.Builder
-	for _, ent := range prog.Entities {
-		showFuncs.WriteString(generateIREntityShowFunc(ctx, ent))
-	}
-	for _, g := range prog.Generics {
-		showFuncs.WriteString(generateIRGenericShowFunc(ctx, g))
-	}
 
 	var protos strings.Builder
 	for _, ext := range prog.ExternFuncs {
@@ -394,6 +387,26 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 			return "", fmt.Errorf("функция %q: %w", fn.Name, err)
 		}
 		body.WriteString(fnCode)
+	}
+
+	// showFuncs строится только теперь, когда ctx.usesShow уже окончательно
+	// известен (тела выше - единственное место, где "показать" реально
+	// встречается и взводит его) - не раньше: у generateIRShowExpr есть
+	// побочный эффект (ctx.usesCast = true для поля типа "Символ", см. её
+	// package doc) - построй showFuncs заранее "на всякий случай" для
+	// КАЖДОЙ сущности программы, этот эффект просочился бы в решение
+	// "нужен ли #include <string.h>/<stdlib.h>" (оно принимается раньше,
+	// см. ниже) даже для программы, которая "показать" не использует вовсе
+	// - именно так и обнаружилось на практике (внешняя структура с полем
+	// "Символ" молча тянула за собой чужой конфликтующий системный
+	// заголовок в любой программе с "внешняя функция").
+	if ctx.usesShow {
+		for _, ent := range prog.Entities {
+			showFuncs.WriteString(generateIREntityShowFunc(ctx, ent))
+		}
+		for _, g := range prog.Generics {
+			showFuncs.WriteString(generateIRGenericShowFunc(ctx, g))
+		}
 	}
 
 	var sb strings.Builder
@@ -467,7 +480,15 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		sb.WriteString(strConcatHelper)
 		sb.WriteString("\n")
 	}
-	if usesGenerics || ctx.usesPanic {
+	// ctx.usesCast - castHelpers (ниже) - один общий блок текста на все
+	// явные касты (int/float/char <-> Строка, см. package doc cast.go), не
+	// отдельная функция на каждый - несколько из них (разбор строки в
+	// число/символ) сами вызывают rech_panic при ошибке разбора, даже если
+	// в программе встретился только каст, который панике не подвержен
+	// (например, число -> Строка) - тот же принцип, что и у usesGenerics
+	// здесь: panicHelper должен быть виден целиком, раз в файле есть хотя
+	// бы один потенциальный вызывающий его блок текста.
+	if usesGenerics || ctx.usesPanic || ctx.usesCast {
 		sb.WriteString(panicHelper)
 		sb.WriteString("\n")
 	}
@@ -1344,6 +1365,9 @@ func fromIRType(t ir.Type) valueType {
 	}
 	if t.Kind == ir.KindCallable {
 		return callableType(t.Entity)
+	}
+	if t.Kind == ir.KindExternEntity {
+		return externEntityType(t.Entity)
 	}
 	if vt, ok := irKindToValueType[t.Kind]; ok {
 		return vt

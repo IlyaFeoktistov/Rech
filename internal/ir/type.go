@@ -59,6 +59,14 @@ const (
 	// разобранная форма живёт отдельно, в Program.Callables, под тем же
 	// ключом-строкой, см. CallableSig.
 	KindCallable
+	// KindExternEntity - непрозрачный внешний тип, объявленный "внешняя
+	// сущность <ИмяC> [как <Псевдоним>]" (FFI, docs/SPEC.md, раздел 12) -
+	// указатель на структуру чужой C-библиотеки (например, CURL* из
+	// libcurl), чьё реальное устройство Rech не описывает и не может -
+	// значение всегда получено извне (от внешней функции) и передаётся
+	// дальше как есть, без полей/методов/"новый". Entity несёт Rech-facing
+	// псевдоним (тем же полем, что и KindEntity/KindInterface/KindTask).
+	KindExternEntity
 )
 
 // Type - тип значения выражения IR, уже разрешённый семантическим анализом
@@ -97,6 +105,12 @@ func InterfaceType(name string) Type {
 	return Type{Kind: KindInterface, Entity: name}
 }
 
+// ExternEntityType возвращает Type, соответствующий значению непрозрачного
+// внешнего типа alias (см. package doc KindExternEntity).
+func ExternEntityType(alias string) Type {
+	return Type{Kind: KindExternEntity, Entity: alias}
+}
+
 // TaskType возвращает Type, соответствующий значению-дескриптору задачи,
 // запущенной "запустить funcName(...)".
 func TaskType(funcName string) Type {
@@ -130,7 +144,7 @@ func CallableType(params []Type, result *Type) Type {
 }
 
 func (t Type) String() string {
-	if t.Kind == KindEntity || t.Kind == KindInterface || t.Kind == KindCallable {
+	if t.Kind == KindEntity || t.Kind == KindInterface || t.Kind == KindCallable || t.Kind == KindExternEntity {
 		return t.Entity
 	}
 	if t.Kind == KindTask {

@@ -79,7 +79,7 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 		return analyzeNewExpr(sc, e)
 
 	case *ast.FieldAccess:
-		// "Имя.Член" перечисления (шаг 12) - синтаксически неотличимо от
+		// "Имя.Член" перечисления - синтаксически неотличимо от
 		// обычного FieldAccess (получатель - идентификатор), парсер не
 		// различает их вообще - разрешается здесь, до попытки
 		// проанализировать Receiver как обычное выражение: если бы
@@ -166,7 +166,7 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 	sig, ok := sc.entities[e.Type]
 	if !ok {
 		// Не пользовательская сущность и ещё не встречавшаяся generic-
-		// инстанциация (шаг 4.2) - resolveTypeName при необходимости
+		// инстанциация - resolveTypeName при необходимости
 		// синтезирует её и зарегистрирует в sc.entities/sc.methods, как и
 		// resolveType в cbackend (AST-путь); если e.Type в принципе не
 		// тип - вернёт понятную ошибку.
@@ -177,6 +177,9 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 		if !ok {
 			return nil, fmt.Errorf("строка %d: сущность %q не объявлена", e.Line, e.Type)
 		}
+	}
+	if sig.IsExternOpaque {
+		return nil, fmt.Errorf("строка %d: %q - непрозрачный внешний тип (\"внешняя сущность\") - значение можно только получить от внешней функции, не через \"новый\"", e.Line, e.Type)
 	}
 	if sig.HasCtor {
 		if e.FieldNames != nil {

@@ -54,7 +54,7 @@ func TestCompileCLinksGCOnlyWhenSourceUsesIt(t *testing.T) {
 
 	cc := &CC{}
 	binWith := filepath.Join(dir, "bin_with")
-	if err := cc.CompileC(withGC, binWith); err != nil {
+	if err := cc.CompileC(withGC, binWith, nil); err != nil {
 		t.Fatalf("CompileC: %v", err)
 	}
 	argsWith, err := os.ReadFile(script + ".args")
@@ -66,7 +66,7 @@ func TestCompileCLinksGCOnlyWhenSourceUsesIt(t *testing.T) {
 	}
 
 	binWithout := filepath.Join(dir, "bin_without")
-	if err := cc.CompileC(withoutGC, binWithout); err != nil {
+	if err := cc.CompileC(withoutGC, binWithout, nil); err != nil {
 		t.Fatalf("CompileC: %v", err)
 	}
 	argsWithout, err := os.ReadFile(script + ".args")

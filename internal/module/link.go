@@ -106,6 +106,9 @@ func (p *Program) Link() (*ast.Program, error) {
 			}
 			ext.ReturnType = resolved
 		}
+		// ExternEntityDecl ("внешняя сущность") не несёт ссылок на другие
+		// типы (нет полей/параметров) - только собственное имя, поэтому
+		// здесь нет rewrite-вызова, только переименование Alias ниже.
 
 		// Переименование собственных объявлений m - после переписывания тел
 		// выше (rewriter резолвит по ИСХОДНЫМ, ещё не переименованным именам
@@ -129,6 +132,10 @@ func (p *Program) Link() (*ast.Program, error) {
 			for _, ext := range m.AST.ExternFuncs {
 				ext.Alias = mangledName(m, p.Entry, ext.Alias)
 			}
+			// ExternEntityDecl.Alias - тот же принцип: CName не трогается.
+			for _, extEnt := range m.AST.ExternEntities {
+				extEnt.Alias = mangledName(m, p.Entry, extEnt.Alias)
+			}
 		}
 	}
 
@@ -137,7 +144,8 @@ func (p *Program) Link() (*ast.Program, error) {
 		merged.Functions = append(merged.Functions, m.AST.Functions...)
 		merged.Entities = append(merged.Entities, m.AST.Entities...)
 		merged.ExternFuncs = append(merged.ExternFuncs, m.AST.ExternFuncs...)
-		// Enums (шаг 12) - без мангла при импорте (в отличие от функций/
+		merged.ExternEntities = append(merged.ExternEntities, m.AST.ExternEntities...)
+		// Enums - без мангла при импорте (в отличие от функций/
 		// сущностей/внешних функций выше) - перечисления через
 		// "использовать" пока не поддержаны (см. package doc
 		// internal/semantic.collectEnums): именно поэтому одноимённое
@@ -145,7 +153,7 @@ func (p *Program) Link() (*ast.Program, error) {
 		// только collectEnums (менее подробное сообщение, чем у мангла
 		// выше) - осознанный, а не забытый пробел этого среза.
 		merged.Enums = append(merged.Enums, m.AST.Enums...)
-		// Interfaces (шаг 13) - тот же принцип, что и у Enums выше: без
+		// Interfaces - тот же принцип, что и у Enums выше: без
 		// мангла, "использовать" пока не умеет импортировать интерфейс по
 		// имени - осознанный, а не забытый пробел этого среза.
 		merged.Interfaces = append(merged.Interfaces, m.AST.Interfaces...)

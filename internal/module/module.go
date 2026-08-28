@@ -100,10 +100,9 @@ type Module struct {
 
 // declaredNames - имена, которые Module объявляет на верхнем уровне и
 // которые можно импортировать через "использовать" - функции и сущности.
-// Производные типы состояний (StateDecl.TypeName) сюда не входят - в этом
-// срезе они не участвуют в системе импортов (см. docs/ROADMAP.md, Шаг 11,
-// ограничения этого среза), только localTypeNames ниже (для ссылок внутри
-// того же файла, который их объявил).
+// Производные типы состояний (StateDecl.TypeName) сюда не входят - они
+// пока не участвуют в системе импортов, только localTypeNames ниже (для
+// ссылок внутри того же файла, который их объявил).
 func declaredNames(prog *ast.Program) map[string]bool {
 	names := map[string]bool{}
 	for _, fn := range prog.Functions {
@@ -113,6 +112,9 @@ func declaredNames(prog *ast.Program) map[string]bool {
 		names[ent.Name] = true
 	}
 	for _, ext := range prog.ExternFuncs {
+		names[ext.Alias] = true
+	}
+	for _, ext := range prog.ExternEntities {
 		names[ext.Alias] = true
 	}
 	return names

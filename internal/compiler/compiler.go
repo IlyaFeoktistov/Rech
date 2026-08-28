@@ -61,10 +61,14 @@ type Backend interface {
 // в нативный бинарник или разделяемую библиотеку (CompileLib, `rech build
 // --lib`).
 type Toolchain interface {
-	CompileC(cPath, binPath string) error
+	// CompileC компилирует cPath в исполняемый файл binPath. extraLibs -
+	// внешние библиотеки для линковки (-l<имя>, "сборка.библиотеки" файла
+	// проекта) - nil, если проект их не объявил.
+	CompileC(cPath, binPath string, extraLibs []string) error
 	// CompileLib компилирует cPath в разделяемую библиотеку libPath - имя
 	// уже несёт правильное платформенное расширение (см. LibExtension).
-	CompileLib(cPath, libPath string) error
+	// extraLibs - см. CompileC.
+	CompileLib(cPath, libPath string, extraLibs []string) error
 	// LibExtension - расширение разделяемой библиотеки на текущей
 	// платформе (".so"/".dylib"/".dll") - Compiler называет им итоговый
 	// файл, сам не завися от runtime.GOOS.
@@ -142,12 +146,12 @@ func NewCompiler(frontend Frontend, backend Backend, toolchain Toolchain) *Compi
 // техническая заготовка, а не то, что нужно смотреть; keepC == true (флаг
 // --keep-c в cmd/rech) оставляет его - удобно для примеров и для того,
 // чтобы посмотреть, во что компилируется программа.
-func (c *Compiler) Build(srcPath string, keepC bool) (string, error) {
+func (c *Compiler) Build(srcPath string, keepC bool, extraLibs []string) (string, error) {
 	prog, base, err := c.ParseSource(srcPath)
 	if err != nil {
 		return "", err
 	}
-	return c.compileProgram(prog, base, keepC)
+	return c.compileProgram(prog, base, keepC, extraLibs)
 }
 
 // BuildLib - как Build, но собирает srcPath как разделяемую библиотеку
@@ -156,17 +160,17 @@ func (c *Compiler) Build(srcPath string, keepC bool) (string, error) {
 // исполняется как программа) и дополнительно возвращает путь к
 // сгенерированному C-заголовку (.h) с прототипами объявлений, помеченных
 // "экспортировать".
-func (c *Compiler) BuildLib(srcPath string, keepC bool) (libPath, hPath string, err error) {
+func (c *Compiler) BuildLib(srcPath string, keepC bool, extraLibs []string) (libPath, hPath string, err error) {
 	prog, base, err := c.ParseSource(srcPath)
 	if err != nil {
 		return "", "", err
 	}
-	return c.compileLibProgram(prog, base, keepC)
+	return c.compileLibProgram(prog, base, keepC, extraLibs)
 }
 
 // BuildLibSource - BuildLib для кода без файла-источника (-c/--code
 // --lib), симметрично BuildSource/Build.
-func (c *Compiler) BuildLibSource(src string, keepC bool) (libPath, hPath string, err error) {
+func (c *Compiler) BuildLibSource(src string, keepC bool, extraLibs []string) (libPath, hPath string, err error) {
 	prog, err := c.Frontend.Parse(src)
 	if err != nil {
 		return "", "", err
@@ -175,7 +179,7 @@ func (c *Compiler) BuildLibSource(src string, keepC bool) (libPath, hPath string
 	if err != nil {
 		return "", "", fmt.Errorf("не удалось создать временный каталог: %w", err)
 	}
-	return c.compileLibProgram(prog, filepath.Join(dir, "код"), keepC)
+	return c.compileLibProgram(prog, filepath.Join(dir, "код"), keepC, extraLibs)
 }
 
 // compileLibProgram - общий хвост BuildLib/BuildLibSource, аналогичный
@@ -183,7 +187,7 @@ func (c *Compiler) BuildLibSource(src string, keepC bool) (libPath, hPath string
 // необязательная уборка .c. В отличие от compileProgram, заголовок (.h)
 // пишется всегда, а не только при keepC - это часть публичного API
 // библиотеки, а не техническая заготовка вроде .c.
-func (c *Compiler) compileLibProgram(prog *ast.Program, base string, keepC bool) (libPath, hPath string, err error) {
+func (c *Compiler) compileLibProgram(prog *ast.Program, base string, keepC bool, extraLibs []string) (libPath, hPath string, err error) {
 	cSource, header, err := c.Backend.GenerateLib(prog)
 	if err != nil {
 		return "", "", fmt.Errorf("генерация C: %w", err)
@@ -202,7 +206,7 @@ func (c *Compiler) compileLibProgram(prog *ast.Program, base string, keepC bool)
 	}
 	libExt := c.Toolchain.LibExtension()
 	tmpLibPath := tmpBase + libExt
-	if err := c.Toolchain.CompileLib(tmpCPath, tmpLibPath); err != nil {
+	if err := c.Toolchain.CompileLib(tmpCPath, tmpLibPath, extraLibs); err != nil {
 		return "", "", err
 	}
 
@@ -270,7 +274,7 @@ func (c *Compiler) BuildIR(srcPath string) (*ir.Program, error) {
 // (validateSourceFileName - правило конкретно про будущий ключ импорта,
 // у кода без файла его нет) и кладёт результат во временный каталог, а не
 // "рядом с исходником", потому что рядом с исходником здесь - никуда.
-func (c *Compiler) BuildSource(src string, keepC bool) (string, error) {
+func (c *Compiler) BuildSource(src string, keepC bool, extraLibs []string) (string, error) {
 	prog, err := c.Frontend.Parse(src)
 	if err != nil {
 		return "", err
@@ -279,12 +283,12 @@ func (c *Compiler) BuildSource(src string, keepC bool) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("не удалось создать временный каталог: %w", err)
 	}
-	return c.compileProgram(prog, filepath.Join(dir, "код"), keepC)
+	return c.compileProgram(prog, filepath.Join(dir, "код"), keepC, extraLibs)
 }
 
 // compileProgram - общий хвост Build/BuildSource: генерация C, запись,
 // сборка бинарником, необязательная уборка .c.
-func (c *Compiler) compileProgram(prog *ast.Program, base string, keepC bool) (string, error) {
+func (c *Compiler) compileProgram(prog *ast.Program, base string, keepC bool, extraLibs []string) (string, error) {
 	cSource, err := c.Backend.Generate(prog)
 	if err != nil {
 		return "", fmt.Errorf("генерация C: %w", err)
@@ -315,7 +319,7 @@ func (c *Compiler) compileProgram(prog *ast.Program, base string, keepC bool) (s
 	if err := os.WriteFile(tmpCPath, []byte(cSource), 0o644); err != nil {
 		return "", fmt.Errorf("не удалось записать %s: %w", tmpCPath, err)
 	}
-	if err := c.Toolchain.CompileC(tmpCPath, tmpBase); err != nil {
+	if err := c.Toolchain.CompileC(tmpCPath, tmpBase, extraLibs); err != nil {
 		return "", err
 	}
 
@@ -450,6 +454,7 @@ func (c *Compiler) parseDir(dirPath string) (*ast.Program, error) {
 		merged.Functions = append(merged.Functions, prog.Functions...)
 		merged.Entities = append(merged.Entities, prog.Entities...)
 		merged.ExternFuncs = append(merged.ExternFuncs, prog.ExternFuncs...)
+		merged.ExternEntities = append(merged.ExternEntities, prog.ExternEntities...)
 		merged.Enums = append(merged.Enums, prog.Enums...)
 		merged.Interfaces = append(merged.Interfaces, prog.Interfaces...)
 	}

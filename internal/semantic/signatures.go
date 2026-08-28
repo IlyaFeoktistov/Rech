@@ -117,6 +117,12 @@ type entitySig struct {
 	// ConstVisibility - видимость соответствующей константы
 	ConstVisibility []ast.Visibility
 
+	// IsExternStruct - см. ast.EntityDecl.IsExternStruct - нужно здесь,
+	// чтобы isFFIType мог разрешить эту "структура" саму по себе как поле
+	// другой "внешняя структура" или как тип в сигнатуре "внешняя функция"
+	// (её собственные поля уже проверены FFI-безопасными на этапе
+	// объявления, см. collectEntities).
+	IsExternStruct bool
 	// IsStruct - см. ast.EntityDecl.IsStruct - нужно здесь, чтобы
 	// collectEntities мог отказать в "наследует"/"реализует" на базовую
 	// сущность, которая сама - "структура" (наследование/интерфейсы
@@ -145,6 +151,16 @@ type entitySig struct {
 	// конструктора не обязаны совпадать с полями).
 	HasCtor    bool
 	CtorParams []ir.Type
+
+	// IsExternOpaque - зарегистрирована "внешняя сущность <ИмяC> [как
+	// <Псевдоним>]" (FFI), не обычная сущность - у неё нет ни полей, ни
+	// методов, ни конструктора (FieldNames/Methods выше остаются пустыми,
+	// HasCtor - false): resolveTypeName резолвит такое имя в
+	// ir.ExternEntityType, не ir.EntityType, и analyzeNewExpr отдельно
+	// отклоняет "новый" на этот флаг - единственная причина, по которой
+	// этого признака недостаточно вывести из "пустых полей" (у структуры с
+	// нулём полей тоже пустой FieldNames, но "новый" для неё легален).
+	IsExternOpaque bool
 }
 
 func (s entitySig) constIndex(name string) int {

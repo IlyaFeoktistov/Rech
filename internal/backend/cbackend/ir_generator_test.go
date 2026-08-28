@@ -379,6 +379,58 @@ func TestGenerateFromIROmitsGCForStructOnlyProgram(t *testing.T) {
 	}
 }
 
+// TestGenerateFromIRCharFieldWithoutShowDoesNotPullInCastHelpers -
+// регрессия: сущность с полем типа "Символ" не должна включать
+// #include <string.h>/<stdlib.h> и рантайм-хелперы кастов, если "показать"
+// нигде в программе реально не встречается - раньше showFuncs строился
+// для КАЖДОЙ сущности заранее, "на всякий случай" (до того как
+// ctx.usesShow становился известен), и это взводило ctx.usesCast как
+// побочный эффект даже для полностью отброшенного, никогда не
+// эмитируемого текста - на практике эти лишние заголовки конфликтовали с
+// настоящими объявлениями функций стандартной библиотеки, объявленных
+// через "внешняя функция" (см. docs/SPEC.md, раздел 12).
+func TestGenerateFromIRCharFieldWithoutShowDoesNotPullInCastHelpers(t *testing.T) {
+	entity := &ir.Entity{Name: "Т", Fields: []ir.Field{{Name: "с", Type: ir.TypeChar}}}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "p", Value: &ir.NewExpr{Entity: "Т", Args: []ir.Expr{&ir.CharLiteral{Value: 'я'}}}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Entities: []*ir.Entity{entity}, Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if strings.Contains(out, "#include <string.h>") || strings.Contains(out, "#include <stdlib.h>") {
+		t.Fatalf("не ожидались string.h/stdlib.h без единого \"показать\" в программе, получено:\n%s", out)
+	}
+	if strings.Contains(out, "rech_cast_") {
+		t.Fatalf("не ожидались рантайм-хелперы кастов без единого \"показать\" в программе, получено:\n%s", out)
+	}
+}
+
+// TestGenerateFromIRShowCharFieldDefinesPanicHelper - регрессия: "показать"
+// сущности с полем типа "Символ" использует castHelpers (rech_cast_
+// char_to_str), а несколько других функций в том же общем текстовом блоке
+// (rech_cast_str_to_int и т. п.) вызывают rech_panic - если panicHelper не
+// эмитирован в файл вместе с castHelpers, сборка линкуется с ошибкой
+// "undefined reference to rech_panic", даже когда сам "показать" ни разу
+// не парсит строку.
+func TestGenerateFromIRShowCharFieldDefinesPanicHelper(t *testing.T) {
+	entity := &ir.Entity{Name: "Т", Fields: []ir.Field{{Name: "с", Type: ir.TypeChar}}}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "т", Value: &ir.NewExpr{Entity: "Т", Args: []ir.Expr{&ir.CharLiteral{Value: 'я'}}}},
+		&ir.ShowStmt{Value: &ir.Identifier{Name: "т", Type: ir.EntityType("Т")}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Entities: []*ir.Entity{entity}, Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "rech_cast_char_to_str") {
+		t.Fatalf("ожидался rech_cast_char_to_str для показа поля \"Символ\", получено:\n%s", out)
+	}
+	if !strings.Contains(out, "void rech_panic(") && !strings.Contains(out, "static void rech_panic(") {
+		t.Fatalf("ожидалось определение rech_panic (panicHelper) вместе с castHelpers, получено:\n%s", out)
+	}
+}
+
 func TestGenerateFromIRListGenericAndForEach(t *testing.T) {
 	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
 		&ir.VarDecl{Name: "числа", Value: &ir.NewExpr{Entity: "Список<Целое>"}},

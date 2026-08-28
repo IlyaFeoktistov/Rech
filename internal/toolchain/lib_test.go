@@ -30,7 +30,7 @@ func TestCompileLibPassesSharedFlag(t *testing.T) {
 
 	cc := &CC{}
 	libPath := filepath.Join(dir, "либа"+cc.LibExtension())
-	if err := cc.CompileLib(src, libPath); err != nil {
+	if err := cc.CompileLib(src, libPath, nil); err != nil {
 		t.Fatalf("CompileLib: %v", err)
 	}
 	args, err := os.ReadFile(script + ".args")
@@ -50,5 +50,40 @@ func TestCompileLibPassesSharedFlag(t *testing.T) {
 	}
 	if !strings.Contains(got, "-lm") {
 		t.Fatalf("-lm должен передаваться всегда, аргументы: %q", got)
+	}
+}
+
+func TestCompileCAndCompileLibPassExtraLibs(t *testing.T) {
+	script := fakeCC(t)
+	t.Setenv("CC", script)
+
+	dir := t.TempDir()
+	src := filepath.Join(dir, "прог.c")
+	if err := os.WriteFile(src, []byte("int main(void){return 0;}\n"), 0o644); err != nil {
+		t.Fatalf("запись исходника: %v", err)
+	}
+	cc := &CC{}
+
+	if err := cc.CompileC(src, filepath.Join(dir, "бин"), []string{"curl", "ssl"}); err != nil {
+		t.Fatalf("CompileC: %v", err)
+	}
+	args, err := os.ReadFile(script + ".args")
+	if err != nil {
+		t.Fatalf("чтение записанных аргументов: %v", err)
+	}
+	if !strings.Contains(string(args), "-lcurl") || !strings.Contains(string(args), "-lssl") {
+		t.Fatalf("ожидались -lcurl -lssl, аргументы: %q", args)
+	}
+
+	libPath := filepath.Join(dir, "либа"+cc.LibExtension())
+	if err := cc.CompileLib(src, libPath, []string{"curl"}); err != nil {
+		t.Fatalf("CompileLib: %v", err)
+	}
+	args, err = os.ReadFile(script + ".args")
+	if err != nil {
+		t.Fatalf("чтение записанных аргументов: %v", err)
+	}
+	if !strings.Contains(string(args), "-lcurl") {
+		t.Fatalf("ожидался -lcurl, аргументы: %q", args)
 	}
 }

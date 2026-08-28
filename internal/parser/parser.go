@@ -326,11 +326,22 @@ func (p *Parser) collectFunctionSignatures() error {
 				return err
 			}
 		case lexer.KwExternal:
-			ext, err := p.parseExternFuncDecl()
-			if err != nil {
-				return err
+			switch p.peekAt(1).Type {
+			case lexer.KwEntity:
+				if _, err := p.parseExternEntityDecl(); err != nil {
+					return err
+				}
+			case lexer.KwStruct:
+				if _, err := p.parseExternStructDecl(); err != nil {
+					return err
+				}
+			default:
+				ext, err := p.parseExternFuncDecl()
+				if err != nil {
+					return err
+				}
+				sigs[ext.Alias] = ext.Params
 			}
-			sigs[ext.Alias] = ext.Params
 		default:
 			p.advance()
 		}
@@ -421,11 +432,27 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 			}
 			prog.Uses = append(prog.Uses, use)
 		case lexer.KwExternal:
-			ext, err := p.parseExternFuncDecl()
-			if err != nil {
-				return nil, err
+			switch p.peekAt(1).Type {
+			case lexer.KwEntity:
+				extEnt, err := p.parseExternEntityDecl()
+				if err != nil {
+					return nil, err
+				}
+				prog.ExternEntities = append(prog.ExternEntities, extEnt)
+			case lexer.KwStruct:
+				extStruct, err := p.parseExternStructDecl()
+				if err != nil {
+					return nil, err
+				}
+				extStruct.Doc = doc
+				prog.Entities = append(prog.Entities, extStruct)
+			default:
+				ext, err := p.parseExternFuncDecl()
+				if err != nil {
+					return nil, err
+				}
+				prog.ExternFuncs = append(prog.ExternFuncs, ext)
 			}
-			prog.ExternFuncs = append(prog.ExternFuncs, ext)
 		case lexer.KwEnum:
 			enum, err := p.parseEnumDecl()
 			if err != nil {

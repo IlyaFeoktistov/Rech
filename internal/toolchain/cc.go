@@ -19,14 +19,31 @@ type CC struct{}
 // NewCC - провайдер для Wire.
 func NewCC() compiler.Toolchain { return &CC{} }
 
-// CompileC компилирует cPath в исполняемый файл binPath.
-func (*CC) CompileC(cPath, binPath string) error {
+// CompileC компилирует cPath в исполняемый файл binPath. extraLibs -
+// внешние библиотеки для линковки (см. package doc CompileLib) - "" (или
+// nil), если проект их не объявил (сборка.библиотеки, internal/project).
+func (*CC) CompileC(cPath, binPath string, extraLibs []string) error {
 	src, err := os.ReadFile(cPath)
 	if err != nil {
 		return fmt.Errorf("не удалось прочитать сгенерированный файл %q: %w", cPath, err)
 	}
 	args := append([]string{cPath, "-o", binPath}, commonLinkFlags(src)...)
+	args = append(args, libFlags(extraLibs)...)
 	return runCC(args)
+}
+
+// libFlags превращает имена внешних библиотек ("curl", "ssl") в флаги
+// линковщика ("-lcurl", "-lssl") - то же соглашение об именах, что и у
+// "-lm"/"-lgc" в commonLinkFlags, только имя приходит не отсюда, а из
+// "сборка.библиотеки" файла проекта (Rech-код объявляет лишь сигнатуру
+// функции "внешняя функция", без привязки к конкретной библиотеке - см.
+// package doc ast.ExternFuncDecl).
+func libFlags(names []string) []string {
+	flags := make([]string, len(names))
+	for i, name := range names {
+		flags[i] = "-l" + name
+	}
+	return flags
 }
 
 // commonLinkFlags - флаги cc, общие для CompileC (исполняемый файл) и

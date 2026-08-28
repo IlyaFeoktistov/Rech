@@ -23,8 +23,8 @@ const (
 	// kindSocket - непрозрачный дескриптор сетевого сокета - тот же принцип,
 	// что и kindFile, см. typedef rech_socket_t в socketHelpers.
 	kindSocket
-	// kindTask - значение-дескриптор задачи ("запустить <имя>(...)", шаг
-	// 15) - entity несёт имя ОБЁРНУТОЙ ФУНКЦИИ, не тип результата (см.
+	// kindTask - значение-дескриптор задачи ("запустить <имя>(...)") -
+	// entity несёт имя ОБЁРНУТОЙ ФУНКЦИИ, не тип результата (см.
 	// package doc internal/backend/cbackend/concurrency.go) - всегда
 	// указатель на собственную C-структуру этой функции.
 	kindTask
@@ -35,6 +35,12 @@ const (
 	// {указатель на функцию, указатель на окружение замыкания} копируется
 	// как есть, тем же принципом, что и Go func-значения.
 	kindCallable
+	// kindExternEntity - непрозрачный внешний тип ("внешняя сущность", FFI) -
+	// entity несёт Rech-facing псевдоним, но само значение представлено
+	// одинаково для ЛЮБОГО такого типа: "void *" (см. cType) - реальное
+	// устройство чужой C-структуры Rech не знает и не описывает, только
+	// передаёт указатель дальше между внешними/обычными функциями.
+	kindExternEntity
 )
 
 // valueType - тип значения выражения C-кодогенерации. Структура (не голое
@@ -79,6 +85,12 @@ func callableType(name string) valueType {
 	return valueType{kind: kindCallable, entity: name}
 }
 
+// externEntityType возвращает valueType, соответствующий значению
+// непрозрачного внешнего типа alias (см. package doc kindExternEntity).
+func externEntityType(alias string) valueType {
+	return valueType{kind: kindExternEntity, entity: alias}
+}
+
 // primitiveCTypes - valueType (не kindEntity/kindUnknown) -> C-тип.
 // kindChar - int32_t ("Символ" хранит кодовую точку Unicode, не байт, как C
 // char - язык кириллический по духу, 'я' должен помещаться в один Символ).
@@ -110,6 +122,9 @@ func (t valueType) cType(ctx *irGenCtx) string {
 	}
 	if t.kind == kindCallable {
 		return mangleCallableType(t.entity)
+	}
+	if t.kind == kindExternEntity {
+		return "void *"
 	}
 	if c, ok := primitiveCTypes[t]; ok {
 		return c

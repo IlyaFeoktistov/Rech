@@ -64,7 +64,7 @@ type Analyzer struct {
 
 // collectEntities - предварительный проход: поля, сигнатуры методов и
 // производные типы состояний (aliases - "АвторизованныйПользователь" ->
-// "Пользователь", шаг 4.1) всех сущностей программы, до анализа любого
+// "Пользователь") всех сущностей программы, до анализа любого
 // тела. Одним циклом по prog.Entities, как и в cbackend.Generate -
 // поле/параметр/тип результата метода сущности N может ссылаться только
 // на сущность (или производный тип), уже занесённую к этому моменту
@@ -90,6 +90,26 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 		FieldVisibility: []ast.Visibility{ast.Public},
 	}
 	methods["Исключение"] = map[string]funcSig{}
+	// "внешняя сущность" - непрозрачные внешние типы (FFI) - регистрируются
+	// раньше пользовательских сущностей ниже той же коллизией имён
+	// (entities/aliases/interfaces): у них нет полей/методов, resolveTypeName
+	// узнаёт их по entitySig.IsExternOpaque и резолвит в ir.ExternEntityType,
+	// не ir.EntityType.
+	for _, extEnt := range prog.ExternEntities {
+		if builtins.ReservedEntityNames[extEnt.Alias] {
+			return fmt.Errorf("внешняя сущность %q - зарезервированное имя встроенной сущности (HTTP-клиент), нельзя объявить с этим именем", extEnt.Alias)
+		}
+		if _, exists := entities[extEnt.Alias]; exists {
+			return fmt.Errorf("внешняя сущность %q: имя уже занято", extEnt.Alias)
+		}
+		if other, exists := aliases[extEnt.Alias]; exists {
+			return fmt.Errorf("внешняя сущность %q: имя совпадает с производным типом состояния, уже занятым сущностью %q", extEnt.Alias, other)
+		}
+		if _, exists := a.interfaces[extEnt.Alias]; exists {
+			return fmt.Errorf("внешняя сущность %q: имя совпадает с уже объявленным интерфейсом", extEnt.Alias)
+		}
+		entities[extEnt.Alias] = entitySig{IsExternOpaque: true}
+	}
 	for _, ent := range prog.Entities {
 		if builtins.ReservedEntityNames[ent.Name] {
 			return fmt.Errorf("сущность %q - зарезервированное имя встроенной сущности (HTTP-клиент), нельзя объявить свою сущность с этим именем", ent.Name)
@@ -130,6 +150,9 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 			if err != nil {
 				return fmt.Errorf("сущность %q: поле %q: %w", ent.Name, f.Name, err)
 			}
+			if ent.IsExternStruct && !isFFIType(entities, typ) {
+				return fmt.Errorf("внешняя структура %q: поле %q имеет тип %s - допустимы только примитивы (Целое/Действительное/Дробное/Логическое/Байт/Символ/Строка) и внешние сущности (\"внешняя сущность\") - иначе реальный размер C-структуры был бы искажён", ent.Name, f.Name, typ)
+			}
 			sig.FieldNames = append(sig.FieldNames, f.Name)
 			sig.FieldTypes = append(sig.FieldTypes, typ)
 			sig.FieldDocs = append(sig.FieldDocs, f.Doc)
@@ -151,6 +174,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 			}
 		}
 		sig.IsStruct = ent.IsStruct
+		sig.IsExternStruct = ent.IsExternStruct
 		// Регистрируется уже сейчас (до разбора методов), не только после
 		// сплющивания с базовой сущностью ниже - иначе метод, ссылающийся
 		// на тип самой этой сущности в своей сигнатуре (параметр/результат),
@@ -280,13 +304,12 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 	return nil
 }
 
-// collectExternFuncSigs - "внешняя функция" (шаг 7, FFI): та же коллизия
-// имени с builtin/уже объявленной функцией, что и у обычных функций выше,
-// плюс проверка, что параметры/результат - один из четырёх примитивов
-// (isFFIScalar) - тот же принцип, что и cbackend.externSignatureOf
-// (AST-путь). Регистрирует Alias в funcs (для проверки вызовов), возвращает
+// collectExternFuncSigs - "внешняя функция": та же коллизия имени с
+// builtin/уже объявленной функцией, что и у обычных функций выше, плюс
+// проверка, что параметры/результат допустимы на границе FFI (isFFIType).
+// Регистрирует Alias в funcs (для проверки вызовов), возвращает
 // []*ir.ExternFuncDecl для ir.Program.ExternFuncs - настоящий C-символ
-// (CName) для кодогенерации berёт оттуда только cbackend.GenerateFromIR,
+// (CName) для кодогенерации берёт оттуда только cbackend.GenerateFromIR,
 // семантическому анализу он не нужен.
 func (a *Analyzer) collectExternFuncSigs(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, prog *ast.Program) ([]*ir.ExternFuncDecl, error) {
 	var out []*ir.ExternFuncDecl
@@ -304,8 +327,8 @@ func (a *Analyzer) collectExternFuncSigs(funcs map[string]funcSig, entities map[
 			if err != nil {
 				return nil, fmt.Errorf("%s: параметр %q: %w", label, p.Name, err)
 			}
-			if !isFFIScalar(typ) {
-				return nil, fmt.Errorf("%s: параметр %q имеет тип %s - у внешней функции сейчас допустимы только Целое/Действительное/Строка/Логическое", label, p.Name, typ)
+			if !isFFIType(entities, typ) {
+				return nil, fmt.Errorf("%s: параметр %q имеет тип %s - у внешней функции допустимы только примитивы (Целое/Действительное/Дробное/Логическое/Байт/Символ/Строка) и внешние сущности (\"внешняя сущность\")", label, p.Name, typ)
 			}
 			params[i] = typ
 		}
@@ -316,8 +339,8 @@ func (a *Analyzer) collectExternFuncSigs(funcs map[string]funcSig, entities map[
 			if err != nil {
 				return nil, fmt.Errorf("%s: тип результата: %w", label, err)
 			}
-			if !isFFIScalar(typ) {
-				return nil, fmt.Errorf("%s: тип результата %s не поддерживается - у внешней функции сейчас допустимы только Целое/Действительное/Строка/Логическое", label, typ)
+			if !isFFIType(entities, typ) {
+				return nil, fmt.Errorf("%s: тип результата %s не поддерживается - у внешней функции допустимы только примитивы (Целое/Действительное/Дробное/Логическое/Байт/Символ/Строка) и внешние сущности (\"внешняя сущность\")", label, typ)
 			}
 			decl.ReturnType = typ
 			decl.HasReturn = true

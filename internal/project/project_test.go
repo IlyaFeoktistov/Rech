@@ -66,6 +66,47 @@ func TestLoadLibraryType(t *testing.T) {
 	}
 }
 
+func TestLoadLibraries(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := `проект:
+  имя: тест
+
+файлы:
+  главный: исходники/главный.rech
+
+сборка:
+  библиотеки: curl, ssl
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	pf, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	got := pf.Библиотеки()
+	if len(got) != 2 || got[0] != "curl" || got[1] != "ssl" {
+		t.Fatalf("Библиотеки() = %v, ожидалось [curl ssl]", got)
+	}
+}
+
+func TestLoadWithoutLibrariesReturnsNil(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := "проект:\n  имя: тест\nфайлы:\n  главный: а.rech\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	pf, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := pf.Библиотеки(); got != nil {
+		t.Fatalf("Библиотеки() = %v, ожидался nil", got)
+	}
+}
+
 func TestLoadUnknownTypeRejected(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "тест.rechproj")

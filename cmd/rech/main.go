@@ -117,6 +117,7 @@ func main() {
 	// см. cmd/rech/project.go. outDir/projName пусты, если проекта нет вовсе -
 	// тогда ниже всё идёт как раньше, без переноса бинарника.
 	var outDir, projName string
+	var extraLibs []string
 	if !hasCode {
 		projPath := srcPath
 		if projPath == "" {
@@ -147,6 +148,11 @@ func main() {
 				isLib = pf.IsLibrary()
 			}
 			outDir, projName = pf.OutputDir(), pf.Имя
+			// Библиотеки для линковки (-l<имя>) - только из файла проекта:
+			// "внешняя функция" в .rech-коде не привязана к конкретной
+			// библиотеке (см. package doc project.File.Библиотеки), значит без
+			// .rechproj сборке неоткуда узнать список для линковки.
+			extraLibs = pf.Библиотеки()
 		}
 	}
 
@@ -156,11 +162,11 @@ func main() {
 	}
 
 	comp := InitializeCompiler()
-	build := func() (string, error) { return comp.Build(srcPath, keepC) }
-	buildLib := func() (string, string, error) { return comp.BuildLib(srcPath, keepC) }
+	build := func() (string, error) { return comp.Build(srcPath, keepC, extraLibs) }
+	buildLib := func() (string, string, error) { return comp.BuildLib(srcPath, keepC, extraLibs) }
 	if hasCode {
-		build = func() (string, error) { return comp.BuildSource(code, keepC) }
-		buildLib = func() (string, string, error) { return comp.BuildLibSource(code, keepC) }
+		build = func() (string, error) { return comp.BuildSource(code, keepC, extraLibs) }
+		buildLib = func() (string, string, error) { return comp.BuildLibSource(code, keepC, extraLibs) }
 	}
 
 	switch cmd {

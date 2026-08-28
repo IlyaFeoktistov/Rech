@@ -264,3 +264,32 @@ func TestLinkImportsExternFuncPreservingCNameButRenamingAlias(t *testing.T) {
 		t.Fatalf("вызов в главном файле должен резолвиться на мангл-имя внешней функции %q, получено: %q", ext.Alias, call.Callee)
 	}
 }
+
+func TestLinkImportsExternEntityPreservingCNameButRenamingAlias(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "внешние.rech", "внешняя сущность CURL как Дескриптор\n")
+	entry := writeFile(t, dir, "главный.rech",
+		"использовать Дескриптор из \"внешние\"\n\nвнешняя функция use_h как применить(д: Дескриптор): Целое\n\nфункция главная\n{\n    вывести 1\n}\n")
+
+	loaded, err := Load(entry, testFrontend{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	merged, err := loaded.Link()
+	if err != nil {
+		t.Fatalf("Link: %v", err)
+	}
+	if len(merged.ExternEntities) != 1 {
+		t.Fatalf("ожидалась одна внешняя сущность в слитой программе, получено: %d", len(merged.ExternEntities))
+	}
+	extEnt := merged.ExternEntities[0]
+	if extEnt.CName != "CURL" {
+		t.Fatalf("настоящий C-символ не должен переименовываться при линковке, получено: %q", extEnt.CName)
+	}
+	if extEnt.Alias != "Внешние_Дескриптор" {
+		t.Fatalf("Alias импортируемого модуля переименовывается по mangledName (Qualifier_имя), получено: %q", extEnt.Alias)
+	}
+	if merged.ExternFuncs[0].Params[0].Type != extEnt.Alias {
+		t.Fatalf("тип параметра внешней функции в главном файле должен резолвиться на мангл-имя внешней сущности %q, получено: %q", extEnt.Alias, merged.ExternFuncs[0].Params[0].Type)
+	}
+}
