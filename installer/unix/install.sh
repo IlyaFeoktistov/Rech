@@ -106,6 +106,49 @@ EOF
     fi
 fi
 
+# Клиентские библиотеки БД (libsqlite3/libpq/libmysqlclient) - нужны
+# только программе, использующей "БД" (см. docs/SPEC.md, "БД") - тем же
+# принципом probe-компиляции/линковки, что и Boehm GC выше, но без
+# заголовка (cbackend не включает настоящие заголовки этих библиотек - см.
+# internal/backend/cbackend/db.go, - достаточно проверить, что линковщик
+# находит саму библиотеку по символу, реально в ней объявленному).
+if [ -n "$CC_BIN" ]; then
+    # PROBE_DIR - тот же временный каталог (и тот же EXIT-trap), что и у
+    # пробы Boehm GC выше - trap с EXIT в POSIX sh не накапливается,
+    # повторный "trap ... EXIT" заменил бы собой предыдущий и оставил бы
+    # PROBE_DIR неудалённым.
+    MISSING_DB_LIBS=""
+    for spec in "sqlite3:sqlite3_open" "pq:PQconnectdb" "mysqlclient:mysql_init"; do
+        lib="${spec%%:*}"
+        symbol="${spec#*:}"
+        cat > "$PROBE_DIR/probe.c" <<EOF
+extern void *$symbol();
+int main(void) { return 0; }
+EOF
+        if ! "$CC_BIN" "$PROBE_DIR/probe.c" "-l$lib" -o "$PROBE_DIR/probe" >/dev/null 2>&1; then
+            MISSING_DB_LIBS="$MISSING_DB_LIBS -l$lib"
+        fi
+    done
+    if [ -n "$MISSING_DB_LIBS" ]; then
+        echo "предупреждение: не найдены клиентские библиотеки БД:$MISSING_DB_LIBS (нужны только программе," >&2
+        echo "  использующей \"БД\" - подключиться_к_бд/запросить/выполнить/закрыть_бд) - установите:" >&2
+        case "$(os_name)" in
+            Linux)
+                echo "       sudo apt install libsqlite3-dev libpq-dev libmysqlclient-dev   # Debian/Ubuntu" >&2
+                echo "       sudo dnf install sqlite-devel libpq-devel mysql-devel           # Fedora" >&2
+                ;;
+            Darwin)
+                echo "       brew install sqlite postgresql mysql-client" >&2
+                ;;
+            *)
+                echo "       (неизвестная ОС - см. docs/MANUAL.md, \"Зависимости для сборки\")" >&2
+                ;;
+        esac
+    else
+        echo "клиентские библиотеки БД (sqlite3/pq/mysqlclient) найдены"
+    fi
+fi
+
 mkdir -p "$PREFIX"
 echo "Сборка rech..."
 (cd "$REPO_ROOT" && go build -o "$PREFIX/rech" ./cmd/rech)
