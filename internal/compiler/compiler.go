@@ -139,8 +139,13 @@ type Compiler struct {
 	// объявляет ни одной зависимости (или собирается вообще без
 	// .rechproj) - "использовать" тогда работает как раньше, только
 	// локальными путями. Заполняется cmd/rech перед вызовом Build, см.
-	// internal/module.LoadWithDeps.
+	// internal/module.LoadWithGraph.
 	Deps map[string]string
+	// DepScopes - весь граф ТРАНЗИТИВНЫХ зависимостей (internal/pkgfetch.
+	// Graph.Scopes) - собственная карта имён каждой зависимости из Deps
+	// (и их зависимостей, рекурсивно). nil - как без транзитивных
+	// зависимостей вовсе (LoadWithDeps вместо LoadWithGraph по факту).
+	DepScopes map[string]map[string]string
 }
 
 // NewCompiler - провайдер для Wire, собирающий Compiler из готовых зависимостей.
@@ -411,7 +416,7 @@ func (c *Compiler) parseFile(srcPath string) (*ast.Program, error) {
 	if err := validateSourceFileName(srcPath); err != nil {
 		return nil, err
 	}
-	prog, err := module.LoadWithDeps(srcPath, c.Frontend, c.Deps)
+	prog, err := module.LoadWithGraph(srcPath, c.Frontend, c.Deps, c.DepScopes)
 	if err != nil {
 		return nil, err
 	}

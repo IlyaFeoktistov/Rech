@@ -13,9 +13,22 @@
 // файл: "использовать" внутри зависимости резолвится обычным способом
 // (internal/module) относительно скачанного каталога.
 //
-// Не реализовано в этом срезе (известное ограничение, не забытый случай):
-// зависимость по прямой ссылке на файл, а не на git-репозиторий ("любая
-// ссылка" без git) - только git-репозитории.
+// Транзитивные зависимости (ResolveGraph) - если у скачанной зависимости
+// есть СОБСТВЕННЫЙ *.rechproj с "зависимости:", он резолвится тем же путём,
+// рекурсивно. Локальное имя зависимости - алиас, приватный для проекта,
+// который его объявил (как в самом Rech - "использовать X из "имя""), а не
+// глобальный путь, как в Go modules - поэтому граф разрешения СКОПИРОВАН
+// по проектам (Graph.Scopes), не одна общая плоская таблица имён: два
+// разных проекта в графе МОГУТ дать одному и тому же локальному имени
+// разные зависимости, коллизии в этом нет. lock-файл поэтому ключуется по
+// (URL, версия), не по имени - оно приватно для объявившего его проекта и
+// не годится как глобальный ключ.
+//
+// Не реализовано в этом срезе (известные ограничения, не забытые случаи):
+// зависимость по прямой ссылке на файл, а не на git-репозиторий; настоящее
+// разрешение конфликтов версий (semver/MVS) - один и тот же URL,
+// запрошенный на РАЗНЫХ версиях в разных точках графа, - явная ошибка, а
+// не автоматический выбор "старшей" версии.
 package pkgfetch
 
 import (
@@ -32,7 +45,7 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/project"
 )
 
-// LockFileName - имя lock-файла, всегда рядом с .rechproj.
+// LockFileName - имя lock-файла, всегда рядом с корневым .rechproj.
 const LockFileName = ".rechlock"
 
 // commitHashRe - похоже ли значение "версия" на коммит (шестнадцатеричная
@@ -46,8 +59,16 @@ func isCommitHash(ref string) bool {
 	return commitHashRe.MatchString(ref)
 }
 
-// LockEntry - одна строка lock-файла: версия из .rechproj в момент
-// разрешения + фактический commit hash, на который она указывала.
+// lockKey - ключ lock-файла: (URL, версия), НЕ локальное имя зависимости -
+// имя приватно для объявившего его проекта (см. package doc), одна и та же
+// (URL, версия) может быть объявлена под разными именами в разных
+// проектах графа и должна резолвиться в ОДИН и тот же закреплённый коммит.
+func lockKey(url, version string) string {
+	return url + "@" + version
+}
+
+// LockEntry - одна строка lock-файла: URL/версия (для читаемости - реальный
+// ключ см. lockKey) + фактический commit hash, на который они указывали.
 type LockEntry struct {
 	URL    string
 	Версия string
@@ -94,15 +115,12 @@ func readLock(path string) (map[string]LockEntry, error) {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		name, rest, ok := strings.Cut(line, ":")
-		if !ok {
-			return nil, fmt.Errorf("%s: не удалось разобрать строку %q", path, line)
-		}
-		parts := strings.Fields(rest)
+		parts := strings.Fields(line)
 		if len(parts) != 3 {
-			return nil, fmt.Errorf("%s: не удалось разобрать строку %q - ожидалось \"имя: url версия коммит\"", path, line)
+			return nil, fmt.Errorf("%s: не удалось разобрать строку %q - ожидалось \"url версия коммит\"", path, line)
 		}
-		out[strings.TrimSpace(name)] = LockEntry{URL: parts[0], Версия: parts[1], Commit: parts[2]}
+		entry := LockEntry{URL: parts[0], Версия: parts[1], Commit: parts[2]}
+		out[lockKey(entry.URL, entry.Версия)] = entry
 	}
 	if err := sc.Err(); err != nil {
 		return nil, err
@@ -111,17 +129,17 @@ func readLock(path string) (map[string]LockEntry, error) {
 }
 
 func writeLock(path string, entries map[string]LockEntry) error {
-	names := make([]string, 0, len(entries))
-	for n := range entries {
-		names = append(names, n)
+	keys := make([]string, 0, len(entries))
+	for k := range entries {
+		keys = append(keys, k)
 	}
-	sort.Strings(names)
+	sort.Strings(keys)
 	var sb strings.Builder
 	sb.WriteString("# Автоматически сгенерировано rech (install/build) - не редактировать руками.\n")
-	sb.WriteString("# Формат: имя: url версия коммит\n")
-	for _, n := range names {
-		e := entries[n]
-		fmt.Fprintf(&sb, "%s: %s %s %s\n", n, e.URL, e.Версия, e.Commit)
+	sb.WriteString("# Формат: url версия коммит\n")
+	for _, k := range keys {
+		e := entries[k]
+		fmt.Fprintf(&sb, "%s %s %s\n", e.URL, e.Версия, e.Commit)
 	}
 	return os.WriteFile(path, []byte(sb.String()), 0o644)
 }
@@ -165,17 +183,45 @@ func cloneAt(dir, url, ref string, fullClone bool) error {
 	return nil
 }
 
+// resolveOne скачивает/находит в кеше ровно одну (URL, версия) - общий код
+// для плоского Resolve и рекурсивного ResolveGraph. lock - разделяемая
+// карта на весь граф (читается один раз в начале, пишется один раз в конце
+// вызывающей стороной) - resolveOne только читает/дополняет её в памяти.
+func resolveOne(root string, dep project.Dependency, lock map[string]LockEntry, changed *bool, progress io.Writer) (string, error) {
+	dir, err := cacheDirFor(root, dep.URL, dep.Версия)
+	if err != nil {
+		return "", err
+	}
+	key := lockKey(dep.URL, dep.Версия)
+
+	if locked, ok := lock[key]; ok {
+		if commit, err := headCommit(dir); err == nil && commit == locked.Commit {
+			return dir, nil
+		}
+		fmt.Fprintf(progress, "скачивание %s (закреплённый коммит %s)...\n", dep.URL, locked.Commit)
+		if err := cloneAt(dir, dep.URL, locked.Commit, true); err != nil {
+			return "", err
+		}
+		return dir, nil
+	}
+
+	fmt.Fprintf(progress, "скачивание %s@%s...\n", dep.URL, dep.Версия)
+	if err := cloneAt(dir, dep.URL, dep.Версия, isCommitHash(dep.Версия)); err != nil {
+		return "", err
+	}
+	commit, err := headCommit(dir)
+	if err != nil {
+		return "", fmt.Errorf("не удалось определить скачанный коммит: %w", err)
+	}
+	lock[key] = LockEntry{URL: dep.URL, Версия: dep.Версия, Commit: commit}
+	*changed = true
+	return dir, nil
+}
+
 // Resolve скачивает/находит в кеше каждую зависимость deps (обычно -
 // project.File.Зависимости) и возвращает имя -> локальный каталог с уже
-// готовыми исходниками. lockPath - путь к lock-файлу (см. LockFileName) -
-// читается и, если появились новые/изменившиеся записи, перезаписывается.
-// progress - куда писать статус скачивания (например, os.Stdout) - может
-// быть nil (тогда ничего не печатается).
-//
-// Уже закешированная (по URL+версии из .rechproj, совпадающей с lock-
-// записью) зависимость с уже закачанным нужным коммитом переиспользуется
-// без обращения к сети вообще - воспроизводимость и скорость повторных
-// сборок.
+// готовыми исходниками - БЕЗ транзитивных зависимостей (см. ResolveGraph
+// для полного графа, включая FFI-библиотеки скачанных зависимостей).
 func Resolve(deps map[string]project.Dependency, lockPath string, progress io.Writer) (map[string]string, error) {
 	root, err := CacheRoot()
 	if err != nil {
@@ -211,35 +257,10 @@ func ResolveWithRoot(deps map[string]project.Dependency, root, lockPath string, 
 	result := map[string]string{}
 	changed := false
 	for _, name := range names {
-		dep := deps[name]
-		dir, err := cacheDirFor(root, dep.URL, dep.Версия)
+		dir, err := resolveOne(root, deps[name], lock, &changed, progress)
 		if err != nil {
 			return nil, fmt.Errorf("зависимость %q: %w", name, err)
 		}
-
-		if locked, ok := lock[name]; ok && locked.URL == dep.URL && locked.Версия == dep.Версия {
-			if commit, err := headCommit(dir); err == nil && commit == locked.Commit {
-				result[name] = dir
-				continue
-			}
-			fmt.Fprintf(progress, "зависимость %q: скачивание %s (закреплённый коммит %s)...\n", name, dep.URL, locked.Commit)
-			if err := cloneAt(dir, dep.URL, locked.Commit, true); err != nil {
-				return nil, fmt.Errorf("зависимость %q: %w", name, err)
-			}
-			result[name] = dir
-			continue
-		}
-
-		fmt.Fprintf(progress, "зависимость %q: скачивание %s@%s...\n", name, dep.URL, dep.Версия)
-		if err := cloneAt(dir, dep.URL, dep.Версия, isCommitHash(dep.Версия)); err != nil {
-			return nil, fmt.Errorf("зависимость %q: %w", name, err)
-		}
-		commit, err := headCommit(dir)
-		if err != nil {
-			return nil, fmt.Errorf("зависимость %q: не удалось определить скачанный коммит: %w", name, err)
-		}
-		lock[name] = LockEntry{URL: dep.URL, Версия: dep.Версия, Commit: commit}
-		changed = true
 		result[name] = dir
 	}
 

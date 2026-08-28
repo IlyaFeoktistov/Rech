@@ -39,9 +39,9 @@ func TestCacheDirFor(t *testing.T) {
 func TestLockFileRoundtrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".rechlock")
-	entries := map[string]LockEntry{
-		"клиент": {URL: "https://github.com/user/repo", Версия: "v1.2.0", Commit: "abc123"},
-	}
+	entry := LockEntry{URL: "https://github.com/user/repo", Версия: "v1.2.0", Commit: "abc123"}
+	key := lockKey(entry.URL, entry.Версия)
+	entries := map[string]LockEntry{key: entry}
 	if err := writeLock(path, entries); err != nil {
 		t.Fatalf("writeLock: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestLockFileRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readLock: %v", err)
 	}
-	if got["клиент"] != entries["клиент"] {
+	if got[key] != entry {
 		t.Fatalf("readLock() = %+v, ожидалось %+v", got, entries)
 	}
 }
@@ -119,7 +119,7 @@ func TestResolveClonesAndWritesLock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readLock: %v", err)
 	}
-	entry, ok := lock["клиент"]
+	entry, ok := lock[lockKey(repo, "v1.0.0")]
 	if !ok || entry.URL != repo || entry.Версия != "v1.0.0" || entry.Commit == "" {
 		t.Fatalf("ожидалась заполненная lock-запись, получено %+v", lock)
 	}

@@ -171,9 +171,25 @@ func Load(entryPath string, frontend Frontend) (*Program, error) {
 // объявленная зависимость, иначе как раньше (относительно каталога файла,
 // где написано "использовать"). nil - как обычный Load (deps ни у одной
 // программы, привычное поведение без .rechproj/без внешних зависимостей).
+// БЕЗ транзитивных зависимостей (см. LoadWithGraph) - "использовать" внутри
+// файла САМОЙ зависимости не может сослаться на ЕЁ собственную
+// зависимость по имени, только относительными путями внутри неё самой.
 func LoadWithDeps(entryPath string, frontend Frontend, deps map[string]string) (*Program, error) {
-	l := &loader{frontend: frontend, loaded: map[string]*Module{}, inProgress: map[string]bool{}, deps: deps}
-	entry, err := l.load(filepath.Clean(entryPath), nil)
+	return LoadWithGraph(entryPath, frontend, deps, nil)
+}
+
+// LoadWithGraph - LoadWithDeps с ПОЛНЫМ графом зависимостей, включая
+// транзитивные (internal/pkgfetch.Graph.Scopes: каталог зависимости -> её
+// СОБСТВЕННАЯ карта имён). Когда разбор "использовать" внутри файла ОДНОЙ
+// зависимости встречает имя, объявленное КАК ЕЁ СОБСТВЕННАЯ зависимость,
+// резолюция продолжается по ЕЁ карте (scopes[тот каталог]), а не по карте
+// программы верхнего уровня - имя зависимости приватно для проекта,
+// который его объявил (тот же принцип, что и у алиаса "использовать ...
+// как ..."), не общий на всю программу неймспейс. scopes == nil - как
+// LoadWithDeps (rootDeps без транзитивной части).
+func LoadWithGraph(entryPath string, frontend Frontend, rootDeps map[string]string, scopes map[string]map[string]string) (*Program, error) {
+	l := &loader{frontend: frontend, loaded: map[string]*Module{}, inProgress: map[string]bool{}, scopes: scopes}
+	entry, err := l.load(filepath.Clean(entryPath), nil, rootDeps)
 	if err != nil {
 		return nil, err
 	}
@@ -185,11 +201,14 @@ type loader struct {
 	loaded     map[string]*Module
 	inProgress map[string]bool
 	order      []*Module
-	// deps - см. package doc LoadWithDeps.
-	deps map[string]string
+	// scopes - весь граф "каталог зависимости -> её карта имён" (см.
+	// package doc LoadWithGraph) - deps, параметр load, несёт карту ИМЕННО
+	// для файла, который сейчас обрабатывается (у корневой программы - это
+	// rootDeps; после перехода в файл зависимости - её запись в scopes).
+	scopes map[string]map[string]string
 }
 
-func (l *loader) load(path string, stack []string) (*Module, error) {
+func (l *loader) load(path string, stack []string, deps map[string]string) (*Module, error) {
 	if m, ok := l.loaded[path]; ok {
 		return m, nil
 	}
@@ -214,11 +233,15 @@ func (l *loader) load(path string, stack []string) (*Module, error) {
 	declared := declaredNames(prog)
 
 	for _, use := range prog.Uses {
-		targetPath, err := resolveImportPath(filepath.Dir(path), use.Path, l.deps)
+		targetPath, crossedInto, err := resolveImportPath(filepath.Dir(path), use.Path, deps)
 		if err != nil {
 			return nil, fmt.Errorf("строка %d: %w", use.Line, err)
 		}
-		target, err := l.load(targetPath, append(append([]string{}, stack...), path))
+		nextDeps := deps
+		if crossedInto != "" {
+			nextDeps = l.scopes[crossedInto]
+		}
+		target, err := l.load(targetPath, append(append([]string{}, stack...), path), nextDeps)
 		if err != nil {
 			return nil, err
 		}
@@ -255,24 +278,28 @@ func (l *loader) load(path string, stack []string) (*Module, error) {
 // (см. package doc LoadWithDeps) - путь разрешается ВНУТРИ каталога этой
 // зависимости, а не относительно baseDir ("использовать Клиент из
 // "клиент/файл"" - "клиент" здесь имя зависимости из .rechproj, "файл" -
-// путь внутри её скачанных исходников). Иначе - как раньше, относительно
-// baseDir (каталог файла, где написано "использовать").
-func resolveImportPath(baseDir, importPath string, deps map[string]string) (string, error) {
+// путь внутри её скачанных исходников), и crossedInto возвращает этот
+// каталог (см. package doc LoadWithGraph - вызывающая сторона должна
+// продолжить резолюцию ВНУТРИ него уже по ЕГО собственной карте имён, не
+// по deps). Иначе - как раньше, относительно baseDir (каталог файла, где
+// написано "использовать"), crossedInto == "".
+func resolveImportPath(baseDir, importPath string, deps map[string]string) (path, crossedInto string, err error) {
 	segments := strings.Split(importPath, "/")
 	for _, seg := range segments {
 		if err := ValidSegmentName(seg); err != nil {
-			return "", fmt.Errorf("путь импорта %q: %w", importPath, err)
+			return "", "", fmt.Errorf("путь импорта %q: %w", importPath, err)
 		}
 	}
 	root := baseDir
 	rest := segments
 	if depDir, ok := deps[segments[0]]; ok {
 		root = depDir
+		crossedInto = depDir
 		rest = segments[1:]
 		if len(rest) == 0 {
-			return "", fmt.Errorf("путь импорта %q: после имени зависимости %q ожидался путь к файлу внутри неё", importPath, segments[0])
+			return "", "", fmt.Errorf("путь импорта %q: после имени зависимости %q ожидался путь к файлу внутри неё", importPath, segments[0])
 		}
 	}
 	parts := append([]string{root}, rest...)
-	return filepath.Join(parts...) + ".rech", nil
+	return filepath.Join(parts...) + ".rech", crossedInto, nil
 }

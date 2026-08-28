@@ -128,6 +128,7 @@ func main() {
 	var outDir, projName string
 	var extraLibs []string
 	var projectDeps map[string]string
+	var projectDepScopes map[string]map[string]string
 	if !hasCode {
 		projPath := srcPath
 		if projPath == "" {
@@ -163,11 +164,16 @@ func main() {
 			// библиотеке (см. package doc project.File.Библиотеки), значит без
 			// .rechproj сборке неоткуда узнать список для линковки.
 			extraLibs = pf.Библиотеки()
-			if deps, derr := resolveDeps(pf); derr != nil {
+			if deps, scopes, depLibs, derr := resolveDeps(pf); derr != nil {
 				fmt.Fprintln(os.Stderr, "ошибка:", derr)
 				os.Exit(1)
 			} else {
 				projectDeps = deps
+				projectDepScopes = scopes
+				// Библиотеки зависимостей (FFI-обёртки, сборка.библиотеки их
+				// собственного .rechproj) - вместе с уже собранным списком
+				// САМОГО проекта, без повторов (дедупликация ниже).
+				extraLibs = mergeLibraries(extraLibs, depLibs)
 			}
 		}
 	}
@@ -179,6 +185,7 @@ func main() {
 
 	comp := InitializeCompiler()
 	comp.Deps = projectDeps
+	comp.DepScopes = projectDepScopes
 	build := func() (string, error) { return comp.Build(srcPath, keepC, extraLibs) }
 	buildLib := func() (string, string, error) { return comp.BuildLib(srcPath, keepC, extraLibs) }
 	if hasCode {

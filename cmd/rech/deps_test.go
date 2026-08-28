@@ -85,7 +85,7 @@ func TestInstallAndRunResolveExternalDependency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("project.Load: %v", err)
 	}
-	deps, err := resolveDeps(pf)
+	deps, scopes, _, err := resolveDeps(pf)
 	if err != nil {
 		t.Fatalf("resolveDeps: %v", err)
 	}
@@ -95,6 +95,7 @@ func TestInstallAndRunResolveExternalDependency(t *testing.T) {
 
 	comp := InitializeCompiler()
 	comp.Deps = deps
+	comp.DepScopes = scopes
 	prog, _, err := comp.ParseSource(pf.MainPath())
 	if err != nil {
 		t.Fatalf("ParseSource: %v", err)
