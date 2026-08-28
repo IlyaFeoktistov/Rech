@@ -97,7 +97,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 	// не ir.EntityType.
 	for _, extEnt := range prog.ExternEntities {
 		if builtins.ReservedEntityNames[extEnt.Alias] {
-			return fmt.Errorf("внешняя сущность %q - зарезервированное имя встроенной сущности (HTTP-клиент), нельзя объявить с этим именем", extEnt.Alias)
+			return fmt.Errorf("внешняя сущность %q - зарезервированное имя встроенной сущности, нельзя объявить с этим именем", extEnt.Alias)
 		}
 		if _, exists := entities[extEnt.Alias]; exists {
 			return fmt.Errorf("внешняя сущность %q: имя уже занято", extEnt.Alias)
@@ -112,7 +112,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 	}
 	for _, ent := range prog.Entities {
 		if builtins.ReservedEntityNames[ent.Name] {
-			return fmt.Errorf("сущность %q - зарезервированное имя встроенной сущности (HTTP-клиент), нельзя объявить свою сущность с этим именем", ent.Name)
+			return fmt.Errorf("сущность %q - зарезервированное имя встроенной сущности, нельзя объявить свою сущность с этим именем", ent.Name)
 		}
 		if _, exists := entities[ent.Name]; exists {
 			return fmt.Errorf("сущность %q объявлена более одного раза", ent.Name)
@@ -264,6 +264,7 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 	registerHTTPEntity(a.entities, "Запрос", httpRequestFields)
 	registerHTTPEntity(a.entities, "Ответ", httpResponseFields)
 	funcs["запрос"] = funcSig{Params: []ir.Type{ir.EntityType("Запрос")}, ReturnType: ir.EntityType("Ответ"), HasReturn: true}
+	registerDateTimeFuncs(a.entities, funcs)
 	for _, fn := range prog.Functions {
 		if _, exists := funcs[fn.Name]; exists {
 			if builtins.IsReservedName(fn.Name) {
@@ -579,6 +580,7 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	out.Entities = append(out.Entities,
 		&ir.Entity{Name: "Запрос", IsStruct: true, Fields: httpRequestFields},
 		&ir.Entity{Name: "Ответ", IsStruct: true, Fields: httpResponseFields},
+		&ir.Entity{Name: "ДатаВремя", IsStruct: true, Fields: dateTimeFields},
 	)
 	// "Исключение" - ссылочная сущность (не структура): "выбросить"
 	// передаёт указатель на неё дальше по стеку вызовов без копирования,

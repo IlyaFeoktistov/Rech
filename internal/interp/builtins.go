@@ -165,6 +165,14 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return stringValue(string(buf[:n])), true
 	case "запрос":
 		return in.httpRequest(args[0]), true
+	case "время":
+		return intValue(nowUnix()), true
+	case "время_как_дата":
+		return timeToDate(args[0].I), true
+	case "дата_как_время":
+		return intValue(dateToTime(args[0])), true
+	case "дата_в_строку":
+		return stringValue(dateToString(args[0])), true
 	case "закрыть_сокет":
 		switch {
 		case args[0].Conn != nil:

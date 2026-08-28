@@ -135,6 +135,12 @@ var All = []Func{
 	{Name: "отправить", Params: []Kind{KindSocket, KindString}, HasReturn: false},
 	{Name: "получить", Params: []Kind{KindSocket, KindInt}, ReturnKind: KindString, HasReturn: true},
 	{Name: "закрыть_сокет", Params: []Kind{KindSocket}, HasReturn: false},
+
+	// Время - текущий момент как unix-метка (секунды с эпохи 1970-01-01
+	// UTC). Распаковка в календарные поля - "время_как_дата" (сущность
+	// "ДатаВремя", не примитив - зарегистрирована отдельно, см.
+	// ReservedEntityNames/ReservedFuncNames и internal/semantic/datetime.go).
+	{Name: "время", Params: nil, ReturnKind: KindInt, HasReturn: true},
 }
 
 // ByName ищет встроенную функцию по имени.
@@ -156,7 +162,10 @@ func ByName(name string) (Func, bool) {
 // (internal/module.resolveBareName, internal/semantic - объявление
 // пользовательской функции/внешней функции с этим именем).
 var ReservedFuncNames = map[string]bool{
-	"запрос": true,
+	"запрос":         true,
+	"время_как_дата": true,
+	"дата_как_время": true,
+	"дата_в_строку":  true,
 }
 
 // ReservedEntityNames - зарезервированные имена сущностей (Запрос/Ответ,
@@ -167,6 +176,7 @@ var ReservedEntityNames = map[string]bool{
 	"Запрос":     true,
 	"Ответ":      true,
 	"Вызываемый": true,
+	"ДатаВремя":  true,
 }
 
 // IsReservedName - true для обычной встроенной функции (All) или для имени

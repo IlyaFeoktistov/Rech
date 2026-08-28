@@ -460,11 +460,14 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString {
 		sb.WriteString("#include <string.h>\n")
 	}
-	if ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions {
+	if ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime {
 		sb.WriteString("#include <stdlib.h>\n")
 	}
 	if ctx.usesMath {
 		sb.WriteString("#include <math.h>\n")
+	}
+	if ctx.usesDateTime {
+		sb.WriteString("#include <time.h>\n")
 	}
 	if ctx.usesExceptions {
 		sb.WriteString("#include <setjmp.h>\n")
@@ -553,6 +556,12 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// После typedefs - rech_http_request принимает/возвращает Запрос/
 		// Ответ по значению, их typedef должен быть уже виден.
 		sb.WriteString(httpHelpers)
+		sb.WriteString("\n")
+	}
+	if ctx.usesDateTime {
+		// После typedefs - rech_time_to_date/rech_date_to_time/
+		// rech_date_to_string принимают/возвращают ДатаВремя по значению.
+		sb.WriteString(datetimeHelpers)
 		sb.WriteString("\n")
 	}
 	if protos.Len() > 0 {

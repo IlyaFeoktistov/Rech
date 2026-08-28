@@ -70,6 +70,9 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 	case "Ответ":
 		registerHTTPEntity(entities, "Ответ", httpResponseFields)
 		return ir.EntityType("Ответ"), nil
+	case "ДатаВремя":
+		registerHTTPEntity(entities, "ДатаВремя", dateTimeFields)
+		return ir.EntityType("ДатаВремя"), nil
 	}
 	if _, ok := interfaces[name]; ok {
 		return ir.InterfaceType(name), nil

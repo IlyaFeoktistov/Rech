@@ -58,6 +58,10 @@ type builtinFlags struct {
 	// rech_send из socketHelpers, поэтому подразумевает usesSockets (и
 	// usesPanic - через них).
 	usesHTTP bool
+	// usesDateTime - нужны ли rech_time_now/rech_time_to_date/
+	// rech_date_to_time/rech_date_to_string (datetime.go) - встроенные
+	// функции "время"/"время_как_дата"/"дата_как_время"/"дата_в_строку".
+	usesDateTime bool
 }
 
 // builtinCallCode генерирует C-вызов встроенной функции (internal/builtins,
@@ -166,6 +170,18 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 		flags.usesSockets = true
 		flags.usesPanic = true
 		return fmt.Sprintf("rech_http_request(%s)", args[0]), true
+	case "время":
+		flags.usesDateTime = true
+		return "rech_time_now()", true
+	case "время_как_дата":
+		flags.usesDateTime = true
+		return fmt.Sprintf("rech_time_to_date(%s)", args[0]), true
+	case "дата_как_время":
+		flags.usesDateTime = true
+		return fmt.Sprintf("rech_date_to_time(%s)", args[0]), true
+	case "дата_в_строку":
+		flags.usesDateTime = true
+		return fmt.Sprintf("rech_date_to_string(%s)", args[0]), true
 	case "стандартный_ввод":
 		flags.usesFileIO = true
 		return "stdin", true
