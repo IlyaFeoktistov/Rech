@@ -109,6 +109,15 @@ type Value struct {
 	// ("Вызываемый", "&имя"/лямбда) - см. internal/interp/callable.go.
 	Callable *callableValue
 
+	// Nullable - валидно только при Type.Kind == ir.KindNullable ("?Тип") -
+	// nil означает "Ничто", ненулевой указатель несёт обёрнутое значение
+	// (со своим настоящим внутренним Type) - указатель, а не значение по
+	// значению, тем же принципом, что и Boxed ниже: сама занятость (has/
+	// Ничто) неотличима от нулевого значения примитива (0/""/false), в
+	// отличие от них указатель однозначно различает "нет значения" и "есть
+	// значение, которое случайно нулевое".
+	Nullable *Value
+
 	// Boxed - непусто только при Type.Kind == ir.KindAny ("Значение",
 	// боксирование для рефлексии) - само боксированное значение целиком
 	// (со своим настоящим Type) под указателем, см.
@@ -185,6 +194,13 @@ func zeroValue(t ir.Type) Value {
 // т.к. они регистрируются отдельно, в in.generics, см. package doc) - без
 // глубокого клонирования буфера, как и раньше.
 func (in *Interp) cloneValue(v Value) Value {
+	if v.Type.Kind == ir.KindNullable {
+		if v.Nullable == nil {
+			return v
+		}
+		cloned := in.cloneValue(*v.Nullable)
+		return Value{Type: v.Type, Nullable: &cloned}
+	}
 	if v.Type.Kind != ir.KindEntity || v.Obj == nil {
 		return v
 	}

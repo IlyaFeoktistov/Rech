@@ -55,6 +55,18 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 		env.set(s.Name, in.cloneValue(v))
 		return ctrl{}, nil
 
+	case *ir.NullCoalesceAssignStmt:
+		cur, _ := env.get(s.Name)
+		if cur.Nullable != nil {
+			return ctrl{}, nil
+		}
+		v, err := in.evalExpr(s.Value, env, cc)
+		if err != nil {
+			return ctrl{}, err
+		}
+		env.set(s.Name, in.cloneValue(v))
+		return ctrl{}, nil
+
 	case *ir.FieldAssign:
 		recv, err := in.evalExpr(s.Receiver, env, cc)
 		if err != nil {

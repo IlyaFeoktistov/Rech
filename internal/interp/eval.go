@@ -114,6 +114,21 @@ func (in *Interp) evalExpr(e ir.Expr, env *Env, cc *callCtx) (Value, error) {
 	case *ir.AsExpr:
 		return in.evalAsExpr(e, env, cc)
 
+	case *ir.NullLiteral:
+		return evalNullLiteral(e), nil
+
+	case *ir.NullWrapExpr:
+		return in.evalNullWrapExpr(e, env, cc)
+
+	case *ir.NullUnwrapExpr:
+		return in.evalNullUnwrapExpr(e, env, cc)
+
+	case *ir.NullCheckExpr:
+		return in.evalNullCheckExpr(e, env, cc)
+
+	case *ir.NullCoalesceExpr:
+		return in.evalNullCoalesceExpr(e, env, cc)
+
 	default:
 		return Value{}, fmt.Errorf("вычисление: выражение %T не поддерживается интерпретатором", e)
 	}
@@ -701,6 +716,15 @@ func (in *Interp) showValue(v Value) string {
 			parts[i] = fmt.Sprintf("%s: %s", f.Name, in.showValue(v.Obj.fields[f.Name]))
 		}
 		return fmt.Sprintf("%s { %s }", v.Obj.typeName, strings.Join(parts, ", "))
+	case ir.KindNullable:
+		// Есть значение - показывается как есть (уже несёт собственную
+		// пометку типа, см. рекурсию выше) - пометка "(?Тип)" добавляется
+		// только у "Ничто", где показывать больше нечего. Тот же принцип,
+		// что и в cbackend (generateIRShowExpr, ir.KindNullable).
+		if v.Nullable == nil {
+			return fmt.Sprintf("Ничто (%s)", v.Type)
+		}
+		return in.showValue(*v.Nullable)
 	default:
 		return fmt.Sprintf("%s (%s)", v.S, v.Type)
 	}
