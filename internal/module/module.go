@@ -161,7 +161,18 @@ type Program struct {
 // полной инициализации модуля), здесь это всегда явная ошибка, а не
 // хрупкое "может сработать, а может и нет".
 func Load(entryPath string, frontend Frontend) (*Program, error) {
-	l := &loader{frontend: frontend, loaded: map[string]*Module{}, inProgress: map[string]bool{}}
+	return LoadWithDeps(entryPath, frontend, nil)
+}
+
+// LoadWithDeps - Load с внешними зависимостями проекта (deps: имя
+// зависимости, объявленное в .rechproj/"зависимости:" -> локальный каталог
+// с уже скачанными исходниками, см. internal/pkgfetch) - "использовать ...
+// из "<имя>/<путь>"" резолвится в файл ВНУТРИ этого каталога, если <имя> -
+// объявленная зависимость, иначе как раньше (относительно каталога файла,
+// где написано "использовать"). nil - как обычный Load (deps ни у одной
+// программы, привычное поведение без .rechproj/без внешних зависимостей).
+func LoadWithDeps(entryPath string, frontend Frontend, deps map[string]string) (*Program, error) {
+	l := &loader{frontend: frontend, loaded: map[string]*Module{}, inProgress: map[string]bool{}, deps: deps}
 	entry, err := l.load(filepath.Clean(entryPath), nil)
 	if err != nil {
 		return nil, err
@@ -174,6 +185,8 @@ type loader struct {
 	loaded     map[string]*Module
 	inProgress map[string]bool
 	order      []*Module
+	// deps - см. package doc LoadWithDeps.
+	deps map[string]string
 }
 
 func (l *loader) load(path string, stack []string) (*Module, error) {
@@ -201,7 +214,7 @@ func (l *loader) load(path string, stack []string) (*Module, error) {
 	declared := declaredNames(prog)
 
 	for _, use := range prog.Uses {
-		targetPath, err := resolveImportPath(filepath.Dir(path), use.Path)
+		targetPath, err := resolveImportPath(filepath.Dir(path), use.Path, l.deps)
 		if err != nil {
 			return nil, fmt.Errorf("строка %d: %w", use.Line, err)
 		}
@@ -233,19 +246,33 @@ func (l *loader) load(path string, stack []string) (*Module, error) {
 }
 
 // resolveImportPath разрешает путь импорта ("утилиты/http/коды_ответов",
-// без расширения) относительно baseDir (каталог файла, где написано
-// "использовать") в файловый путь ("baseDir/утилиты/http/коды_ответов.rech").
-// Каждый сегмент проверяется тем же правилом, что и имя файла
-// (ValidSegmentName) - строчные буквы/цифры/"_", NFC - поэтому "." и ".."
-// как сегменты уже отклонены самим алфавитом, отдельно исключать их не
-// нужно.
-func resolveImportPath(baseDir, importPath string) (string, error) {
+// без расширения) в файловый путь. Каждый сегмент проверяется тем же
+// правилом, что и имя файла (ValidSegmentName) - строчные буквы/цифры/"_",
+// NFC - поэтому "." и ".." как сегменты уже отклонены самим алфавитом,
+// отдельно исключать их не нужно.
+//
+// Если самый ПЕРВЫЙ сегмент совпадает с именем внешней зависимости из deps
+// (см. package doc LoadWithDeps) - путь разрешается ВНУТРИ каталога этой
+// зависимости, а не относительно baseDir ("использовать Клиент из
+// "клиент/файл"" - "клиент" здесь имя зависимости из .rechproj, "файл" -
+// путь внутри её скачанных исходников). Иначе - как раньше, относительно
+// baseDir (каталог файла, где написано "использовать").
+func resolveImportPath(baseDir, importPath string, deps map[string]string) (string, error) {
 	segments := strings.Split(importPath, "/")
 	for _, seg := range segments {
 		if err := ValidSegmentName(seg); err != nil {
 			return "", fmt.Errorf("путь импорта %q: %w", importPath, err)
 		}
 	}
-	parts := append([]string{baseDir}, segments...)
+	root := baseDir
+	rest := segments
+	if depDir, ok := deps[segments[0]]; ok {
+		root = depDir
+		rest = segments[1:]
+		if len(rest) == 0 {
+			return "", fmt.Errorf("путь импорта %q: после имени зависимости %q ожидался путь к файлу внутри неё", importPath, segments[0])
+		}
+	}
+	parts := append([]string{root}, rest...)
 	return filepath.Join(parts...) + ".rech", nil
 }

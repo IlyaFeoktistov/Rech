@@ -133,6 +133,14 @@ type Compiler struct {
 	Frontend  Frontend
 	Backend   Backend
 	Toolchain Toolchain
+	// Deps - внешние зависимости уже разрешённые (internal/pkgfetch) в
+	// момент запуска - имя зависимости (из .rechproj/"зависимости:") ->
+	// локальный каталог с её скачанными исходниками. nil, если проект не
+	// объявляет ни одной зависимости (или собирается вообще без
+	// .rechproj) - "использовать" тогда работает как раньше, только
+	// локальными путями. Заполняется cmd/rech перед вызовом Build, см.
+	// internal/module.LoadWithDeps.
+	Deps map[string]string
 }
 
 // NewCompiler - провайдер для Wire, собирающий Compiler из готовых зависимостей.
@@ -403,7 +411,7 @@ func (c *Compiler) parseFile(srcPath string) (*ast.Program, error) {
 	if err := validateSourceFileName(srcPath); err != nil {
 		return nil, err
 	}
-	prog, err := module.Load(srcPath, c.Frontend)
+	prog, err := module.LoadWithDeps(srcPath, c.Frontend, c.Deps)
 	if err != nil {
 		return nil, err
 	}

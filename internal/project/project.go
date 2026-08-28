@@ -22,6 +22,16 @@ import (
 	"strings"
 )
 
+// Dependency - одна внешняя зависимость из секции "зависимости:" -
+// произвольный git-репозиторий (любой хостинг - GitHub/GitLab/gitverse.ru/
+// самостоятельно размещённый - "git clone" не завязан на конкретный сервис)
+// по URL, зафиксированной версией (тег/ветка/коммит) - см.
+// internal/pkgfetch, который её реально скачивает/кеширует.
+type Dependency struct {
+	URL    string
+	Версия string
+}
+
 // File - разобранный .rechproj.
 type File struct {
 	// Dir - каталог, где лежит сам .rechproj; относительно него разрешаются
@@ -30,6 +40,12 @@ type File struct {
 
 	Имя    string
 	Версия string
+
+	// Зависимости - секция "зависимости:" (имя -> Dependency), в отличие от
+	// остальных полей файла НЕ входит в fields() ниже (значение - не
+	// одиночная строка, а составная запись с произвольным именем ключа) -
+	// разбирается отдельной веткой в Load.
+	Зависимости map[string]Dependency
 
 	Исходники string // пока не используется сборкой - главный файл тянет остальные через "использовать" (см. module.Load); поле для будущей сборки каталога без единого входа и для инструментов вроде rech-vscode.
 	Главный   string
@@ -111,12 +127,28 @@ func Load(path string) (*File, error) {
 		if !ok {
 			return nil, fmt.Errorf("%s: не удалось разобрать строку %q - ожидалось \"ключ: значение\"", path, line)
 		}
-		full := section + "." + strings.TrimSpace(key)
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if section == "зависимости" {
+			parts := strings.Fields(value)
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("%s: зависимость %q - ожидалось \"URL версия\" (например, \"https://github.com/user/repo v1.2.0\"), получено %q", path, key, value)
+			}
+			if pf.Зависимости == nil {
+				pf.Зависимости = map[string]Dependency{}
+			}
+			if _, exists := pf.Зависимости[key]; exists {
+				return nil, fmt.Errorf("%s: зависимость %q объявлена более одного раза", path, key)
+			}
+			pf.Зависимости[key] = Dependency{URL: parts[0], Версия: parts[1]}
+			continue
+		}
+		full := section + "." + key
 		target, known := fields[full]
 		if !known {
 			return nil, fmt.Errorf("%s: неизвестное поле %q", path, full)
 		}
-		*target = strings.TrimSpace(value)
+		*target = value
 	}
 	if err := sc.Err(); err != nil {
 		return nil, err

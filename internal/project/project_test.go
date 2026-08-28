@@ -107,6 +107,56 @@ func TestLoadWithoutLibrariesReturnsNil(t *testing.T) {
 	}
 }
 
+func TestLoadDependencies(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := `проект:
+  имя: тест
+
+файлы:
+  главный: а.rech
+
+зависимости:
+  клиент: https://github.com/user/repo v1.2.0
+  утилиты: https://gitlab.com/user/utils main
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	pf, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(pf.Зависимости) != 2 {
+		t.Fatalf("ожидалось 2 зависимости, получено %+v", pf.Зависимости)
+	}
+	if got := pf.Зависимости["клиент"]; got.URL != "https://github.com/user/repo" || got.Версия != "v1.2.0" {
+		t.Fatalf("зависимость \"клиент\" = %+v, не совпадает с ожидаемым", got)
+	}
+	if got := pf.Зависимости["утилиты"]; got.URL != "https://gitlab.com/user/utils" || got.Версия != "main" {
+		t.Fatalf("зависимость \"утилиты\" = %+v, не совпадает с ожидаемым", got)
+	}
+}
+
+func TestLoadDependencyDuplicateRejected(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := `проект:
+  имя: тест
+файлы:
+  главный: а.rech
+зависимости:
+  клиент: https://github.com/user/repo v1.0.0
+  клиент: https://github.com/user/repo v2.0.0
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatalf("ожидалась ошибка на дубль зависимости \"клиент\"")
+	}
+}
+
 func TestLoadUnknownTypeRejected(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "тест.rechproj")
