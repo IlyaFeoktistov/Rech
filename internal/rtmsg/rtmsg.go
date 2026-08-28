@@ -34,6 +34,12 @@ func EmptyQueueOp(typeName string) string {
 	return fmt.Sprintf("нельзя извлечь/получить первый элемент пустой %s", typeName)
 }
 
+// DictKeyNotFound - сообщение при "получить" по отсутствующему ключу
+// Словаря.
+func DictKeyNotFound(typeName string) string {
+	return fmt.Sprintf("ключ не найден в %s", typeName)
+}
+
 // DivisionByZero - сообщение при делении Целое на ноль. Только для
 // целочисленного деления - деление Число (float64) на 0.0 по IEEE 754 даёт
 // +-Inf/NaN, не аварийное завершение, и одинаково ведёт себя в C и в Go, не
@@ -41,7 +47,7 @@ func EmptyQueueOp(typeName string) string {
 const DivisionByZero = "деление на ноль"
 
 // ReadEOF - сообщение при попытке прочитать_строку/прочитать_целое/
-// прочитать_число, когда стандартный ввод уже закончился (шаг 8).
+// прочитать_число, когда стандартный ввод уже закончился.
 const ReadEOF = "не удалось прочитать: конец ввода"
 
 // ReadIntFormat - сообщение при прочитать_целое, если введённая строка - не

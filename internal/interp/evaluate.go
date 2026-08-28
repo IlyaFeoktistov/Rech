@@ -231,11 +231,31 @@ func (in *Interp) evalAstBinary(e *ast.BinaryExpr, env *Env, this *entityObj) (V
 }
 
 // evalAstCollectionMethod - только для чтения (длина/пусто/получить/верх/
-// первый), без мутации (добавить/положить/установить/снять/извлечь) - watch-
+// первый у Список/Стопка/Очередь; длина/пусто/получить/содержит у Словарь),
+// без мутации (добавить/положить/установить/снять/извлечь/удалить) - watch-
 // выражение не должно незаметно менять состояние программы (в отличие от
 // вызова обычной функции/метода выше, где это уже риск, на который идут
 // осознанно - тот же выбор, что и у настоящих отладчиков).
 func (in *Interp) evalAstCollectionMethod(obj *entityObj, method string, args []Value) (Value, error) {
+	if obj.coll.template == "Словарь" {
+		switch method {
+		case "получить":
+			v, ok := obj.coll.pairs[args[0]]
+			if !ok {
+				return Value{}, fmt.Errorf("ключ не найден в %s", obj.typeName)
+			}
+			return v, nil
+		case "содержит":
+			_, ok := obj.coll.pairs[args[0]]
+			return boolValue(ok), nil
+		case "длина":
+			return intValue(int64(len(obj.coll.pairs))), nil
+		case "пусто":
+			return boolValue(len(obj.coll.pairs) == 0), nil
+		default:
+			return Value{}, fmt.Errorf("%q в Debug Console не поддерживается (изменяет словарь)", method)
+		}
+	}
 	switch method {
 	case "получить":
 		idx := args[0].I

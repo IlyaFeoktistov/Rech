@@ -55,10 +55,10 @@ var primitiveTypes = map[string]ir.Type{
 // сущность, объявленная позже в файле, чем место, где её имя встретилось
 // как тип - та же граница, что и в cbackend.resolveType) или производный
 // тип состояния (aliases - "АвторизованныйПользователь" -> "Пользователь",
-// шаг 4.1, см. collectEntities) - резолвится в тип БАЗОВОЙ сущности, не в
+// см. collectEntities) - резолвится в тип БАЗОВОЙ сущности, не в
 // собственный тип: производный тип - псевдоним без своего
 // представления, как и в cbackend (genCtx.stateAliases), - или встроенная
-// generic-коллекция (шаг 4.2, resolveGenericTypeName).
+// generic-коллекция (resolveGenericTypeName/resolveDictTypeName).
 func resolveTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, name string) (ir.Type, error) {
 	if t, ok := primitiveTypes[name]; ok {
 		return t, nil
@@ -97,9 +97,9 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 // сущностей "Запрос"/"Ответ" - в этом порядке
 // (позиционный конструктор "новый Запрос(...)" следует ему) и без
 // падежного согласования (обычные имена полей). Заголовки - одна `Строка`
-// (каждый заголовок на своей строке, разделитель "\r\n"), не список пар
-// ключ/значение - в языке пока нет словаря/хеш-карты (docs/ROADMAP.md), а
-// заводить отдельный тип только для заголовков было бы преждевременно.
+// (каждый заголовок на своей строке, разделитель "\r\n"), не `Словарь<К,
+// В>` - заводить отдельный тип представления только для заголовков было бы
+// преждевременно, раз formatting/парсинг уже завязаны на одну строку.
 var httpRequestFields = []ir.Field{
 	{Name: "метод", Type: ir.TypeString},
 	{Name: "адрес", Type: ir.TypeString},
@@ -194,7 +194,9 @@ func parseGenericTypeName(name string) (template, arg string, ok bool) {
 }
 
 // genericMethodSigs - сигнатуры методов встроенного generic-шаблона
-// (шаг 4.2) для конкретного типа элемента elem - курируемый список, как и
+// (Список/Стопка/Очередь - у "Словарь" своя функция, resolveDictTypeName,
+// два типа-аргумента вместо одного) для конкретного типа элемента elem -
+// курируемый список, как и
 // genericTemplates в cbackend (AST-путь), только здесь сигнатуры, а не
 // C-код (C-код синтезирует cbackend.GenerateFromIR по Program.Generics,
 // переиспользуя cbackend.listCollectionCCode/stackCollectionCCode/
@@ -241,6 +243,9 @@ func resolveGenericTypeName(entities map[string]entitySig, methods map[string]ma
 	if !ok {
 		return ir.TypeUnknown, fmt.Errorf("неизвестный тип %q", name)
 	}
+	if template == "Словарь" {
+		return resolveDictTypeName(entities, methods, aliases, interfaces, name)
+	}
 	elem, err := resolveTypeName(entities, methods, aliases, interfaces, argName)
 	if err != nil {
 		return ir.TypeUnknown, fmt.Errorf("тип элемента %q в %q: %w", argName, name, err)
@@ -259,11 +264,54 @@ func resolveGenericTypeName(entities map[string]entitySig, methods map[string]ma
 	return ir.EntityType(name), nil
 }
 
-// Analyze производит IR из AST. Покрытие на данный момент - шаги 0-4
-// (`вывести`, переменные/арифметика, если/пока/для, функции с параметрами
-// и типом результата, вызов, сущности/поля/конструктор/методы/"этот"),
-// шаг 4.1 (состояния, упрощённая версия) и шаг 4.2 (встроенные generic-
-// коллекции) - см. internal/ir, package doc. Расширяется вместе с
+// dictKeyKinds - допустимые типы ключа "Словарь<К, В>" - те, у которых есть
+// естественное, однозначное равенство и хеш (dictCollectionCCode,
+// internal/backend/cbackend): целочисленные примитивы и Строка.
+// Действительное/Дробное осознанно исключены - сравнение чисел с плавающей
+// точкой на равенство ненадёжно (типичная ловушка в любом языке с
+// хеш-картами), проще запретить, чем документировать предостережение.
+var dictKeyKinds = map[ir.TypeKind]bool{
+	ir.KindInt: true, ir.KindString: true, ir.KindByte: true, ir.KindChar: true, ir.KindBool: true,
+}
+
+// resolveDictTypeName - resolveGenericTypeName для "Словарь<К, В>" -
+// отдельная функция, не ветка внутри resolveGenericTypeName, потому что
+// у "Словарь" два аргумента типа (parseGenericTypeNameMulti, не
+// parseGenericTypeName) и своя, более узкая проверка типа ключа
+// (dictKeyKinds) вдобавок к общей "значения - только примитивы", как у
+// Список/Стопка/Очередь.
+func resolveDictTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, name string) (ir.Type, error) {
+	_, args, ok := parseGenericTypeNameMulti(name)
+	if !ok || len(args) != 2 {
+		return ir.TypeUnknown, fmt.Errorf("%q: \"Словарь\" ожидает ровно два аргумента типа - ключ и значение (\"Словарь<Строка, Целое>\")", name)
+	}
+	key, err := resolveTypeName(entities, methods, aliases, interfaces, args[0])
+	if err != nil {
+		return ir.TypeUnknown, fmt.Errorf("тип ключа %q в %q: %w", args[0], name, err)
+	}
+	if !dictKeyKinds[key.Kind] {
+		return ir.TypeUnknown, fmt.Errorf("%q: тип ключа %s не поддерживается - допустимы только Целое/Байт/Символ/Логическое/Строка", name, key)
+	}
+	val, err := resolveTypeName(entities, methods, aliases, interfaces, args[1])
+	if err != nil {
+		return ir.TypeUnknown, fmt.Errorf("тип значения %q в %q: %w", args[1], name, err)
+	}
+	if val.Kind == ir.KindEntity {
+		return ir.TypeUnknown, fmt.Errorf("%q: значения встроенного словаря поддерживаются только для примитивов, не для сущностей", name)
+	}
+	if _, exists := entities[name]; !exists {
+		entities[name] = entitySig{IsDict: true, KeyType: key, ElemType: val}
+		methods[name] = map[string]funcSig{
+			"установить": {Params: []ir.Type{key, val}},
+			"получить":   {Params: []ir.Type{key}, ReturnType: val, HasReturn: true},
+			"содержит":   {Params: []ir.Type{key}, ReturnType: ir.TypeBool, HasReturn: true},
+			"удалить":    {Params: []ir.Type{key}},
+			"длина":      {ReturnType: ir.TypeInt, HasReturn: true},
+			"пусто":      {ReturnType: ir.TypeBool, HasReturn: true},
+		}
+	}
+	return ir.EntityType(name), nil
+}
 
 // isFFIScalar - t допустим в сигнатуре "внешняя функция" и в поле "внешняя
 // структура" (FFI, докс/SPEC.md, раздел 12): примитив со стабильным,

@@ -40,6 +40,14 @@ type irGenCtx struct {
 	// usesShow - нужны ли функции показа (rech_show_...) - генерируются
 	// только если "показать" реально встретилось в программе.
 	usesShow bool
+	// usesDictString - хотя бы один "Словарь<Строка, ...>" использован в
+	// программе - хеш/сравнение ключа-строки (dictCollectionCCode)
+	// используют strcmp, значит нужен "#include <string.h>" - отдельный от
+	// usesGenerics флаг (не каждый generic-тип - строковый Словарь), тем же
+	// принципом осторожности, что и у остальных #include-флагов: включать
+	// string.h без нужды означает риск конфликта с "внешняя функция",
+	// объявляющей настоящие strlen/strcmp/... с несовпадающими типами.
+	usesDictString bool
 	// usesCast - нужны ли рантайм-хелперы явных кастов (castHelpers) - только
 	// для приведений с участием "Строка" (разбор/форматирование); прямые
 	// числовые приведения (Целое/Дробное/Действительное/Символ/Байт между
@@ -314,10 +322,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 
 	// genericsCode - typedef struct + функции для встроенных generic-
 	// коллекций, использованных в программе - переиспользует
-	// listCollectionCCode/stackCollectionCCode/queueCollectionCCode
-	// (растущий массив) - IR не хранит собственных сигнатур методов для
-	// них, MethodCallExpr уже несёт всё нужное для вызова, эта функция
-	// только про C-текст самого типа.
+	// listCollectionCCode/stackCollectionCCode/queueCollectionCCode/
+	// dictCollectionCCode (растущий массив/хеш-таблица) - IR не хранит
+	// собственных сигнатур методов для них, MethodCallExpr уже несёт всё
+	// нужное для вызова, эта функция только про C-текст самого типа.
 	var genericsCode strings.Builder
 	usesGenerics := len(prog.Generics) > 0
 	for _, g := range prog.Generics {
@@ -329,6 +337,13 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 			genericsCode.WriteString(stackCollectionCCode(g.Name, elemC))
 		case "Очередь":
 			genericsCode.WriteString(queueCollectionCCode(g.Name, elemC))
+		case "Словарь":
+			keyC := fromIRType(g.KeyType).cType(ctx)
+			isStringKey := g.KeyType.Kind == ir.KindString
+			if isStringKey {
+				ctx.usesDictString = true
+			}
+			genericsCode.WriteString(dictCollectionCCode(g.Name, keyC, elemC, isStringKey))
 		default:
 			return "", fmt.Errorf("неизвестный generic-шаблон %q", g.Template)
 		}
@@ -442,7 +457,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	if ctx.usesGC || ctx.usesThreads {
 		sb.WriteString("#include <gc.h>\n")
 	}
-	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy {
+	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString {
 		sb.WriteString("#include <string.h>\n")
 	}
 	if ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions {

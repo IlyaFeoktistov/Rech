@@ -607,6 +607,7 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 			Name:     name,
 			Template: template,
 			ElemType: a.entities[name].ElemType,
+			KeyType:  a.entities[name].KeyType,
 		})
 	}
 

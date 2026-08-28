@@ -65,7 +65,7 @@ type funcSig struct {
 }
 
 // entitySig - сигнатура сущности: поля в порядке объявления (для
-// конструктора и доступа к полю, шаг 4.b), собранная предварительным
+// конструктора и доступа к полю), собранная предварительным
 // проходом (collectEntitySigs) - тот же принцип, что и funcSig, отдельный
 // тип от cbackend.entitySig (IR не должен знать про cbackend).
 type entitySig struct {
@@ -89,13 +89,13 @@ type entitySig struct {
 	// Analyze - тем же принципом, что и ConstExprs, см. resolveFieldDefault.
 	FieldDefaultExprs []ast.Expr
 
-	// States - краткие формы, объявленные под "состояние:" (шаг 4.1,
-	// упрощённая версия) - для проверки BecomeStmt ("получатель становится
+	// States - краткие формы, объявленные под "состояние:" (упрощённая
+	// версия) - для проверки BecomeStmt ("получатель становится
 	// <состояние>"). nil у сущностей без "состояние:".
 	States map[string]bool
 
 	// IsList/ElemType - заполнены только для синтезированных инстанциаций
-	// встроенных generic-коллекций (шаг 4.2, resolveTypeName) - IsList
+	// встроенных generic-коллекций (resolveTypeName) - IsList
 	// true только у "Список<T>" (единственная коллекция, участвующая в
 	// цикле "для x в списке"), ElemType - у всех трёх (Список/Стопка/
 	// Очередь), чтобы Analyze мог собрать Program.Generics в конце без
@@ -103,6 +103,15 @@ type entitySig struct {
 	// нулевые значения.
 	IsList   bool
 	ElemType ir.Type
+	// IsDict/KeyType - тот же принцип, что IsList/ElemType выше, но для
+	// "Словарь<К, В>" (resolveDictTypeName) - двухаргументного встроенного
+	// generic-типа: ElemType несёт тип ЗНАЧЕНИЯ (то же поле, что и у
+	// Список/Стопка/Очередь - переиспользуется, не дублируется отдельным
+	// ValueType), KeyType - тип ключа. У "Словарь" нет цикла "для x в Y"
+	// (см. package doc dictCollectionCCode) - IsDict не участвует в той же
+	// проверке, что и IsList.
+	IsDict  bool
+	KeyType ir.Type
 
 	// ConstNames/ConstExprs - константы, объявленные в теле сущности
 	// (последовательность объявления). ConstExprs хранит AST-выражения

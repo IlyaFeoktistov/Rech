@@ -77,12 +77,16 @@ func generateIREntityShowFunc(ctx *irGenCtx, ent *ir.Entity) string {
 }
 
 // generateIRGenericShowFunc строит определение функции показа встроенной
-// generic-коллекции g (Список/Стопка/Очередь - все три растущий массив с
-// одинаковым набором полей data/len/cap, см. listCollectionCCode) -
-// печатает "Имя<T> [элемент, элемент, ...]", перебирая data[0..len) в
-// настоящем C-цикле (длина известна только в рантайме, в отличие от полей
-// сущности).
+// generic-коллекции g - печатает "Имя<T> [элемент, элемент, ...]"
+// (Список/Стопка/Очередь - все три растущий массив с одинаковым набором
+// полей data/len/cap, см. listCollectionCCode) или "Имя<К, В> {ключ:
+// значение, ...}" (Словарь - хеш-таблица со слотами/state, см.
+// dictCollectionCCode) - перебирая содержимое в настоящем C-цикле (длина
+// известна только в рантайме, в отличие от полей сущности).
 func generateIRGenericShowFunc(ctx *irGenCtx, g ir.GenericInstantiation) string {
+	if g.Template == "Словарь" {
+		return generateIRDictShowFunc(ctx, g)
+	}
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "static void %s(%s v) {\n", showFuncName(g.Name), mangleType(g.Name))
 	fmt.Fprintf(&sb, "    printf(\"%s [\");\n", escapeCString(g.Name))
@@ -91,6 +95,26 @@ func generateIRGenericShowFunc(ctx *irGenCtx, g ir.GenericInstantiation) string 
 	fmt.Fprintf(&sb, "        %s;\n", generateIRShowExpr(ctx, g.ElemType, "v.data[i]"))
 	sb.WriteString("    }\n")
 	sb.WriteString("    printf(\"]\");\n")
+	sb.WriteString("}\n\n")
+	return sb.String()
+}
+
+// generateIRDictShowFunc - generateIRGenericShowFunc для "Словарь<К, В>" -
+// см. package doc там.
+func generateIRDictShowFunc(ctx *irGenCtx, g ir.GenericInstantiation) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "static void %s(%s v) {\n", showFuncName(g.Name), mangleType(g.Name))
+	fmt.Fprintf(&sb, "    printf(\"%s {\");\n", escapeCString(g.Name))
+	sb.WriteString("    bool rech_show_first = true;\n")
+	sb.WriteString("    for (long long i = 0; i < v.cap; i++) {\n")
+	sb.WriteString("        if (v.slots[i].state != 1) continue;\n")
+	sb.WriteString("        if (!rech_show_first) printf(\", \");\n")
+	sb.WriteString("        rech_show_first = false;\n")
+	fmt.Fprintf(&sb, "        %s;\n", generateIRShowExpr(ctx, g.KeyType, "v.slots[i].key"))
+	sb.WriteString("        printf(\": \");\n")
+	fmt.Fprintf(&sb, "        %s;\n", generateIRShowExpr(ctx, g.ElemType, "v.slots[i].value"))
+	sb.WriteString("    }\n")
+	sb.WriteString("    printf(\"}\");\n")
 	sb.WriteString("}\n\n")
 	return sb.String()
 }

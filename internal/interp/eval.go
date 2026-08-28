@@ -323,8 +323,9 @@ func compareOrdered(op string, l, r Value) Value {
 
 // evalNewExpr - "новый Тип(...)" - две формы, обычная сущность (поля по
 // позиции, как ir.NewExpr.Args уже разложены семантическим анализом) или
-// встроенная generic-коллекция (шаг 4.2 - Args всегда пуст, буфер начинает
-// пустым), см. package doc про то, почему у генериков нет ir.Entity-узла.
+// встроенная generic-коллекция (Args всегда пуст, буфер/хеш-таблица
+// начинает пустой), см. package doc про то, почему у генериков нет
+// ir.Entity-узла.
 func (in *Interp) evalNewExpr(e *ir.NewExpr, env *Env, cc *callCtx) (Value, error) {
 	if ent, ok := in.entities[e.Entity]; ok {
 		if ent.Ctor != nil {
@@ -341,7 +342,11 @@ func (in *Interp) evalNewExpr(e *ir.NewExpr, env *Env, cc *callCtx) (Value, erro
 		return Value{Type: ir.EntityType(e.Entity), Obj: &entityObj{typeName: e.Entity, fields: fields}}, nil
 	}
 	if g, ok := in.generics[e.Entity]; ok {
-		return Value{Type: ir.EntityType(e.Entity), Obj: &entityObj{typeName: e.Entity, coll: &collection{template: g.Template}}}, nil
+		coll := &collection{template: g.Template}
+		if g.Template == "Словарь" {
+			coll.pairs = map[Value]Value{}
+		}
+		return Value{Type: ir.EntityType(e.Entity), Obj: &entityObj{typeName: e.Entity, coll: coll}}, nil
 	}
 	return Value{}, fmt.Errorf("сущность %q не найдена во время исполнения", e.Entity)
 }
@@ -396,6 +401,9 @@ func (in *Interp) evalMethodCallExpr(e *ir.MethodCallExpr, env *Env, cc *callCtx
 		return Value{}, err
 	}
 	if recv.Obj.coll != nil {
+		if recv.Obj.coll.template == "Словарь" {
+			return in.evalDictMethod(recv.Obj, e, env, cc)
+		}
 		return in.evalCollectionMethod(recv.Obj, e, env, cc)
 	}
 	m := in.findMethod(recv.Obj.typeName, e.Method)
@@ -489,6 +497,51 @@ func (in *Interp) evalCollectionMethod(obj *entityObj, e *ir.MethodCallExpr, env
 	}
 }
 
+// evalDictMethod - встроенные методы "Словарь<К, В>" - отдельная от
+// evalCollectionMethod функция (не общий switch), потому что хранилище
+// (obj.coll.pairs, Go map) и семантика операций (по ключу, не по индексу)
+// не совпадают со списочными Список/Стопка/Очередь, хотя часть имён
+// методов повторяется ("длина"/"пусто" - тот же смысл, разное хранилище).
+func (in *Interp) evalDictMethod(obj *entityObj, e *ir.MethodCallExpr, env *Env, cc *callCtx) (Value, error) {
+	args := make([]Value, len(e.Args))
+	for i, a := range e.Args {
+		v, err := in.evalExpr(a, env, cc)
+		if err != nil {
+			return Value{}, err
+		}
+		args[i] = v
+	}
+	switch e.Method {
+	case "установить":
+		obj.coll.pairs[args[0]] = in.cloneValue(args[1])
+		return Value{}, nil
+
+	case "получить":
+		v, ok := obj.coll.pairs[args[0]]
+		if !ok {
+			panicRuntime("%s", rtmsg.DictKeyNotFound(obj.typeName))
+		}
+		return in.cloneValue(v), nil
+
+	case "содержит":
+		_, ok := obj.coll.pairs[args[0]]
+		return boolValue(ok), nil
+
+	case "удалить":
+		delete(obj.coll.pairs, args[0])
+		return Value{}, nil
+
+	case "длина":
+		return intValue(int64(len(obj.coll.pairs))), nil
+
+	case "пусто":
+		return boolValue(len(obj.coll.pairs) == 0), nil
+
+	default:
+		return Value{}, fmt.Errorf("встроенный словарь %q: неизвестный метод %q", obj.typeName, e.Method)
+	}
+}
+
 // printValue печатает v в in.out ровно в том же текстовом виде, что и
 // printf в сгенерированном C (cbackend.printCall) - %lld для Целое, %g
 // (точность 6 значащих цифр, дефолт printf) для Число, "истина"/"ложь" для
@@ -577,6 +630,13 @@ func (in *Interp) showValue(v Value) string {
 		return fmt.Sprintf("%s (Логическое)", word)
 	case ir.KindEntity:
 		if v.Obj.coll != nil {
+			if v.Obj.coll.template == "Словарь" {
+				parts := make([]string, 0, len(v.Obj.coll.pairs))
+				for key, val := range v.Obj.coll.pairs {
+					parts = append(parts, fmt.Sprintf("%s: %s", in.showValue(key), in.showValue(val)))
+				}
+				return fmt.Sprintf("%s {%s}", v.Obj.typeName, strings.Join(parts, ", "))
+			}
 			parts := make([]string, len(v.Obj.coll.elems))
 			for i, elem := range v.Obj.coll.elems {
 				parts[i] = in.showValue(elem)

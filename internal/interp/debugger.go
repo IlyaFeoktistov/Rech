@@ -502,7 +502,11 @@ func (d *Debugger) formatValue(v Value) string {
 			return "ничто"
 		}
 		if v.Obj.coll != nil {
-			return fmt.Sprintf("%s (%d)", v.Obj.typeName, len(v.Obj.coll.elems))
+			n := len(v.Obj.coll.elems)
+			if v.Obj.coll.template == "Словарь" {
+				n = len(v.Obj.coll.pairs)
+			}
+			return fmt.Sprintf("%s (%d)", v.Obj.typeName, n)
 		}
 		return v.Obj.typeName + " {...}"
 	case ir.KindFile:
@@ -539,6 +543,13 @@ func (d *Debugger) valueChildren(v Value) []Variable {
 		return nil
 	}
 	if v.Obj.coll != nil {
+		if v.Obj.coll.template == "Словарь" {
+			out := make([]Variable, 0, len(v.Obj.coll.pairs))
+			for key, val := range v.Obj.coll.pairs {
+				out = append(out, d.describeVariable("["+d.formatValue(key)+"]", val))
+			}
+			return out
+		}
 		out := make([]Variable, len(v.Obj.coll.elems))
 		for i, elem := range v.Obj.coll.elems {
 			out[i] = d.describeVariable("["+strconv.Itoa(i)+"]", elem)

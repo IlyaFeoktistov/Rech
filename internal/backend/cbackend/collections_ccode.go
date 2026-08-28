@@ -2,6 +2,7 @@ package cbackend
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
@@ -165,4 +166,174 @@ static bool %[8]s(%[2]s *this_) {
 }
 
 `, elemC, structName, add, remove, first, length, onEmpty, empty)
+}
+
+// dictCollectionCCode строит C-текст для "Словарь<К, В>" - открытая
+// адресация с линейным пробированием и надгробиями (state: 0 - пусто, 1 -
+// занято, 2 - удалено) - тот же принцип "растущий буфер" (realloc/удвоение
+// ёмкости), что и у списочных коллекций выше, но с рехешированием вместо
+// простого realloc (перестройка слотов при росте - индекс зависит от cap).
+// isStringKey переключает hash/eq на strcmp/FNV-1a над байтами C-строки
+// вместо прямого сравнения/умножения значения - единственное отличие
+// между строковым и целочисленным (Целое/Байт/Символ/Логическое) ключом,
+// оба уже приведены к общему для printf-независимого кода C-типу keyC
+// вызывающей стороной (ir_generator.go).
+func dictCollectionCCode(name, keyC, valC string, isStringKey bool) string {
+	structName := mangleType(name)
+	slotType := structName + "_slot"
+	hashFn := structName + "_hash"
+	eqFn := structName + "_eq"
+	resizeFn := structName + "_resize"
+	findFn := structName + "_find"
+	set := mangleMethod(name, "установить")
+	get := mangleMethod(name, "получить")
+	has := mangleMethod(name, "содержит")
+	del := mangleMethod(name, "удалить")
+	length := mangleMethod(name, "длина")
+	empty := mangleMethod(name, "пусто")
+	notFound := escapeCString(rtmsg.DictKeyNotFound(name))
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, `typedef struct {
+    int state;
+    %[1]s key;
+    %[2]s value;
+} %[3]s;
+
+typedef struct {
+    %[3]s *slots;
+    long long cap;
+    long long count;
+    long long used;
+} %[4]s;
+
+`, keyC, valC, slotType, structName)
+
+	if isStringKey {
+		fmt.Fprintf(&sb, `static unsigned long long %[1]s(%[2]s k) {
+    unsigned long long h = 1469598103934665603ULL;
+    for (const unsigned char *p = (const unsigned char *)k; *p; p++) {
+        h ^= (unsigned long long)*p;
+        h *= 1099511628211ULL;
+    }
+    return h;
+}
+
+static bool %[3]s(%[2]s a, %[2]s b) {
+    return strcmp(a, b) == 0;
+}
+
+`, hashFn, keyC, eqFn)
+	} else {
+		fmt.Fprintf(&sb, `static unsigned long long %[1]s(%[2]s k) {
+    return (unsigned long long)k * 11400714819323198485ULL;
+}
+
+static bool %[3]s(%[2]s a, %[2]s b) {
+    return a == b;
+}
+
+`, hashFn, keyC, eqFn)
+	}
+
+	fmt.Fprintf(&sb, `static void %[1]s(%[2]s *this_, long long newcap) {
+    %[3]s *old = this_->slots;
+    long long oldcap = this_->cap;
+    this_->slots = calloc((size_t)newcap, sizeof(%[3]s));
+    this_->cap = newcap;
+    this_->count = 0;
+    this_->used = 0;
+    for (long long i = 0; i < oldcap; i++) {
+        if (old[i].state == 1) {
+            long long idx = (long long)(%[4]s(old[i].key) %% (unsigned long long)newcap);
+            while (this_->slots[idx].state == 1) {
+                idx = (idx + 1) %% newcap;
+            }
+            this_->slots[idx].state = 1;
+            this_->slots[idx].key = old[i].key;
+            this_->slots[idx].value = old[i].value;
+            this_->count++;
+            this_->used++;
+        }
+    }
+    free(old);
+}
+
+static long long %[5]s(%[2]s *this_, %[6]s key) {
+    if (this_->cap == 0) {
+        return -1;
+    }
+    long long idx = (long long)(%[4]s(key) %% (unsigned long long)this_->cap);
+    for (long long probes = 0; probes < this_->cap; probes++) {
+        if (this_->slots[idx].state == 0) {
+            return -1;
+        }
+        if (this_->slots[idx].state == 1 && %[7]s(this_->slots[idx].key, key)) {
+            return idx;
+        }
+        idx = (idx + 1) %% this_->cap;
+    }
+    return -1;
+}
+
+static void %[8]s(%[2]s *this_, %[6]s key, %[9]s value) {
+    if (this_->cap == 0 || this_->used * 10 >= this_->cap * 7) {
+        %[1]s(this_, this_->cap == 0 ? 8 : this_->cap * 2);
+    }
+    long long idx = (long long)(%[4]s(key) %% (unsigned long long)this_->cap);
+    long long firstDeleted = -1;
+    for (;;) {
+        if (this_->slots[idx].state == 0) {
+            long long target = firstDeleted != -1 ? firstDeleted : idx;
+            if (firstDeleted == -1) {
+                this_->used++;
+            }
+            this_->slots[target].state = 1;
+            this_->slots[target].key = key;
+            this_->slots[target].value = value;
+            this_->count++;
+            return;
+        }
+        if (this_->slots[idx].state == 1 && %[7]s(this_->slots[idx].key, key)) {
+            this_->slots[idx].value = value;
+            return;
+        }
+        if (this_->slots[idx].state == 2 && firstDeleted == -1) {
+            firstDeleted = idx;
+        }
+        idx = (idx + 1) %% this_->cap;
+    }
+}
+
+static %[9]s %[10]s(%[2]s *this_, %[6]s key) {
+    long long idx = %[5]s(this_, key);
+    if (idx < 0) {
+        rech_panic("%[11]s");
+    }
+    return this_->slots[idx].value;
+}
+
+static bool %[12]s(%[2]s *this_, %[6]s key) {
+    return %[5]s(this_, key) >= 0;
+}
+
+static void %[13]s(%[2]s *this_, %[6]s key) {
+    long long idx = %[5]s(this_, key);
+    if (idx >= 0) {
+        this_->slots[idx].state = 2;
+        this_->count--;
+    }
+}
+
+static long long %[14]s(%[2]s *this_) {
+    return this_->count;
+}
+
+static bool %[15]s(%[2]s *this_) {
+    return this_->count == 0;
+}
+
+`, resizeFn, structName, slotType, hashFn, findFn, keyC, eqFn, set, valC, get, notFound, has, del, length, empty)
+
+	return sb.String()
 }
