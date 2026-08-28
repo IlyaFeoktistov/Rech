@@ -135,6 +135,9 @@ func (in *Interp) evalExpr(e ir.Expr, env *Env, cc *callCtx) (Value, error) {
 	case *ir.DictIndexExpr:
 		return in.evalDictIndexExpr(e, env, cc)
 
+	case *ir.ListLiteralExpr:
+		return in.evalListLiteralExpr(e, env, cc)
+
 	default:
 		return Value{}, fmt.Errorf("вычисление: выражение %T не поддерживается интерпретатором", e)
 	}

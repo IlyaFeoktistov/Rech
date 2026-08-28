@@ -360,6 +360,9 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 			if g.NeedsSafeIndex {
 				indexSafeGetCode.WriteString(listIndexSafeGetCCode(g.Name, mangleType("?"+g.ElemType.String())))
 			}
+			if g.NeedsListLiteral {
+				genericsCode.WriteString(listLiteralCCode(g.Name, elemC))
+			}
 		case "Стопка":
 			genericsCode.WriteString(stackCollectionCCode(g.Name, elemC))
 		case "Очередь":
@@ -1458,6 +1461,23 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 		}
 		fn := mangleType(e.CollectionName) + "_get_safe"
 		return fmt.Sprintf("%s(%s, %s)", fn, recvPtr, keyCode), fromIRType(e.Type), nil
+
+	case *ir.ListLiteralExpr:
+		fn := mangleType(e.CollectionName) + "_from_literal"
+		if len(e.Elems) == 0 {
+			return fmt.Sprintf("%s(0, NULL)", fn), fromIRType(e.Type), nil
+		}
+		elemC := fromIRType(e.ElemType).cType(ctx)
+		codes := make([]string, len(e.Elems))
+		for i, el := range e.Elems {
+			code, _, err := generateIRExpr(ctx, el)
+			if err != nil {
+				return "", typeUnknown, err
+			}
+			codes[i] = code
+		}
+		arr := fmt.Sprintf("(%s[]){%s}", elemC, strings.Join(codes, ", "))
+		return fmt.Sprintf("%s(%dLL, %s)", fn, len(e.Elems), arr), fromIRType(e.Type), nil
 
 	case *ir.NullCoalesceExpr:
 		leftCode, _, err := generateIRExpr(ctx, e.Left)

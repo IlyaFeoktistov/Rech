@@ -176,6 +176,9 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 	case *ast.IndexExpr:
 		return analyzeIndexExpr(sc, e)
 
+	case *ast.ListLiteral:
+		return analyzeListLiteralExpr(sc, e, ir.Type{}, false)
+
 	default:
 		return nil, fmt.Errorf("выражение %T не поддерживается", e)
 	}

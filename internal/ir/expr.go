@@ -210,6 +210,8 @@ func TypeOf(e Expr) Type {
 		return e.Type
 	case *DictIndexExpr:
 		return e.Type
+	case *ListLiteralExpr:
+		return e.Type
 	default:
 		return TypeUnknown
 	}

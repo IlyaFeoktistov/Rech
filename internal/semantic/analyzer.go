@@ -86,6 +86,11 @@ type Analyzer struct {
 	// индексации "[]" (ir.ListIndexExpr/ir.DictIndexExpr) - см. package doc
 	// ir.GenericInstantiation.NeedsSafeIndex.
 	indexedCollections map[string]bool
+
+	// listLiteralCollections - имена инстанциаций Список<T>, построенных
+	// хоть раз литералом "[элемент, ...]" - см. package doc
+	// ir.GenericInstantiation.NeedsListLiteral.
+	listLiteralCollections map[string]bool
 }
 
 // markIndexUsed - см. package doc Analyzer.indexedCollections.
@@ -94,6 +99,14 @@ func (a *Analyzer) markIndexUsed(name string) {
 		a.indexedCollections = map[string]bool{}
 	}
 	a.indexedCollections[name] = true
+}
+
+// markListLiteralUsed - см. package doc Analyzer.listLiteralCollections.
+func (a *Analyzer) markListLiteralUsed(name string) {
+	if a.listLiteralCollections == nil {
+		a.listLiteralCollections = map[string]bool{}
+	}
+	a.listLiteralCollections[name] = true
 }
 
 // dedupTypeList - список ir.Type без повторов (по Type.String()), в
@@ -681,11 +694,12 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	for _, name := range names {
 		template, _, _ := parseGenericTypeName(name)
 		out.Generics = append(out.Generics, ir.GenericInstantiation{
-			Name:           name,
-			Template:       template,
-			ElemType:       a.entities[name].ElemType,
-			KeyType:        a.entities[name].KeyType,
-			NeedsSafeIndex: a.indexedCollections[name],
+			Name:             name,
+			Template:         template,
+			ElemType:         a.entities[name].ElemType,
+			KeyType:          a.entities[name].KeyType,
+			NeedsSafeIndex:   a.indexedCollections[name],
+			NeedsListLiteral: a.listLiteralCollections[name],
 		})
 	}
 

@@ -106,6 +106,11 @@ type GenericInstantiation struct {
 	// для реально использованных так инстанциаций, тем же принципом
 	// "не безусловно", что и у ParseTargets/ReflectTargets.
 	NeedsSafeIndex bool
+	// NeedsListLiteral - хотя бы раз в программе эта инстанциация была
+	// построена литералом "[элемент, ...]" (ListLiteralExpr) - тем же
+	// принципом, что и NeedsSafeIndex, но для построения из литерала, не
+	// для чтения по индексу. Валидно только у Template == "Список".
+	NeedsListLiteral bool
 }
 
 // CallableSig - конкретная сигнатура "функции как значения" (

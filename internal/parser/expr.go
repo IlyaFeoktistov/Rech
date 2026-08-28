@@ -286,6 +286,30 @@ func (p *Parser) parsePostfix() (ast.Expr, error) {
 	}
 }
 
+// parseListLiteral разбирает "[элемент, ...]" (в т.ч. пустой "[]") -
+// ast.ListLiteral. Позиция парсера на входе - на "[".
+func (p *Parser) parseListLiteral() (ast.Expr, error) {
+	lb := p.advance() // "["
+	var elems []ast.Expr
+	if p.cur().Type != lexer.RBRACKET {
+		for {
+			el, err := p.parseExpr()
+			if err != nil {
+				return nil, fmt.Errorf("в литерале списка: %w", err)
+			}
+			elems = append(elems, el)
+			if p.cur().Type != lexer.COMMA {
+				break
+			}
+			p.advance() // ","
+		}
+	}
+	if _, err := p.expect(lexer.RBRACKET); err != nil {
+		return nil, fmt.Errorf("после элементов литерала списка ожидалось \"]\": %w", err)
+	}
+	return &ast.ListLiteral{Elems: elems, Line: lb.Line}, nil
+}
+
 func (p *Parser) parsePrimary() (ast.Expr, error) {
 	tok := p.cur()
 	switch tok.Type {
@@ -363,6 +387,8 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 			return nil, err
 		}
 		return inner, nil
+	case lexer.LBRACKET:
+		return p.parseListLiteral()
 	default:
 		return nil, fmt.Errorf("строка %d, столбец %d: ожидалось выражение, получено %q",
 			tok.Line, tok.Col, tok.Value)

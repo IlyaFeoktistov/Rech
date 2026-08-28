@@ -106,6 +106,11 @@ func coerceExpr(sc *ctx, e ast.Expr, target ir.Type) (ir.Expr, error) {
 		}
 		return &ir.NullLiteral{Type: target, Line: nl.Line}, nil
 	}
+	if ll, ok := e.(*ast.ListLiteral); ok && target.Kind == ir.KindEntity {
+		if sig, ok := sc.entities[target.Entity]; ok && sig.IsList {
+			return analyzeListLiteralExpr(sc, ll, sig.ElemType, true)
+		}
+	}
 	value, err := analyzeExpr(sc, e)
 	if err != nil {
 		return nil, err
