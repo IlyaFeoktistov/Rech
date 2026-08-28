@@ -21,6 +21,9 @@ func (d *doc) hover(line, col int) (string, bool) {
 		return "", false
 	}
 	tok := d.tokens[i]
+	if doc, ok := keywordDocs[tok.Type]; ok {
+		return doc, true
+	}
 	if tok.Type != lexer.IDENT && tok.Type != lexer.KwThis {
 		return "", false
 	}
@@ -69,6 +72,12 @@ func (d *doc) hoverBareName(name string, line int) (string, bool) {
 		}
 		block := withDoc(codeBlock(fmt.Sprintf("%s %s", kind, ent.Name)), ent.Doc)
 		return withRefCount(block, d.countEntityRefs(name)), true
+	}
+	if doc, ok := builtinTypeDocs[name]; ok {
+		return codeBlock(name) + "\n\n" + doc, true
+	}
+	if block, ok := hoverBuiltinFunc(name); ok {
+		return block, true
 	}
 	return "", false
 }
