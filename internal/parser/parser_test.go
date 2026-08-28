@@ -683,6 +683,62 @@ func TestParseFieldAssign(t *testing.T) {
 	}
 }
 
+func TestParseCompoundAssign(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная {
+    переменная а = 10
+    а += 5
+    а -= 3
+    а *= 2
+    а /= 4
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	wantOps := []string{"+", "-", "*", "/"}
+	for i, wantOp := range wantOps {
+		stmt, ok := prog.Functions[0].Body[i+1].(*ast.Assign)
+		if !ok {
+			t.Fatalf("инструкция %d: ожидался Assign, получено %T", i, prog.Functions[0].Body[i+1])
+		}
+		if stmt.Name != "а" {
+			t.Fatalf("инструкция %d: ожидалось имя \"а\", получено %q", i, stmt.Name)
+		}
+		bin, ok := stmt.Value.(*ast.BinaryExpr)
+		if !ok || bin.Op != wantOp {
+			t.Fatalf("инструкция %d: ожидался BinaryExpr с оператором %q, получено %+v", i, wantOp, stmt.Value)
+		}
+		if id, ok := bin.Left.(*ast.Identifier); !ok || id.Name != "а" {
+			t.Fatalf("инструкция %d: левый операнд должен быть \"а\", получено %+v", i, bin.Left)
+		}
+	}
+}
+
+func TestParseFieldCompoundAssign(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная {
+    переменная пользователь = 0
+    пользователь.возраст += 1
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	stmt, ok := prog.Functions[0].Body[1].(*ast.FieldAssign)
+	if !ok {
+		t.Fatalf("ожидался FieldAssign, получено %T", prog.Functions[0].Body[1])
+	}
+	bin, ok := stmt.Value.(*ast.BinaryExpr)
+	if !ok || bin.Op != "+" {
+		t.Fatalf("ожидался BinaryExpr с оператором \"+\", получено %+v", stmt.Value)
+	}
+	fa, ok := bin.Left.(*ast.FieldAccess)
+	if !ok || fa.Field != "возраст" {
+		t.Fatalf("левый операнд должен быть доступом к полю \"возраст\", получено %+v", bin.Left)
+	}
+}
+
 func TestParseMethodAndThis(t *testing.T) {
 	prog, err := parseSource(t, `
 сущность Пользователь

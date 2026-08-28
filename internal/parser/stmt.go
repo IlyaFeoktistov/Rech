@@ -81,7 +81,7 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 		incDec := expr.(*ast.IncDecExpr)
 		return &ast.ExprStmt{IncDec: incDec, Line: incDec.Line}, nil
 	case lexer.IDENT:
-		if p.peekAt(1).Type == lexer.ASSIGN {
+		if p.peekAt(1).Type == lexer.ASSIGN || isCompoundAssignTok(p.peekAt(1).Type) {
 			return p.parseAssign()
 		}
 		if p.peekAt(1).Type == lexer.DOT {
@@ -140,7 +140,7 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 // инструкция (receiver.метод(...)). Позиция парсера на входе - на
 // получателе.
 func (p *Parser) parseDotStatement() (ast.Stmt, error) {
-	if p.peekAt(3).Type == lexer.ASSIGN {
+	if p.peekAt(3).Type == lexer.ASSIGN || isCompoundAssignTok(p.peekAt(3).Type) {
 		return p.parseFieldAssign()
 	}
 	start := p.cur()
@@ -237,14 +237,38 @@ func (p *Parser) parseConstDecl() (*ast.ConstDecl, error) {
 	return &ast.ConstDecl{Name: name.Value, Value: value, Line: kw.Line}, nil
 }
 
+// compoundAssignOps - составные операторы присваивания ("+=" и т. п.) ->
+// базовый бинарный оператор, которым парсер разворачивает их в обычный
+// "<имя> = <имя> <оператор> <выражение>" (ast.Assign/ast.FieldAssign с
+// ast.BinaryExpr внутри) - никакого отдельного узла AST/IR не заводится,
+// вся остальная семантика/кодогенерация уже умеет работать с обычным
+// присваиванием и бинарной арифметикой (в т.ч. "+" для Строка -
+// конкатенация, поэтому "+=" работает и для строк без отдельного случая).
+var compoundAssignOps = map[lexer.TokenType]string{
+	lexer.PLUS_ASSIGN:  "+",
+	lexer.MINUS_ASSIGN: "-",
+	lexer.STAR_ASSIGN:  "*",
+	lexer.SLASH_ASSIGN: "/",
+}
+
+func isCompoundAssignTok(t lexer.TokenType) bool {
+	_, ok := compoundAssignOps[t]
+	return ok
+}
+
 func (p *Parser) parseAssign() (ast.Stmt, error) {
 	name := p.advance()
-	if _, err := p.expect(lexer.ASSIGN); err != nil {
-		return nil, err
+	opTok := p.cur()
+	if opTok.Type != lexer.ASSIGN && !isCompoundAssignTok(opTok.Type) {
+		return nil, fmt.Errorf("строка %d, столбец %d: ожидался \"=\" в присваивании %q, получено %q", opTok.Line, opTok.Col, name.Value, opTok.Value)
 	}
+	p.advance()
 	value, err := p.parseExpr()
 	if err != nil {
 		return nil, fmt.Errorf("в присваивании %q: %w", name.Value, err)
+	}
+	if baseOp, ok := compoundAssignOps[opTok.Type]; ok {
+		value = &ast.BinaryExpr{Op: baseOp, Left: &ast.Identifier{Name: name.Value, Line: name.Line}, Right: value, Line: opTok.Line}
 	}
 	return &ast.Assign{Name: name.Value, Value: value, Line: name.Line}, nil
 }
@@ -267,12 +291,17 @@ func (p *Parser) parseFieldAssign() (ast.Stmt, error) {
 	if err != nil {
 		return nil, fmt.Errorf("после \".\" ожидалось имя поля: %w", err)
 	}
-	if _, err := p.expect(lexer.ASSIGN); err != nil {
-		return nil, err
+	opTok := p.cur()
+	if opTok.Type != lexer.ASSIGN && !isCompoundAssignTok(opTok.Type) {
+		return nil, fmt.Errorf("строка %d, столбец %d: ожидался \"=\" в присваивании полю %q, получено %q", opTok.Line, opTok.Col, field.Value, opTok.Value)
 	}
+	p.advance()
 	value, err := p.parseExpr()
 	if err != nil {
 		return nil, fmt.Errorf("в присваивании полю %q: %w", field.Value, err)
+	}
+	if baseOp, ok := compoundAssignOps[opTok.Type]; ok {
+		value = &ast.BinaryExpr{Op: baseOp, Left: &ast.FieldAccess{Receiver: receiver, Field: field.Value, Line: receiverTok.Line}, Right: value, Line: opTok.Line}
 	}
 	return &ast.FieldAssign{Receiver: receiver, Field: field.Value, Value: value, Line: receiverTok.Line}, nil
 }

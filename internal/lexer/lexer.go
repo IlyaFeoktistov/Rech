@@ -118,6 +118,10 @@ func (l *Lexer) next() (Token, error) {
 			l.advance()
 			return Token{Type: INCR, Value: "++", Line: line, Col: col}, nil
 		}
+		if l.peek() == '=' {
+			l.advance()
+			return Token{Type: PLUS_ASSIGN, Value: "+=", Line: line, Col: col}, nil
+		}
 		return Token{Type: PLUS, Value: "+", Line: line, Col: col}, nil
 	case r == '-':
 		l.advance()
@@ -125,14 +129,26 @@ func (l *Lexer) next() (Token, error) {
 			l.advance()
 			return Token{Type: DECR, Value: "--", Line: line, Col: col}, nil
 		}
+		if l.peek() == '=' {
+			l.advance()
+			return Token{Type: MINUS_ASSIGN, Value: "-=", Line: line, Col: col}, nil
+		}
 		return Token{Type: MINUS, Value: "-", Line: line, Col: col}, nil
 	case r == '*':
 		l.advance()
+		if l.peek() == '=' {
+			l.advance()
+			return Token{Type: STAR_ASSIGN, Value: "*=", Line: line, Col: col}, nil
+		}
 		return Token{Type: STAR, Value: "*", Line: line, Col: col}, nil
 	case r == '/' && l.peekAt(1) == '*':
 		return l.readDocComment(line, col)
 	case r == '/':
 		l.advance()
+		if l.peek() == '=' {
+			l.advance()
+			return Token{Type: SLASH_ASSIGN, Value: "/=", Line: line, Col: col}, nil
+		}
 		return Token{Type: SLASH, Value: "/", Line: line, Col: col}, nil
 	case r == '=':
 		l.advance()
@@ -190,6 +206,23 @@ func (l *Lexer) next() (Token, error) {
 	case r == '~':
 		l.advance()
 		return Token{Type: BITNOT, Value: "~", Line: line, Col: col}, nil
+	case r == '?':
+		l.advance()
+		if l.peek() == '?' {
+			l.advance()
+			return Token{Type: QUESTIONQUESTION, Value: "??", Line: line, Col: col}, nil
+		}
+		if l.peek() == '=' {
+			l.advance()
+			return Token{Type: NULL_ASSIGN, Value: "?=", Line: line, Col: col}, nil
+		}
+		return Token{Type: QUESTION, Value: "?", Line: line, Col: col}, nil
+	case r == '[':
+		l.advance()
+		return Token{Type: LBRACKET, Value: "[", Line: line, Col: col}, nil
+	case r == ']':
+		l.advance()
+		return Token{Type: RBRACKET, Value: "]", Line: line, Col: col}, nil
 	case r == '"':
 		return l.readString(line, col)
 	case r == '\'':

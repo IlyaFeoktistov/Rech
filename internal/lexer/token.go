@@ -45,6 +45,11 @@ const (
 	INCR // ++
 	DECR // --
 
+	PLUS_ASSIGN  // += (а = а + б)
+	MINUS_ASSIGN // -= (а = а - б)
+	STAR_ASSIGN  // *= (а = а * б)
+	SLASH_ASSIGN // /= (а = а / б)
+
 	BITAND // &  (побитовое И, только Целое)
 	BITOR  // |  (побитовое ИЛИ, только Целое)
 	BITXOR // ^  (побитовое исключающее ИЛИ, только Целое)
@@ -106,6 +111,14 @@ const (
 	KwJSON        // JSON (формат-маркер после "разобрать"/"сериализовать", не склоняется)
 	KwXML         // XML (формат-маркер после "разобрать"/"сериализовать", не склоняется)
 	KwType        // тип (тип <Имя> - дескриптор типа без экземпляра, аналог typeof)
+	KwNull        // Ничто (отсутствие значения у nullable-типа "?Тип")
+
+	QUESTION         // ? (префикс nullable-типа: "?Тип")
+	QUESTIONQUESTION // ?? (значение слева, если оно не Ничто, иначе - справа)
+	NULL_ASSIGN      // ?= (присвоить справа, только если слева сейчас Ничто)
+
+	LBRACKET // [
+	RBRACKET // ]
 )
 
 // keywords - таблица ключевых слов v0.1. Список сознательно узкий:
@@ -179,6 +192,7 @@ var keywords = map[string]TokenType{
 	"JSON":           KwJSON,
 	"XML":            KwXML,
 	"тип":            KwType,
+	"Ничто":          KwNull,
 }
 
 // Token - одна лексема с позицией в исходном файле (для сообщений об ошибках).
@@ -249,6 +263,24 @@ func (t TokenType) String() string {
 		return "++"
 	case DECR:
 		return "--"
+	case PLUS_ASSIGN:
+		return "+="
+	case MINUS_ASSIGN:
+		return "-="
+	case STAR_ASSIGN:
+		return "*="
+	case SLASH_ASSIGN:
+		return "/="
+	case QUESTION:
+		return "?"
+	case QUESTIONQUESTION:
+		return "??"
+	case NULL_ASSIGN:
+		return "?="
+	case LBRACKET:
+		return "["
+	case RBRACKET:
+		return "]"
 	case BITAND:
 		return "&"
 	case BITOR:
@@ -369,6 +401,8 @@ func (t TokenType) String() string {
 		return "XML"
 	case KwType:
 		return "тип"
+	case KwNull:
+		return "Ничто"
 	default:
 		return "UNKNOWN"
 	}
