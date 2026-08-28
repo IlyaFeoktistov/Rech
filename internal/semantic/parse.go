@@ -64,6 +64,29 @@ func analyzeParseExpr(sc *ctx, e *ast.ParseExpr) (ir.Expr, error) {
 	return &ir.ParseExpr{Format: e.Format, Source: source, To: target}, nil
 }
 
+// analyzeSerializeExpr - "сериализовать JSON <выражение>" (см.
+// ast.SerializeExpr) - обратное к analyzeParseExpr: Value любого
+// JSON-совместимого типа (jsonCompatible - та же проверка, что и у цели
+// разбора) сериализуется в Строка. Регистрирует тип Value в
+// Program.SerializeTargets (registerSerializeTarget) - cbackend
+// генерирует функцию сериализации для каждого встретившегося типа (и
+// рекурсивно для любого достижимого из него).
+func analyzeSerializeExpr(sc *ctx, e *ast.SerializeExpr) (ir.Expr, error) {
+	if e.Format != "JSON" {
+		return nil, fmt.Errorf("строка %d: \"сериализовать\" поддерживает только формат JSON, получено %q", e.Line, e.Format)
+	}
+	value, err := analyzeExpr(sc, e.Value)
+	if err != nil {
+		return nil, err
+	}
+	t := ir.TypeOf(value)
+	if err := jsonCompatible(sc.entities, t, nil); err != nil {
+		return nil, fmt.Errorf("строка %d: \"сериализовать JSON\" для %s: %w", e.Line, t, err)
+	}
+	sc.a.registerSerializeTarget(t)
+	return &ir.SerializeExpr{Format: e.Format, Value: value}, nil
+}
+
 // jsonCompatible проверяет, что t можно заполнить из JSON-значения:
 // примитив из ограниченного набора (Целое/Дробное/Действительное/Строка/
 // Логическое - JSON не различает целое и дробное число отдельным типом

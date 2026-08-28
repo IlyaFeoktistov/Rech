@@ -38,6 +38,9 @@ func (in *Interp) evalExpr(e ir.Expr, env *Env, cc *callCtx) (Value, error) {
 	case *ir.ParseExpr:
 		return in.evalParseExpr(e, env, cc)
 
+	case *ir.SerializeExpr:
+		return in.evalSerializeExpr(e, env, cc)
+
 	case *ir.UnaryExpr:
 		return in.evalUnary(e, env, cc)
 

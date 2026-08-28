@@ -30,6 +30,9 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 	case *ast.ParseExpr:
 		return analyzeParseExpr(sc, e)
 
+	case *ast.SerializeExpr:
+		return analyzeSerializeExpr(sc, e)
+
 	case *ast.IsExpr:
 		return analyzeIsExpr(sc, e)
 
@@ -359,6 +362,11 @@ func analyzeCallExpr(sc *ctx, e *ast.CallExpr) (ir.Expr, error) {
 		callee = mangleGenericCallName(e.Callee, e.TypeArgs)
 	}
 	if sig, ok := sc.funcs[callee]; ok {
+		if callee == "параметры_пути" {
+			if err := registerQueryParamsDictTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
+				return nil, fmt.Errorf("строка %d: встроенная функция \"параметры_пути\": %w", e.Line, err)
+			}
+		}
 		args, err := checkCallArgs(sc, e.Args, sig, e.Line, fmt.Sprintf("функция %q", callee), fmt.Sprintf("вызова %q", callee))
 		if err != nil {
 			return nil, err

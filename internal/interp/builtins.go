@@ -165,6 +165,19 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return stringValue(string(buf[:n])), true
 	case "запрос":
 		return in.httpRequest(args[0]), true
+	case "принять_http":
+		if args[0].Conn == nil {
+			panicRuntime("%s", rtmsg.SocketWrongKind)
+		}
+		return in.acceptHTTPRequest(args[0].Conn), true
+	case "отправить_http_ответ":
+		if args[0].Conn == nil {
+			panicRuntime("%s", rtmsg.SocketWrongKind)
+		}
+		in.sendHTTPResponse(args[0].Conn, args[1])
+		return Value{}, true
+	case "параметры_пути":
+		return queryParams(args[0].S), true
 	case "время":
 		return intValue(nowUnix()), true
 	case "время_как_дата":

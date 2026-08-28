@@ -26,6 +26,10 @@ type Program struct {
 	// из него типа поля/элемента списка - не входит в этот список отдельно,
 	// см. internal/backend/cbackend/json_extract.go).
 	ParseTargets []Type
+	// SerializeTargets - типы, встретившиеся хоть раз как значение
+	// "сериализовать JSON <выражение>" - тот же принцип, что и
+	// ParseTargets (см. package doc там), но для обратного направления.
+	SerializeTargets []Type
 }
 
 // ExternFuncDecl соответствует "внешняя функция <CName> [как <Alias>](...)"

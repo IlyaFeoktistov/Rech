@@ -314,6 +314,8 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 		return p.parseLambdaExpr()
 	case lexer.KwParse:
 		return p.parseParseExpr()
+	case lexer.KwSerialize:
+		return p.parseSerializeExpr()
 	case lexer.LPAREN:
 		p.advance()
 		inner, err := p.parseExpr()

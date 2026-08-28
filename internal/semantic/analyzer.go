@@ -66,6 +66,25 @@ type Analyzer struct {
 	// callablesSeen/callableOrder - см. registerParseTarget.
 	parseTargetsSeen map[string]bool
 	parseTargetOrder []ir.Type
+
+	// serializeTargetsSeen/serializeTargetOrder - тот же принцип, что
+	// parseTargetsSeen/parseTargetOrder выше, для "сериализовать JSON ...".
+	serializeTargetsSeen map[string]bool
+	serializeTargetOrder []ir.Type
+}
+
+// registerSerializeTarget - см. registerParseTarget, тот же принцип для
+// "сериализовать JSON ...".
+func (a *Analyzer) registerSerializeTarget(t ir.Type) {
+	if a.serializeTargetsSeen == nil {
+		a.serializeTargetsSeen = map[string]bool{}
+	}
+	key := t.String()
+	if a.serializeTargetsSeen[key] {
+		return
+	}
+	a.serializeTargetsSeen[key] = true
+	a.serializeTargetOrder = append(a.serializeTargetOrder, t)
 }
 
 // registerParseTarget добавляет t в Program.ParseTargets (см. package doc),
@@ -285,6 +304,7 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 	registerHTTPEntity(a.entities, "Запрос", httpRequestFields)
 	registerHTTPEntity(a.entities, "Ответ", httpResponseFields)
 	funcs["запрос"] = funcSig{Params: []ir.Type{ir.EntityType("Запрос")}, ReturnType: ir.EntityType("Ответ"), HasReturn: true}
+	registerHTTPServerFuncs(funcs)
 	registerDateTimeFuncs(a.entities, funcs)
 	for _, fn := range prog.Functions {
 		if _, exists := funcs[fn.Name]; exists {
@@ -648,6 +668,7 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 		})
 	}
 	out.ParseTargets = a.parseTargetOrder
+	out.SerializeTargets = a.serializeTargetOrder
 
 	if err := a.collectCallables(out); err != nil {
 		return nil, err

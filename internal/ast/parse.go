@@ -21,3 +21,22 @@ type ParseExpr struct {
 
 func (*ParseExpr) node() {}
 func (*ParseExpr) expr() {}
+
+// SerializeExpr соответствует выражению:
+//
+//	сериализовать JSON <выражение>
+//
+// Обратное к ParseExpr - Value любого JSON-совместимого типа (та же
+// проверка, jsonCompatible) сериализуется в Строка. Нет "как <Тип>" -
+// целевой тип и так известен (тип самого Value), нет отдельного пути
+// ошибки (см. package doc internal/backend/cbackend/json_extract.go) -
+// JSON-совместимость проверена статически, сериализация корректного
+// значения не может провалиться во время исполнения.
+type SerializeExpr struct {
+	Format string
+	Value  Expr
+	Line   int
+}
+
+func (*SerializeExpr) node() {}
+func (*SerializeExpr) expr() {}

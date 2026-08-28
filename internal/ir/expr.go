@@ -178,6 +178,8 @@ func TypeOf(e Expr) Type {
 		return e.To
 	case *ParseExpr:
 		return e.To
+	case *SerializeExpr:
+		return TypeString
 	case *IsExpr:
 		return TypeBool
 	case *LaunchExpr:

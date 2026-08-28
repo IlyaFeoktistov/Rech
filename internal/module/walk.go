@@ -337,6 +337,8 @@ func (r *rewriter) rewriteExpr(e ast.Expr) error {
 		}
 		e.TypeName = resolved
 		return r.rewriteExpr(e.Source)
+	case *ast.SerializeExpr:
+		return r.rewriteExpr(e.Value)
 	case *ast.IsExpr:
 		resolved, err := r.resolveType(e.Target)
 		if err != nil {

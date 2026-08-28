@@ -1,0 +1,141 @@
+package cbackend
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/IlyaFeoktistov/Rech/internal/ir"
+)
+
+func TestGenerateFromIRHTTPServerBuiltinCalls(t *testing.T) {
+	prog := &ir.Program{
+		Entities: []*ir.Entity{
+			{Name: "Запрос", Fields: []ir.Field{
+				{Name: "метод", Type: ir.TypeString}, {Name: "адрес", Type: ir.TypeString},
+				{Name: "порт", Type: ir.TypeInt}, {Name: "путь", Type: ir.TypeString},
+				{Name: "заголовки", Type: ir.TypeString}, {Name: "тело", Type: ir.TypeString},
+			}},
+			{Name: "Ответ", Fields: []ir.Field{
+				{Name: "код", Type: ir.TypeInt}, {Name: "заголовки", Type: ir.TypeString}, {Name: "тело", Type: ir.TypeString},
+			}},
+		},
+		Functions: []*ir.Function{{Name: "главная", Body: []ir.Stmt{
+			&ir.VarDecl{Name: "л", Value: &ir.CallExpr{Callee: "слушать_tcp", Args: []ir.Expr{&ir.IntLiteral{Value: 8080}}, Type: ir.TypeSocket, HasReturn: true}},
+			&ir.VarDecl{Name: "с", Value: &ir.CallExpr{Callee: "принять", Args: []ir.Expr{&ir.Identifier{Name: "л", Type: ir.TypeSocket}}, Type: ir.TypeSocket, HasReturn: true}},
+			&ir.VarDecl{Name: "р", Value: &ir.CallExpr{
+				Callee: "принять_http", Args: []ir.Expr{&ir.Identifier{Name: "с", Type: ir.TypeSocket}},
+				Type: ir.EntityType("Запрос"), HasReturn: true,
+			}},
+			&ir.ExprStmt{Call: &ir.CallExpr{
+				Callee: "отправить_http_ответ",
+				Args: []ir.Expr{
+					&ir.Identifier{Name: "с", Type: ir.TypeSocket},
+					&ir.NewExpr{Entity: "Ответ", Args: []ir.Expr{&ir.IntLiteral{Value: 200}, &ir.StringLiteral{Value: ""}, &ir.StringLiteral{Value: "ок"}}},
+				},
+			}},
+		}}},
+	}
+	out, err := GenerateFromIR(prog)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	for _, want := range []string{
+		"rech_http_accept_request(v_s)",
+		"rech_http_send_response(v_s,",
+		"static rech_T_zapros rech_http_accept_request(rech_socket_t s)",
+		"static void rech_http_send_response(rech_socket_t s, rech_T_otvet resp)",
+		"static char *rech_dup(const char *s)",
+		"static long long rech_http_content_length(",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ожидалось %q в выводе, получено:\n%s", want, out)
+		}
+	}
+	if strings.Count(out, "static char *rech_dup(const char *s)") != 1 {
+		t.Fatalf("rech_dup должен быть определён ровно один раз, получено:\n%s", out)
+	}
+}
+
+func TestGenerateFromIRHTTPClientAndServerShareRechDup(t *testing.T) {
+	prog := &ir.Program{
+		Entities: []*ir.Entity{
+			{Name: "Запрос", Fields: []ir.Field{
+				{Name: "метод", Type: ir.TypeString}, {Name: "адрес", Type: ir.TypeString},
+				{Name: "порт", Type: ir.TypeInt}, {Name: "путь", Type: ir.TypeString},
+				{Name: "заголовки", Type: ir.TypeString}, {Name: "тело", Type: ir.TypeString},
+			}},
+			{Name: "Ответ", Fields: []ir.Field{
+				{Name: "код", Type: ir.TypeInt}, {Name: "заголовки", Type: ir.TypeString}, {Name: "тело", Type: ir.TypeString},
+			}},
+		},
+		Functions: []*ir.Function{{Name: "главная", Body: []ir.Stmt{
+			&ir.VarDecl{Name: "с", Value: &ir.CallExpr{Callee: "принять_http", Args: []ir.Expr{&ir.IntLiteral{Value: 0}}, Type: ir.EntityType("Запрос"), HasReturn: true}},
+			&ir.VarDecl{Name: "о", Value: &ir.CallExpr{
+				Callee: "запрос", Args: []ir.Expr{&ir.Identifier{Name: "с", Type: ir.EntityType("Запрос")}},
+				Type: ir.EntityType("Ответ"), HasReturn: true,
+			}},
+		}}},
+	}
+	out, err := GenerateFromIR(prog)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if n := strings.Count(out, "static char *rech_dup(const char *s)"); n != 1 {
+		t.Fatalf("rech_dup должен быть определён ровно один раз при одновременном использовании клиента и сервера, получено %d раз:\n%s", n, out)
+	}
+}
+
+func TestGenerateFromIRQueryParamsBuiltinCall(t *testing.T) {
+	prog := &ir.Program{
+		Functions: []*ir.Function{{Name: "главная", Body: []ir.Stmt{
+			&ir.VarDecl{Name: "п", Value: &ir.CallExpr{
+				Callee: "параметры_пути", Args: []ir.Expr{&ir.StringLiteral{Value: "/ping?a=1"}},
+				Type: ir.EntityType("Словарь<Строка, Строка>"), HasReturn: true,
+			}},
+		}}},
+		Generics: []ir.GenericInstantiation{{Name: "Словарь<Строка, Строка>", Template: "Словарь", KeyType: ir.TypeString, ElemType: ir.TypeString}},
+	}
+	out, err := GenerateFromIR(prog)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	for _, want := range []string{
+		"rech_query_params(",
+		"static " + mangleType("Словарь<Строка, Строка>") + " rech_query_params(const char *path)",
+		"static char *rech_qp_url_decode(",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ожидалось %q в выводе, получено:\n%s", want, out)
+		}
+	}
+}
+
+func TestGenerateFromIRWithoutQueryParamsOmitsDictType(t *testing.T) {
+	prog := &ir.Program{
+		Functions: []*ir.Function{{Name: "главная", Body: []ir.Stmt{
+			&ir.PrintStmt{Value: &ir.IntLiteral{Value: 1}},
+		}}},
+	}
+	out, err := GenerateFromIR(prog)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if strings.Contains(out, "rech_query_params") || strings.Contains(out, mangleType("Словарь<Строка, Строка>")) {
+		t.Fatalf("не ожидался Словарь<Строка, Строка> без \"параметры_пути\", получено:\n%s", out)
+	}
+}
+
+func TestGenerateFromIRWithoutHTTPServerOmitsHelpers(t *testing.T) {
+	prog := &ir.Program{
+		Functions: []*ir.Function{{Name: "главная", Body: []ir.Stmt{
+			&ir.PrintStmt{Value: &ir.IntLiteral{Value: 1}},
+		}}},
+	}
+	out, err := GenerateFromIR(prog)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if strings.Contains(out, "rech_http_accept_request") {
+		t.Fatalf("не ожидался HTTP-сервер рантайм без принять_http/отправить_http_ответ, получено:\n%s", out)
+	}
+}

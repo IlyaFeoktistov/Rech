@@ -457,10 +457,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	if ctx.usesGC || ctx.usesThreads {
 		sb.WriteString("#include <gc.h>\n")
 	}
-	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || len(prog.ParseTargets) > 0 {
+	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || len(prog.ParseTargets) > 0 || len(prog.SerializeTargets) > 0 {
 		sb.WriteString("#include <string.h>\n")
 	}
-	if ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime {
+	if ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesQueryParams || len(prog.SerializeTargets) > 0 {
 		sb.WriteString("#include <stdlib.h>\n")
 	}
 	if ctx.usesMath {
@@ -552,10 +552,28 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	if ctx.usesShow && showFuncs.Len() > 0 {
 		sb.WriteString(showFuncs.String())
 	}
+	if ctx.usesHTTP || ctx.usesHTTPServer {
+		// rech_dup - общий для HTTP-клиента и HTTP-сервера, эмитится один
+		// раз перед обоими (см. rechDupHelper).
+		sb.WriteString(rechDupHelper)
+	}
 	if ctx.usesHTTP {
 		// После typedefs - rech_http_request принимает/возвращает Запрос/
 		// Ответ по значению, их typedef должен быть уже виден.
 		sb.WriteString(httpHelpers)
+		sb.WriteString("\n")
+	}
+	if ctx.usesHTTPServer {
+		// После typedefs, тем же принципом, что и usesHTTP выше.
+		sb.WriteString(httpServerHelpers)
+		sb.WriteString("\n")
+	}
+	if ctx.usesQueryParams {
+		// После genericsCode выше - rech_query_params использует typedef/
+		// метод "установить" Словарь<Строка, Строка>, уже эмитированные там
+		// (queryParamsDictType зарегистрирован в prog.Generics принудительно,
+		// см. internal/semantic/httpserver.go).
+		sb.WriteString(queryParamsHelper)
 		sb.WriteString("\n")
 	}
 	if ctx.usesDateTime {
@@ -588,6 +606,16 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 			return "", err
 		}
 		sb.WriteString(jsonCode)
+	}
+	if len(prog.SerializeTargets) > 0 {
+		// Обратное к разбору выше - не зависит от ctors/exceptionRuntimeCode
+		// (сериализация не создаёт новых сущностей и не может провалиться),
+		// только от typedefs.
+		serCode, err := jsonSerializeRuntimeCode(ctx, prog, prog.SerializeTargets)
+		if err != nil {
+			return "", err
+		}
+		sb.WriteString(serCode)
 	}
 	// taskCode - обёртки "запустить"/"дождаться" (internal/backend/cbackend/
 	// concurrency.go) - ссылаются на &rech_<имя> обёрнутых функций (нужны
@@ -1191,6 +1219,9 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 
 	case *ir.ParseExpr:
 		return generateIRParseExpr(ctx, e)
+
+	case *ir.SerializeExpr:
+		return generateIRSerializeExpr(ctx, e)
 
 	case *ir.IsExpr:
 		return generateIRIsExpr(ctx, e)

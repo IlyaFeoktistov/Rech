@@ -102,7 +102,8 @@ const (
 	KwAwait       // дождаться (ожидание завершения задачи)
 	KwExport      // экспортировать (функция/сущность/класс/структура, видимые извне библиотеки)
 	KwParse       // разобрать (разобрать JSON <выражение> как <Тип>)
-	KwJSON        // JSON (формат-маркер после "разобрать", не склоняется)
+	KwSerialize   // сериализовать (сериализовать JSON <выражение>)
+	KwJSON        // JSON (формат-маркер после "разобрать"/"сериализовать", не склоняется)
 )
 
 // keywords - таблица ключевых слов v0.1. Список сознательно узкий:
@@ -172,6 +173,7 @@ var keywords = map[string]TokenType{
 	"дождаться":      KwAwait,
 	"экспортировать": KwExport,
 	"разобрать":      KwParse,
+	"сериализовать":  KwSerialize,
 	"JSON":           KwJSON,
 }
 
@@ -355,6 +357,8 @@ func (t TokenType) String() string {
 		return "экспортировать"
 	case KwParse:
 		return "разобрать"
+	case KwSerialize:
+		return "сериализовать"
 	case KwJSON:
 		return "JSON"
 	default:

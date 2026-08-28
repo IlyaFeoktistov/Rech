@@ -142,6 +142,11 @@ const (
 // ошибка).
 const HTTPRecvFailed = "запрос: ошибка получения ответа"
 
+// HTTPServerRecvFailed - то же самое, что HTTPRecvFailed, но для
+// "принять_http" (минимальный HTTP-сервер) - чтение входящего запроса с
+// уже принятого соединения завершилось ошибкой.
+const HTTPServerRecvFailed = "принять_http: ошибка получения запроса"
+
 // JSONParseError - сообщение при "разобрать JSON", если текст - не
 // корректный JSON (синтаксическая ошибка), без точной позиции: хендрольный
 // C-парсер (cbackend) и encoding/json (internal/interp) сообщают о

@@ -1,0 +1,216 @@
+package cbackend
+
+import (
+	"fmt"
+
+	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
+)
+
+// httpServerHelpers - "принять_http"/"отправить_http_ответ" (см.
+// internal/semantic/httpserver.go, package doc) - минимальный HTTP-сервер
+// поверх уже существующих сетевых примитивов (rech_accept/rech_send/
+// rech_close_socket, socketHelpers), не отдельный сетевой механизм.
+//
+// В отличие от HTTP-клиента ("запрос", httpHelpers, rech_recv_until_close -
+// читает до закрытия соединения СЕРВЕРОМ), сервер не может ждать закрытия
+// соединения КЛИЕНТОМ - клиент (браузер/curl) держит соединение открытым,
+// ожидая ответ. rech_recv_http_request поэтому читает по-другому: сначала
+// байты заголовков (до "\r\n\r\n"), затем ровно Content-Length байт тела
+// (0, если заголовка Content-Length нет - обычный случай для GET без
+// тела) - rech_http_content_length ищет "content-length" в уже полученных
+// байтах регистронезависимо вручную (без <ctype.h> - однократный ручной
+// case-fold дешевле нового заголовка ради одной функции).
+var httpServerHelpers = fmt.Sprintf(`static long long rech_http_content_length(const char *buf, const char *end) {
+    static const char want[] = "content-length";
+    for (const char *p = buf; p + 14 <= end; p++) {
+        int match = 1;
+        for (int i = 0; i < 14; i++) {
+            char c = p[i];
+            if (c >= 'A' && c <= 'Z') c = (char)(c + 32);
+            if (c != want[i]) { match = 0; break; }
+        }
+        if (match) {
+            const char *q = p + 14;
+            while (q < end && (*q == ':' || *q == ' ' || *q == '\t')) q++;
+            return strtoll(q, NULL, 10);
+        }
+    }
+    return 0;
+}
+
+static char *rech_recv_http_request(rech_socket_t s) {
+    size_t cap = 4096, len = 0;
+    char *buf = malloc(cap);
+    char *body_start = NULL;
+    long long content_length = 0;
+    for (;;) {
+        buf[len] = '\0';
+        if (body_start == NULL) {
+            char *sep = strstr(buf, "\r\n\r\n");
+            if (sep) {
+                body_start = sep + 4;
+                content_length = rech_http_content_length(buf, sep);
+            }
+        }
+        if (body_start != NULL) {
+            long long have = (long long)(len - (size_t)(body_start - buf));
+            if (have >= content_length) {
+                break;
+            }
+        }
+        if (len + 1 >= cap) {
+            cap *= 2;
+            buf = realloc(buf, cap);
+        }
+        long long n = recv(s, buf + len, (int)(cap - len - 1), 0);
+        if (n < 0) {
+            free(buf);
+            rech_panic("%[10]s");
+        }
+        if (n == 0) {
+            break;
+        }
+        len += (size_t)n;
+    }
+    buf[len] = '\0';
+    return buf;
+}
+
+static %[7]s rech_http_accept_request(rech_socket_t s) {
+    char *raw = rech_recv_http_request(s);
+    %[7]s req;
+    req.%[3]s = rech_dup("");
+    req.%[5]s = 0;
+    req.%[1]s = rech_dup("");
+    req.%[2]s = rech_dup("");
+    req.%[4]s = rech_dup("");
+    req.%[6]s = rech_dup("");
+
+    char *line_end = strstr(raw, "\r\n");
+    char *sp1 = strchr(raw, ' ');
+    if (sp1 && line_end && sp1 < line_end) {
+        size_t method_len = (size_t)(sp1 - raw);
+        char *method = malloc(method_len + 1);
+        memcpy(method, raw, method_len);
+        method[method_len] = '\0';
+        req.%[1]s = method;
+
+        char *sp2 = strchr(sp1 + 1, ' ');
+        if (sp2 && sp2 < line_end) {
+            size_t path_len = (size_t)(sp2 - (sp1 + 1));
+            char *path = malloc(path_len + 1);
+            memcpy(path, sp1 + 1, path_len);
+            path[path_len] = '\0';
+            req.%[2]s = path;
+        }
+    }
+
+    char *hdr_start = line_end ? line_end + 2 : raw;
+    char *body_sep = strstr(raw, "\r\n\r\n");
+    if (body_sep && body_sep >= hdr_start) {
+        size_t header_len = (size_t)(body_sep - hdr_start);
+        char *headers = malloc(header_len + 1);
+        memcpy(headers, hdr_start, header_len);
+        headers[header_len] = '\0';
+        req.%[4]s = headers;
+        req.%[6]s = rech_dup(body_sep + 4);
+    }
+    free(raw);
+    return req;
+}
+
+static void rech_http_send_response(rech_socket_t s, %[8]s resp) {
+    size_t body_len = strlen(resp.%[6]s);
+    const char *hdr_sep = resp.%[4]s[0] ? "\r\n" : "";
+    int need = snprintf(NULL, 0, "HTTP/1.1 %%lld OK\r\n%%s%%sConnection: close\r\nContent-Length: %%lld\r\n\r\n",
+        (long long)resp.%[9]s, resp.%[4]s, hdr_sep, (long long)body_len);
+    char *head = malloc((size_t)need + 1);
+    snprintf(head, (size_t)need + 1, "HTTP/1.1 %%lld OK\r\n%%s%%sConnection: close\r\nContent-Length: %%lld\r\n\r\n",
+        (long long)resp.%[9]s, resp.%[4]s, hdr_sep, (long long)body_len);
+    char *full = malloc((size_t)need + body_len + 1);
+    memcpy(full, head, (size_t)need);
+    memcpy(full + need, resp.%[6]s, body_len);
+    free(head);
+    rech_send(s, full);
+    free(full);
+}
+`, mangleField("метод"), mangleField("путь"), mangleField("адрес"), mangleField("заголовки"),
+	mangleField("порт"), mangleField("тело"), mangleType("Запрос"), mangleType("Ответ"),
+	mangleField("код"), rtmsg.HTTPServerRecvFailed)
+
+// queryParamsDictType - см. internal/semantic/httpserver.go,
+// registerHTTPServerFuncs - имя generic-инстанциации, принудительно
+// зарегистрированной для "параметры_пути" (попадает в prog.Generics тем же
+// путём, что и любая generic-коллекция, реально написанная пользователем -
+// buildIR не различает "пользователь написал" от "builtin зарегистрировал")
+// - typedef/методы уже эмитятся общим циклом по prog.Generics раньше этого
+// блока.
+const queryParamsDictType = "Словарь<Строка, Строка>"
+
+// queryParamsHelper - "параметры_пути" (см. internal/semantic/
+// httpserver.go, package doc) - разбирает query-строку ("?a=1&b=2" - часть
+// до "?", если есть, игнорируется) в Словарь<Строка, Строка> с процент-
+// декодированием (rech_qp_url_decode - тот же алгоритм, что
+// internal/interp/httpserver.go, urlDecode, должны оставаться
+// согласованными).
+var queryParamsHelper = fmt.Sprintf(`static int rech_qp_hex_digit(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+static char *rech_qp_url_decode(const char *s, long long len) {
+    char *out = malloc((size_t)len + 1);
+    long long o = 0;
+    for (long long i = 0; i < len; i++) {
+        if (s[i] == '+') {
+            out[o++] = ' ';
+        } else if (s[i] == '%%' && i + 2 < len) {
+            int hi = rech_qp_hex_digit(s[i + 1]);
+            int lo = rech_qp_hex_digit(s[i + 2]);
+            if (hi >= 0 && lo >= 0) {
+                out[o++] = (char)((hi << 4) | lo);
+                i += 2;
+            } else {
+                out[o++] = s[i];
+            }
+        } else {
+            out[o++] = s[i];
+        }
+    }
+    out[o] = '\0';
+    return out;
+}
+
+static %[1]s rech_query_params(const char *path) {
+    %[1]s out = {0};
+    const char *q = strchr(path, '?');
+    if (!q) {
+        return out;
+    }
+    q++;
+    const char *p = q;
+    while (*p) {
+        const char *pair_start = p;
+        const char *eq = NULL;
+        while (*p && *p != '&') {
+            if (*p == '=' && !eq) {
+                eq = p;
+            }
+            p++;
+        }
+        char *key = rech_qp_url_decode(pair_start, (long long)((eq ? eq : p) - pair_start));
+        const char *val_start = eq ? eq + 1 : p;
+        long long val_len = eq ? (long long)(p - eq - 1) : 0;
+        char *value = rech_qp_url_decode(val_start, val_len);
+        if (key[0]) {
+            %[2]s(&out, key, value);
+        }
+        if (*p == '&') {
+            p++;
+        }
+    }
+    return out;
+}
+`, mangleType(queryParamsDictType), mangleMethod(queryParamsDictType, "установить"))

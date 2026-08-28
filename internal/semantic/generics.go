@@ -236,6 +236,8 @@ func substExpr(e ast.Expr, subst map[string]string) ast.Expr {
 		return &ast.CastExpr{Type: e.Type, Value: substExpr(e.Value, subst), Line: e.Line}
 	case *ast.ParseExpr:
 		return &ast.ParseExpr{Format: e.Format, Source: substExpr(e.Source, subst), TypeName: substituteTypeString(e.TypeName, subst), Line: e.Line}
+	case *ast.SerializeExpr:
+		return &ast.SerializeExpr{Format: e.Format, Value: substExpr(e.Value, subst), Line: e.Line}
 	case *ast.LaunchExpr:
 		return &ast.LaunchExpr{Call: substExpr(e.Call, subst).(*ast.CallExpr), Line: e.Line}
 	case *ast.AwaitExpr:

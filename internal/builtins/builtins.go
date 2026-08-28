@@ -162,10 +162,13 @@ func ByName(name string) (Func, bool) {
 // (internal/module.resolveBareName, internal/semantic - объявление
 // пользовательской функции/внешней функции с этим именем).
 var ReservedFuncNames = map[string]bool{
-	"запрос":         true,
-	"время_как_дата": true,
-	"дата_как_время": true,
-	"дата_в_строку":  true,
+	"запрос":               true,
+	"время_как_дата":       true,
+	"дата_как_время":       true,
+	"дата_в_строку":        true,
+	"принять_http":         true,
+	"отправить_http_ответ": true,
+	"параметры_пути":       true,
 }
 
 // ReservedEntityNames - зарезервированные имена сущностей (Запрос/Ответ,

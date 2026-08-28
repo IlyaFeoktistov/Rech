@@ -35,3 +35,22 @@ func (p *Parser) parseParseExpr() (ast.Expr, error) {
 	}
 	return &ast.ParseExpr{Format: format.Value, Source: source, TypeName: typeName, Line: kw.Line}, nil
 }
+
+// parseSerializeExpr разбирает:
+//
+//	сериализовать JSON <выражение>
+//
+// Обратное к parseParseExpr - без "как <Тип>" (целевой тип - тип самого
+// значения, уже известен на этапе анализа).
+func (p *Parser) parseSerializeExpr() (ast.Expr, error) {
+	kw := p.advance() // "сериализовать"
+	format, err := p.expect(lexer.KwJSON)
+	if err != nil {
+		return nil, fmt.Errorf("после \"сериализовать\" ожидался формат (JSON): %w", err)
+	}
+	value, err := p.parseUnary()
+	if err != nil {
+		return nil, fmt.Errorf("после \"сериализовать %s\" ожидалось выражение: %w", format.Value, err)
+	}
+	return &ast.SerializeExpr{Format: format.Value, Value: value, Line: kw.Line}, nil
+}

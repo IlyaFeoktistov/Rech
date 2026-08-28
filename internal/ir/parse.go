@@ -15,3 +15,13 @@ type ParseExpr struct {
 }
 
 func (*ParseExpr) expr() {}
+
+// SerializeExpr - "сериализовать JSON <выражение>" - обратное к ParseExpr,
+// Value любого JSON-совместимого типа сериализуется в Строка (нет
+// отдельного целевого типа - им и так является тип Value).
+type SerializeExpr struct {
+	Format string
+	Value  Expr
+}
+
+func (*SerializeExpr) expr() {}

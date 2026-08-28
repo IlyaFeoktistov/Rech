@@ -58,6 +58,15 @@ type builtinFlags struct {
 	// rech_send из socketHelpers, поэтому подразумевает usesSockets (и
 	// usesPanic - через них).
 	usesHTTP bool
+	// usesHTTPServer - нужен ли rech_http_accept_request/rech_http_send_response
+	// (встроенные функции "принять_http"/"отправить_http_ответ" - минимальный
+	// HTTP-сервер поверх уже существующих сетевых примитивов, см.
+	// httpServerHelpers) - подразумевает usesSockets.
+	usesHTTPServer bool
+	// usesQueryParams - нужен ли rech_query_params (встроенная функция
+	// "параметры_пути" - разбор query-строки в Словарь<Строка, Строка>, см.
+	// httpserver.go, queryParamsHelper).
+	usesQueryParams bool
 	// usesDateTime - нужны ли rech_time_now/rech_time_to_date/
 	// rech_date_to_time/rech_date_to_string (datetime.go) - встроенные
 	// функции "время"/"время_как_дата"/"дата_как_время"/"дата_в_строку".
@@ -170,6 +179,19 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 		flags.usesSockets = true
 		flags.usesPanic = true
 		return fmt.Sprintf("rech_http_request(%s)", args[0]), true
+	case "принять_http":
+		flags.usesHTTPServer = true
+		flags.usesSockets = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_http_accept_request(%s)", args[0]), true
+	case "отправить_http_ответ":
+		flags.usesHTTPServer = true
+		flags.usesSockets = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_http_send_response(%s, %s)", args[0], args[1]), true
+	case "параметры_пути":
+		flags.usesQueryParams = true
+		return fmt.Sprintf("rech_query_params(%s)", args[0]), true
 	case "время":
 		flags.usesDateTime = true
 		return "rech_time_now()", true
@@ -685,14 +707,20 @@ static void rech_close_socket(rech_socket_t s) {
 // ограничение (см. package doc internal/builtins.ReservedFuncNames и
 // docs/ROADMAP.md) - сервер, отвечающий chunked без Content-Length,
 // распарсится неверно (тело останется как есть, без де-чанкинга).
-var httpHelpers = fmt.Sprintf(`static char *rech_dup(const char *s) {
+// rechDupHelper - rech_dup (копия C-строки в новый malloc-буфер) - общий
+// для HTTP-клиента (httpHelpers) и HTTP-сервера (httpServerHelpers,
+// httpserver.go) - эмитится один раз, когда нужен хотя бы один из них
+// (usesHTTP || usesHTTPServer), см. ir_generator.go.
+const rechDupHelper = `static char *rech_dup(const char *s) {
     size_t len = strlen(s);
     char *out = malloc(len + 1);
     memcpy(out, s, len + 1);
     return out;
 }
 
-static char *rech_recv_until_close(rech_socket_t s) {
+`
+
+var httpHelpers = fmt.Sprintf(`static char *rech_recv_until_close(rech_socket_t s) {
     size_t cap = 4096, len = 0;
     char *buf = malloc(cap);
     for (;;) {
