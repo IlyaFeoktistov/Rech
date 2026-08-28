@@ -2,6 +2,7 @@ package semantic
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
@@ -249,6 +250,54 @@ func genericMethodSigs(template string, elem ir.Type) (map[string]funcSig, bool)
 	}
 }
 
+// isBuiltinCollectionType - t сам является инстанциацией встроенной
+// generic-коллекции (Список/Стопка/Очередь/Словарь), а не пользовательской
+// сущностью - у ЛЮБОЙ из четырёх ElemType всегда заполнен (entitySig.
+// ElemType), у обычной пользовательской сущности - никогда (нулевое
+// значение, ir.TypeUnknown) - этого достаточно, не нужен отдельный
+// маркер-флаг вида "IsGenericCollection" (IsList/IsDict сами по себе не
+// покрывают Стопка/Очередь - IsList true только у Список, ради проверки
+// цикла "для x в списке").
+func isBuiltinCollectionType(entities map[string]entitySig, t ir.Type) bool {
+	if t.Kind != ir.KindEntity {
+		return false
+	}
+	return entities[t.Entity].ElemType != ir.TypeUnknown
+}
+
+// topoSortGenericNames упорядочивает generic-инстанциации (names) так,
+// чтобы инстанциация, использованная как ЭЛЕМЕНТ другой (Список<Целое>
+// внутри Список<Список<Целое>>), шла РАНЬШЕ той, что её содержит -
+// backend'у (internal/backend/cbackend) нужен уже готовый C-typedef
+// внутреннего типа, чтобы объявить typedef внешнего (то же ограничение,
+// что раньше решалось простым "просто до/после typedefs сущностей" для
+// generic-коллекций как таковых - вложенность коллекций друг в друга
+// требует настоящего топологического порядка, не одной пары "до/после").
+// DFS-обход с сортировкой по имени как детерминированным тай-брейком между
+// независимыми ветками (сохраняет прежний порядок там, где вложенности
+// нет).
+func topoSortGenericNames(names []string, entities map[string]entitySig) []string {
+	sorted := append([]string(nil), names...)
+	sort.Strings(sorted)
+	visited := make(map[string]bool, len(sorted))
+	order := make([]string, 0, len(sorted))
+	var visit func(name string)
+	visit = func(name string) {
+		if visited[name] {
+			return
+		}
+		visited[name] = true
+		if elem := entities[name].ElemType; isBuiltinCollectionType(entities, elem) {
+			visit(elem.Entity)
+		}
+		order = append(order, name)
+	}
+	for _, name := range sorted {
+		visit(name)
+	}
+	return order
+}
+
 // resolveGenericTypeName - при первой встрече конкретной инстанциации
 // builtin-коллекции ("Список<Целое>") синтезирует её сигнатуру (entitySig/
 // funcSig) и регистрирует в entities/methods (мемоизация - синтез только
@@ -267,8 +316,11 @@ func resolveGenericTypeName(entities map[string]entitySig, methods map[string]ma
 	if err != nil {
 		return ir.TypeUnknown, fmt.Errorf("тип элемента %q в %q: %w", argName, name, err)
 	}
-	if elem.Kind == ir.KindEntity || elem.Kind == ir.KindNullable {
-		return ir.TypeUnknown, fmt.Errorf("%q: элементы встроенных коллекций поддерживаются только для примитивов, не для сущностей/nullable-типов", name)
+	if elem.Kind == ir.KindNullable {
+		return ir.TypeUnknown, fmt.Errorf("%q: элементы встроенных коллекций пока не поддерживают nullable-типы", name)
+	}
+	if elem.Kind == ir.KindEntity && !isBuiltinCollectionType(entities, elem) {
+		return ir.TypeUnknown, fmt.Errorf("%q: элементы встроенных коллекций поддерживаются только для примитивов и других встроенных коллекций (Список/Стопка/Очередь/Словарь), не для пользовательских сущностей", name)
 	}
 	sigs, ok := genericMethodSigs(template, elem)
 	if !ok {
@@ -313,8 +365,11 @@ func resolveDictTypeName(entities map[string]entitySig, methods map[string]map[s
 	if err != nil {
 		return ir.TypeUnknown, fmt.Errorf("тип значения %q в %q: %w", args[1], name, err)
 	}
-	if val.Kind == ir.KindEntity || val.Kind == ir.KindNullable {
-		return ir.TypeUnknown, fmt.Errorf("%q: значения встроенного словаря поддерживаются только для примитивов, не для сущностей/nullable-типов", name)
+	if val.Kind == ir.KindNullable {
+		return ir.TypeUnknown, fmt.Errorf("%q: значения встроенного словаря пока не поддерживают nullable-типы", name)
+	}
+	if val.Kind == ir.KindEntity && !isBuiltinCollectionType(entities, val) {
+		return ir.TypeUnknown, fmt.Errorf("%q: значения встроенного словаря поддерживаются только для примитивов и других встроенных коллекций, не для пользовательских сущностей", name)
 	}
 	if _, exists := entities[name]; !exists {
 		entities[name] = entitySig{IsDict: true, KeyType: key, ElemType: val}

@@ -378,18 +378,21 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// встретившегося в программе - тем же принципом, что genericsCode выше,
 	// но по prog.Nullables. Разбито на ДВЕ группы по порядку эмита:
 	// "?Целое"/"?Список<T>" и т.п. (внутренний тип - примитив/generic-
-	// коллекция) нужны РАНЬШЕ typedefs сущностей (сущность может нести
+	// коллекция, entities[...] здесь пусто - Generics живут в отдельном
+	// списке) нужны РАНЬШЕ typedefs сущностей (сущность может нести
 	// nullable-поле по значению - тот же класс проблемы, что у genericsCode/
-	// typedefs), а "?ИмяСущности" - НАОБОРОТ, ПОЗЖЕ (обёртка ссылается на
-	// C-typedef самой сущности, mangleType(entity), который ещё не объявлен
-	// раньше typedefs). Использует rech_panic (usesNullables ниже участвует
-	// в условии panicHelper).
+	// typedefs; "?Список<T>" при этом и так уже позже genericsCode, где
+	// определён сам Список<T>), а "?ИмяСущности" (настоящая, объявленная
+	// сущность) - НАОБОРОТ, ПОЗЖЕ (обёртка ссылается на C-typedef самой
+	// сущности, mangleType(entity), который ещё не объявлен раньше
+	// typedefs). Использует rech_panic (usesNullables ниже участвует в
+	// условии panicHelper).
 	var nullablesCode, nullablesAfterTypedefs strings.Builder
 	usesNullables := len(prog.Nullables) > 0
 	for _, n := range prog.Nullables {
 		elemC := fromIRType(n.Inner).cType(ctx)
 		code := nullableCollectionCCode(n.Name, elemC)
-		if n.Inner.Kind == ir.KindEntity {
+		if n.Inner.Kind == ir.KindEntity && entities[n.Inner.Entity] != nil {
 			nullablesAfterTypedefs.WriteString(code)
 		} else {
 			nullablesCode.WriteString(code)

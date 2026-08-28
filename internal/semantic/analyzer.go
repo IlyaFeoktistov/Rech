@@ -663,7 +663,7 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 			names = append(names, name)
 		}
 	}
-	slices.Sort(names)
+	names = topoSortGenericNames(names, a.entities)
 	for _, name := range names {
 		template, _, _ := parseGenericTypeName(name)
 		out.Generics = append(out.Generics, ir.GenericInstantiation{

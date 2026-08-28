@@ -130,7 +130,7 @@ func TestAnalyzeNullableListElementRejected(t *testing.T) {
     переменная а: Список<?Целое> = Ничто
 }
 `)
-	if err == nil || !strings.Contains(err.Error(), "nullable-типов") {
+	if err == nil || !strings.Contains(err.Error(), "nullable-типы") {
 		t.Fatalf("ожидалась ошибка компиляции для \"Список<?Целое>\", получено: %v", err)
 	}
 }
