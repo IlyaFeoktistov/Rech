@@ -2,6 +2,7 @@ package lexer
 
 import (
 	"fmt"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 
@@ -18,7 +19,12 @@ type Lexer struct {
 	col  int
 }
 
+// New строит Lexer над src. Ведущий UTF-8 BOM (U+FEFF - типичный результат
+// сохранения файла как "UTF-8 with BOM" на Windows, в т.ч. по умолчанию у
+// PowerShell Out-File/некоторых редакторов) обрезается - иначе он попадал
+// бы в поток токенов как обычный символ и ронял разбор на первой строке.
 func New(src string) *Lexer {
+	src = strings.TrimPrefix(src, "\uFEFF")
 	return &Lexer{src: []rune(src), pos: 0, line: 1, col: 1}
 }
 
