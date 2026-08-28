@@ -87,6 +87,19 @@ const (
 	KindUint16
 	KindUint32
 	KindUint64
+	// KindAny - "Значение", непрозрачный контейнер значения ЛЮБОГО типа
+	// (боксирование для рефлексии) - НЕ KindEntity: элементы встроенных
+	// generic-коллекций ограничены примитивами ("не для сущностей", см.
+	// internal/semantic/types.go), а Список<Значение> обязан работать
+	// (аргументы вызова метода/конструктора по рефлексии) - представление
+	// в cbackend несёт собственный тег типа внутри себя (rech_any_t), а не
+	// полагается на статический Type снаружи, как у остальных Kind.
+	KindAny
+	// KindTypeInfo - "Тип", непрозрачный дескриптор типа (имя, поля,
+	// методы) - результат "тип <Имя>" и "значение.тип()". Как и KindAny,
+	// не KindEntity - у Тип нет полей/методов пользовательской сущности,
+	// это сам дескриптор, а не значение описываемого им типа.
+	KindTypeInfo
 )
 
 // Type - тип значения выражения IR, уже разрешённый семантическим анализом
@@ -123,6 +136,9 @@ var (
 	TypeUint16 = Type{Kind: KindUint16}
 	TypeUint32 = Type{Kind: KindUint32}
 	TypeUint64 = Type{Kind: KindUint64}
+
+	TypeAny      = Type{Kind: KindAny}
+	TypeTypeInfo = Type{Kind: KindTypeInfo}
 )
 
 // IntWidthSigned возвращает битовую ширину и знаковость числового Kind,
@@ -254,6 +270,10 @@ func (t Type) String() string {
 		return "Натуральное32"
 	case KindUint64:
 		return "Натуральное64"
+	case KindAny:
+		return "Значение"
+	case KindTypeInfo:
+		return "Тип"
 	default:
 		return "неизвестный тип"
 	}

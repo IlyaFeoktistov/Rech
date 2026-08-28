@@ -108,6 +108,12 @@ func (in *Interp) evalExpr(e ir.Expr, env *Env, cc *callCtx) (Value, error) {
 	case *ir.AwaitExpr:
 		return in.evalAwaitExpr(e, env, cc)
 
+	case *ir.TypeOfExpr:
+		return evalTypeOfExpr(e), nil
+
+	case *ir.AsExpr:
+		return in.evalAsExpr(e, env, cc)
+
 	default:
 		return Value{}, fmt.Errorf("вычисление: выражение %T не поддерживается интерпретатором", e)
 	}
@@ -357,18 +363,15 @@ func compareOrdered(op string, l, r Value) Value {
 // ir.Entity-узла.
 func (in *Interp) evalNewExpr(e *ir.NewExpr, env *Env, cc *callCtx) (Value, error) {
 	if ent, ok := in.entities[e.Entity]; ok {
-		if ent.Ctor != nil {
-			return in.evalNewExprWithCtor(ent, e, env, cc)
-		}
-		fields := make(map[string]Value, len(ent.Fields))
-		for i, f := range ent.Fields {
-			v, err := in.evalExpr(e.Args[i], env, cc)
+		args := make([]Value, len(e.Args))
+		for i, a := range e.Args {
+			v, err := in.evalExpr(a, env, cc)
 			if err != nil {
 				return Value{}, err
 			}
-			fields[f.Name] = in.cloneValue(v)
+			args[i] = v
 		}
-		return Value{Type: ir.EntityType(e.Entity), Obj: &entityObj{typeName: e.Entity, fields: fields}}, nil
+		return in.constructEntity(ent, e.Entity, args, env, cc)
 	}
 	if g, ok := in.generics[e.Entity]; ok {
 		coll := &collection{template: g.Template}
@@ -380,19 +383,30 @@ func (in *Interp) evalNewExpr(e *ir.NewExpr, env *Env, cc *callCtx) (Value, erro
 	return Value{}, fmt.Errorf("сущность %q не найдена во время исполнения", e.Entity)
 }
 
-// evalNewExprWithCtor - "новый Тип(...)" у сущности с явным конструктором
-// (ent.Ctor != nil): в отличие от неявной формы выше, поля НЕ заполняются
-// один-в-один из e.Args (Args здесь - аргументы самого конструктора, не
-// обязаны совпадать с полями числом/порядком) - объект заводится с нулевыми
-// значениями всех полей (та же гарантия, что и GC_MALLOC в cbackend -
-// generateIREntityCtor, зависящая от неё логика в теле конструктора должна
-// видеть согласованный ноль, а не отсутствие ключа в map) - кроме полей с
-// "имеет: имя: Тип = выражение" (docs/SPEC.md): такое поле начинается со
-// своего значения по умолчанию, не с нуля. Затем тело конструктора
-// исполняется на нём как обычный метод (callMethod) и может переопределить
-// любое из них через "этот.поле = значение"/"родитель(...)".
-func (in *Interp) evalNewExprWithCtor(ent *ir.Entity, e *ir.NewExpr, env *Env, cc *callCtx) (Value, error) {
-	obj := &entityObj{typeName: e.Entity, fields: make(map[string]Value, len(ent.Fields))}
+// constructEntity строит новый экземпляр ent (имя entName - отдельно от
+// ent, потому что generic-инстанциация встроенной коллекции здесь не
+// нужна, но имя типа результата всё равно нужно, см. вызов из evalNewExpr)
+// из уже вычисленных args - общий код для "новый Тип(...)" (evalNewExpr,
+// args - позиционные аргументы конструктора/полей, как их разложил
+// семантический анализ) и "тип.создать(аргументы)" по рефлексии
+// (internal/interp/reflect.go, args - уже разбоксированные из
+// Список<Значение>): у явного конструктора (ent.Ctor != nil) поля НЕ
+// заполняются один-в-один из args (это аргументы самого конструктора, не
+// обязаны совпадать с полями числом/порядком) - объект заводится с
+// нулевыми значениями всех полей (та же гарантия, что и GC_MALLOC в
+// cbackend - тело конструктора должно видеть согласованный ноль, а не
+// отсутствие ключа в map), кроме полей с "имеет: имя: Тип = выражение" -
+// такое поле начинается со своего значения по умолчанию, не с нуля. Без
+// явного конструктора - обычное позиционное присваивание args полям.
+func (in *Interp) constructEntity(ent *ir.Entity, entName string, args []Value, env *Env, cc *callCtx) (Value, error) {
+	if ent.Ctor == nil {
+		fields := make(map[string]Value, len(ent.Fields))
+		for i, f := range ent.Fields {
+			fields[f.Name] = in.cloneValue(args[i])
+		}
+		return Value{Type: ir.EntityType(entName), Obj: &entityObj{typeName: entName, fields: fields}}, nil
+	}
+	obj := &entityObj{typeName: entName, fields: make(map[string]Value, len(ent.Fields))}
 	for _, f := range ent.Fields {
 		if f.Default != nil {
 			v, err := in.evalExpr(f.Default, env, cc)
@@ -404,18 +418,10 @@ func (in *Interp) evalNewExprWithCtor(ent *ir.Entity, e *ir.NewExpr, env *Env, c
 		}
 		obj.fields[f.Name] = zeroValue(f.Type)
 	}
-	args := make([]Value, len(e.Args))
-	for i, a := range e.Args {
-		v, err := in.evalExpr(a, env, cc)
-		if err != nil {
-			return Value{}, err
-		}
-		args[i] = v
-	}
 	if _, err := in.callMethod(ent.Ctor, obj, args, cc.dbg); err != nil {
 		return Value{}, err
 	}
-	return Value{Type: ir.EntityType(e.Entity), Obj: obj}, nil
+	return Value{Type: ir.EntityType(entName), Obj: obj}, nil
 }
 
 // evalMethodCallExpr - "receiver.метод(...)". Receiver вычисляется без
@@ -428,6 +434,12 @@ func (in *Interp) evalMethodCallExpr(e *ir.MethodCallExpr, env *Env, cc *callCtx
 	recv, err := in.evalExpr(e.Receiver, env, cc)
 	if err != nil {
 		return Value{}, err
+	}
+	switch recv.Type.Kind {
+	case ir.KindAny:
+		return in.evalAnyMethod(recv, e, env, cc)
+	case ir.KindTypeInfo:
+		return in.evalTypeInfoMethod(recv, e, env, cc)
 	}
 	if recv.Obj.coll != nil {
 		if recv.Obj.coll.template == "Словарь" {

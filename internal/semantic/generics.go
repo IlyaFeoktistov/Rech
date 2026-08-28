@@ -246,6 +246,10 @@ func substExpr(e ast.Expr, subst map[string]string) ast.Expr {
 		return &ast.IsExpr{Value: substExpr(e.Value, subst), Target: substituteTypeString(e.Target, subst), Line: e.Line}
 	case *ast.FuncRefExpr:
 		return e
+	case *ast.TypeOfExpr:
+		return &ast.TypeOfExpr{TypeName: substituteTypeString(e.TypeName, subst), Line: e.Line}
+	case *ast.AsExpr:
+		return &ast.AsExpr{Value: substExpr(e.Value, subst), TypeName: substituteTypeString(e.TypeName, subst), Line: e.Line}
 	case *ast.LambdaExpr:
 		return &ast.LambdaExpr{
 			Params: substParams(e.Params, subst), ReturnType: substituteTypeString(e.ReturnType, subst),
@@ -645,6 +649,13 @@ func (inst *instantiator) scanExpr(e ast.Expr) error {
 			return err
 		}
 		return inst.ensureEntity(e.Target, e.Line)
+	case *ast.TypeOfExpr:
+		return inst.ensureEntity(e.TypeName, e.Line)
+	case *ast.AsExpr:
+		if err := inst.scanExpr(e.Value); err != nil {
+			return err
+		}
+		return inst.ensureEntity(e.TypeName, e.Line)
 	case *ast.LambdaExpr:
 		for _, p := range e.Params {
 			if err := inst.ensureEntity(p.Type, e.Line); err != nil {

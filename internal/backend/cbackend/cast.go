@@ -19,6 +19,15 @@ func generateIRCastExpr(ctx *irGenCtx, e *ir.CastExpr) (string, valueType, error
 	}
 	to := fromIRType(e.To)
 
+	if to == typeAny {
+		// Боксирование - см. internal/backend/cbackend/reflect.go,
+		// reflectBoxExprCode. Структура GC-копируется в отдельный блок
+		// памяти (rech_reflect_box_<Ent>) - боксированное значение живёт
+		// независимо от исходного выражения дальше, тот же принцип, что и
+		// internal/interp.cloneValue при боксировании там.
+		return reflectBoxExprCode(ctx, ir.TypeOf(e.Value), code), typeAny, nil
+	}
+
 	if from == typeString && to != typeString {
 		ctx.usesCast = true
 		ctx.usesPanic = true // разбор строки может провалиться

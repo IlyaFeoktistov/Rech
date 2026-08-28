@@ -146,6 +146,18 @@ func analyzeCastExpr(sc *ctx, e *ast.CastExpr) (ir.Expr, error) {
 	if from == to {
 		return value, nil
 	}
+	// Боксирование в "Значение" - разрешено для ЛЮБОГО from (примитив,
+	// сущность, структура), не только перечисленных в allowedCasts пар -
+	// иначе пришлось бы вручную выписывать пару на каждый существующий и
+	// будущий тип программы. Разбоксирование - отдельная конструкция
+	// "значение как Тип" (analyzeAsExpr), не эта функция.
+	if to == ir.TypeAny {
+		sc.a.markUsesReflection()
+		if from.Kind == ir.KindEntity {
+			sc.a.registerReflectTarget(from)
+		}
+		return &ir.CastExpr{Value: value, To: to}, nil
+	}
 	if !allowedCasts[from][to] {
 		return nil, fmt.Errorf("строка %d: нельзя привести %s к %s", e.Line, from, to)
 	}

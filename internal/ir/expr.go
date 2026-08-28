@@ -192,6 +192,10 @@ func TypeOf(e Expr) Type {
 		return e.Type
 	case *CallValueExpr:
 		return e.Type
+	case *TypeOfExpr:
+		return TypeTypeInfo
+	case *AsExpr:
+		return e.To
 	default:
 		return TypeUnknown
 	}

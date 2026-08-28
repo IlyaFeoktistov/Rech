@@ -108,6 +108,16 @@ type Value struct {
 	// Callable - непусто только при Type.Kind == ir.KindCallable
 	// ("Вызываемый", "&имя"/лямбда) - см. internal/interp/callable.go.
 	Callable *callableValue
+
+	// Boxed - непусто только при Type.Kind == ir.KindAny ("Значение",
+	// боксирование для рефлексии) - само боксированное значение целиком
+	// (со своим настоящим Type) под указателем, см.
+	// internal/interp/reflect.go. Указатель, а не значение по значению -
+	// Value и так копируется целиком при переменная/присваивании, Boxed
+	// не нуждается в собственном клонировании сверху (см. cloneValue).
+	// Type.Kind == ir.KindTypeInfo ("Тип") использует S (имя типа), не
+	// Boxed - дескриптору типа нечего боксировать, он сам и есть значение.
+	Boxed *Value
 }
 
 func intValue(v int64) Value     { return Value{Type: ir.TypeInt, I: v} }

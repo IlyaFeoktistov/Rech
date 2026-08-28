@@ -25,6 +25,17 @@ func (in *Interp) evalCastExpr(e *ir.CastExpr, env *Env, cc *callCtx) (Value, er
 	if from == to {
 		return v, nil
 	}
+	if to.Kind == ir.KindAny {
+		// Боксирование - клонирование как при "коммите" в новое хранилище
+		// (та же семантика, что переменная/присваивание/параметр, см.
+		// cloneValue) - сущность/интерфейс копируется по значению, если
+		// это структура, иначе делит тот же *entityObj, что и оригинал;
+		// после этого момента боксированное значение живёт независимо от
+		// v (дальнейшая мутация v, если это структура, не видна через
+		// коробку, и наоборот).
+		boxed := in.cloneValue(v)
+		return Value{Type: ir.TypeAny, Boxed: &boxed}, nil
+	}
 	if isFixedWidthInt(to.Kind) {
 		switch from.Kind {
 		case ir.KindFloat, ir.KindFloat32:

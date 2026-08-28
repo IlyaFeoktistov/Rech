@@ -70,6 +70,16 @@ type Analyzer struct {
 	serializeTargets    dedupTypeList
 	xmlParseTargets     dedupTypeList
 	xmlSerializeTargets dedupTypeList
+
+	// reflectTargets - дедуплицированный список сущностей/структур,
+	// встретившихся хоть раз как аргумент боксирования ("(Значение) x")
+	// или как имя у "тип <Имя>"/"значение как <Имя>" - тем же принципом,
+	// что parseTargets (см. package doc ir.Program.ReflectTargets).
+	// Примитивы не попадают сюда - их дескрипторы cbackend эмитит всегда,
+	// безусловно, но только если usesReflection ниже.
+	reflectTargets dedupTypeList
+	// usesReflection - см. package doc ir.Program.UsesReflection.
+	usesReflection bool
 }
 
 // dedupTypeList - список ir.Type без повторов (по Type.String()), в
@@ -99,6 +109,18 @@ func (a *Analyzer) registerParseTarget(t ir.Type)        { a.parseTargets.add(t)
 func (a *Analyzer) registerSerializeTarget(t ir.Type)    { a.serializeTargets.add(t) }
 func (a *Analyzer) registerXMLParseTarget(t ir.Type)     { a.xmlParseTargets.add(t) }
 func (a *Analyzer) registerXMLSerializeTarget(t ir.Type) { a.xmlSerializeTargets.add(t) }
+
+// registerReflectTarget регистрирует t (сущность/структура) как нуждающийся
+// в дескрипторе рефлексии - примитивы регистрировать не нужно (см. package
+// doc reflectTargets), но вызывающая сторона всё равно может передать
+// любой Type - add сам дедуплицирует по имени.
+func (a *Analyzer) registerReflectTarget(t ir.Type) { a.reflectTargets.add(t) }
+
+// markUsesReflection взводит usesReflection - см. package doc
+// ir.Program.UsesReflection. Отдельно от registerReflectTarget - вызывается
+// и для примитивов (тип Целое, значение как Целое), которые в
+// reflectTargets не попадают.
+func (a *Analyzer) markUsesReflection() { a.usesReflection = true }
 
 // collectEntities - предварительный проход: поля, сигнатуры методов и
 // производные типы состояний (aliases - "АвторизованныйПользователь" ->
@@ -669,6 +691,8 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	out.SerializeTargets = a.serializeTargets.order
 	out.XMLParseTargets = a.xmlParseTargets.order
 	out.XMLSerializeTargets = a.xmlSerializeTargets.order
+	out.ReflectTargets = a.reflectTargets.order
+	out.UsesReflection = a.usesReflection
 
 	if err := a.collectCallables(out); err != nil {
 		return nil, err

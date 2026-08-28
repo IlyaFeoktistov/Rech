@@ -30,6 +30,7 @@ var primitiveCastTypes = map[string]bool{
 	"Натуральное16":  true,
 	"Натуральное32":  true,
 	"Натуральное64":  true,
+	"Значение":       true,
 }
 
 // tryParseCast проверяет, не начинается ли текущая позиция с "(Тип)" (Тип -

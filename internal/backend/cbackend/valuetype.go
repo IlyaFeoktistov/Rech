@@ -54,6 +54,15 @@ const (
 	kindUint16
 	kindUint32
 	kindUint64
+	// kindAny - "Значение", боксированное значение любого типа (рефлексия,
+	// internal/backend/cbackend/reflect.go) - C-представление rech_any_t
+	// (тег типа + union), по значению, не по указателю - см. cType.
+	kindAny
+	// kindTypeInfo - "Тип", дескриптор типа (имя, поля, методы) - C-
+	// представление "const rech_type_meta_t *" - указатель на статический
+	// дескриптор, свой на каждый примитив/встретившуюся сущность (см.
+	// internal/backend/cbackend/reflect.go).
+	kindTypeInfo
 )
 
 // valueType - тип значения выражения C-кодогенерации. Структура (не голое
@@ -89,6 +98,9 @@ var (
 	typeUint16 = valueType{kind: kindUint16}
 	typeUint32 = valueType{kind: kindUint32}
 	typeUint64 = valueType{kind: kindUint64}
+
+	typeAny      = valueType{kind: kindAny}
+	typeTypeInfo = valueType{kind: kindTypeInfo}
 )
 
 // entityType возвращает valueType, соответствующий значению сущности name.
@@ -118,24 +130,26 @@ func externEntityType(alias string) valueType {
 // kindChar - int32_t ("Символ" хранит кодовую точку Unicode, не байт, как C
 // char - язык кириллический по духу, 'я' должен помещаться в один Символ).
 var primitiveCTypes = map[valueType]string{
-	typeByte:    "unsigned char",
-	typeInt:     "long long",
-	typeFloat32: "float",
-	typeFloat:   "double",
-	typeChar:    "int32_t",
-	typeString:  "const char *",
-	typeBool:    "bool",
-	typeFile:    "rech_file_t",
-	typeSocket:  "rech_socket_t",
-	typeInt8:    "int8_t",
-	typeInt16:   "int16_t",
-	typeInt32:   "int32_t",
-	typeInt64:   "int64_t",
-	typeUint:    "uint64_t",
-	typeUint8:   "uint8_t",
-	typeUint16:  "uint16_t",
-	typeUint32:  "uint32_t",
-	typeUint64:  "uint64_t",
+	typeByte:     "unsigned char",
+	typeInt:      "long long",
+	typeFloat32:  "float",
+	typeFloat:    "double",
+	typeChar:     "int32_t",
+	typeString:   "const char *",
+	typeBool:     "bool",
+	typeFile:     "rech_file_t",
+	typeSocket:   "rech_socket_t",
+	typeInt8:     "int8_t",
+	typeInt16:    "int16_t",
+	typeInt32:    "int32_t",
+	typeInt64:    "int64_t",
+	typeUint:     "uint64_t",
+	typeUint8:    "uint8_t",
+	typeUint16:   "uint16_t",
+	typeUint32:   "uint32_t",
+	typeUint64:   "uint64_t",
+	typeAny:      "rech_any_t",
+	typeTypeInfo: "const rech_type_meta_t *",
 }
 
 // cType - C-тип, соответствующий t. Для kindEntity зависит от того,

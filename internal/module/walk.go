@@ -49,6 +49,8 @@ var builtinTypeBases = map[string]bool{
 	"Натуральное16":  true,
 	"Натуральное32":  true,
 	"Натуральное64":  true,
+	"Тип":            true,
+	"Значение":       true,
 }
 
 // resolveBareName ищет name (имя функции или простого - не generic - типа)
@@ -370,6 +372,20 @@ func (r *rewriter) rewriteExpr(e ast.Expr) error {
 		}
 		e.Name = resolved
 		return nil
+	case *ast.TypeOfExpr:
+		resolved, err := r.resolveType(e.TypeName)
+		if err != nil {
+			return fmt.Errorf("строка %d: %w", e.Line, err)
+		}
+		e.TypeName = resolved
+		return nil
+	case *ast.AsExpr:
+		resolved, err := r.resolveType(e.TypeName)
+		if err != nil {
+			return fmt.Errorf("строка %d: %w", e.Line, err)
+		}
+		e.TypeName = resolved
+		return r.rewriteExpr(e.Value)
 	case *ast.LambdaExpr:
 		if err := r.rewriteParams(e.Params); err != nil {
 			return fmt.Errorf("строка %d: лямбда: %w", e.Line, err)

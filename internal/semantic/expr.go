@@ -156,6 +156,12 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 		}
 		return call, nil
 
+	case *ast.TypeOfExpr:
+		return analyzeTypeOfExpr(sc, e)
+
+	case *ast.AsExpr:
+		return analyzeAsExpr(sc, e)
+
 	default:
 		return nil, fmt.Errorf("выражение %T не поддерживается", e)
 	}
@@ -309,6 +315,20 @@ func analyzeMethodCallExpr(sc *ctx, e *ast.MethodCallExpr) (*ir.MethodCallExpr, 
 		if err := checkMethodVisibility(sc, typ.Entity, e.Method, sig.Visibility, e.Line); err != nil {
 			return nil, err
 		}
+	case ir.KindAny:
+		var ok bool
+		sig, ok = anyMethodSigs[e.Method]
+		if !ok {
+			return nil, fmt.Errorf("строка %d: у \"Значение\" нет метода %q", e.Line, e.Method)
+		}
+		sc.a.markUsesReflection()
+	case ir.KindTypeInfo:
+		var ok bool
+		sig, ok = typeInfoMethodSigs[e.Method]
+		if !ok {
+			return nil, fmt.Errorf("строка %d: у \"Тип\" нет метода %q", e.Line, e.Method)
+		}
+		sc.a.markUsesReflection()
 	default:
 		return nil, fmt.Errorf("строка %d: нельзя вызвать метод %q - тип %s не сущность и не интерфейс", e.Line, e.Method, typ)
 	}

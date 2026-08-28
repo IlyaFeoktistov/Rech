@@ -263,6 +263,15 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 			usesGC = true
 		}
 	}
+	for _, t := range prog.ReflectTargets {
+		// Боксирование структуры ("(Значение) x") GC_MALLOC'ит независимую
+		// копию (см. reflectBoxStructFuncName, reflect.go) - программа без
+		// единой ссылочной сущности, но с рефлексией над структурой, всё
+		// равно нуждается в Boehm GC.
+		if ent, ok := entities[t.Entity]; ok && ent.IsStruct {
+			usesGC = true
+		}
+	}
 	externCNames := map[string]string{}
 	for _, ext := range prog.ExternFuncs {
 		externCNames[ext.Alias] = ext.CName
@@ -464,7 +473,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		sb.WriteString("#include <gc.h>\n")
 	}
 	hasStructTargets := len(prog.ParseTargets) > 0 || len(prog.SerializeTargets) > 0 || len(prog.XMLParseTargets) > 0 || len(prog.XMLSerializeTargets) > 0
-	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || hasStructTargets {
+	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || hasStructTargets || prog.UsesReflection {
 		sb.WriteString("#include <string.h>\n")
 	}
 	if ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesQueryParams || hasStructTargets {
@@ -513,7 +522,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// (например, число -> Строка) - тот же принцип, что и у usesGenerics
 	// здесь: panicHelper должен быть виден целиком, раз в файле есть хотя
 	// бы один потенциальный вызывающий его блок текста.
-	if usesGenerics || ctx.usesPanic || ctx.usesCast {
+	if usesGenerics || ctx.usesPanic || ctx.usesCast || prog.UsesReflection {
 		sb.WriteString(panicHelper)
 		sb.WriteString("\n")
 	}
@@ -545,6 +554,17 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		sb.WriteString(socketHelpers)
 		sb.WriteString("\n")
 	}
+	if prog.UsesReflection {
+		// Перед genericsCode - Список<Значение> ссылается на rech_any_t как
+		// на свой C-тип элемента (см. package doc reflectTypedefs) - тот же
+		// класс проблемы, что и у genericsCode/typedefs ниже.
+		sb.WriteString(reflectTypedefs)
+		sb.WriteString(primitiveReflectDescriptors())
+		sb.WriteString(reflectUnboxCheckHelper)
+		sb.WriteString("\n")
+		sb.WriteString(reflectLookupHelpers)
+		sb.WriteString("\n")
+	}
 	if genericsCode.Len() > 0 {
 		// Перед typedefs - сущность может нести поле generic-коллекции по
 		// значению (например, "товары: Список<Строка>"), значит её C-typedef
@@ -553,6 +573,27 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// (элементы встроенных коллекций - только примитивы, коллекция не
 		// может нести сущность как элемент).
 		sb.WriteString(genericsCode.String())
+	}
+	if prog.UsesReflection {
+		hasReflectAnyList := false
+		for _, g := range prog.Generics {
+			if g.Name == reflectAnyListType {
+				hasReflectAnyList = true
+				break
+			}
+		}
+		if hasReflectAnyList {
+			// После genericsCode выше - reflectDispatchHelpersCode ссылается
+			// на C-тип Список<Значение> (mangleType) по значению - эмитится,
+			// только если пользователь его реально где-то сконструировал
+			// ("новый Список<Значение>()") - без этого у "значение.вызвать"/
+			// "тип.создать" не может быть ни одного валидного вызова вообще
+			// (их сигнатура требует такой список аргументом, см.
+			// internal/semantic/reflect.go), значит typedef уже
+			// гарантированно существует в genericsCode выше.
+			sb.WriteString(reflectDispatchHelpersCode())
+			sb.WriteString("\n")
+		}
 	}
 	if typedefs.Len() > 0 {
 		sb.WriteString(typedefs.String())
@@ -656,6 +697,16 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 			return "", err
 		}
 		sb.WriteString(xmlSerCode)
+	}
+	if len(prog.ReflectTargets) > 0 {
+		// После protos/ctors - геттеры/сеттеры/инвокеры полей и методов
+		// вызывают уже сгенерированные C-функции полей/методов/rech_new_<Тип>
+		// (см. package doc reflect.go).
+		reflectCode, err := reflectRuntimeCode(ctx, prog.ReflectTargets)
+		if err != nil {
+			return "", err
+		}
+		sb.WriteString(reflectCode)
 	}
 	// taskCode - обёртки "запустить"/"дождаться" (internal/backend/cbackend/
 	// concurrency.go) - ссылаются на &rech_<имя> обёрнутых функций (нужны
@@ -1281,6 +1332,12 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 	case *ir.CallValueExpr:
 		return generateIRCallValueExpr(ctx, e)
 
+	case *ir.TypeOfExpr:
+		return fmt.Sprintf("(&%s)", reflectMetaVarFor(e.Type)), typeTypeInfo, nil
+
+	case *ir.AsExpr:
+		return generateIRAsExpr(ctx, e)
+
 	default:
 		return "", typeUnknown, fmt.Errorf("генерация C из IR: выражение %T пока не поддерживается", e)
 	}
@@ -1459,6 +1516,12 @@ func generateIRNewExpr(ctx *irGenCtx, e *ir.NewExpr) (string, valueType, error) 
 // нужен "&", чтобы получить указатель для this_ - тот же принцип, что и у
 // выбора "."/"->" в FieldAccess/FieldAssign.
 func generateIRMethodCallExpr(ctx *irGenCtx, e *ir.MethodCallExpr) (string, valueType, error) {
+	switch ir.TypeOf(e.Receiver).Kind {
+	case ir.KindAny:
+		return generateIRAnyMethodCall(ctx, e)
+	case ir.KindTypeInfo:
+		return generateIRTypeInfoMethodCall(ctx, e)
+	}
 	receiverCode, _, err := generateIRExpr(ctx, e.Receiver)
 	if err != nil {
 		return "", typeUnknown, err
@@ -1489,24 +1552,26 @@ func generateIRMethodCallExpr(ctx *irGenCtx, e *ir.MethodCallExpr) (string, valu
 // irKindToValueType - ir.Kind -> valueType для всех примитивов (не
 // KindEntity - у него есть переменная часть, имя сущности, см. fromIRType).
 var irKindToValueType = map[ir.TypeKind]valueType{
-	ir.KindByte:    typeByte,
-	ir.KindInt:     typeInt,
-	ir.KindFloat32: typeFloat32,
-	ir.KindFloat:   typeFloat,
-	ir.KindChar:    typeChar,
-	ir.KindString:  typeString,
-	ir.KindBool:    typeBool,
-	ir.KindFile:    typeFile,
-	ir.KindSocket:  typeSocket,
-	ir.KindInt8:    typeInt8,
-	ir.KindInt16:   typeInt16,
-	ir.KindInt32:   typeInt32,
-	ir.KindInt64:   typeInt64,
-	ir.KindUint:    typeUint,
-	ir.KindUint8:   typeUint8,
-	ir.KindUint16:  typeUint16,
-	ir.KindUint32:  typeUint32,
-	ir.KindUint64:  typeUint64,
+	ir.KindByte:     typeByte,
+	ir.KindInt:      typeInt,
+	ir.KindFloat32:  typeFloat32,
+	ir.KindFloat:    typeFloat,
+	ir.KindChar:     typeChar,
+	ir.KindString:   typeString,
+	ir.KindBool:     typeBool,
+	ir.KindFile:     typeFile,
+	ir.KindSocket:   typeSocket,
+	ir.KindInt8:     typeInt8,
+	ir.KindInt16:    typeInt16,
+	ir.KindInt32:    typeInt32,
+	ir.KindInt64:    typeInt64,
+	ir.KindUint:     typeUint,
+	ir.KindUint8:    typeUint8,
+	ir.KindUint16:   typeUint16,
+	ir.KindUint32:   typeUint32,
+	ir.KindUint64:   typeUint64,
+	ir.KindAny:      typeAny,
+	ir.KindTypeInfo: typeTypeInfo,
 }
 
 func fromIRType(t ir.Type) valueType {

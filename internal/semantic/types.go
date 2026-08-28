@@ -56,6 +56,8 @@ var primitiveTypes = map[string]ir.Type{
 	"Натуральное16":  ir.TypeUint16,
 	"Натуральное32":  ir.TypeUint32,
 	"Натуральное64":  ir.TypeUint64,
+	"Тип":            ir.TypeTypeInfo,
+	"Значение":       ir.TypeAny,
 }
 
 // resolveTypeName - единственное место, где имя типа Rech (строка из AST)

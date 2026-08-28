@@ -108,6 +108,9 @@ func (p *Parser) parseComparison() (ast.Expr, error) {
 	if p.cur().Type == lexer.KwRelates {
 		return p.parseIsExpr(left)
 	}
+	if p.cur().Type == lexer.KwAs {
+		return p.parseAsExpr(left)
+	}
 	return left, nil
 }
 
@@ -316,6 +319,8 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 		return p.parseParseExpr()
 	case lexer.KwSerialize:
 		return p.parseSerializeExpr()
+	case lexer.KwType:
+		return p.parseTypeOfExpr()
 	case lexer.LPAREN:
 		p.advance()
 		inner, err := p.parseExpr()

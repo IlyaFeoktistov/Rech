@@ -1,0 +1,94 @@
+// Package semantic: рефлексия ("тип <Имя>", "значение как <Имя>", методы
+// встроенных "Значение"/"Тип") - см. docs/SPEC.md. "Значение" (KindAny) -
+// боксирование значения любого типа, "Тип" (KindTypeInfo) - дескриптор
+// типа (имя, поля, методы). Оба - не KindEntity: элементы встроенных
+// generic-коллекций ограничены примитивами ("не для сущностей", см.
+// resolveGenericTypeName), а Список<Значение> обязан работать (аргументы
+// вызова метода/конструктора по рефлексии) - будь Значение сущностью,
+// этот же запрет отверг бы Список<Значение>.
+package semantic
+
+import (
+	"fmt"
+
+	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/ir"
+)
+
+// listOfAnyType - "Список<Значение>", тип аргументов "вызвать"/"создать" -
+// строковый ключ ir.Type.Entity собирается тем же способом, что и у
+// resolveGenericTypeName ("Шаблон<Аргумент>"), поэтому совпадает с тем,
+// что получает реальный "новый Список<Значение>()" в коде пользователя -
+// сравнение типов через "==" остаётся простым равенством строки.
+var listOfAnyType = ir.EntityType("Список<Значение>")
+
+// anyMethodSigs - методы "Значение" (боксированное значение любого типа) -
+// фиксированный, не generic набор (в отличие от методов Список<T>/
+// Стопка<T>, которые строит genericMethodSigs под конкретный ElemType).
+var anyMethodSigs = map[string]funcSig{
+	// Не "тип" - оно уже зарезервировано лексером под "тип <Имя>"
+	// (KwType), после "." требуется обычный IDENT.
+	"тип_значения":    {Params: nil, ReturnType: ir.TypeTypeInfo, HasReturn: true},
+	"получить_поле":   {Params: []ir.Type{ir.TypeString}, ReturnType: ir.TypeAny, HasReturn: true},
+	"установить_поле": {Params: []ir.Type{ir.TypeString, ir.TypeAny}, HasReturn: false},
+	"вызвать":         {Params: []ir.Type{ir.TypeString, listOfAnyType}, ReturnType: ir.TypeAny, HasReturn: true},
+}
+
+// typeInfoMethodSigs - методы "Тип" (дескриптор типа - имя, поля, методы).
+// Поля/методы - по индексу (число_полей/имя_поля/тип_поля и аналоги для
+// методов), не как Список<ПолеИнфо> - сущности как элементы встроенных
+// коллекций не поддерживаются (см. package doc), а заводить под одну эту
+// фичу исключение из общего правила - лишняя связанность.
+var typeInfoMethodSigs = map[string]funcSig{
+	"имя":           {Params: nil, ReturnType: ir.TypeString, HasReturn: true},
+	"число_полей":   {Params: nil, ReturnType: ir.TypeInt, HasReturn: true},
+	"имя_поля":      {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeString, HasReturn: true},
+	"тип_поля":      {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeTypeInfo, HasReturn: true},
+	"число_методов": {Params: nil, ReturnType: ir.TypeInt, HasReturn: true},
+	"имя_метода":    {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeString, HasReturn: true},
+	"число_параметров_метода": {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeInt, HasReturn: true},
+	"тип_параметра_метода":    {Params: []ir.Type{ir.TypeInt, ir.TypeInt}, ReturnType: ir.TypeTypeInfo, HasReturn: true},
+	"тип_результата_метода":   {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeTypeInfo, HasReturn: true},
+	"создать": {Params: []ir.Type{listOfAnyType}, ReturnType: ir.TypeAny, HasReturn: true},
+}
+
+// analyzeTypeOfExpr разбирает "тип <Имя>" - дескриптор типа Имя, известного
+// уже во время компиляции (аналог typeof(T)). Имя резолвится тем же
+// resolveTypeName, что и любое другое упоминание типа - сущность/структура
+// регистрируется в Program.ReflectTargets (backend генерирует под неё
+// дескриптор), примитив - нет (его дескриптор эмитится всегда).
+func analyzeTypeOfExpr(sc *ctx, e *ast.TypeOfExpr) (ir.Expr, error) {
+	t, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, e.TypeName)
+	if err != nil {
+		return nil, fmt.Errorf("строка %d: \"тип %s\": %w", e.Line, e.TypeName, err)
+	}
+	sc.a.markUsesReflection()
+	if t.Kind == ir.KindEntity {
+		sc.a.registerReflectTarget(t)
+	}
+	return &ir.TypeOfExpr{Type: t}, nil
+}
+
+// analyzeAsExpr разбирает "<значение> как <Имя>" - разбоксирование
+// "Значение" обратно к конкретному типу Имя, с проверкой в рантайме
+// (несовпадение реального типа - паника). Value обязан быть типа
+// "Значение" - "как" не общий оператор приведения (для этого уже есть
+// "(Тип) значение"), только парный к боксирующему касту.
+func analyzeAsExpr(sc *ctx, e *ast.AsExpr) (ir.Expr, error) {
+	value, err := analyzeExpr(sc, e.Value)
+	if err != nil {
+		return nil, err
+	}
+	if ir.TypeOf(value).Kind != ir.KindAny {
+		return nil, fmt.Errorf("строка %d: \"как\" применим только к \"Значение\", получено %s", e.Line, ir.TypeOf(value))
+	}
+	to, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, e.TypeName)
+	if err != nil {
+		return nil, fmt.Errorf("строка %d: \"как %s\": %w", e.Line, e.TypeName, err)
+	}
+	sc.a.markUsesReflection()
+	if to.Kind == ir.KindEntity {
+		sc.a.registerReflectTarget(to)
+	}
+	return &ir.AsExpr{Value: value, To: to}, nil
+}
