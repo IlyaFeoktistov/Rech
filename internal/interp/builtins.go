@@ -186,6 +186,15 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return intValue(dateToTime(args[0])), true
 	case "дата_в_строку":
 		return stringValue(dateToString(args[0])), true
+	case "подключиться_к_бд":
+		return dbConnect(args[0].S), true
+	case "запросить":
+		return in.dbQuery(args[0].DB, args[1].S, reflectListElems(args[2])), true
+	case "выполнить":
+		return in.dbExec(args[0].DB, args[1].S, reflectListElems(args[2])), true
+	case "закрыть_бд":
+		args[0].DB.Close()
+		return Value{}, true
 	case "закрыть_сокет":
 		switch {
 		case args[0].Conn != nil:

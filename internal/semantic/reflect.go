@@ -40,23 +40,23 @@ var anyMethodSigs = map[string]funcSig{
 // коллекций не поддерживаются (см. package doc), а заводить под одну эту
 // фичу исключение из общего правила - лишняя связанность.
 var typeInfoMethodSigs = map[string]funcSig{
-	"имя":           {Params: nil, ReturnType: ir.TypeString, HasReturn: true},
-	"число_полей":   {Params: nil, ReturnType: ir.TypeInt, HasReturn: true},
-	"имя_поля":      {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeString, HasReturn: true},
-	"тип_поля":      {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeTypeInfo, HasReturn: true},
+	"имя":         {Params: nil, ReturnType: ir.TypeString, HasReturn: true},
+	"число_полей": {Params: nil, ReturnType: ir.TypeInt, HasReturn: true},
+	"имя_поля":    {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeString, HasReturn: true},
+	"тип_поля":    {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeTypeInfo, HasReturn: true},
 	// "тег_поля" - значение ключа тега (`json:name, sql:user_name`, см.
 	// internal/structtag) у поля по индексу - "" нет тега или в нём нет
 	// такого ключа. Нужен библиотекам вроде ORM/сериализаторов, написанным
 	// на самом Rech: они не могут прочитать ir.Field.Tag напрямую (это
 	// компилятор), но могут пройти по полям через рефлексию и спросить свой
 	// собственный ключ тега у каждого.
-	"тег_поля": {Params: []ir.Type{ir.TypeInt, ir.TypeString}, ReturnType: ir.TypeString, HasReturn: true},
-	"число_методов": {Params: nil, ReturnType: ir.TypeInt, HasReturn: true},
-	"имя_метода":    {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeString, HasReturn: true},
+	"тег_поля":                {Params: []ir.Type{ir.TypeInt, ir.TypeString}, ReturnType: ir.TypeString, HasReturn: true},
+	"число_методов":           {Params: nil, ReturnType: ir.TypeInt, HasReturn: true},
+	"имя_метода":              {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeString, HasReturn: true},
 	"число_параметров_метода": {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeInt, HasReturn: true},
 	"тип_параметра_метода":    {Params: []ir.Type{ir.TypeInt, ir.TypeInt}, ReturnType: ir.TypeTypeInfo, HasReturn: true},
 	"тип_результата_метода":   {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeTypeInfo, HasReturn: true},
-	"создать": {Params: []ir.Type{listOfAnyType}, ReturnType: ir.TypeAny, HasReturn: true},
+	"создать":                 {Params: []ir.Type{listOfAnyType}, ReturnType: ir.TypeAny, HasReturn: true},
 }
 
 // analyzeTypeOfExpr разбирает "тип <Имя>" - дескриптор типа Имя, известного

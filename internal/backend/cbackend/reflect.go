@@ -267,10 +267,16 @@ const reflectPustoName = "Пусто"
 // и у Целое), Файл/Сокет/Вызываемый/Задача - НЕТ (рефлексия над
 // непрозрачными дескрипторами не имеет практического смысла, не
 // запрошена).
+// KindNull ("Ничто" как тип самого по себе, не "?Тип" - см. package doc
+// ir.KindNull) входит в этот список наравне с обычными примитивами - им
+// боксируется SQL NULL в результате "запросить" (internal/backend/
+// cbackend/db.go), проверяется как "результат.получить(колонка).
+// тип_значения().имя() == \"Ничто\"".
 var reflectPrimitiveKinds = []ir.TypeKind{
 	ir.KindInt, ir.KindInt8, ir.KindInt16, ir.KindInt32, ir.KindInt64,
 	ir.KindUint, ir.KindUint8, ir.KindUint16, ir.KindUint32, ir.KindUint64,
 	ir.KindFloat32, ir.KindFloat, ir.KindString, ir.KindBool, ir.KindChar, ir.KindByte,
+	ir.KindNull,
 }
 
 // reflectMetaName - имя C-переменной статического дескриптора для
@@ -289,9 +295,10 @@ func reflectMetaVarFor(t ir.Type) string {
 	return reflectMetaName(t.String())
 }
 
-// primitiveReflectDescriptors - статические дескрипторы примитивов и
-// синглтона "Пусто" - нулевые поля/методы/конструктор (примитив нельзя
-// рефлексивно "создать" - reflectCreateCall это проверяет в рантайме).
+// primitiveReflectDescriptors - статические дескрипторы примитивов
+// (включая KindNull, "Ничто") и синглтона "Пусто" - нулевые поля/методы/
+// конструктор (примитив нельзя рефлексивно "создать" - reflectCreateCall
+// это проверяет в рантайме).
 func primitiveReflectDescriptors() string {
 	var sb strings.Builder
 	for _, k := range reflectPrimitiveKinds {

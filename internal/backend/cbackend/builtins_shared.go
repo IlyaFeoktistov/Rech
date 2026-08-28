@@ -204,6 +204,17 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 	case "дата_в_строку":
 		flags.usesDateTime = true
 		return fmt.Sprintf("rech_date_to_string(%s)", args[0]), true
+	case "подключиться_к_бд":
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_db_connect(%s)", args[0]), true
+	case "запросить":
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_db_query(%s, %s, %s)", args[0], args[1], args[2]), true
+	case "выполнить":
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_db_exec(%s, %s, %s)", args[0], args[1], args[2]), true
+	case "закрыть_бд":
+		return fmt.Sprintf("rech_db_close(%s)", args[0]), true
 	case "стандартный_ввод":
 		flags.usesFileIO = true
 		return "stdin", true

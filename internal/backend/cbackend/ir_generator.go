@@ -281,6 +281,12 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 			usesGC = true
 		}
 	}
+	if prog.UsesDB {
+		// БД (internal/backend/cbackend/db.go) выделяет rech_db_t и копии
+		// текстовых значений через GC_MALLOC - независимо от того, есть ли в
+		// программе хоть одна ссылочная сущность.
+		usesGC = true
+	}
 	externCNames := map[string]string{}
 	for _, ext := range prog.ExternFuncs {
 		externCNames[ext.Alias] = ext.CName
@@ -770,6 +776,15 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 			return "", err
 		}
 		sb.WriteString(reflectCode)
+	}
+	if prog.UsesDB {
+		// После genericsCode (Список<Значение>/Список<Словарь<Строка,
+		// Значение>>/Словарь<Строка, Значение> уже эмитированы там - см.
+		// internal/semantic/db.go, dbResultType) и после primitiveReflectDescriptors
+		// (rech_db_substitute сравнивает .type с &rech_type_meta_Целое и т.
+		// п. - эмитируются безусловно вместе с rech_any_t, prog.UsesDB
+		// всегда влечёт prog.UsesReflection).
+		sb.WriteString(dbRuntimeCode())
 	}
 	// taskCode - обёртки "запустить"/"дождаться" (internal/backend/cbackend/
 	// concurrency.go) - ссылаются на &rech_<имя> обёрнутых функций (нужны
@@ -1736,6 +1751,7 @@ var irKindToValueType = map[ir.TypeKind]valueType{
 	ir.KindBool:     typeBool,
 	ir.KindFile:     typeFile,
 	ir.KindSocket:   typeSocket,
+	ir.KindDB:       typeDB,
 	ir.KindInt8:     typeInt8,
 	ir.KindInt16:    typeInt16,
 	ir.KindInt32:    typeInt32,

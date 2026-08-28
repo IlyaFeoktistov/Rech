@@ -87,6 +87,18 @@ func commonLinkFlags(src []byte) []string {
 	if bytes.Contains(src, []byte("#include <pthread.h>")) && runtime.GOOS != "windows" {
 		flags = append(flags, "-pthread")
 	}
+	// -lsqlite3/-lpq/-lmysqlclient - клиентские библиотеки БД
+	// (internal/backend/cbackend/db.go) - тот же принцип, что и -lgc выше:
+	// не входят в стандартный C-тулчейн, линкуются только когда программа
+	// реально использует "подключиться_к_бд"/"запросить"/"выполнить"/
+	// "закрыть_бд" (по маркеру в самом сгенерированном файле, а не по
+	// отдельному протащенному флагу). Все три - безусловно вместе (единый
+	// "БД" в языке выбирает конкретную СУБД в рантайме по схеме строки
+	// подключения, cbackend на этапе компиляции не знает, какая из них
+	// реально понадобится).
+	if bytes.Contains(src, []byte("rech_db_connect(")) {
+		flags = append(flags, "-lsqlite3", "-lpq", "-lmysqlclient")
+	}
 	if runtime.GOOS == "windows" {
 		// -lshell32 - CommandLineToArgvW (internal/backend/cbackend.
 		// argFuncHelper/rech_init_args): argv, который сам даёт CRT на

@@ -1,6 +1,6 @@
-// Package interp - Interpreter backend поверх internal/ir (шаг 5, второй
-// backend рядом с cbackend.GenerateFromIR, см. package doc internal/ir и
-// docs/ROADMAP.md, раздел "Шаг 5"). Исполняет *ir.Program напрямую, без
+// Package interp - Interpreter backend поверх internal/ir, второй backend
+// рядом с cbackend.GenerateFromIR (см. package doc internal/ir). Исполняет
+// *ir.Program напрямую, без
 // генерации C и без вызова системного компилятора - быстрый цикл разработки
 // и тестирования языка (в частности, unit-тесты этого пакета не зависят от
 // настоящего cc, в отличие от сквозной проверки cbackend через реальный
@@ -34,6 +34,7 @@ package interp
 
 import (
 	"bufio"
+	"database/sql"
 	"fmt"
 	"io"
 	"net"
@@ -127,6 +128,14 @@ type Value struct {
 	// Type.Kind == ir.KindTypeInfo ("Тип") использует S (имя типа), не
 	// Boxed - дескриптору типа нечего боксировать, он сам и есть значение.
 	Boxed *Value
+
+	// DB - непрозрачный дескриптор соединения с БД, Type.Kind == ir.KindDB -
+	// обёртка над database/sql поверх pure-Go драйверов (см. package doc
+	// internal/interp/db.go); один и тот же Go-тип для
+	// SQLite/PostgreSQL/MySQL, конкретный драйвер решён в рантайме по
+	// схеме строки подключения при "подключиться_к_бд", здесь это уже не
+	// видно.
+	DB *sql.DB
 }
 
 func intValue(v int64) Value     { return Value{Type: ir.TypeInt, I: v} }

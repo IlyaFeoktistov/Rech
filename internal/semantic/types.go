@@ -45,6 +45,7 @@ var primitiveTypes = map[string]ir.Type{
 	"Логическое":     ir.TypeBool,
 	"Файл":           ir.TypeFile,
 	"Сокет":          ir.TypeSocket,
+	"БД":             ir.TypeDB,
 	"Дробное":        ir.TypeFloat32,
 	"Символ":         ir.TypeChar,
 	"Байт":           ir.TypeByte,

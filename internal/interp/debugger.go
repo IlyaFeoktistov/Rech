@@ -513,6 +513,8 @@ func (d *Debugger) formatValue(v Value) string {
 		return "[файл]"
 	case ir.KindSocket:
 		return "[сокет]"
+	case ir.KindDB:
+		return "[бд]"
 	default:
 		return v.S
 	}

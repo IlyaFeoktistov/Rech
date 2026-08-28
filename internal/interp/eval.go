@@ -664,6 +664,8 @@ func (in *Interp) printValue(v Value) {
 		fmt.Fprintln(in.out, "[файл]")
 	case ir.KindSocket:
 		fmt.Fprintln(in.out, "[сокет]")
+	case ir.KindDB:
+		fmt.Fprintln(in.out, "[бд]")
 	case ir.KindEntity:
 		kind := "сущность"
 		if ent, ok := in.entities[v.Obj.typeName]; ok && ent.IsStruct {

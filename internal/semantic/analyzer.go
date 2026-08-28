@@ -81,6 +81,9 @@ type Analyzer struct {
 	// usesReflection - см. package doc ir.Program.UsesReflection.
 	usesReflection bool
 
+	// usesDB - см. package doc ir.Program.UsesDB.
+	usesDB bool
+
 	// indexedCollections - имена generic-инстанциаций (Список<T>/
 	// Словарь<К, В>), встретившихся хоть раз как получатель безопасной
 	// индексации "[]" (ir.ListIndexExpr/ir.DictIndexExpr) - см. package doc
@@ -148,6 +151,9 @@ func (a *Analyzer) registerReflectTarget(t ir.Type) { a.reflectTargets.add(t) }
 // и для примитивов (тип Целое, значение как Целое), которые в
 // reflectTargets не попадают.
 func (a *Analyzer) markUsesReflection() { a.usesReflection = true }
+
+// markUsesDB взводит usesDB - см. package doc ir.Program.UsesDB.
+func (a *Analyzer) markUsesDB() { a.usesDB = true }
 
 // collectEntities - предварительный проход: поля, сигнатуры методов и
 // производные типы состояний (aliases - "АвторизованныйПользователь" ->
@@ -354,6 +360,7 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 	funcs["запрос"] = funcSig{Params: []ir.Type{ir.EntityType("Запрос")}, ReturnType: ir.EntityType("Ответ"), HasReturn: true}
 	registerHTTPServerFuncs(funcs)
 	registerDateTimeFuncs(a.entities, funcs)
+	registerDBFuncs(funcs)
 	for _, fn := range prog.Functions {
 		if _, exists := funcs[fn.Name]; exists {
 			if builtins.IsReservedName(fn.Name) {
@@ -745,6 +752,7 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	out.XMLSerializeTargets = a.xmlSerializeTargets.order
 	out.ReflectTargets = a.reflectTargets.order
 	out.UsesReflection = a.usesReflection
+	out.UsesDB = a.usesDB
 
 	if err := a.collectCallables(out); err != nil {
 		return nil, err

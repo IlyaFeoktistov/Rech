@@ -60,6 +60,14 @@ type Program struct {
 	// сущности) - ReflectTargets в этом случае пуст, но дескрипторы
 	// примитивов (rech_type_meta_t) backend всё равно обязан emit'ить.
 	UsesReflection bool
+
+	// UsesDB - хоть раз в программе вызвана "подключиться_к_бд"/
+	// "запросить"/"выполнить"/"закрыть_бд" - backend'у нужно это знать,
+	// чтобы решить, эмитить ли рантайм БД (три драйвера сразу,
+	// диспетчеризация по схеме строки подключения в рантайме - см. package
+	// doc internal/backend/cbackend/db.go) и линковать ли клиентские
+	// библиотеки (-lsqlite3/-lpq/-lmysqlclient).
+	UsesDB bool
 }
 
 // ExternFuncDecl соответствует "внешняя функция <CName> [как <Alias>](...)"

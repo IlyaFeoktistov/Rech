@@ -39,6 +39,8 @@ func printCall(ctx *irGenCtx, typ valueType, code string) string {
 		return `printf("[файл]\n");`
 	case typeSocket:
 		return `printf("[сокет]\n");`
+	case typeDB:
+		return `printf("[бд]\n");`
 	default:
 		if typ.kind == kindEntity {
 			kind := "сущность"

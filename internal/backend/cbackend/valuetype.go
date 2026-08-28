@@ -23,6 +23,12 @@ const (
 	// kindSocket - непрозрачный дескриптор сетевого сокета - тот же принцип,
 	// что и kindFile, см. typedef rech_socket_t в socketHelpers.
 	kindSocket
+	// kindDB - непрозрачный дескриптор соединения с БД - представление в C
+	// одно и то же для SQLite/PostgreSQL/MySQL (указатель на собственную
+	// структуру-обёртку, несущую и настоящий handle драйвера, и тег того,
+	// какой это драйвер), см. typedef rech_db_t в internal/backend/cbackend/
+	// db.go.
+	kindDB
 	// kindTask - значение-дескриптор задачи ("запустить <имя>(...)") -
 	// entity несёт имя ОБЁРНУТОЙ ФУНКЦИИ, не тип результата (см.
 	// package doc internal/backend/cbackend/concurrency.go) - всегда
@@ -93,6 +99,7 @@ var (
 	typeBool    = valueType{kind: kindBool}
 	typeFile    = valueType{kind: kindFile}
 	typeSocket  = valueType{kind: kindSocket}
+	typeDB      = valueType{kind: kindDB}
 
 	typeInt8   = valueType{kind: kindInt8}
 	typeInt16  = valueType{kind: kindInt16}
@@ -150,6 +157,7 @@ var primitiveCTypes = map[valueType]string{
 	typeBool:     "bool",
 	typeFile:     "rech_file_t",
 	typeSocket:   "rech_socket_t",
+	typeDB:       "rech_db_t *",
 	typeInt8:     "int8_t",
 	typeInt16:    "int16_t",
 	typeInt32:    "int32_t",

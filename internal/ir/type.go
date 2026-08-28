@@ -32,6 +32,11 @@ const (
 	// без операторов, платформенно-разное представление (POSIX fd/Windows
 	// SOCKET) решает каждый потребитель сам.
 	KindSocket
+	// KindDB - непрозрачный дескриптор соединения с БД (SQLite/PostgreSQL/
+	// MySQL под одним и тем же именем "БД", различаются по схеме строки
+	// подключения в рантайме, не по Kind) - как и KindFile/KindSocket, без
+	// операторов, представление решает каждый потребитель сам.
+	KindDB
 	// KindInterface - значение интерфейсного типа - контракт на
 	// набор методов, которому соответствует конкретная сущность за
 	// значением (хранит её имя в Entity, тем же полем, что и KindEntity -
@@ -71,8 +76,7 @@ const (
 	// ширины (явные аналоги C int8_t/int16_t/int32_t/int64_t) - в отличие
 	// от KindInt ("Целое", уже 64-битное), участвуют в арифметике (+ - * /)
 	// СТРОГО между операндами одного и того же Kind, без неявной промоции
-	// (даже KindInt64 к KindInt, хотя оба 64-битные) - решение пользователя,
-	// см. docs/ROADMAP.md, Шаг 12.
+	// (даже KindInt64 к KindInt, хотя оба 64-битные).
 	KindInt8
 	KindInt16
 	KindInt32
@@ -112,6 +116,14 @@ const (
 	// Kind, не KindEntity - у nullable-обёртки нет ни полей/методов, ни
 	// vtable/JSON/рефлексии обычной сущности, путать с ними не нужно.
 	KindNullable
+	// KindNull - тип синглтон-значения "Ничто" САМОГО ПО СЕБЕ, не как часть
+	// "?Тип" (KindNullable) - нужен, чтобы боксированное "Значение" могло
+	// сообщить о своём типе "Ничто" через уже существующий общий путь
+	// (typeInfoValue/reflectMetaVarFor читают Type.String()) - конкретно,
+	// SQL NULL в результате "запросить" боксируется значением этого Kind
+	// (internal/backend/cbackend/db.go, internal/interp/db.go), других
+	// источников пока нет.
+	KindNull
 )
 
 // Type - тип значения выражения IR, уже разрешённый семантическим анализом
@@ -137,6 +149,7 @@ var (
 	TypeBool    = Type{Kind: KindBool}
 	TypeFile    = Type{Kind: KindFile}
 	TypeSocket  = Type{Kind: KindSocket}
+	TypeDB      = Type{Kind: KindDB}
 
 	TypeInt8  = Type{Kind: KindInt8}
 	TypeInt16 = Type{Kind: KindInt16}
@@ -149,8 +162,9 @@ var (
 	TypeUint32 = Type{Kind: KindUint32}
 	TypeUint64 = Type{Kind: KindUint64}
 
-	TypeAny      = Type{Kind: KindAny}
-	TypeTypeInfo = Type{Kind: KindTypeInfo}
+	TypeAny       = Type{Kind: KindAny}
+	TypeTypeInfo  = Type{Kind: KindTypeInfo}
+	TypeNullValue = Type{Kind: KindNull}
 )
 
 // IntWidthSigned возвращает битовую ширину и знаковость числового Kind,
@@ -273,6 +287,10 @@ func (t Type) String() string {
 		return "Файл"
 	case KindSocket:
 		return "Сокет"
+	case KindDB:
+		return "БД"
+	case KindNull:
+		return "Ничто"
 	case KindInt8:
 		return "Целое8"
 	case KindInt16:
