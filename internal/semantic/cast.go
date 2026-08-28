@@ -43,6 +43,45 @@ var equatableTypes = map[ir.Type]bool{
 	ir.TypeByte:    true,
 }
 
+// fixedWidthIntTypes - Целое8/16/32/64 и Натуральное/8/16/32/64 (шаг 12) -
+// в отличие от Целое (numericRanks, неявная промоция к Дробное/
+// Действительное), участвуют в "< > <= >= == !=" и в арифметике (+ - * /,
+// analyzeArithmetic) СТРОГО между операндами одного и того же Kind, без
+// какой-либо промоции - решение пользователя (см. docs/ROADMAP.md, Шаг 12:
+// "Целое8 + Целое16 - ошибка компиляции, нужен явный каст"). Заполняет
+// orderableTypes/equatableTypes и симметричный allowedCasts между собой и
+// уже существующими числовыми/Строка/Символ/Байт - вручную выписывать ~90
+// пар было бы избыточным риском опечатки/пропуска.
+var fixedWidthIntTypes = []ir.Type{
+	ir.TypeInt8, ir.TypeInt16, ir.TypeInt32, ir.TypeInt64,
+	ir.TypeUint, ir.TypeUint8, ir.TypeUint16, ir.TypeUint32, ir.TypeUint64,
+}
+
+func init() {
+	allNumeric := append([]ir.Type{ir.TypeInt, ir.TypeFloat32, ir.TypeFloat}, fixedWidthIntTypes...)
+	for _, t := range fixedWidthIntTypes {
+		orderableTypes[t] = true
+		equatableTypes[t] = true
+		if allowedCasts[t] == nil {
+			allowedCasts[t] = map[ir.Type]bool{}
+		}
+		for _, other := range allNumeric {
+			if other == t {
+				continue
+			}
+			allowedCasts[t][other] = true
+			if allowedCasts[other] == nil {
+				allowedCasts[other] = map[ir.Type]bool{}
+			}
+			allowedCasts[other][t] = true
+		}
+		for _, other := range []ir.Type{ir.TypeString, ir.TypeChar, ir.TypeByte} {
+			allowedCasts[t][other] = true
+			allowedCasts[other][t] = true
+		}
+	}
+}
+
 // allowedCasts - допустимые пары (исходный тип -> целевой тип) для явного
 // приведения "(Тип) значение". Строка на обоих концах - через разбор/
 // форматирование в рантайме (может провалиться на исходном значении,

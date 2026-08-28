@@ -120,11 +120,13 @@ func (in *Interp) evalUnary(e *ir.UnaryExpr, env *Env, cc *callCtx) (Value, erro
 	}
 	switch e.Op {
 	case "-":
-		switch v.Type {
-		case ir.TypeFloat:
+		switch {
+		case v.Type == ir.TypeFloat:
 			return floatValue(-v.F), nil
-		case ir.TypeFloat32:
+		case v.Type == ir.TypeFloat32:
 			return float32Value(-v.F), nil
+		case isFixedWidthInt(v.Type.Kind):
+			return Value{Type: v.Type, I: wrapFixedWidth(v.Type.Kind, -v.I)}, nil
 		default:
 			return intValue(-v.I), nil
 		}
@@ -153,11 +155,13 @@ func (in *Interp) evalIncDec(e *ir.IncDecExpr, env *Env) (Value, error) {
 		delta = -1
 	}
 	var updated Value
-	switch v.Type {
-	case ir.TypeFloat:
+	switch {
+	case v.Type == ir.TypeFloat:
 		updated = floatValue(v.F + float64(delta))
-	case ir.TypeFloat32:
+	case v.Type == ir.TypeFloat32:
 		updated = float32Value(v.F + float64(delta))
+	case isFixedWidthInt(v.Type.Kind):
+		updated = Value{Type: v.Type, I: wrapFixedWidth(v.Type.Kind, v.I+delta)}
 	default:
 		updated = intValue(v.I + delta)
 	}
@@ -261,6 +265,9 @@ func arithmetic(op string, l, r Value) Value {
 			return float32Value(lf / rf)
 		}
 	}
+	if l.Type == r.Type && isFixedWidthInt(l.Type.Kind) {
+		return fixedWidthArithmetic(op, l, r)
+	}
 	switch op {
 	case "+":
 		return intValue(l.I + r.I)
@@ -312,6 +319,22 @@ func compareOrdered(op string, l, r Value) Value {
 			return boolValue(lf <= rf)
 		case ">=":
 			return boolValue(lf >= rf)
+		}
+	}
+	// Натуральное* (беззнаковые шага 12) - сравнение через uint64, не
+	// int64: Натуральное64 > INT64_MAX выглядит отрицательным в l.I/r.I -
+	// та же причина, что и у fixedWidthArithmetic."/".
+	if isUnsignedFixedWidth(l.Type.Kind) {
+		lu, ru := uint64(l.I), uint64(r.I)
+		switch op {
+		case "<":
+			return boolValue(lu < ru)
+		case ">":
+			return boolValue(lu > ru)
+		case "<=":
+			return boolValue(lu <= ru)
+		case ">=":
+			return boolValue(lu >= ru)
 		}
 	}
 	switch op {
@@ -584,6 +607,13 @@ func (in *Interp) printValue(v Value) {
 		fmt.Fprintln(in.out, v.S)
 	case ir.KindInt, ir.KindByte:
 		fmt.Fprintln(in.out, strconv.FormatInt(v.I, 10))
+	case ir.KindInt8, ir.KindInt16, ir.KindInt32, ir.KindInt64:
+		fmt.Fprintln(in.out, strconv.FormatInt(v.I, 10))
+	case ir.KindUint, ir.KindUint8, ir.KindUint16, ir.KindUint32, ir.KindUint64:
+		// FormatUint(uint64(v.I)), не FormatInt - Натуральное64 может
+		// нести значение выше INT64_MAX, отображаемое как отрицательное,
+		// если печатать v.I напрямую как знаковое (см. wrapFixedWidth).
+		fmt.Fprintln(in.out, strconv.FormatUint(uint64(v.I), 10))
 	case ir.KindFloat, ir.KindFloat32:
 		fmt.Fprintln(in.out, formatFloatForPrint(v.F))
 	case ir.KindChar:
@@ -622,6 +652,10 @@ func (in *Interp) showValue(v Value) string {
 		return fmt.Sprintf("%s (Целое)", strconv.FormatInt(v.I, 10))
 	case ir.KindByte:
 		return fmt.Sprintf("%s (Байт)", strconv.FormatInt(v.I, 10))
+	case ir.KindInt8, ir.KindInt16, ir.KindInt32, ir.KindInt64:
+		return fmt.Sprintf("%s (%s)", strconv.FormatInt(v.I, 10), v.Type.String())
+	case ir.KindUint, ir.KindUint8, ir.KindUint16, ir.KindUint32, ir.KindUint64:
+		return fmt.Sprintf("%s (%s)", strconv.FormatUint(uint64(v.I), 10), v.Type.String())
 	case ir.KindFloat32:
 		return fmt.Sprintf("%s (Дробное)", formatFloatForPrint(v.F))
 	case ir.KindFloat:

@@ -22,12 +22,14 @@ func generateIRCastExpr(ctx *irGenCtx, e *ir.CastExpr) (string, valueType, error
 	if from == typeString && to != typeString {
 		ctx.usesCast = true
 		ctx.usesPanic = true // разбор строки может провалиться
-		switch to {
-		case typeChar:
+		switch {
+		case to == typeChar:
 			return fmt.Sprintf("rech_cast_str_to_char(%s)", code), typeChar, nil
-		case typeFloat, typeFloat32:
+		case to == typeFloat || to == typeFloat32:
 			return fmt.Sprintf("((%s)rech_cast_str_to_float(%s, \"%s\"))", to.cType(ctx), code, escapeCString(e.To.String())), to, nil
-		default: // typeInt, typeByte
+		case isUnsignedFixedWidth(to):
+			return fmt.Sprintf("((%s)rech_cast_str_to_uint(%s, \"%s\"))", to.cType(ctx), code, escapeCString(e.To.String())), to, nil
+		default: // typeInt, typeByte, знаковые Целое8/16/32/64
 			return fmt.Sprintf("((%s)rech_cast_str_to_int(%s, \"%s\"))", to.cType(ctx), code, escapeCString(e.To.String())), to, nil
 		}
 	}
@@ -39,12 +41,30 @@ func generateIRCastExpr(ctx *irGenCtx, e *ir.CastExpr) (string, valueType, error
 		if from == typeFloat || from == typeFloat32 {
 			return fmt.Sprintf("rech_cast_float_to_str((double)%s)", code), typeString, nil
 		}
+		if isUnsignedFixedWidth(from) {
+			// Не (long long) - Натуральное64 может нести значение выше
+			// INT64_MAX, которое signed-каст отобразил бы как отрицательное.
+			return fmt.Sprintf("rech_cast_uint_to_str((unsigned long long)%s)", code), typeString, nil
+		}
 		return fmt.Sprintf("rech_cast_int_to_str((long long)%s)", code), typeString, nil
 	}
 
 	// Прямое числовое приведение (в т. ч. Символ<->Целое/Байт) - обычный
 	// C-каст, без рантайм-хелпера.
 	return fmt.Sprintf("((%s)(%s))", to.cType(ctx), code), to, nil
+}
+
+// isUnsignedFixedWidth - vt один из Натуральное/Натуральное8/16/32/64
+// (шаг 12). Отдельная беззнаковая ветка при касте со/в "Строка" нужна,
+// потому что Натуральное64 может нести значение выше INT64_MAX - через
+// long long/strtoll оно ушло бы отрицательным или обрезалось бы неверно.
+func isUnsignedFixedWidth(vt valueType) bool {
+	switch vt {
+	case typeUint, typeUint8, typeUint16, typeUint32, typeUint64:
+		return true
+	default:
+		return false
+	}
 }
 
 // castHelpers - рантайм-хелперы для явных кастов, вовлекающих "Строка"
@@ -74,6 +94,17 @@ static long long rech_cast_str_to_int(const char *s, const char *type_name) {
     return v;
 }
 
+static unsigned long long rech_cast_str_to_uint(const char *s, const char *type_name) {
+    char *end;
+    unsigned long long v = strtoull(s, &end, 10);
+    if (end == s || *end != '\0') {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "каст (%s): \"%s\" не является целым числом", type_name, s);
+        rech_panic(msg);
+    }
+    return v;
+}
+
 static double rech_cast_str_to_float(const char *s, const char *type_name) {
     char *end;
     double v = strtod(s, &end);
@@ -83,6 +114,12 @@ static double rech_cast_str_to_float(const char *s, const char *type_name) {
         rech_panic(msg);
     }
     return v;
+}
+
+static char *rech_cast_uint_to_str(unsigned long long v) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%llu", v);
+    return rech_cast_alloc(buf, strlen(buf));
 }
 
 static char *rech_cast_int_to_str(long long v) {

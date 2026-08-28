@@ -470,7 +470,9 @@ func analyzeUnaryExpr(sc *ctx, e *ast.UnaryExpr) (ir.Expr, error) {
 	typ := ir.TypeOf(operand)
 	switch e.Op {
 	case "-":
-		if _, ok := numericRanks[typ]; !ok {
+		_, _, isFixedWidth := typ.Kind.IntWidthSigned()
+		_, isRanked := numericRanks[typ]
+		if !isRanked && !(isFixedWidth && typ.Kind != ir.KindInt) {
 			return nil, fmt.Errorf("строка %d: унарный \"-\" применим только к числам, получен %s", e.Line, typ)
 		}
 		return &ir.UnaryExpr{Op: e.Op, Operand: operand, Type: typ}, nil
@@ -500,7 +502,9 @@ func analyzeIncDecExpr(sc *ctx, e *ast.IncDecExpr) (ir.Expr, error) {
 	if sc.isConst(e.Name) {
 		return nil, fmt.Errorf("строка %d: %q объявлено как \"константа\" - нельзя изменить (%s)", e.Line, e.Name, e.Op)
 	}
-	if _, ok := numericRanks[typ]; !ok {
+	_, _, isFixedWidth := typ.Kind.IntWidthSigned()
+	_, isRanked := numericRanks[typ]
+	if !isRanked && !(isFixedWidth && typ.Kind != ir.KindInt) {
 		return nil, fmt.Errorf("строка %d: оператор %q применим только к Целое/Дробное/Действительное, получено %s", e.Line, e.Op, typ)
 	}
 	return &ir.IncDecExpr{Name: e.Name, Op: e.Op, Prefix: e.Prefix, Type: typ}, nil
@@ -565,6 +569,15 @@ func analyzeBinaryExpr(sc *ctx, e *ast.BinaryExpr) (ir.Expr, error) {
 // приведение операнда, если нужно, решает backend при генерации кода,
 // глядя на Type каждого операнда и Type результата.
 func analyzeArithmetic(e *ast.BinaryExpr, left ir.Expr, lt ir.Type, right ir.Expr, rt ir.Type) (ir.Expr, error) {
+	// Целое8/16/32/64, Натуральное/8/16/32/64 (шаг 12) - строго между
+	// операндами ОДНОГО И ТОГО ЖЕ Kind, без неявной промоции (в отличие от
+	// Целое/Дробное/Действительное ниже, numericRanks) - даже Целое64 к
+	// Целое не промоутится, хотя оба 64-битные (решение пользователя).
+	if lt == rt {
+		if _, _, ok := lt.Kind.IntWidthSigned(); ok && lt.Kind != ir.KindInt {
+			return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: lt}, nil
+		}
+	}
 	lr, lok := numericRanks[lt]
 	if !lok {
 		return nil, fmt.Errorf("строка %d: оператор %q не поддерживается для типа %s", e.Line, e.Op, lt)

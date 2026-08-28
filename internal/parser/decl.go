@@ -111,6 +111,7 @@ func (p *Parser) parseExternFuncDecl() (*ast.ExternFuncDecl, error) {
 		if err != nil {
 			return nil, fmt.Errorf("после \":\" у внешней функции %q ожидалось имя типа результата: %w", alias, err)
 		}
+		returnType = normalizeReturnType(returnType)
 	}
 
 	return &ast.ExternFuncDecl{CName: cName.Value, Alias: alias, Params: params, ReturnType: returnType, Line: kw.Line}, nil
@@ -242,6 +243,7 @@ func (p *Parser) parseFunction() (*ast.FunctionDecl, error) {
 		if err != nil {
 			return nil, fmt.Errorf("после \":\" у функции %q ожидалось имя типа результата: %w", name.Value, err)
 		}
+		returnType = normalizeReturnType(returnType)
 	}
 
 	if name.Value == entryPointName && (len(params) > 0 || returnType != "") {
@@ -299,6 +301,20 @@ func (p *Parser) parseParams() ([]ast.Param, error) {
 // (internal/backend/cbackend, resolveType). "<"/">" - уже существующие
 // токены LT/GT (операторы сравнения) - неоднозначности с выражениями нет,
 // это отдельная синтаксическая позиция (сразу после имени типа).
+// normalizeReturnType - "Пусто" как тип результата (шаг 12) - чисто
+// синтаксическая форма "нет типа результата", эквивалентная полностью
+// пропущенной аннотации ": Тип" (docs/ROADMAP.md, шаг 12) - схлопывается
+// сюда же, в самом парсере, чтобы дальше по конвейеру (семантика,
+// backend'ы) вообще не знали об этом имени. Только для ВОЗВРАЩАЕМОГО
+// типа - как обычное имя типа параметра/поля "Пусто" не имеет смысла и не
+// нормализуется (см. вызовы parseTypeName без этой обёртки).
+func normalizeReturnType(t string) string {
+	if t == "Пусто" {
+		return ""
+	}
+	return t
+}
+
 func (p *Parser) parseTypeName() (string, error) {
 	name, err := p.expect(lexer.IDENT)
 	if err != nil {

@@ -41,6 +41,19 @@ const (
 	// устройство чужой C-структуры Rech не знает и не описывает, только
 	// передаёт указатель дальше между внешними/обычными функциями.
 	kindExternEntity
+	// kindInt8/16/32/64, kindUint/8/16/32/64 - Целое8/16/32/64,
+	// Натуральное/8/16/32/64 (шаг 12) - C stdint.h-типы напрямую
+	// (int8_t/uint32_t/...), <stdint.h> уже безусловно включён в каждый
+	// сгенерированный файл (см. generateSource).
+	kindInt8
+	kindInt16
+	kindInt32
+	kindInt64
+	kindUint
+	kindUint8
+	kindUint16
+	kindUint32
+	kindUint64
 )
 
 // valueType - тип значения выражения C-кодогенерации. Структура (не голое
@@ -66,6 +79,16 @@ var (
 	typeBool    = valueType{kind: kindBool}
 	typeFile    = valueType{kind: kindFile}
 	typeSocket  = valueType{kind: kindSocket}
+
+	typeInt8   = valueType{kind: kindInt8}
+	typeInt16  = valueType{kind: kindInt16}
+	typeInt32  = valueType{kind: kindInt32}
+	typeInt64  = valueType{kind: kindInt64}
+	typeUint   = valueType{kind: kindUint}
+	typeUint8  = valueType{kind: kindUint8}
+	typeUint16 = valueType{kind: kindUint16}
+	typeUint32 = valueType{kind: kindUint32}
+	typeUint64 = valueType{kind: kindUint64}
 )
 
 // entityType возвращает valueType, соответствующий значению сущности name.
@@ -104,6 +127,15 @@ var primitiveCTypes = map[valueType]string{
 	typeBool:    "bool",
 	typeFile:    "rech_file_t",
 	typeSocket:  "rech_socket_t",
+	typeInt8:    "int8_t",
+	typeInt16:   "int16_t",
+	typeInt32:   "int32_t",
+	typeInt64:   "int64_t",
+	typeUint:    "uint64_t",
+	typeUint8:   "uint8_t",
+	typeUint16:  "uint16_t",
+	typeUint32:  "uint32_t",
+	typeUint64:  "uint64_t",
 }
 
 // cType - C-тип, соответствующий t. Для kindEntity зависит от того,

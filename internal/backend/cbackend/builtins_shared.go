@@ -344,6 +344,18 @@ var intDivHelper = fmt.Sprintf(`static long long rech_int_div(long long a, long 
 }
 `, rtmsg.DivisionByZero)
 
+// uintDivHelper - то же самое, что intDivHelper, но для беззнаковых
+// Натуральное/8/16/32/64 (шаг 12) - через uint64_t, не long long: значение
+// Натуральное64 выше INT64_MAX интерпретировалось бы rech_int_div как
+// отрицательное (см. её package doc и generateIRArithmetic).
+var uintDivHelper = fmt.Sprintf(`static uint64_t rech_uint_div(uint64_t a, uint64_t b) {
+    if (b == 0) {
+        rech_panic("%s");
+    }
+    return a / b;
+}
+`, rtmsg.DivisionByZero)
+
 // readHelpers - прочитать_строку/прочитать_целое/прочитать_число (шаг 8, без
 // FFI - стандартный ввод есть у любой программы). rech_read_line
 // намеренно не использует POSIX-only getline (шаг 8 явно требует

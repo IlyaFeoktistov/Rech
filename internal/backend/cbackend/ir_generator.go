@@ -37,6 +37,13 @@ type irGenCtx struct {
 	builtinFlags
 	// usesIntDiv - нужен ли rech_int_div (см. generateIRArithmetic).
 	usesIntDiv bool
+	// usesUintDiv - нужен ли rech_uint_div (см. generateIRArithmetic) -
+	// то же самое, что usesIntDiv, но для беззнаковых Натуральное/8/16/32/64
+	// (шаг 12): деление без знака - genuinely другая C-операция (не просто
+	// другая ширина), нельзя пропустить через rech_int_div без риска
+	// интерпретировать большое Натуральное64 (> INT64_MAX как знаковое
+	// отрицательное).
+	usesUintDiv bool
 	// usesShow - нужны ли функции показа (rech_show_...) - генерируются
 	// только если "показать" реально встретилось в программе.
 	usesShow bool
@@ -521,6 +528,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	}
 	if ctx.usesIntDiv {
 		sb.WriteString(intDivHelper)
+		sb.WriteString("\n")
+	}
+	if ctx.usesUintDiv {
+		sb.WriteString(uintDivHelper)
 		sb.WriteString("\n")
 	}
 	if ctx.usesConsoleInput {
@@ -1284,6 +1295,14 @@ func generateIRUnaryExpr(ctx *irGenCtx, e *ir.UnaryExpr) (string, valueType, err
 	typ := fromIRType(e.Type)
 	switch e.Op {
 	case "-":
+		// Целое8/16/32/64, Натуральное/8/16/32/64 (шаг 12) - явный
+		// каст обратно к своему C-типу: обычные арифметические
+		// преобразования C иначе оставили бы результат в более широком
+		// типе (int), не усекая/оборачивая его на переполнении - тот же
+		// принцип, что и в generateIRArithmetic.
+		if _, _, ok := e.Type.Kind.IntWidthSigned(); ok && e.Type.Kind != ir.KindInt {
+			return fmt.Sprintf("((%s)(-%s))", typ.cType(ctx), code), typ, nil
+		}
 		return fmt.Sprintf("(-%s)", code), typ, nil
 	case "не":
 		return fmt.Sprintf("(!%s)", code), typeBool, nil
@@ -1354,6 +1373,33 @@ func generateIRBinaryExpr(ctx *irGenCtx, e *ir.BinaryExpr) (string, valueType, e
 // операнда к double при смешении Целое/Число - та же промоция, что и в
 // generateIRArithmetic.
 func generateIRArithmetic(ctx *irGenCtx, op string, lc string, lt ir.Type, rc string, rt ir.Type) (string, valueType, error) {
+	// Целое8/16/32/64, Натуральное/8/16/32/64 (шаг 12) - строго между
+	// операндами одного и того же Kind (internal/semantic уже это
+	// гарантировал, analyzeArithmetic) - результат явно приводится к
+	// C-типу самого Kind (cType), чтобы усечение/оборачивание при
+	// переполнении произошло НА УРОВНЕ ВЫРАЖЕНИЯ (не только при
+	// присваивании) - иначе результат промежуточного `a + b` без
+	// присваивания остался бы в более широком типе после обычных
+	// арифметических преобразований C. "/" - отдельный рантайм-хелпер с
+	// панике на ноль (как и у Целое, rech_int_div) - rech_uint_div для
+	// беззнаковых, чтобы не интерпретировать Натуральное64 > INT64_MAX как
+	// отрицательное значение через rech_int_div.
+	if lt == rt {
+		if _, signed, ok := lt.Kind.IntWidthSigned(); ok && lt.Kind != ir.KindInt {
+			vt := fromIRType(lt)
+			cType := vt.cType(ctx)
+			if op == "/" {
+				ctx.usesPanic = true
+				if signed {
+					ctx.usesIntDiv = true
+					return fmt.Sprintf("((%s)rech_int_div((long long)%s, (long long)%s))", cType, lc, rc), vt, nil
+				}
+				ctx.usesUintDiv = true
+				return fmt.Sprintf("((%s)rech_uint_div((uint64_t)%s, (uint64_t)%s))", cType, lc, rc), vt, nil
+			}
+			return fmt.Sprintf("((%s)(%s %s %s))", cType, lc, op, rc), vt, nil
+		}
+	}
 	if lt == ir.TypeFloat || rt == ir.TypeFloat {
 		if lt == ir.TypeInt {
 			lc = fmt.Sprintf("((double)%s)", lc)
@@ -1453,6 +1499,15 @@ var irKindToValueType = map[ir.TypeKind]valueType{
 	ir.KindBool:    typeBool,
 	ir.KindFile:    typeFile,
 	ir.KindSocket:  typeSocket,
+	ir.KindInt8:    typeInt8,
+	ir.KindInt16:   typeInt16,
+	ir.KindInt32:   typeInt32,
+	ir.KindInt64:   typeInt64,
+	ir.KindUint:    typeUint,
+	ir.KindUint8:   typeUint8,
+	ir.KindUint16:  typeUint16,
+	ir.KindUint32:  typeUint32,
+	ir.KindUint64:  typeUint64,
 }
 
 func fromIRType(t ir.Type) valueType {

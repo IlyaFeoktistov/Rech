@@ -33,6 +33,7 @@ func (p *Parser) parseLambdaExpr() (*ast.LambdaExpr, error) {
 		if err != nil {
 			return nil, fmt.Errorf("после \":\" у лямбды ожидалось имя типа результата: %w", err)
 		}
+		returnType = normalizeReturnType(returnType)
 	}
 
 	p.skipNewlines()
@@ -107,7 +108,7 @@ func (p *Parser) parseCallableTypeName(name lexer.Token) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("после \":\" в типе результата %q: %w", name.Value, err)
 		}
-		result = r
+		result = normalizeReturnType(r)
 	}
 	return fmt.Sprintf("%s<%s>%s", name.Value, strings.Join(params, ", "), result), nil
 }

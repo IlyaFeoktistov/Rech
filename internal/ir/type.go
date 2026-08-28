@@ -67,6 +67,26 @@ const (
 	// дальше как есть, без полей/методов/"новый". Entity несёт Rech-facing
 	// псевдоним (тем же полем, что и KindEntity/KindInterface/KindTask).
 	KindExternEntity
+	// KindInt8/16/32/64 - "Целое8/16/32/64", знаковые целые фиксированной
+	// ширины (явные аналоги C int8_t/int16_t/int32_t/int64_t) - в отличие
+	// от KindInt ("Целое", уже 64-битное), участвуют в арифметике (+ - * /)
+	// СТРОГО между операндами одного и того же Kind, без неявной промоции
+	// (даже KindInt64 к KindInt, хотя оба 64-битные) - решение пользователя,
+	// см. docs/ROADMAP.md, Шаг 12.
+	KindInt8
+	KindInt16
+	KindInt32
+	KindInt64
+	// KindUint/8/16/32/64 - "Натуральное"/"Натуральное8/16/32/64", целые без
+	// знака ([0, 2^N-1], не "Целое с проверкой на отрицательность") - тот же
+	// принцип строгой (без промоции) арифметики, что и у KindInt8..64.
+	// Приведение между знаковым и беззнаковым - только через явный каст,
+	// никогда неявно (см. docs/ROADMAP.md).
+	KindUint
+	KindUint8
+	KindUint16
+	KindUint32
+	KindUint64
 )
 
 // Type - тип значения выражения IR, уже разрешённый семантическим анализом
@@ -92,7 +112,54 @@ var (
 	TypeBool    = Type{Kind: KindBool}
 	TypeFile    = Type{Kind: KindFile}
 	TypeSocket  = Type{Kind: KindSocket}
+
+	TypeInt8  = Type{Kind: KindInt8}
+	TypeInt16 = Type{Kind: KindInt16}
+	TypeInt32 = Type{Kind: KindInt32}
+	TypeInt64 = Type{Kind: KindInt64}
+
+	TypeUint   = Type{Kind: KindUint}
+	TypeUint8  = Type{Kind: KindUint8}
+	TypeUint16 = Type{Kind: KindUint16}
+	TypeUint32 = Type{Kind: KindUint32}
+	TypeUint64 = Type{Kind: KindUint64}
 )
+
+// IntWidthSigned возвращает битовую ширину и знаковость числового Kind,
+// участвующего в строгой (без неявной промоции) целочисленной арифметике -
+// KindInt ("Целое") и девять новых Kind фиксированной ширины/знаковости
+// (KindInt8..64, KindUint..64). ok=false для любого другого Kind, в т. ч.
+// KindByte/KindChar (у них своя, отдельная семантика - "код/индекс, не
+// число для вычислений", арифметика над ними не поддерживается вовсе, см.
+// internal/semantic/cast.go). Единая точка истины про ширину/знаковость -
+// используется семантикой (арифметика/касты), cbackend (C-тип) и interp
+// (усечение при переполнении/сравнение без знака), чтобы не разойтись.
+func (k TypeKind) IntWidthSigned() (bits int, signed bool, ok bool) {
+	switch k {
+	case KindInt:
+		return 64, true, true
+	case KindInt8:
+		return 8, true, true
+	case KindInt16:
+		return 16, true, true
+	case KindInt32:
+		return 32, true, true
+	case KindInt64:
+		return 64, true, true
+	case KindUint:
+		return 64, false, true
+	case KindUint8:
+		return 8, false, true
+	case KindUint16:
+		return 16, false, true
+	case KindUint32:
+		return 32, false, true
+	case KindUint64:
+		return 64, false, true
+	default:
+		return 0, false, false
+	}
+}
 
 // EntityType возвращает Type, соответствующий значению сущности name.
 func EntityType(name string) Type {
@@ -169,6 +236,24 @@ func (t Type) String() string {
 		return "Файл"
 	case KindSocket:
 		return "Сокет"
+	case KindInt8:
+		return "Целое8"
+	case KindInt16:
+		return "Целое16"
+	case KindInt32:
+		return "Целое32"
+	case KindInt64:
+		return "Целое64"
+	case KindUint:
+		return "Натуральное"
+	case KindUint8:
+		return "Натуральное8"
+	case KindUint16:
+		return "Натуральное16"
+	case KindUint32:
+		return "Натуральное32"
+	case KindUint64:
+		return "Натуральное64"
 	default:
 		return "неизвестный тип"
 	}

@@ -47,6 +47,15 @@ var primitiveTypes = map[string]ir.Type{
 	"Дробное":        ir.TypeFloat32,
 	"Символ":         ir.TypeChar,
 	"Байт":           ir.TypeByte,
+	"Целое8":         ir.TypeInt8,
+	"Целое16":        ir.TypeInt16,
+	"Целое32":        ir.TypeInt32,
+	"Целое64":        ir.TypeInt64,
+	"Натуральное":    ir.TypeUint,
+	"Натуральное8":   ir.TypeUint8,
+	"Натуральное16":  ir.TypeUint16,
+	"Натуральное32":  ir.TypeUint32,
+	"Натуральное64":  ir.TypeUint64,
 }
 
 // resolveTypeName - единственное место, где имя типа Rech (строка из AST)

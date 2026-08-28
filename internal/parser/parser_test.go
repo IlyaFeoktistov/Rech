@@ -60,6 +60,24 @@ func TestParseFunctionParamsAndReturnType(t *testing.T) {
 	}
 }
 
+// TestParseFunctionExplicitPustoReturnTypeNormalizesToEmpty - "Пусто" как
+// тип результата (шаг 12) - чисто синтаксическая форма "нет типа
+// результата", эквивалентная полностью пропущенной аннотации ": Тип" -
+// парсер схлопывает её в "" (см. normalizeReturnType), а не оставляет
+// строку "Пусто" для семантики/backend'ов.
+func TestParseFunctionExplicitPustoReturnTypeNormalizesToEmpty(t *testing.T) {
+	prog, err := parseSource(t, `
+функция поприветствовать(имя: Строка): Пусто { вывести имя }
+функция главная { вывести "ок" }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if prog.Functions[0].ReturnType != "" {
+		t.Fatalf("ожидался пустой тип результата (Пусто == нет аннотации), получено %q", prog.Functions[0].ReturnType)
+	}
+}
+
 func TestParseFunctionArbitraryParamNameWithoutCaseRole(t *testing.T) {
 	// Параметр без падежной роли (одно слово, не входящее в список из
 	// шести) - обычный, только позиционный параметр. Раньше это было

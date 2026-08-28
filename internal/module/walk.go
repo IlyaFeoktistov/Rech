@@ -40,6 +40,15 @@ var builtinTypeBases = map[string]bool{
 	"Словарь":        true,
 	"ДатаВремя":      true,
 	"ОшибкаРазбора":  true,
+	"Целое8":         true,
+	"Целое16":        true,
+	"Целое32":        true,
+	"Целое64":        true,
+	"Натуральное":    true,
+	"Натуральное8":   true,
+	"Натуральное16":  true,
+	"Натуральное32":  true,
+	"Натуральное64":  true,
 }
 
 // resolveBareName ищет name (имя функции или простого - не generic - типа)

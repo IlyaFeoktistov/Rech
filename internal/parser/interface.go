@@ -68,6 +68,7 @@ func (p *Parser) parseInterfaceMethod() (ast.InterfaceMethod, error) {
 			if err != nil {
 				return ast.InterfaceMethod{}, fmt.Errorf("после \":\" у метода %q ожидалось имя типа результата: %w", name.Value, err)
 			}
+			returnType = normalizeReturnType(returnType)
 		}
 	}
 	return ast.InterfaceMethod{Name: name.Value, Params: params, ReturnType: returnType, SelfReturn: selfReturn, Line: name.Line}, nil

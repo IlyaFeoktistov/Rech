@@ -151,6 +151,7 @@ func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
 			if err != nil {
 				return nil, fmt.Errorf("после \":\" у метода %q ожидалось имя типа результата: %w", name.Value, err)
 			}
+			returnType = normalizeReturnType(returnType)
 		}
 	}
 	p.skipNewlines()
