@@ -172,6 +172,27 @@ func JSONFieldMissing(field string) string {
 // исполнения) без рантайм-форматирования на стороне C.
 const JSONValueMismatch = "разобрать JSON: значение имеет несовместимый тип"
 
+// XMLParseError/XMLFieldMissing/XMLValueMismatch - те же роли, что
+// JSONParseError/JSONFieldMissing/JSONValueMismatch выше, для "разобрать
+// XML"/"сериализовать XML" - отдельные сообщения (не общие с JSON), чтобы
+// текст ошибки указывал на реально использованный формат.
+const XMLParseError = "разобрать XML: текст не является корректным XML"
+
+func XMLFieldMissing(field string) string {
+	return fmt.Sprintf("разобрать XML: отсутствует поле %q", field)
+}
+
+// XMLFieldDuplicated - сообщение, когда у скалярного (не Список<T>) поля
+// нашлось больше одного XML-элемента с совпадающим именем - в отличие от
+// JSON (объект физически не может иметь два одинаковых ключа в этом
+// разборе), повторяющиеся XML-теги синтаксически допустимы, поэтому это
+// отдельная, специфичная для XML ошибка.
+func XMLFieldDuplicated(field string) string {
+	return fmt.Sprintf("разобрать XML: поле %q повторяется более одного раза", field)
+}
+
+const XMLValueMismatch = "разобрать XML: значение имеет несовместимый тип"
+
 // UncaughtExceptionFormat - сообщение при "выбросить", которое не поймал ни
 // один охватывающий "попытаться"/"поймать" - typeName - фактическая
 // сущность выброшенного значения (не обязательно "Исключение" само по

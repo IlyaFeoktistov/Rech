@@ -32,6 +32,9 @@ func (in *Interp) evalParseExpr(e *ir.ParseExpr, env *Env, cc *callCtx) (Value, 
 	if err != nil {
 		return Value{}, err
 	}
+	if e.Format == "XML" {
+		return in.evalXMLParseExpr(e, src)
+	}
 	var raw any
 	if err := json.Unmarshal([]byte(src.S), &raw); err != nil {
 		return Value{}, in.jsonParseFail(rtmsg.JSONParseError)

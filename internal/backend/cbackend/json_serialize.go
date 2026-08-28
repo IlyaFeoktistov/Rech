@@ -223,6 +223,10 @@ func generateIRSerializeExpr(ctx *irGenCtx, e *ir.SerializeExpr) (string, valueT
 		return "", typeUnknown, err
 	}
 	t := ir.TypeOf(e.Value)
+	if e.Format == "XML" {
+		code := fmt.Sprintf("%s(%s)", xmlToStringWrapperName(t), valueCode)
+		return code, typeString, nil
+	}
 	code := fmt.Sprintf("%s(%s)", jsonToStringWrapperName(t), valueCode)
 	return code, typeString, nil
 }

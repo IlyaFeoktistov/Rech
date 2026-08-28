@@ -61,46 +61,44 @@ type Analyzer struct {
 	// нумерации одних и тех же лямбд).
 	lambdaCounter int
 
-	// parseTargetsSeen/parseTargetOrder - дедупликация целевых типов
-	// "разобрать JSON ... как <Тип>" на весь Analyze, тем же принципом, что
-	// callablesSeen/callableOrder - см. registerParseTarget.
-	parseTargetsSeen map[string]bool
-	parseTargetOrder []ir.Type
-
-	// serializeTargetsSeen/serializeTargetOrder - тот же принцип, что
-	// parseTargetsSeen/parseTargetOrder выше, для "сериализовать JSON ...".
-	serializeTargetsSeen map[string]bool
-	serializeTargetOrder []ir.Type
+	// parseTargets/serializeTargets/xmlParseTargets/xmlSerializeTargets -
+	// дедуплицированные по имени типа списки целей "разобрать"/
+	// "сериализовать" (JSON/XML отдельно - backend генерирует разные
+	// функции для одного и того же Rech-типа в зависимости от формата) -
+	// тем же принципом, что callablesSeen/callableOrder. См. dedupTypeList.
+	parseTargets        dedupTypeList
+	serializeTargets    dedupTypeList
+	xmlParseTargets     dedupTypeList
+	xmlSerializeTargets dedupTypeList
 }
 
-// registerSerializeTarget - см. registerParseTarget, тот же принцип для
-// "сериализовать JSON ...".
-func (a *Analyzer) registerSerializeTarget(t ir.Type) {
-	if a.serializeTargetsSeen == nil {
-		a.serializeTargetsSeen = map[string]bool{}
+// dedupTypeList - список ir.Type без повторов (по Type.String()), в
+// порядке первой встречи - используется для Program.ParseTargets и его
+// трёх аналогов (SerializeTargets/XMLParseTargets/XMLSerializeTargets) -
+// каждый список независим (один и тот же Rech-тип может встретиться как
+// цель JSON-разбора, XML-разбора и сериализации одновременно, backend
+// генерирует под каждую комбинацию свою функцию).
+type dedupTypeList struct {
+	seen  map[string]bool
+	order []ir.Type
+}
+
+func (l *dedupTypeList) add(t ir.Type) {
+	if l.seen == nil {
+		l.seen = map[string]bool{}
 	}
 	key := t.String()
-	if a.serializeTargetsSeen[key] {
+	if l.seen[key] {
 		return
 	}
-	a.serializeTargetsSeen[key] = true
-	a.serializeTargetOrder = append(a.serializeTargetOrder, t)
+	l.seen[key] = true
+	l.order = append(l.order, t)
 }
 
-// registerParseTarget добавляет t в Program.ParseTargets (см. package doc),
-// если такой тип (по строковому имени) ещё не встречался - см.
-// analyzeParseExpr.
-func (a *Analyzer) registerParseTarget(t ir.Type) {
-	if a.parseTargetsSeen == nil {
-		a.parseTargetsSeen = map[string]bool{}
-	}
-	key := t.String()
-	if a.parseTargetsSeen[key] {
-		return
-	}
-	a.parseTargetsSeen[key] = true
-	a.parseTargetOrder = append(a.parseTargetOrder, t)
-}
+func (a *Analyzer) registerParseTarget(t ir.Type)        { a.parseTargets.add(t) }
+func (a *Analyzer) registerSerializeTarget(t ir.Type)    { a.serializeTargets.add(t) }
+func (a *Analyzer) registerXMLParseTarget(t ir.Type)     { a.xmlParseTargets.add(t) }
+func (a *Analyzer) registerXMLSerializeTarget(t ir.Type) { a.xmlSerializeTargets.add(t) }
 
 // collectEntities - предварительный проход: поля, сигнатуры методов и
 // производные типы состояний (aliases - "АвторизованныйПользователь" ->
@@ -667,8 +665,10 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 			Fields: []ir.Field{{Name: "сообщение", Type: ir.TypeString}},
 		})
 	}
-	out.ParseTargets = a.parseTargetOrder
-	out.SerializeTargets = a.serializeTargetOrder
+	out.ParseTargets = a.parseTargets.order
+	out.SerializeTargets = a.serializeTargets.order
+	out.XMLParseTargets = a.xmlParseTargets.order
+	out.XMLSerializeTargets = a.xmlSerializeTargets.order
 
 	if err := a.collectCallables(out); err != nil {
 		return nil, err

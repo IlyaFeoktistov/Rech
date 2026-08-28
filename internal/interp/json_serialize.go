@@ -19,6 +19,9 @@ func (in *Interp) evalSerializeExpr(e *ir.SerializeExpr, env *Env, cc *callCtx) 
 	if err != nil {
 		return Value{}, err
 	}
+	if e.Format == "XML" {
+		return in.evalXMLSerializeExpr(v), nil
+	}
 	var sb strings.Builder
 	in.jsonSerialize(&sb, v)
 	return stringValue(sb.String()), nil

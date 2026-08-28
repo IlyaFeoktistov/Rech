@@ -15,7 +15,7 @@
 // jsonRuntimeCode генерирует ОДНУ функцию извлечения
 // "rech_json_extract_<mangled>(rech_jv v) -> <CType>", проверяющую вид
 // JSON-значения и либо возвращающую C-значение целевого типа, либо
-// вызывающую rech_json_throw - несовпадение (отсутствующее поле/не тот вид
+// вызывающую rech_struct_throw - несовпадение (отсутствующее поле/не тот вид
 // JSON-значения) выбрасывает перехватываемое "ОшибкаРазбора" через уже
 // существующий канал исключений (rech_throw, exceptions.go), не
 // rech_panic: JSON-текст - внешние данные, ошибка в нём - не баг
@@ -35,6 +35,18 @@ import (
 // parseErrorEntity - см. internal/semantic/parse.go, тот же принцип общего
 // идентификатора константы, что и systemExceptionEntity.
 const parseErrorEntity = "ОшибкаРазбора"
+
+// structParseThrowHelperCode - rech_struct_throw - общий для JSON- и
+// XML-разбора (обе стороны просто вызывают "выбросить" уже существующим
+// каналом, rech_throw/exceptions.go) - эмитится один раз, когда нужен хотя
+// бы один из двух форматов (len(ParseTargets) > 0 || len(XMLParseTargets)
+// > 0, см. ir_generator.go), а не отдельно в jsonRuntimeCode/xmlRuntimeCode
+// - иначе программа, использующая оба формата, получила бы два одинаковых
+// определения этой функции.
+func structParseThrowHelperCode() string {
+	return fmt.Sprintf("static void rech_struct_throw(const char *msg) {\n    rech_throw(%s(msg), \"%s\");\n}\n\n",
+		mangleCtor(parseErrorEntity), escapeCString(parseErrorEntity))
+}
 
 func mangleJSONExtractor(name string) string {
 	return "rech_json_extract_" + transliterate(name)
@@ -76,8 +88,6 @@ func jsonRuntimeCode(ctx *irGenCtx, prog *ir.Program, targets []ir.Type) (string
 	}
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "#define RECH_JSON_PARSE_ERR \"%s\"\n", escapeCString(rtmsg.JSONParseError))
-	fmt.Fprintf(&sb, "static void rech_json_throw(const char *msg) {\n    rech_throw(%s(msg), \"%s\");\n}\n\n",
-		mangleCtor(parseErrorEntity), escapeCString(parseErrorEntity))
 	sb.WriteString(jsonParserCode)
 	sb.WriteString(g.code.String())
 	return sb.String(), nil
@@ -130,7 +140,7 @@ func (g *jsonExtractorGen) ensure(t ir.Type) error {
 }
 
 func jsonPrimitiveExtractorCode(name string, t ir.Type) string {
-	mismatch := fmt.Sprintf("rech_json_throw(\"%s\");", escapeCString(rtmsg.JSONValueMismatch))
+	mismatch := fmt.Sprintf("rech_struct_throw(\"%s\");", escapeCString(rtmsg.JSONValueMismatch))
 	switch t.Kind {
 	case ir.KindInt:
 		return fmt.Sprintf(`static long long %s(rech_jv v) {
@@ -176,7 +186,7 @@ func (g *jsonExtractorGen) jsonListExtractorCode(gi ir.GenericInstantiation) str
 	listC := mangleType(gi.Name)
 	addFn := mangleMethod(gi.Name, "добавить")
 	elemExtractor := jsonExtractorNameFor(gi.ElemType)
-	mismatch := fmt.Sprintf("rech_json_throw(\"%s\");", escapeCString(rtmsg.JSONValueMismatch))
+	mismatch := fmt.Sprintf("rech_struct_throw(\"%s\");", escapeCString(rtmsg.JSONValueMismatch))
 	return fmt.Sprintf(`static %[1]s %[2]s(rech_jv v) {
     if (v.kind != RECH_JV_ARR) { %[3]s }
     %[1]s out = {0};
@@ -191,7 +201,7 @@ func (g *jsonExtractorGen) jsonListExtractorCode(gi ir.GenericInstantiation) str
 
 func (g *jsonExtractorGen) jsonEntityExtractorCode(ent *ir.Entity) string {
 	retC := fromIRType(ir.EntityType(ent.Name)).cType(g.ctx)
-	mismatch := fmt.Sprintf("rech_json_throw(\"%s\");", escapeCString(rtmsg.JSONValueMismatch))
+	mismatch := fmt.Sprintf("rech_struct_throw(\"%s\");", escapeCString(rtmsg.JSONValueMismatch))
 
 	var decls strings.Builder
 	args := make([]string, len(ent.Fields))
@@ -200,7 +210,7 @@ func (g *jsonExtractorGen) jsonEntityExtractorCode(ent *ir.Entity) string {
 		extractor := jsonExtractorNameFor(f.Type)
 		fvVar := fmt.Sprintf("fv%d", i)
 		foundVar := fmt.Sprintf("found%d", i)
-		missing := fmt.Sprintf("rech_json_throw(\"%s\");", escapeCString(rtmsg.JSONFieldMissing(f.Name)))
+		missing := fmt.Sprintf("rech_struct_throw(\"%s\");", escapeCString(rtmsg.JSONFieldMissing(f.Name)))
 		fmt.Fprintf(&decls, "    bool %s;\n", foundVar)
 		fmt.Fprintf(&decls, "    rech_jv %s = rech_json_obj_get(v, \"%s\", &%s);\n", fvVar, escapeCString(f.Name), foundVar)
 		fmt.Fprintf(&decls, "    if (!%s) { %s }\n", foundVar, missing)
@@ -248,6 +258,10 @@ func generateIRParseExpr(ctx *irGenCtx, e *ir.ParseExpr) (string, valueType, err
 	if err != nil {
 		return "", typeUnknown, err
 	}
+	if e.Format == "XML" {
+		code := fmt.Sprintf("%s(rech_xml_parse(%s))", xmlExtractorNameFor(e.To), srcCode)
+		return code, fromIRType(e.To), nil
+	}
 	code := fmt.Sprintf("%s(rech_json_parse(%s))", jsonExtractorNameFor(e.To), srcCode)
 	return code, fromIRType(e.To), nil
 }
@@ -277,7 +291,7 @@ typedef struct rech_jv {
 typedef struct { const char *cur; } rech_jvp;
 
 static rech_jv rech_json_parse_value(rech_jvp *p);
-static void rech_json_throw(const char *msg);
+static void rech_struct_throw(const char *msg);
 
 static void rech_jv_skip_ws(rech_jvp *p) {
     while (*p->cur == ' ' || *p->cur == '\t' || *p->cur == '\n' || *p->cur == '\r') {
@@ -331,7 +345,7 @@ static unsigned int rech_jv_hex_digit(char c) {
     if (c >= '0' && c <= '9') return (unsigned int)(c - '0');
     if (c >= 'a' && c <= 'f') return (unsigned int)(c - 'a' + 10);
     if (c >= 'A' && c <= 'F') return (unsigned int)(c - 'A' + 10);
-    rech_json_throw(RECH_JSON_PARSE_ERR);
+    rech_struct_throw(RECH_JSON_PARSE_ERR);
     return 0;
 }
 
@@ -350,7 +364,7 @@ static char *rech_json_parse_string_raw(rech_jvp *p) {
     rech_jv_sb_init(&sb);
     for (;;) {
         unsigned char c = (unsigned char)*p->cur;
-        if (c == '\0') rech_json_throw(RECH_JSON_PARSE_ERR);
+        if (c == '\0') rech_struct_throw(RECH_JSON_PARSE_ERR);
         if (c == '"') { p->cur++; break; }
         if (c == '\\') {
             p->cur++;
@@ -370,18 +384,18 @@ static char *rech_json_parse_string_raw(rech_jvp *p) {
                     if (cp >= 0xD800 && cp <= 0xDBFF && p->cur[0] == '\\' && p->cur[1] == 'u') {
                         p->cur += 2;
                         unsigned int lo = rech_jv_hex4(p);
-                        if (lo < 0xDC00 || lo > 0xDFFF) rech_json_throw(RECH_JSON_PARSE_ERR);
+                        if (lo < 0xDC00 || lo > 0xDFFF) rech_struct_throw(RECH_JSON_PARSE_ERR);
                         cp = 0x10000u + ((cp - 0xD800u) << 10) + (lo - 0xDC00u);
                     }
                     rech_jv_sb_utf8(&sb, cp);
                     break;
                 }
                 default:
-                    rech_json_throw(RECH_JSON_PARSE_ERR);
+                    rech_struct_throw(RECH_JSON_PARSE_ERR);
             }
             continue;
         }
-        if (c < 0x20) rech_json_throw(RECH_JSON_PARSE_ERR);
+        if (c < 0x20) rech_struct_throw(RECH_JSON_PARSE_ERR);
         rech_jv_sb_putc(&sb, (char)c);
         p->cur++;
     }
@@ -408,7 +422,7 @@ static rech_jv rech_json_parse_array(rech_jvp *p) {
         rech_jv_skip_ws(p);
         if (*p->cur == ',') { p->cur++; rech_jv_skip_ws(p); continue; }
         if (*p->cur == ']') { p->cur++; break; }
-        rech_json_throw(RECH_JSON_PARSE_ERR);
+        rech_struct_throw(RECH_JSON_PARSE_ERR);
     }
     return v;
 }
@@ -424,10 +438,10 @@ static rech_jv rech_json_parse_object(rech_jvp *p) {
     v.keys = GC_MALLOC(sizeof(char *) * (size_t)cap);
     for (;;) {
         rech_jv_skip_ws(p);
-        if (*p->cur != '"') rech_json_throw(RECH_JSON_PARSE_ERR);
+        if (*p->cur != '"') rech_struct_throw(RECH_JSON_PARSE_ERR);
         char *key = rech_json_parse_string_raw(p);
         rech_jv_skip_ws(p);
-        if (*p->cur != ':') rech_json_throw(RECH_JSON_PARSE_ERR);
+        if (*p->cur != ':') rech_struct_throw(RECH_JSON_PARSE_ERR);
         p->cur++;
         rech_jv val = rech_json_parse_value(p);
         if (v.count >= cap) {
@@ -445,7 +459,7 @@ static rech_jv rech_json_parse_object(rech_jvp *p) {
         rech_jv_skip_ws(p);
         if (*p->cur == ',') { p->cur++; continue; }
         if (*p->cur == '}') { p->cur++; break; }
-        rech_json_throw(RECH_JSON_PARSE_ERR);
+        rech_struct_throw(RECH_JSON_PARSE_ERR);
     }
     return v;
 }
@@ -462,7 +476,7 @@ static rech_jv rech_json_parse_value(rech_jvp *p) {
     if (c == '{') return rech_json_parse_object(p);
     if (c == '[') return rech_json_parse_array(p);
     if (c == 't') {
-        if (strncmp(p->cur, "true", 4) != 0) rech_json_throw(RECH_JSON_PARSE_ERR);
+        if (strncmp(p->cur, "true", 4) != 0) rech_struct_throw(RECH_JSON_PARSE_ERR);
         p->cur += 4;
         rech_jv v = {0};
         v.kind = RECH_JV_BOOL;
@@ -470,7 +484,7 @@ static rech_jv rech_json_parse_value(rech_jvp *p) {
         return v;
     }
     if (c == 'f') {
-        if (strncmp(p->cur, "false", 5) != 0) rech_json_throw(RECH_JSON_PARSE_ERR);
+        if (strncmp(p->cur, "false", 5) != 0) rech_struct_throw(RECH_JSON_PARSE_ERR);
         p->cur += 5;
         rech_jv v = {0};
         v.kind = RECH_JV_BOOL;
@@ -478,7 +492,7 @@ static rech_jv rech_json_parse_value(rech_jvp *p) {
         return v;
     }
     if (c == 'n') {
-        if (strncmp(p->cur, "null", 4) != 0) rech_json_throw(RECH_JSON_PARSE_ERR);
+        if (strncmp(p->cur, "null", 4) != 0) rech_struct_throw(RECH_JSON_PARSE_ERR);
         p->cur += 4;
         rech_jv v = {0};
         v.kind = RECH_JV_NULL;
@@ -487,14 +501,14 @@ static rech_jv rech_json_parse_value(rech_jvp *p) {
     if (c == '-' || (c >= '0' && c <= '9')) {
         char *end;
         double n = strtod(p->cur, &end);
-        if (end == p->cur) rech_json_throw(RECH_JSON_PARSE_ERR);
+        if (end == p->cur) rech_struct_throw(RECH_JSON_PARSE_ERR);
         p->cur = end;
         rech_jv v = {0};
         v.kind = RECH_JV_NUM;
         v.num = n;
         return v;
     }
-    rech_json_throw(RECH_JSON_PARSE_ERR);
+    rech_struct_throw(RECH_JSON_PARSE_ERR);
     rech_jv v = {0};
     return v;
 }
@@ -505,7 +519,7 @@ static rech_jv rech_json_parse(const char *text) {
     rech_jv_skip_ws(&p);
     rech_jv v = rech_json_parse_value(&p);
     rech_jv_skip_ws(&p);
-    if (*p.cur != '\0') rech_json_throw(RECH_JSON_PARSE_ERR);
+    if (*p.cur != '\0') rech_struct_throw(RECH_JSON_PARSE_ERR);
     return v;
 }
 

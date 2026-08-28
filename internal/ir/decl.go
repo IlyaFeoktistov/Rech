@@ -30,6 +30,15 @@ type Program struct {
 	// "сериализовать JSON <выражение>" - тот же принцип, что и
 	// ParseTargets (см. package doc там), но для обратного направления.
 	SerializeTargets []Type
+	// XMLParseTargets/XMLSerializeTargets - те же две роли, что
+	// ParseTargets/SerializeTargets, но для "разобрать XML"/"сериализовать
+	// XML" - отдельные списки (не общие с JSON), потому что backend
+	// генерирует РАЗНЫЕ функции извлечения/сериализации для одного и того
+	// же Rech-типа в зависимости от формата (rech_json_extract_<T> против
+	// rech_xml_extract_<T>) - совместное использование одного списка
+	// потребовало бы нести формат в каждой записи.
+	XMLParseTargets     []Type
+	XMLSerializeTargets []Type
 }
 
 // ExternFuncDecl соответствует "внешняя функция <CName> [как <Alias>](...)"

@@ -50,6 +50,44 @@ func TestParseParseExprGenericTarget(t *testing.T) {
 	}
 }
 
+func TestParseParseExprXML(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная
+{
+    переменная текст = "<a/>"
+    переменная п = разобрать XML текст как Пользователь
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	stmt := prog.Functions[0].Body[1].(*ast.VarDecl)
+	pe := stmt.Value.(*ast.ParseExpr)
+	if pe.Format != "XML" {
+		t.Fatalf("ожидался формат XML, получено %q", pe.Format)
+	}
+}
+
+func TestParseSerializeExprXML(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная
+{
+    переменная п = сериализовать XML 42
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	stmt := prog.Functions[0].Body[0].(*ast.VarDecl)
+	se, ok := stmt.Value.(*ast.SerializeExpr)
+	if !ok {
+		t.Fatalf("ожидался *ast.SerializeExpr, получено %T", stmt.Value)
+	}
+	if se.Format != "XML" {
+		t.Fatalf("ожидался формат XML, получено %q", se.Format)
+	}
+}
+
 func TestParseParseExprRequiresAs(t *testing.T) {
 	_, err := parseSource(t, `
 функция главная

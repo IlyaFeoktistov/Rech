@@ -104,6 +104,7 @@ const (
 	KwParse       // разобрать (разобрать JSON <выражение> как <Тип>)
 	KwSerialize   // сериализовать (сериализовать JSON <выражение>)
 	KwJSON        // JSON (формат-маркер после "разобрать"/"сериализовать", не склоняется)
+	KwXML         // XML (формат-маркер после "разобрать"/"сериализовать", не склоняется)
 )
 
 // keywords - таблица ключевых слов v0.1. Список сознательно узкий:
@@ -175,6 +176,7 @@ var keywords = map[string]TokenType{
 	"разобрать":      KwParse,
 	"сериализовать":  KwSerialize,
 	"JSON":           KwJSON,
+	"XML":            KwXML,
 }
 
 // Token - одна лексема с позицией в исходном файле (для сообщений об ошибках).
@@ -361,6 +363,8 @@ func (t TokenType) String() string {
 		return "сериализовать"
 	case KwJSON:
 		return "JSON"
+	case KwXML:
+		return "XML"
 	default:
 		return "UNKNOWN"
 	}

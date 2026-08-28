@@ -947,3 +947,37 @@ func TestGenerateFromIRCharLiteral(t *testing.T) {
 		t.Fatalf("ожидался код точки 'я' (1103) в выводе, получено:\n%s", out)
 	}
 }
+
+// TestGenerateFromIREntityWithGenericFieldOrdering - найденный вручную баг
+// (не через тест): сущность с полем встроенной generic-коллекции по
+// значению (например, "товары: Список<Строка>") требует, чтобы C-typedef
+// коллекции (genericsCode) был объявлен РАНЬШЕ typedef самой сущности
+// (typedefs) - иначе "unknown type name" в сгенерированном C (компилятор
+// видит тип поля раньше его typedef). Элементы встроенных коллекций -
+// только примитивы, значит обратная зависимость (коллекция несёт сущность
+// как элемент) невозможна и порядок genericsCode-до-typedefs всегда
+// безопасен.
+func TestGenerateFromIREntityWithGenericFieldOrdering(t *testing.T) {
+	prog := &ir.Program{
+		Entities: []*ir.Entity{
+			{Name: "Корзина", Fields: []ir.Field{{Name: "товары", Type: ir.EntityType("Список<Строка>")}}},
+		},
+		Generics: []ir.GenericInstantiation{{Name: "Список<Строка>", Template: "Список", ElemType: ir.TypeString}},
+		Functions: []*ir.Function{{Name: "главная", Body: []ir.Stmt{
+			&ir.VarDecl{Name: "т", Value: &ir.NewExpr{Entity: "Список<Строка>"}},
+			&ir.VarDecl{Name: "к", Value: &ir.NewExpr{Entity: "Корзина", Args: []ir.Expr{&ir.Identifier{Name: "т", Type: ir.EntityType("Список<Строка>")}}}},
+		}}},
+	}
+	out, err := GenerateFromIR(prog)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	listDefPos := strings.Index(out, "} "+mangleType("Список<Строка>")+";")
+	entityDefPos := strings.Index(out, "} "+mangleType("Корзина")+";")
+	if listDefPos < 0 || entityDefPos < 0 {
+		t.Fatalf("не найдены оба typedef в выводе:\n%s", out)
+	}
+	if listDefPos > entityDefPos {
+		t.Fatalf("typedef Список<Строка> должен идти раньше typedef Корзина, получено:\n%s", out)
+	}
+}
