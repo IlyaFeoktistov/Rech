@@ -6,6 +6,7 @@
 //	rech build [--keep-c] --lib <файл.rech>|<каталог>|-c "<код>"  - собрать разделяемую библиотеку (.so/.dylib/.dll) + C-заголовок (.h)
 //	rech run [--keep-c] <файл.rech>|<каталог>|-c "<код>"          - собрать и выполнить
 //	rech test <файл.rech>|<каталог>                                - найти и запустить тесты
+//	rech install                                                   - скачать/обновить кеш внешних зависимостей (.rechproj, "зависимости:")
 //	rech debug                                                     - сервер DAP по stdin/stdout (для VS Code)
 //	rech lsp                                                       - сервер LSP по stdin/stdout (hover/автодополнение, для VS Code)
 //	rech version                                                   - напечатать версию
@@ -70,6 +71,14 @@ func main() {
 		return
 	}
 
+	if cmd == "install" {
+		if err := installDeps(); err != nil {
+			fmt.Fprintln(os.Stderr, "ошибка:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	if cmd == "debug" {
 		// Без аргументов командной строки - в отличие от build/run/test,
 		// цель отладки ("program") приходит не отсюда, а внутри самого
@@ -118,6 +127,7 @@ func main() {
 	// тогда ниже всё идёт как раньше, без переноса бинарника.
 	var outDir, projName string
 	var extraLibs []string
+	var projectDeps map[string]string
 	if !hasCode {
 		projPath := srcPath
 		if projPath == "" {
@@ -153,6 +163,12 @@ func main() {
 			// библиотеке (см. package doc project.File.Библиотеки), значит без
 			// .rechproj сборке неоткуда узнать список для линковки.
 			extraLibs = pf.Библиотеки()
+			if deps, derr := resolveDeps(pf); derr != nil {
+				fmt.Fprintln(os.Stderr, "ошибка:", derr)
+				os.Exit(1)
+			} else {
+				projectDeps = deps
+			}
 		}
 	}
 
@@ -162,6 +178,7 @@ func main() {
 	}
 
 	comp := InitializeCompiler()
+	comp.Deps = projectDeps
 	build := func() (string, error) { return comp.Build(srcPath, keepC, extraLibs) }
 	buildLib := func() (string, string, error) { return comp.BuildLib(srcPath, keepC, extraLibs) }
 	if hasCode {
@@ -280,7 +297,7 @@ func parseBuildArgs(args []string) (srcPath, code string, keepC, hasCode, isLib 
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "использование: rech build [--keep-c] [--lib] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech run [--keep-c] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech test <файл.rech>|<каталог> | rech debug | rech lsp | rech init [имя] | rech version")
+	fmt.Fprintln(os.Stderr, "использование: rech build [--keep-c] [--lib] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech run [--keep-c] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech test <файл.rech>|<каталог> | rech install | rech debug | rech lsp | rech init [имя] | rech version")
 }
 
 // testDotsPerLine - сколько точек/"F" печатать в строке прогресса, прежде
