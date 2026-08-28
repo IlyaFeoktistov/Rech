@@ -11,6 +11,8 @@
 // (semantic.Analyze -> cbackend.GenerateFromIR), не напрямую по AST.
 package ir
 
+import "github.com/IlyaFeoktistov/Rech/internal/structtag"
+
 // Program - корень IR-дерева программы.
 type Program struct {
 	Functions []*Function
@@ -232,6 +234,23 @@ type Field struct {
 	// знает; (2) когда у сущности есть явный Ctor - backend присваивает его
 	// полю ДО тела конструктора (см. package doc Entity.Ctor).
 	Default Expr
+	// Tag - см. ast.Field.Tag - копируется без изменений, разбирается лениво
+	// через JSONKey/internal/structtag.Parse там, где нужен конкретный ключ.
+	Tag string
+}
+
+// JSONKey - внешнее имя поля в JSON: значение ключа "json" тега (см.
+// internal/structtag), если оно задано, иначе - само имя поля Rech. Нужен
+// и разбору ("разобрать JSON ... как <Тип>"), и сериализации ("сериализовать
+// JSON ..."), чтобы оставаться согласованными друг с другом (backend'ы
+// вызывают этот же метод, а не смотрят на f.Name напрямую) - см.
+// internal/backend/cbackend/json_extract.go, json_serialize.go,
+// internal/interp/json.go, json_serialize.go.
+func (f Field) JSONKey() string {
+	if key := structtag.Parse(f.Tag).Get("json"); key != "" {
+		return key
+	}
+	return f.Name
 }
 
 // Method - метод сущности: как Function, но получатель ("этот") неявный -

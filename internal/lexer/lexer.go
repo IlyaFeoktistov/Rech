@@ -227,6 +227,8 @@ func (l *Lexer) next() (Token, error) {
 		return l.readString(line, col)
 	case r == '\'':
 		return l.readChar(line, col)
+	case r == '`':
+		return l.readTag(line, col)
 	case unicode.IsDigit(r):
 		return l.readNumber(line, col), nil
 	case unicode.IsLetter(r) || r == '_':
@@ -423,6 +425,28 @@ func (l *Lexer) readChar(line, col int) (Token, error) {
 	}
 	l.advance() // закрывающая '
 	return Token{Type: CHAR, Value: string(value), Line: line, Col: col}, nil
+}
+
+// readTag разбирает "`ключ:значение ...`" (тег поля, см. internal/structtag) -
+// сырая строка без экранирования (как Go raw string) - переносы строк
+// внутри не поддержаны (тег - однострочная аннотация).
+func (l *Lexer) readTag(line, col int) (Token, error) {
+	l.advance() // "`"
+	start := l.pos
+	for {
+		if l.pos >= len(l.src) {
+			return Token{}, fmt.Errorf("строка %d, столбец %d: тег не закрыт (нет \"`\")", line, col)
+		}
+		if l.peek() == '\n' {
+			return Token{}, fmt.Errorf("строка %d, столбец %d: перенос строки внутри тега не поддерживается", line, col)
+		}
+		if l.peek() == '`' {
+			text := string(l.src[start:l.pos])
+			l.advance()
+			return Token{Type: TAG, Value: text, Line: line, Col: col}, nil
+		}
+		l.advance()
+	}
 }
 
 // validateUTF8 - небольшая защита от бинарного мусора на входе;

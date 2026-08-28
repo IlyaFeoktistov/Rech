@@ -126,3 +126,25 @@ func TestLexerCharLiteralRejectsEmptyAndMultiChar(t *testing.T) {
 		t.Fatal("ожидалась ошибка на символьном литерале из нескольких символов")
 	}
 }
+
+func TestLexerTag(t *testing.T) {
+	toks, err := New("`json:name, sql:user_name`").Tokenize()
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if len(toks) != 2 || toks[0].Type != TAG {
+		t.Fatalf("ожидался один токен TAG + EOF, получено %v", toks)
+	}
+	if want := "json:name, sql:user_name"; toks[0].Value != want {
+		t.Fatalf("значение тега: ожидалось %q, получено %q", want, toks[0].Value)
+	}
+}
+
+func TestLexerTagRejectsUnclosedAndNewline(t *testing.T) {
+	if _, err := New("`json:name").Tokenize(); err == nil {
+		t.Fatal("ожидалась ошибка на незакрытом теге")
+	}
+	if _, err := New("`json:name\n`").Tokenize(); err == nil {
+		t.Fatal("ожидалась ошибка на переносе строки внутри тега")
+	}
+}

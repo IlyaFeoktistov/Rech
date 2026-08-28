@@ -125,6 +125,47 @@ func TestAnalyzeParseExprRejectsEntityWithCustomConstructor(t *testing.T) {
 	}
 }
 
+func TestAnalyzeParseExprJSONTagRenamesField(t *testing.T) {
+	prog, err := AnalyzeSource(t, "" +
+		"сущность Пользователь\n" +
+		"{\n" +
+		"    имеет:\n" +
+		"        имя: Строка `json:name`\n" +
+		"}\n" +
+		"функция главная\n" +
+		"{\n" +
+		"    переменная п = разобрать JSON \"{}\" как Пользователь\n" +
+		"}\n")
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	for _, ent := range prog.Entities {
+		if ent.Name != "Пользователь" {
+			continue
+		}
+		if got := ent.Fields[0].JSONKey(); got != "name" {
+			t.Fatalf("JSONKey поля имя: ожидалось %q (из тега), получено %q", "name", got)
+		}
+	}
+}
+
+func TestAnalyzeParseExprRejectsDuplicateJSONKey(t *testing.T) {
+	_, err := AnalyzeSource(t, "" +
+		"сущность Пользователь\n" +
+		"{\n" +
+		"    имеет:\n" +
+		"        имя: Строка `json:name`\n" +
+		"        name: Строка\n" +
+		"}\n" +
+		"функция главная\n" +
+		"{\n" +
+		"    переменная п = разобрать JSON \"{}\" как Пользователь\n" +
+		"}\n")
+	if err == nil || !strings.Contains(err.Error(), "одинаковый JSON-ключ") {
+		t.Fatalf("ожидалась ошибка про конфликт JSON-ключей, получено: %v", err)
+	}
+}
+
 func TestAnalyzeParseExprRejectsIncompatibleField(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 сущность Плохая

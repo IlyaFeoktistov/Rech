@@ -48,6 +48,7 @@ typedef struct {
     const rech_type_meta_t *type;
     rech_field_getter_t get;
     rech_field_setter_t set;
+    const char *tag;
 } rech_field_meta_t;
 
 typedef rech_any_t (*rech_method_invoker_t)(void *self, rech_any_t *args, int argc);
@@ -159,6 +160,48 @@ static void rech_reflect_set_field(rech_any_t self, const char *name, rech_any_t
 `, escapeCString(rtmsg.ReflectIndexOutOfRangeTemplate), escapeCString(rtmsg.ReflectIndexOutOfRangeTemplate),
 	escapeCString(rtmsg.ReflectIndexOutOfRangeTemplate), escapeCString(rtmsg.ReflectFieldNotFoundTemplate),
 	escapeCString(rtmsg.ReflectFieldNotFoundTemplate))
+
+// reflectTagLookupHelper - "тег_поля(индекс, ключ)": rech_field_meta_t.tag
+// несёт сырой текст тега поля ("json:name, sql:user_name", "" - тега нет) -
+// rech_tag_lookup разбирает его на лету тем же способом, что и
+// internal/structtag.Parse (пары "ключ:значение" через запятую, пробелы
+// вокруг ключа/значения/запятой не значимы) и возвращает копию найденного
+// значения (GC_MALLOC - тот же принцип управления памятью, что и весь
+// остальной рантайм cbackend) либо "" - тега нет или искомого ключа в нём
+// нет.
+const reflectTagLookupHelper = `static const char *rech_tag_lookup(const char *tag, const char *key) {
+    if (!tag) return "";
+    size_t keylen = strlen(key);
+    const char *p = tag;
+    while (*p) {
+        while (*p == ' ' || *p == ',') p++;
+        if (!*p) break;
+        const char *kstart = p;
+        while (*p && *p != ':' && *p != ',') p++;
+        const char *kend = p;
+        while (kend > kstart && kend[-1] == ' ') kend--;
+        if (*p != ':') {
+            if (*p == ',') p++;
+            continue;
+        }
+        p++;
+        while (*p == ' ') p++;
+        const char *vstart = p;
+        while (*p && *p != ',') p++;
+        const char *vend = p;
+        while (vend > vstart && vend[-1] == ' ') vend--;
+        if ((size_t)(kend - kstart) == keylen && strncmp(kstart, key, keylen) == 0) {
+            size_t vlen = (size_t)(vend - vstart);
+            char *out = GC_MALLOC(vlen + 1);
+            memcpy(out, vstart, vlen);
+            out[vlen] = '\0';
+            return out;
+        }
+        if (*p == ',') p++;
+    }
+    return "";
+}
+`
 
 // reflectAnyListType/reflectAnyListCType - "Список<Значение>", тип
 // аргументов "вызвать"/"создать" - та же строка, которую строит
@@ -403,6 +446,8 @@ func generateIRTypeInfoMethodCall(ctx *irGenCtx, e *ir.MethodCallExpr) (string, 
 		return fmt.Sprintf("rech_field_at(%s, %s)->name", recvCode, argCodes[0]), typeString, nil
 	case "тип_поля":
 		return fmt.Sprintf("rech_field_at(%s, %s)->type", recvCode, argCodes[0]), typeTypeInfo, nil
+	case "тег_поля":
+		return fmt.Sprintf("rech_tag_lookup(rech_field_at(%s, %s)->tag, %s)", recvCode, argCodes[0], argCodes[1]), typeString, nil
 	case "число_методов":
 		return fmt.Sprintf("(%s)->method_count", recvCode), typeInt, nil
 	case "имя_метода":
@@ -685,8 +730,8 @@ func (g *reflectGen) typeDescriptorCode(ent *ir.Entity, ems []effectiveReflectMe
 		fieldsArr = metaName + "_fields"
 		fmt.Fprintf(&sb, "static const rech_field_meta_t %s[] = {\n", fieldsArr)
 		for _, f := range ent.Fields {
-			fmt.Fprintf(&sb, "    {\"%s\", &%s, %s, %s},\n", escapeCString(f.Name), reflectMetaVarFor(f.Type),
-				reflectGetterName(ent.Name, f.Name), reflectSetterName(ent.Name, f.Name))
+			fmt.Fprintf(&sb, "    {\"%s\", &%s, %s, %s, \"%s\"},\n", escapeCString(f.Name), reflectMetaVarFor(f.Type),
+				reflectGetterName(ent.Name, f.Name), reflectSetterName(ent.Name, f.Name), escapeCString(f.Tag))
 		}
 		sb.WriteString("};\n")
 	}

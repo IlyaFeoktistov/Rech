@@ -53,6 +53,7 @@ func (a *Analyzer) applyInheritance(entities map[string]entitySig, methods map[s
 			FieldNames:        append(append([]string{}, baseSig.FieldNames...), ownSig.FieldNames...),
 			FieldTypes:        append(append([]ir.Type{}, baseSig.FieldTypes...), ownSig.FieldTypes...),
 			FieldDocs:         append(append([]string{}, baseSig.FieldDocs...), ownSig.FieldDocs...),
+			FieldTags:         append(append([]string{}, baseSig.FieldTags...), ownSig.FieldTags...),
 			FieldVisibility:   append(append([]ast.Visibility{}, baseSig.FieldVisibility...), ownSig.FieldVisibility...),
 			FieldDefaultExprs: append(append([]ast.Expr{}, baseSig.FieldDefaultExprs...), ownSig.FieldDefaultExprs...),
 			ConstNames:        append(append([]string{}, baseSig.ConstNames...), ownSig.ConstNames...),

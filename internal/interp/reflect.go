@@ -12,6 +12,7 @@ import (
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
+	"github.com/IlyaFeoktistov/Rech/internal/structtag"
 )
 
 // typeInfoValue строит "Тип" для t - имя берётся из ir.Type.String()
@@ -96,6 +97,9 @@ func (in *Interp) evalTypeInfoMethod(recv Value, e *ir.MethodCallExpr, env *Env,
 	case "тип_поля":
 		f := indexField(ent, args[0].I, recv.S)
 		return typeInfoValue(f.Type), nil
+	case "тег_поля":
+		f := indexField(ent, args[0].I, recv.S)
+		return stringValue(structtag.Parse(f.Tag).Get(args[1].S)), nil
 	case "число_методов":
 		if ent == nil {
 			return intValue(0), nil

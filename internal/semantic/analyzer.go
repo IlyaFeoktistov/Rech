@@ -243,6 +243,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 			sig.FieldNames = append(sig.FieldNames, f.Name)
 			sig.FieldTypes = append(sig.FieldTypes, typ)
 			sig.FieldDocs = append(sig.FieldDocs, f.Doc)
+			sig.FieldTags = append(sig.FieldTags, f.Tag)
 			sig.FieldVisibility = append(sig.FieldVisibility, f.Visibility)
 			sig.FieldDefaultExprs = append(sig.FieldDefaultExprs, f.Default)
 		}
@@ -512,7 +513,11 @@ func (a *Analyzer) analyzeEntity(ent *ast.EntityDecl) (*ir.Entity, error) {
 			}
 			def = val
 		}
-		fields[i] = ir.Field{Name: name, Type: sig.FieldTypes[i], Doc: doc, Default: def}
+		var tag string
+		if i < len(sig.FieldTags) {
+			tag = sig.FieldTags[i]
+		}
+		fields[i] = ir.Field{Name: name, Type: sig.FieldTypes[i], Doc: doc, Default: def, Tag: tag}
 	}
 	// Константы сущности - через resolveEntityConstant, ту же функцию, что
 	// использует доступ "Сущность.Константа"/"экземпляр.Константа" в

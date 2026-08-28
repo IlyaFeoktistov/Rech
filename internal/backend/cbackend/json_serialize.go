@@ -202,7 +202,7 @@ func (g *jsonSerializerGen) jsonEntitySerializerCode(ent *ir.Entity) string {
 		if i > 0 {
 			body.WriteString("    rech_json_sb_putc(sb, ',');\n")
 		}
-		fmt.Fprintf(&body, "    rech_json_sb_put_escaped(sb, \"%s\");\n", escapeCString(f.Name))
+		fmt.Fprintf(&body, "    rech_json_sb_put_escaped(sb, \"%s\");\n", escapeCString(f.JSONKey()))
 		body.WriteString("    rech_json_sb_putc(sb, ':');\n")
 		fmt.Fprintf(&body, "    %s(%s%s, sb);\n", jsonSerializerNameFor(f.Type), access, mangleField(f.Name))
 	}

@@ -119,6 +119,11 @@ const (
 
 	LBRACKET // [
 	RBRACKET // ]
+
+	// TAG - "`ключ:значение ...`" после объявления поля (`имя: Тип`тег``) -
+	// как struct tag в Go, без кавычек вокруг значения (проще, чем у Go) -
+	// see internal/structtag.
+	TAG
 )
 
 // keywords - таблица ключевых слов v0.1. Список сознательно узкий:
@@ -281,6 +286,8 @@ func (t TokenType) String() string {
 		return "["
 	case RBRACKET:
 		return "]"
+	case TAG:
+		return "TAG"
 	case BITAND:
 		return "&"
 	case BITOR:

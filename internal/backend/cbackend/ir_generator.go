@@ -608,6 +608,8 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		sb.WriteString("\n")
 		sb.WriteString(reflectLookupHelpers)
 		sb.WriteString("\n")
+		sb.WriteString(reflectTagLookupHelper)
+		sb.WriteString("\n")
 	}
 	if genericsCode.Len() > 0 {
 		// Перед typedefs - сущность может нести поле generic-коллекции по

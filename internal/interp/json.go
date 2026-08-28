@@ -107,9 +107,9 @@ func (in *Interp) jsonExtract(raw any, target ir.Type) (Value, error) {
 		}
 		fields := make(map[string]Value, len(ent.Fields))
 		for _, f := range ent.Fields {
-			raw, present := obj[f.Name]
+			raw, present := obj[f.JSONKey()]
 			if !present {
-				return Value{}, in.jsonParseFail(rtmsg.JSONFieldMissing(f.Name))
+				return Value{}, in.jsonParseFail(rtmsg.JSONFieldMissing(f.JSONKey()))
 			}
 			v, err := in.jsonExtract(raw, f.Type)
 			if err != nil {

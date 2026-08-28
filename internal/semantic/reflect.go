@@ -44,6 +44,13 @@ var typeInfoMethodSigs = map[string]funcSig{
 	"число_полей":   {Params: nil, ReturnType: ir.TypeInt, HasReturn: true},
 	"имя_поля":      {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeString, HasReturn: true},
 	"тип_поля":      {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeTypeInfo, HasReturn: true},
+	// "тег_поля" - значение ключа тега (`json:name, sql:user_name`, см.
+	// internal/structtag) у поля по индексу - "" нет тега или в нём нет
+	// такого ключа. Нужен библиотекам вроде ORM/сериализаторов, написанным
+	// на самом Rech: они не могут прочитать ir.Field.Tag напрямую (это
+	// компилятор), но могут пройти по полям через рефлексию и спросить свой
+	// собственный ключ тега у каждого.
+	"тег_поля": {Params: []ir.Type{ir.TypeInt, ir.TypeString}, ReturnType: ir.TypeString, HasReturn: true},
 	"число_методов": {Params: nil, ReturnType: ir.TypeInt, HasReturn: true},
 	"имя_метода":    {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeString, HasReturn: true},
 	"число_параметров_метода": {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeInt, HasReturn: true},

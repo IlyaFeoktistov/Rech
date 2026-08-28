@@ -12,6 +12,7 @@ import (
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
+	"github.com/IlyaFeoktistov/Rech/internal/structtag"
 )
 
 // parseErrorEntity - встроенное исключение, выбрасываемое "разобрать JSON"
@@ -109,8 +110,12 @@ func analyzeSerializeExpr(sc *ctx, e *ast.SerializeExpr) (ir.Expr, error) {
 // специфика этой проверки), либо сущность/структура, ВСЕ поля которой
 // (включая унаследованные - entitySig.FieldTypes уже сплющены, см.
 // applyInheritance) совместимы (по имени поля - один в один с ключом
-// JSON-объекта/именем XML-элемента, без отдельного механизма
-// переименования в этом срезе). seen - защита от бесконечной рекурсии у
+// JSON-объекта/именем XML-элемента, если у поля нет тега "json:..." - см.
+// ir.Field.JSONKey, тогда используется его ключ вместо имени поля). Ключи,
+// под которыми поля одной сущности видны формату, обязаны быть попарно
+// различны (jsonFieldKey, дублирующая проверка ниже) - иначе разбор/
+// сериализация не знали бы, какому полю принадлежит совпавший ключ. seen -
+// защита от бесконечной рекурсии у
 // самоссылающейся сущности (поле своего же типа, прямо или через цепочку)
 // - на практике недостижимо сейчас (сущность не может сослаться на саму
 // себя по имени поля, пока не объявлена целиком - collectEntities), но
@@ -139,6 +144,11 @@ func structCompatible(entities map[string]entitySig, t ir.Type, seen map[string]
 		if seen[t.Entity] {
 			return fmt.Errorf("%s ссылается сам на себя - самоссылающиеся типы не поддержаны как цель разбора %s", t, format)
 		}
+		if format == "JSON" {
+			if err := checkJSONKeysDistinct(sig); err != nil {
+				return fmt.Errorf("%s: %w", t, err)
+			}
+		}
 		next := make(map[string]bool, len(seen)+1)
 		for k := range seen {
 			next[k] = true
@@ -153,4 +163,34 @@ func structCompatible(entities map[string]entitySig, t ir.Type, seen map[string]
 	default:
 		return fmt.Errorf("%s не поддержан как цель разбора %s (только примитивы, сущности/структуры и Список<T>)", t, format)
 	}
+}
+
+// jsonFieldKey - внешний JSON-ключ поля i сущности sig: значение тега
+// "json:..." (internal/structtag), если оно задано, иначе - само имя поля
+// (тот же принцип, что и у ir.Field.JSONKey - здесь работает с entitySig,
+// собранной ДО построения ir.Entity, поэтому не может переиспользовать сам
+// метод напрямую).
+func jsonFieldKey(sig entitySig, i int) string {
+	if i < len(sig.FieldTags) {
+		if key := structtag.Parse(sig.FieldTags[i]).Get("json"); key != "" {
+			return key
+		}
+	}
+	return sig.FieldNames[i]
+}
+
+// checkJSONKeysDistinct проверяет, что теги "json:..." (и имена полей без
+// тега) сущности sig не сталкивают два разных поля на один и тот же внешний
+// ключ - иначе разбор/сериализация не могли бы однозначно сопоставить ключ
+// JSON-объекта конкретному полю.
+func checkJSONKeysDistinct(sig entitySig) error {
+	seen := make(map[string]string, len(sig.FieldNames))
+	for i, name := range sig.FieldNames {
+		key := jsonFieldKey(sig, i)
+		if other, dup := seen[key]; dup {
+			return fmt.Errorf("поля %q и %q конфликтуют - у обоих одинаковый JSON-ключ %q (проверьте теги `json:...`)", other, name, key)
+		}
+		seen[key] = name
+	}
+	return nil
 }

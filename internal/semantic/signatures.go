@@ -77,6 +77,10 @@ type entitySig struct {
 	// участвует.
 	FieldDocs []string
 
+	// FieldTags - сырой тег соответствующего поля (тот же индекс, что и
+	// FieldNames/FieldTypes; "" - тега не было), см. ast.Field.Tag.
+	FieldTags []string
+
 	// FieldVisibility - видимость соответствующего поля (тот же индекс,
 	// что и FieldNames/FieldTypes); nil у сущностей без ни одного
 	// непубличного поля.

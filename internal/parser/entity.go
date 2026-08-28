@@ -328,7 +328,11 @@ func (p *Parser) parseField() (ast.Field, error) {
 			return ast.Field{}, fmt.Errorf("в значении по умолчанию поля %q: %w", name.Value, err)
 		}
 	}
-	return ast.Field{Name: name.Value, Type: typeName, Visibility: vis, Line: name.Line, Default: def}, nil
+	var tag string
+	if p.cur().Type == lexer.TAG {
+		tag = p.advance().Value
+	}
+	return ast.Field{Name: name.Value, Type: typeName, Visibility: vis, Line: name.Line, Default: def, Tag: tag}, nil
 }
 
 // isVisibilityKeyword - true для любого из трёх модификаторов видимости
