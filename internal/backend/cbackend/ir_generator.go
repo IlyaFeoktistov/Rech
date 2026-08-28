@@ -350,13 +350,16 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// dictCollectionCCode (растущий массив/хеш-таблица) - IR не хранит
 	// собственных сигнатур методов для них, MethodCallExpr уже несёт всё
 	// нужное для вызова, эта функция только про C-текст самого типа.
-	var genericsCode strings.Builder
+	var genericsCode, indexSafeGetCode strings.Builder
 	usesGenerics := len(prog.Generics) > 0
 	for _, g := range prog.Generics {
 		elemC := fromIRType(g.ElemType).cType(ctx)
 		switch g.Template {
 		case "Список":
 			genericsCode.WriteString(listCollectionCCode(g.Name, elemC))
+			if g.NeedsSafeIndex {
+				indexSafeGetCode.WriteString(listIndexSafeGetCCode(g.Name, mangleType("?"+g.ElemType.String())))
+			}
 		case "Стопка":
 			genericsCode.WriteString(stackCollectionCCode(g.Name, elemC))
 		case "Очередь":
@@ -368,6 +371,9 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 				ctx.usesDictString = true
 			}
 			genericsCode.WriteString(dictCollectionCCode(g.Name, keyC, elemC, isStringKey))
+			if g.NeedsSafeIndex {
+				indexSafeGetCode.WriteString(dictIndexSafeGetCCode(g.Name, keyC, mangleType("?"+g.ElemType.String())))
+			}
 		default:
 			return "", fmt.Errorf("неизвестный generic-шаблон %q", g.Template)
 		}
@@ -642,6 +648,13 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	}
 	if nullablesAfterTypedefs.Len() > 0 {
 		sb.WriteString(nullablesAfterTypedefs.String())
+	}
+	if indexSafeGetCode.Len() > 0 {
+		// После genericsCode (нужен C-typedef/find-функция самой коллекции)
+		// И после ОБЕИХ групп nullablesCode/nullablesAfterTypedefs (нужна
+		// обёртка "?T" элемента, независимо от того, в какую из двух групп
+		// она попала) - см. package doc internal/backend/cbackend/index.go.
+		sb.WriteString(indexSafeGetCode.String())
 	}
 	if ctx.usesExceptions {
 		// После typedefs - использует rech_vtable_header/rech_T_Исключение,
@@ -1422,6 +1435,30 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 		}
 		return fmt.Sprintf("(!(%s).has)", code), typeBool, nil
 
+	case *ir.ListIndexExpr:
+		_, recvPtr, err := generateIRAddressableExpr(ctx, e.Receiver)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		idxCode, _, err := generateIRExpr(ctx, e.Index)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		fn := mangleType(e.CollectionName) + "_get_safe"
+		return fmt.Sprintf("%s(%s, %s)", fn, recvPtr, idxCode), fromIRType(e.Type), nil
+
+	case *ir.DictIndexExpr:
+		_, recvPtr, err := generateIRAddressableExpr(ctx, e.Receiver)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		keyCode, _, err := generateIRExpr(ctx, e.Key)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		fn := mangleType(e.CollectionName) + "_get_safe"
+		return fmt.Sprintf("%s(%s, %s)", fn, recvPtr, keyCode), fromIRType(e.Type), nil
+
 	case *ir.NullCoalesceExpr:
 		leftCode, _, err := generateIRExpr(ctx, e.Left)
 		if err != nil {
@@ -1616,6 +1653,25 @@ func generateIRNewExpr(ctx *irGenCtx, e *ir.NewExpr) (string, valueType, error) 
 // получатель "структура" (или получатель, порождённый ThisExpr) - значение,
 // нужен "&", чтобы получить указатель для this_ - тот же принцип, что и у
 // выбора "."/"->" в FieldAccess/FieldAssign.
+// generateIRAddressableExpr генерирует receiver ОДИН раз и возвращает и
+// обычный C-код значения (code), и код указателя на него (ptr) - для
+// вызова метода/безопасной индексации, которым нужен указатель на
+// получателя (this_/this_ у *_get_safe). Receiver уже проверен семантикой
+// как адресуемый (receiverAddressable - переменная/поле/"этот", см.
+// internal/semantic), поэтому "&(code)" всегда синтаксически валиден в C
+// (получатель - lvalue, не результат вызова) - не пересчитывает code
+// дважды, в отличие от вызова generateIRExpr отдельно для каждой формы.
+func generateIRAddressableExpr(ctx *irGenCtx, receiver ir.Expr) (code, ptr string, err error) {
+	code, _, err = generateIRExpr(ctx, receiver)
+	if err != nil {
+		return "", "", err
+	}
+	if ctx.receiverIsPointer(receiver) {
+		return code, fmt.Sprintf("(%s)", code), nil
+	}
+	return code, fmt.Sprintf("&(%s)", code), nil
+}
+
 func generateIRMethodCallExpr(ctx *irGenCtx, e *ir.MethodCallExpr) (string, valueType, error) {
 	switch ir.TypeOf(e.Receiver).Kind {
 	case ir.KindAny:
@@ -1623,16 +1679,12 @@ func generateIRMethodCallExpr(ctx *irGenCtx, e *ir.MethodCallExpr) (string, valu
 	case ir.KindTypeInfo:
 		return generateIRTypeInfoMethodCall(ctx, e)
 	}
-	receiverCode, _, err := generateIRExpr(ctx, e.Receiver)
+	receiverCode, receiverPtr, err := generateIRAddressableExpr(ctx, e.Receiver)
 	if err != nil {
 		return "", typeUnknown, err
 	}
 	argCodes := make([]string, len(e.Args)+1)
-	if ctx.receiverIsPointer(e.Receiver) {
-		argCodes[0] = fmt.Sprintf("(%s)", receiverCode)
-	} else {
-		argCodes[0] = fmt.Sprintf("&(%s)", receiverCode)
-	}
+	argCodes[0] = receiverPtr
 	for i, a := range e.Args {
 		code, _, err := generateIRExpr(ctx, a)
 		if err != nil {

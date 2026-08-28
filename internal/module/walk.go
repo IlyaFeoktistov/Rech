@@ -344,6 +344,11 @@ func (r *rewriter) rewriteExpr(e ast.Expr) error {
 		return r.rewriteExprs(e.Args)
 	case *ast.FieldAccess:
 		return r.rewriteExpr(e.Receiver)
+	case *ast.IndexExpr:
+		if err := r.rewriteExpr(e.Receiver); err != nil {
+			return err
+		}
+		return r.rewriteExpr(e.Index)
 	case *ast.MethodCallExpr:
 		if err := r.rewriteExpr(e.Receiver); err != nil {
 			return err

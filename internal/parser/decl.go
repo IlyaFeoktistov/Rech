@@ -315,6 +315,14 @@ func normalizeReturnType(t string) string {
 	return t
 }
 
+// parseTypeName разбирает имя типа - IDENT, необязательно с аргументами
+// типа ("Список<Целое>"), необязательно с ведущим "?" (nullable, "?Тип") и
+// необязательно с одним и более ЗАВЕРШАЮЩИМИ "[]" - "Тип[]"/"Тип[][]" -
+// чистый синтаксический сахар над "Список<Тип>"/"Список<Список<Тип>>"
+// (массивоподобная запись, привычная по C#/Java/TypeScript) - раскрывается
+// прямо здесь, в строку имени типа, до того, как её вообще увидит
+// resolveTypeName - ни один потребитель ниже (семантика/backend'ы) не
+// отличает "Целое[]" от буквально написанного "Список<Целое>".
 func (p *Parser) parseTypeName() (string, error) {
 	if p.cur().Type == lexer.QUESTION {
 		p.advance()
@@ -331,26 +339,34 @@ func (p *Parser) parseTypeName() (string, error) {
 	if name.Value == callableTypeName {
 		return p.parseCallableTypeName(name)
 	}
-	if p.cur().Type != lexer.LT {
-		return name.Value, nil
-	}
-	p.advance() // "<"
-	var args []string
-	for {
-		arg, err := p.parseTypeName()
-		if err != nil {
-			return "", fmt.Errorf("в аргументе типа %q: %w", name.Value, err)
+	result := name.Value
+	if p.cur().Type == lexer.LT {
+		p.advance() // "<"
+		var args []string
+		for {
+			arg, err := p.parseTypeName()
+			if err != nil {
+				return "", fmt.Errorf("в аргументе типа %q: %w", name.Value, err)
+			}
+			args = append(args, arg)
+			if p.cur().Type != lexer.COMMA {
+				break
+			}
+			p.advance() // ","
 		}
-		args = append(args, arg)
-		if p.cur().Type != lexer.COMMA {
-			break
+		if err := p.expectCloseAngle(); err != nil {
+			return "", fmt.Errorf("после аргументов типа %q<%s>: %w", name.Value, strings.Join(args, ", "), err)
 		}
-		p.advance() // ","
+		result = fmt.Sprintf("%s<%s>", name.Value, strings.Join(args, ", "))
 	}
-	if err := p.expectCloseAngle(); err != nil {
-		return "", fmt.Errorf("после аргументов типа %q<%s>: %w", name.Value, strings.Join(args, ", "), err)
+	for p.cur().Type == lexer.LBRACKET {
+		p.advance() // "["
+		if _, err := p.expect(lexer.RBRACKET); err != nil {
+			return "", fmt.Errorf("после \"[\" в имени типа %q ожидалось \"]\" (\"Тип[]\" - сокращение для \"Список<Тип>\"): %w", result, err)
+		}
+		result = fmt.Sprintf("Список<%s>", result)
 	}
-	return fmt.Sprintf("%s<%s>", name.Value, strings.Join(args, ", ")), nil
+	return result, nil
 }
 
 // parseParam разбирает параметр в одной из двух форм:

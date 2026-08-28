@@ -87,6 +87,9 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 		if p.peekAt(1).Type == lexer.NULL_ASSIGN {
 			return p.parseNullCoalesceAssign()
 		}
+		if p.peekAt(1).Type == lexer.LBRACKET {
+			return p.parseIndexAssign()
+		}
 		if p.peekAt(1).Type == lexer.DOT {
 			return p.parseDotStatement()
 		}
@@ -299,6 +302,37 @@ func (p *Parser) parseNullCoalesceAssign() (ast.Stmt, error) {
 		return nil, fmt.Errorf("в присваивании %q: %w", name.Value, err)
 	}
 	return &ast.NullCoalesceAssign{Name: name.Value, Value: value, Line: name.Line}, nil
+}
+
+// parseIndexAssign разбирает "receiver[индекс] = значение" - сахар над
+// "receiver.установить(индекс, значение)" (genericMethodSigs - "установить"
+// есть у Список/Словарь в одинаковой форме "позиция/ключ, значение") - сразу
+// строит ast.MethodCallExpr, отдельного AST-узла для этой формы не заводится
+// вообще. Receiver - ровно IDENT (та же граница, что и у parseFieldAssign
+// ниже) - вложенные цепочки ("матрица[i][j] = x") не поддержаны в этом
+// срезе: "получить строку, затем установить в неё" уже работает как есть
+// через отдельные .получить/.установить (Список - ссылочная семантика
+// элемента, строка остаётся тем же объектом).
+func (p *Parser) parseIndexAssign() (ast.Stmt, error) {
+	receiverTok := p.advance() // IDENT
+	receiver := &ast.Identifier{Name: receiverTok.Value, Line: receiverTok.Line}
+	p.advance() // "["
+	index, err := p.parseExpr()
+	if err != nil {
+		return nil, fmt.Errorf("в индексе \"[...]\": %w", err)
+	}
+	if _, err := p.expect(lexer.RBRACKET); err != nil {
+		return nil, fmt.Errorf("после индекса ожидалось \"]\": %w", err)
+	}
+	if _, err := p.expect(lexer.ASSIGN); err != nil {
+		return nil, fmt.Errorf("после %q[...] ожидалось \"=\" (индексация сама по себе не инструкция): %w", receiverTok.Value, err)
+	}
+	value, err := p.parseExpr()
+	if err != nil {
+		return nil, fmt.Errorf("в присваивании по индексу: %w", err)
+	}
+	call := &ast.MethodCallExpr{Receiver: receiver, Method: "установить", Args: []ast.Expr{index, value}, Line: receiverTok.Line}
+	return &ast.ExprStmt{MethodCall: call, Line: receiverTok.Line}, nil
 }
 
 // parseFieldAssign разбирает "receiver.поле = выражение". Позиция парсера

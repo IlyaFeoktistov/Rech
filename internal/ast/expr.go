@@ -186,3 +186,19 @@ type NullLiteral struct {
 
 func (*NullLiteral) node() {}
 func (*NullLiteral) expr() {}
+
+// IndexExpr - безопасная индексация "receiver[index]" (Список<T>/
+// Словарь<К, В>) - в отличие от ".получить(i)"/".получить(ключ)" (которые
+// паникуют при промахе), значение всегда "?T"/"?В" - Ничто при выходе за
+// границу/отсутствии ключа, см. docs/SPEC.md. Только чтение - запись
+// "receiver[index] = значение" разбирается сразу как сахар над
+// "receiver.установить(index, значение)" (ast.MethodCallExpr), этот узел
+// для неё не используется вовсе.
+type IndexExpr struct {
+	Receiver Expr
+	Index    Expr
+	Line     int
+}
+
+func (*IndexExpr) node() {}
+func (*IndexExpr) expr() {}

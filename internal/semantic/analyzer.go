@@ -80,6 +80,20 @@ type Analyzer struct {
 	reflectTargets dedupTypeList
 	// usesReflection - см. package doc ir.Program.UsesReflection.
 	usesReflection bool
+
+	// indexedCollections - имена generic-инстанциаций (Список<T>/
+	// Словарь<К, В>), встретившихся хоть раз как получатель безопасной
+	// индексации "[]" (ir.ListIndexExpr/ir.DictIndexExpr) - см. package doc
+	// ir.GenericInstantiation.NeedsSafeIndex.
+	indexedCollections map[string]bool
+}
+
+// markIndexUsed - см. package doc Analyzer.indexedCollections.
+func (a *Analyzer) markIndexUsed(name string) {
+	if a.indexedCollections == nil {
+		a.indexedCollections = map[string]bool{}
+	}
+	a.indexedCollections[name] = true
 }
 
 // dedupTypeList - список ir.Type без повторов (по Type.String()), в
@@ -667,10 +681,11 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	for _, name := range names {
 		template, _, _ := parseGenericTypeName(name)
 		out.Generics = append(out.Generics, ir.GenericInstantiation{
-			Name:     name,
-			Template: template,
-			ElemType: a.entities[name].ElemType,
-			KeyType:  a.entities[name].KeyType,
+			Name:           name,
+			Template:       template,
+			ElemType:       a.entities[name].ElemType,
+			KeyType:        a.entities[name].KeyType,
+			NeedsSafeIndex: a.indexedCollections[name],
 		})
 	}
 

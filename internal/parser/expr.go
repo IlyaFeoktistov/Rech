@@ -240,32 +240,50 @@ func (p *Parser) parsePrefixIncDec() (ast.Expr, error) {
 	return &ast.IncDecExpr{Name: name.Value, Op: op.Value, Prefix: true, Line: op.Line}, nil
 }
 
-// parsePostfix разбирает postfix := primary { "." IDENT }. Цикл (а не
-// одиночная проверка) уже сейчас поддерживает цепочки (`x.поле.поле`),
-// даже если шаг 4 сам их ещё не порождает - незачем переписывать этот
-// уровень грамматики, когда они понадобятся.
+// parsePostfix разбирает postfix := primary { ("." IDENT) | ("[" expr "]") }.
+// Цикл поддерживает цепочки (`x.поле.поле`, `матрица[i]`, в будущем
+// `x.поле[i]` и т. п.) уже сейчас, даже если конкретная конструкция сама их
+// ещё не порождает - незачем переписывать этот уровень грамматики, когда
+// они понадобятся. "[expr]" - только ЧТЕНИЕ (безопасная индексация,
+// ast.IndexExpr, см. package doc там) - запись "receiver[index] = значение"
+// разбирается отдельно, на уровне инструкции (parseIndexAssign), как сахар
+// над "receiver.установить(...)", сюда не доходит вообще.
 func (p *Parser) parsePostfix() (ast.Expr, error) {
 	expr, err := p.parsePrimary()
 	if err != nil {
 		return nil, err
 	}
-	for p.cur().Type == lexer.DOT {
-		dot := p.advance()
-		field, err := p.expect(lexer.IDENT)
-		if err != nil {
-			return nil, fmt.Errorf("после \".\" ожидалось имя поля или метода: %w", err)
-		}
-		if p.cur().Type == lexer.LPAREN {
-			args, err := p.parseArgList()
+	for {
+		switch p.cur().Type {
+		case lexer.DOT:
+			dot := p.advance()
+			field, err := p.expect(lexer.IDENT)
 			if err != nil {
-				return nil, fmt.Errorf("в аргументах вызова метода %q: %w", field.Value, err)
+				return nil, fmt.Errorf("после \".\" ожидалось имя поля или метода: %w", err)
 			}
-			expr = &ast.MethodCallExpr{Receiver: expr, Method: field.Value, Args: args, Line: dot.Line}
-			continue
+			if p.cur().Type == lexer.LPAREN {
+				args, err := p.parseArgList()
+				if err != nil {
+					return nil, fmt.Errorf("в аргументах вызова метода %q: %w", field.Value, err)
+				}
+				expr = &ast.MethodCallExpr{Receiver: expr, Method: field.Value, Args: args, Line: dot.Line}
+				continue
+			}
+			expr = &ast.FieldAccess{Receiver: expr, Field: field.Value, Line: dot.Line}
+		case lexer.LBRACKET:
+			lb := p.advance()
+			index, err := p.parseExpr()
+			if err != nil {
+				return nil, fmt.Errorf("в индексе \"[...]\": %w", err)
+			}
+			if _, err := p.expect(lexer.RBRACKET); err != nil {
+				return nil, fmt.Errorf("после индекса ожидалось \"]\": %w", err)
+			}
+			expr = &ast.IndexExpr{Receiver: expr, Index: index, Line: lb.Line}
+		default:
+			return expr, nil
 		}
-		expr = &ast.FieldAccess{Receiver: expr, Field: field.Value, Line: dot.Line}
 	}
-	return expr, nil
 }
 
 func (p *Parser) parsePrimary() (ast.Expr, error) {

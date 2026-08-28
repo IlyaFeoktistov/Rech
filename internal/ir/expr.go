@@ -206,6 +206,10 @@ func TypeOf(e Expr) Type {
 		return TypeBool
 	case *NullCoalesceExpr:
 		return e.Type
+	case *ListIndexExpr:
+		return e.Type
+	case *DictIndexExpr:
+		return e.Type
 	default:
 		return TypeUnknown
 	}
