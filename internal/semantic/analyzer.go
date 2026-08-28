@@ -60,6 +60,27 @@ type Analyzer struct {
 	// счётчик - иначе cbackend/interp завели бы два независимых способа
 	// нумерации одних и тех же лямбд).
 	lambdaCounter int
+
+	// parseTargetsSeen/parseTargetOrder - дедупликация целевых типов
+	// "разобрать JSON ... как <Тип>" на весь Analyze, тем же принципом, что
+	// callablesSeen/callableOrder - см. registerParseTarget.
+	parseTargetsSeen map[string]bool
+	parseTargetOrder []ir.Type
+}
+
+// registerParseTarget добавляет t в Program.ParseTargets (см. package doc),
+// если такой тип (по строковому имени) ещё не встречался - см.
+// analyzeParseExpr.
+func (a *Analyzer) registerParseTarget(t ir.Type) {
+	if a.parseTargetsSeen == nil {
+		a.parseTargetsSeen = map[string]bool{}
+	}
+	key := t.String()
+	if a.parseTargetsSeen[key] {
+		return
+	}
+	a.parseTargetsSeen[key] = true
+	a.parseTargetOrder = append(a.parseTargetOrder, t)
 }
 
 // collectEntities - предварительный проход: поля, сигнатуры методов и
@@ -612,6 +633,21 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 			KeyType:  a.entities[name].KeyType,
 		})
 	}
+
+	// "ОшибкаРазбора" - в отличие от Запрос/Ответ/ДатаВремя/Исключение выше,
+	// НЕ добавлена безусловно - зарегистрирована в a.entities только если
+	// программа хоть раз использовала "разобрать JSON" (см.
+	// registerParseErrorEntity) - добавление её в out.Entities для КАЖДОЙ
+	// программы сделало бы "Исключение" безусловным участником
+	// диспетчеризации (computeDispatch) даже там, где исключения вообще не
+	// используются.
+	if _, ok := a.entities[parseErrorEntity]; ok {
+		out.Entities = append(out.Entities, &ir.Entity{
+			Name: parseErrorEntity, BaseName: systemExceptionEntity,
+			Fields: []ir.Field{{Name: "сообщение", Type: ir.TypeString}},
+		})
+	}
+	out.ParseTargets = a.parseTargetOrder
 
 	if err := a.collectCallables(out); err != nil {
 		return nil, err

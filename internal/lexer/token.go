@@ -101,6 +101,8 @@ const (
 	KwLaunch      // запустить (запуск функции в отдельном потоке ОС)
 	KwAwait       // дождаться (ожидание завершения задачи)
 	KwExport      // экспортировать (функция/сущность/класс/структура, видимые извне библиотеки)
+	KwParse       // разобрать (разобрать JSON <выражение> как <Тип>)
+	KwJSON        // JSON (формат-маркер после "разобрать", не склоняется)
 )
 
 // keywords - таблица ключевых слов v0.1. Список сознательно узкий:
@@ -169,6 +171,8 @@ var keywords = map[string]TokenType{
 	"запустить":      KwLaunch,
 	"дождаться":      KwAwait,
 	"экспортировать": KwExport,
+	"разобрать":      KwParse,
+	"JSON":           KwJSON,
 }
 
 // Token - одна лексема с позицией в исходном файле (для сообщений об ошибках).
@@ -349,6 +353,10 @@ func (t TokenType) String() string {
 		return "дождаться"
 	case KwExport:
 		return "экспортировать"
+	case KwParse:
+		return "разобрать"
+	case KwJSON:
+		return "JSON"
 	default:
 		return "UNKNOWN"
 	}

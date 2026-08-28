@@ -457,7 +457,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	if ctx.usesGC || ctx.usesThreads {
 		sb.WriteString("#include <gc.h>\n")
 	}
-	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString {
+	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || len(prog.ParseTargets) > 0 {
 		sb.WriteString("#include <string.h>\n")
 	}
 	if ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime {
@@ -577,6 +577,17 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	}
 	if ctors.Len() > 0 {
 		sb.WriteString(ctors.String())
+	}
+	if len(prog.ParseTargets) > 0 {
+		// После ctors - функции извлечения ("разобрать JSON", см.
+		// json_extract.go) конструируют целевые сущности через уже
+		// сгенерированный rech_new_<Тип> (mangleCtor) и выбрасывают
+		// "ОшибкаРазбора" через rech_throw (exceptionRuntimeCode выше).
+		jsonCode, err := jsonRuntimeCode(ctx, prog, prog.ParseTargets)
+		if err != nil {
+			return "", err
+		}
+		sb.WriteString(jsonCode)
 	}
 	// taskCode - обёртки "запустить"/"дождаться" (internal/backend/cbackend/
 	// concurrency.go) - ссылаются на &rech_<имя> обёрнутых функций (нужны
@@ -1177,6 +1188,9 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 
 	case *ir.CastExpr:
 		return generateIRCastExpr(ctx, e)
+
+	case *ir.ParseExpr:
+		return generateIRParseExpr(ctx, e)
 
 	case *ir.IsExpr:
 		return generateIRIsExpr(ctx, e)

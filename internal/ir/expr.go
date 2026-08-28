@@ -176,6 +176,8 @@ func TypeOf(e Expr) Type {
 		return TypeChar
 	case *CastExpr:
 		return e.To
+	case *ParseExpr:
+		return e.To
 	case *IsExpr:
 		return TypeBool
 	case *LaunchExpr:

@@ -19,6 +19,13 @@ type Program struct {
 	ExternFuncs []*ExternFuncDecl
 	Interfaces  []*Interface
 	Callables   []CallableSig
+	// ParseTargets - типы, встретившиеся хоть раз как <Тип> у "разобрать
+	// JSON <выражение> как <Тип>" где-либо в программе, без повторов - см.
+	// internal/semantic/parse.go, package doc. cbackend генерирует функцию
+	// извлечения для каждого элемента (и рекурсивно для любого достижимого
+	// из него типа поля/элемента списка - не входит в этот список отдельно,
+	// см. internal/backend/cbackend/json_extract.go).
+	ParseTargets []Type
 }
 
 // ExternFuncDecl соответствует "внешняя функция <CName> [как <Alias>](...)"

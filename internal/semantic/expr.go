@@ -27,6 +27,9 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 	case *ast.CastExpr:
 		return analyzeCastExpr(sc, e)
 
+	case *ast.ParseExpr:
+		return analyzeParseExpr(sc, e)
+
 	case *ast.IsExpr:
 		return analyzeIsExpr(sc, e)
 

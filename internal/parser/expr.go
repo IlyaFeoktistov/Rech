@@ -312,6 +312,8 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 		return &ast.ThisExpr{Line: tok.Line}, nil
 	case lexer.KwFunction:
 		return p.parseLambdaExpr()
+	case lexer.KwParse:
+		return p.parseParseExpr()
 	case lexer.LPAREN:
 		p.advance()
 		inner, err := p.parseExpr()
