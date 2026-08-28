@@ -9,7 +9,7 @@ import (
 
 // TestGenerateFromIRFixedWidthArithmeticTruncatesAtExpressionLevel -
 // Целое8 + Целое8 - результат явно приводится к int8_t НА УРОВНЕ
-// ВЫРАЖЕНИЯ (шаг 12), а не только при присваивании - иначе обычные
+// ВЫРАЖЕНИЯ, а не только при присваивании - иначе обычные
 // арифметические преобразования C оставили бы промежуточный результат в
 // более широком типе.
 func TestGenerateFromIRFixedWidthArithmeticTruncatesAtExpressionLevel(t *testing.T) {

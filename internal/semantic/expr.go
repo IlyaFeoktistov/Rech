@@ -569,10 +569,10 @@ func analyzeBinaryExpr(sc *ctx, e *ast.BinaryExpr) (ir.Expr, error) {
 // приведение операнда, если нужно, решает backend при генерации кода,
 // глядя на Type каждого операнда и Type результата.
 func analyzeArithmetic(e *ast.BinaryExpr, left ir.Expr, lt ir.Type, right ir.Expr, rt ir.Type) (ir.Expr, error) {
-	// Целое8/16/32/64, Натуральное/8/16/32/64 (шаг 12) - строго между
-	// операндами ОДНОГО И ТОГО ЖЕ Kind, без неявной промоции (в отличие от
-	// Целое/Дробное/Действительное ниже, numericRanks) - даже Целое64 к
-	// Целое не промоутится, хотя оба 64-битные (решение пользователя).
+	// Целое8/16/32/64, Натуральное/8/16/32/64 - строго между операндами
+	// ОДНОГО И ТОГО ЖЕ Kind, без неявной промоции (в отличие от Целое/
+	// Дробное/Действительное ниже, numericRanks) - даже Целое64 к Целое
+	// не промоутится, хотя оба 64-битные.
 	if lt == rt {
 		if _, _, ok := lt.Kind.IntWidthSigned(); ok && lt.Kind != ir.KindInt {
 			return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: lt}, nil

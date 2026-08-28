@@ -61,8 +61,8 @@ func TestParseFunctionParamsAndReturnType(t *testing.T) {
 }
 
 // TestParseFunctionExplicitPustoReturnTypeNormalizesToEmpty - "Пусто" как
-// тип результата (шаг 12) - чисто синтаксическая форма "нет типа
-// результата", эквивалентная полностью пропущенной аннотации ": Тип" -
+// тип результата - чисто синтаксическая форма "нет типа результата",
+// эквивалентная полностью пропущенной аннотации ": Тип" -
 // парсер схлопывает её в "" (см. normalizeReturnType), а не оставляет
 // строку "Пусто" для семантики/backend'ов.
 func TestParseFunctionExplicitPustoReturnTypeNormalizesToEmpty(t *testing.T) {

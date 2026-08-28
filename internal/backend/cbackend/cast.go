@@ -54,10 +54,10 @@ func generateIRCastExpr(ctx *irGenCtx, e *ir.CastExpr) (string, valueType, error
 	return fmt.Sprintf("((%s)(%s))", to.cType(ctx), code), to, nil
 }
 
-// isUnsignedFixedWidth - vt один из Натуральное/Натуральное8/16/32/64
-// (шаг 12). Отдельная беззнаковая ветка при касте со/в "Строка" нужна,
-// потому что Натуральное64 может нести значение выше INT64_MAX - через
-// long long/strtoll оно ушло бы отрицательным или обрезалось бы неверно.
+// isUnsignedFixedWidth - vt один из Натуральное/Натуральное8/16/32/64.
+// Отдельная беззнаковая ветка при касте со/в "Строка" нужна, потому что
+// Натуральное64 может нести значение выше INT64_MAX - через long long/
+// strtoll оно ушло бы отрицательным или обрезалось бы неверно.
 func isUnsignedFixedWidth(vt valueType) bool {
 	switch vt {
 	case typeUint, typeUint8, typeUint16, typeUint32, typeUint64:

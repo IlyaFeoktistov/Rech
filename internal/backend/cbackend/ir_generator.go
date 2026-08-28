@@ -38,11 +38,10 @@ type irGenCtx struct {
 	// usesIntDiv - нужен ли rech_int_div (см. generateIRArithmetic).
 	usesIntDiv bool
 	// usesUintDiv - нужен ли rech_uint_div (см. generateIRArithmetic) -
-	// то же самое, что usesIntDiv, но для беззнаковых Натуральное/8/16/32/64
-	// (шаг 12): деление без знака - genuinely другая C-операция (не просто
-	// другая ширина), нельзя пропустить через rech_int_div без риска
-	// интерпретировать большое Натуральное64 (> INT64_MAX как знаковое
-	// отрицательное).
+	// то же самое, что usesIntDiv, но для беззнаковых Натуральное/8/16/32/64:
+	// деление без знака - другая C-операция (не просто другая ширина),
+	// нельзя пропустить через rech_int_div без риска интерпретировать
+	// большое Натуральное64 (> INT64_MAX) как знаковое отрицательное.
 	usesUintDiv bool
 	// usesShow - нужны ли функции показа (rech_show_...) - генерируются
 	// только если "показать" реально встретилось в программе.
@@ -1295,11 +1294,11 @@ func generateIRUnaryExpr(ctx *irGenCtx, e *ir.UnaryExpr) (string, valueType, err
 	typ := fromIRType(e.Type)
 	switch e.Op {
 	case "-":
-		// Целое8/16/32/64, Натуральное/8/16/32/64 (шаг 12) - явный
-		// каст обратно к своему C-типу: обычные арифметические
-		// преобразования C иначе оставили бы результат в более широком
-		// типе (int), не усекая/оборачивая его на переполнении - тот же
-		// принцип, что и в generateIRArithmetic.
+		// Целое8/16/32/64, Натуральное/8/16/32/64 - явный каст обратно
+		// к своему C-типу: обычные арифметические преобразования C иначе
+		// оставили бы результат в более широком типе (int), не усекая/
+		// оборачивая его на переполнении - тот же принцип, что и в
+		// generateIRArithmetic.
 		if _, _, ok := e.Type.Kind.IntWidthSigned(); ok && e.Type.Kind != ir.KindInt {
 			return fmt.Sprintf("((%s)(-%s))", typ.cType(ctx), code), typ, nil
 		}
@@ -1373,9 +1372,9 @@ func generateIRBinaryExpr(ctx *irGenCtx, e *ir.BinaryExpr) (string, valueType, e
 // операнда к double при смешении Целое/Число - та же промоция, что и в
 // generateIRArithmetic.
 func generateIRArithmetic(ctx *irGenCtx, op string, lc string, lt ir.Type, rc string, rt ir.Type) (string, valueType, error) {
-	// Целое8/16/32/64, Натуральное/8/16/32/64 (шаг 12) - строго между
-	// операндами одного и того же Kind (internal/semantic уже это
-	// гарантировал, analyzeArithmetic) - результат явно приводится к
+	// Целое8/16/32/64, Натуральное/8/16/32/64 - строго между операндами
+	// одного и того же Kind (internal/semantic уже это гарантировал,
+	// analyzeArithmetic) - результат явно приводится к
 	// C-типу самого Kind (cType), чтобы усечение/оборачивание при
 	// переполнении произошло НА УРОВНЕ ВЫРАЖЕНИЯ (не только при
 	// присваивании) - иначе результат промежуточного `a + b` без
