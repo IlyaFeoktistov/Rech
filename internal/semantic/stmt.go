@@ -63,6 +63,10 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
+		value = maybeUnwrapNarrowed(sc, value)
+		if typ := ir.TypeOf(value); typ.Kind == ir.KindNullable {
+			return nil, fmt.Errorf("строка %d: нельзя напрямую вывести значение nullable-типа %s - разверните его сначала (\"?? запасное\" или явный каст)", s.Line, typ)
+		}
 		return &ir.PrintStmt{Value: value, Line: s.Line}, nil
 
 	case *ast.ShowStmt:
@@ -70,12 +74,36 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
+		value = maybeUnwrapNarrowed(sc, value)
+		if typ := ir.TypeOf(value); typ.Kind == ir.KindNullable {
+			return nil, fmt.Errorf("строка %d: нельзя напрямую показать значение nullable-типа %s - разверните его сначала (\"?? запасное\" или явный каст)", s.Line, typ)
+		}
 		return &ir.ShowStmt{Value: value, Line: s.Line}, nil
 
 	case *ast.VarDecl:
-		value, err := analyzeExpr(sc, s.Value)
+		var declared ir.Type
+		var hasAnnotation bool
+		if s.Type != "" {
+			t, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, s.Type)
+			if err != nil {
+				return nil, fmt.Errorf("строка %d: %w", s.Line, err)
+			}
+			declared, hasAnnotation = t, true
+		}
+		var value ir.Expr
+		var err error
+		if hasAnnotation {
+			value, err = coerceExpr(sc, s.Value, declared)
+		} else {
+			value, err = analyzeExpr(sc, s.Value)
+		}
 		if err != nil {
 			return nil, err
+		}
+		if hasAnnotation {
+			if typ := ir.TypeOf(value); !isAssignable(sc.entities, typ, declared) {
+				return nil, fmt.Errorf("строка %d: переменная %q объявлена типом %s, но инициализирована значением типа %s", s.Line, s.Name, declared, typ)
+			}
 		}
 		// До sc.declare - иначе при затенении (переменная %s уже с этим же
 		// именем во внешней области) established читался бы уже с только
@@ -113,7 +141,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if sc.isConst(s.Name) {
 			return nil, fmt.Errorf("строка %d: %q объявлено как \"константа\" - нельзя присвоить новое значение", s.Line, s.Name)
 		}
-		value, err := analyzeExpr(sc, s.Value)
+		value, err := coerceExpr(sc, s.Value, declared)
 		if err != nil {
 			return nil, err
 		}
@@ -122,6 +150,9 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		}
 		sc.setEstablished(s.Name, establishedForNewBinding(sc, s.Name, value))
 		return &ir.Assign{Name: s.Name, Value: value, Line: s.Line}, nil
+
+	case *ast.NullCoalesceAssign:
+		return analyzeNullCoalesceAssignStmt(sc, s)
 
 	case *ast.AssertStmt:
 		cond, err := analyzeExpr(sc, s.Cond)
@@ -146,8 +177,22 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		// путях выполнения (intersectEstablished) - ветки анализируются от
 		// одного и того же снапшота (preIf), не одна поверх результата
 		// другой, иначе Else "видел" бы эффект Then.
+		// Сужение nullable-типа (nonNullState, internal/semantic/nullable.go)
+		// тем же established-механизмом, что и обычный typestate: "если а !=
+		// Ничто {...}" доказывает непустоту а внутри Then, "если а == Ничто
+		// {...} иначе {...}" - симметрично внутри Else.
+		nc, isNullCheck := cond.(*ir.NullCheckExpr)
+		var narrowedName string
+		if isNullCheck {
+			if ident, ok := nc.Value.(*ir.Identifier); ok {
+				narrowedName = ident.Name
+			}
+		}
 		preIf := snapshotEstablished(sc.established)
 		sc.push()
+		if isNullCheck && nc.IsNot && narrowedName != "" {
+			markNonNull(sc, narrowedName)
+		}
 		then, err := analyzeBlock(sc, s.Then)
 		sc.pop()
 		if err != nil {
@@ -159,6 +204,9 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		postElse := preIf
 		if s.Else != nil {
 			sc.push()
+			if isNullCheck && !nc.IsNot && narrowedName != "" {
+				markNonNull(sc, narrowedName)
+			}
 			elseBody, err = analyzeBlock(sc, s.Else)
 			sc.pop()
 			if err != nil {
@@ -247,7 +295,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if !sc.hasReturn {
 			return nil, fmt.Errorf("строка %d: у функции не объявлен тип результата - используйте \"вернуть\" без значения", s.Line)
 		}
-		value, err := analyzeExpr(sc, s.Value)
+		value, err := coerceExpr(sc, s.Value, sc.returnType)
 		if err != nil {
 			return nil, err
 		}
@@ -317,7 +365,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if err := checkFieldVisibility(sc, typ.Entity, s.Field, sig.FieldVisibility[idx], s.Line); err != nil {
 			return nil, err
 		}
-		value, err := analyzeExpr(sc, s.Value)
+		value, err := coerceExpr(sc, s.Value, sig.FieldTypes[idx])
 		if err != nil {
 			return nil, err
 		}
@@ -373,7 +421,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		}
 		args := make([]ir.Expr, len(s.Args))
 		for i, a := range s.Args {
-			arg, err := analyzeExpr(sc, a)
+			arg, err := coerceExpr(sc, a, baseSig.CtorParams[i])
 			if err != nil {
 				return nil, err
 			}

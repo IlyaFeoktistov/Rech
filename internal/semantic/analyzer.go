@@ -674,6 +674,24 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 		})
 	}
 
+	// "?Тип" - зарегистрированы resolveNullableTypeName тем же принципом
+	// ленивой мемоизации, отдельным сканом (ключ - "?..." строкой, не
+	// содержит "<" сам по себе, если только внутренний тип - не generic-
+	// коллекция).
+	var nullableNames []string
+	for name, sig := range a.entities {
+		if sig.IsNullable {
+			nullableNames = append(nullableNames, name)
+		}
+	}
+	slices.Sort(nullableNames)
+	for _, name := range nullableNames {
+		out.Nullables = append(out.Nullables, ir.NullableInstantiation{
+			Name:  name,
+			Inner: a.entities[name].ElemType,
+		})
+	}
+
 	// "ОшибкаРазбора" - в отличие от Запрос/Ответ/ДатаВремя/Исключение выше,
 	// НЕ добавлена безусловно - зарегистрирована в a.entities только если
 	// программа хоть раз использовала "разобрать JSON" (см.

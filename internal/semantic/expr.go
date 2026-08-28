@@ -24,6 +24,16 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 	case *ast.CharLiteral:
 		return &ir.CharLiteral{Value: e.Value}, nil
 
+	case *ast.NullLiteral:
+		// Без контекста ожидаемого типа "Ничто" не разбирается вообще -
+		// каждое место, где оно синтаксически валидно (объявление/
+		// присваивание/аргумент/поле/результат/сравнение "== Ничто"),
+		// перехватывает его САМО, до попытки вызвать analyzeExpr вообще
+		// (см. coerceExpr/analyzeNullCheck, internal/semantic/nullable.go) -
+		// если дошло досюда, значит употреблено там, где типа взять неоткуда
+		// ("вывести Ничто", аргумент "??" справа и т. п.).
+		return nil, fmt.Errorf("строка %d: \"Ничто\" здесь неуместно - тип неоткуда вывести (нужен явный контекст: объявление/присваивание nullable-переменной, сравнение с nullable-значением)", e.Line)
+
 	case *ast.CastExpr:
 		return analyzeCastExpr(sc, e)
 
@@ -118,6 +128,7 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 		if err != nil {
 			return nil, err
 		}
+		receiver = maybeUnwrapNarrowed(sc, receiver)
 		typ := ir.TypeOf(receiver)
 		if typ.Kind != ir.KindEntity {
 			return nil, fmt.Errorf("строка %d: нельзя обратиться к полю %q - тип выражения %s, не сущность", e.Line, e.Field, typ)
@@ -202,7 +213,7 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 		}
 		args := make([]ir.Expr, len(e.Args))
 		for i, a := range e.Args {
-			arg, err := analyzeExpr(sc, a)
+			arg, err := coerceExpr(sc, a, sig.CtorParams[i])
 			if err != nil {
 				return nil, err
 			}
@@ -228,7 +239,7 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 				return nil, fmt.Errorf("строка %d: поле %q конструктора %q указано более одного раза", e.Line, label, e.Type)
 			}
 			seen[idx] = true
-			arg, err := analyzeExpr(sc, e.Args[i])
+			arg, err := coerceExpr(sc, e.Args[i], sig.FieldTypes[idx])
 			if err != nil {
 				return nil, err
 			}
@@ -256,7 +267,7 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 		return nil, fmt.Errorf("строка %d: конструктор %q ожидает значений полей: не более %d, передано: %d", e.Line, e.Type, len(sig.FieldNames), len(e.Args))
 	}
 	for i, a := range e.Args {
-		arg, err := analyzeExpr(sc, a)
+		arg, err := coerceExpr(sc, a, sig.FieldTypes[i])
 		if err != nil {
 			return nil, err
 		}
@@ -290,6 +301,7 @@ func analyzeMethodCallExpr(sc *ctx, e *ast.MethodCallExpr) (*ir.MethodCallExpr, 
 	if err != nil {
 		return nil, err
 	}
+	receiver = maybeUnwrapNarrowed(sc, receiver)
 	typ := ir.TypeOf(receiver)
 	var sig funcSig
 	switch typ.Kind {
@@ -464,7 +476,7 @@ func checkCallArgs(sc *ctx, args []ast.Expr, sig funcSig, line int, callee, argL
 	}
 	out := make([]ir.Expr, len(args))
 	for i, a := range args {
-		arg, err := analyzeExpr(sc, a)
+		arg, err := coerceExpr(sc, a, sig.Params[i])
 		if err != nil {
 			return nil, err
 		}
@@ -531,6 +543,17 @@ func analyzeIncDecExpr(sc *ctx, e *ast.IncDecExpr) (ir.Expr, error) {
 }
 
 func analyzeBinaryExpr(sc *ctx, e *ast.BinaryExpr) (ir.Expr, error) {
+	// "== Ничто"/"!= Ничто" - особый случай, перехватывается ДО обычного
+	// анализа обеих сторон: "Ничто" само по себе не разбирается analyzeExpr
+	// (нет контекста типа), см. analyzeNullCheck.
+	if e.Op == "==" || e.Op == "!=" {
+		if _, ok := e.Left.(*ast.NullLiteral); ok {
+			return analyzeNullCheck(sc, e.Right, e.Op == "!=", e.Line)
+		}
+		if _, ok := e.Right.(*ast.NullLiteral); ok {
+			return analyzeNullCheck(sc, e.Left, e.Op == "!=", e.Line)
+		}
+	}
 	left, err := analyzeExpr(sc, e.Left)
 	if err != nil {
 		return nil, err
@@ -539,6 +562,20 @@ func analyzeBinaryExpr(sc *ctx, e *ast.BinaryExpr) (ir.Expr, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// "??" - левая сторона обязана ОСТАТЬСЯ nullable (см.
+	// analyzeNullCoalesce) - до maybeUnwrapNarrowed ниже, который иначе
+	// развернул бы уже доказанно непустую левую часть.
+	if e.Op == "??" {
+		return analyzeNullCoalesce(e, sc, left, right)
+	}
+
+	// Доказанная непустота (established, "если а != Ничто {...}") позволяет
+	// употребить nullable-значение как обычный Тип без явного каста - см.
+	// package doc maybeUnwrapNarrowed. Не влияет на "==,!=,??" выше (уже
+	// обработаны раньше).
+	left = maybeUnwrapNarrowed(sc, left)
+	right = maybeUnwrapNarrowed(sc, right)
 	lt, rt := ir.TypeOf(left), ir.TypeOf(right)
 
 	switch e.Op {

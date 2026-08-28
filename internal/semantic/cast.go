@@ -146,6 +146,19 @@ func analyzeCastExpr(sc *ctx, e *ast.CastExpr) (ir.Expr, error) {
 	if from == to {
 		return value, nil
 	}
+	// Разворот "?Тип" в Тип - явный каст, единственный путь ВНЕ доказанной
+	// непустоты (см. package doc ir.NullUnwrapExpr) - паникует в рантайме на
+	// "Ничто", тем же принципом, что и остальные касты, способные
+	// провалиться (Строка -> число). Не через allowedCasts ниже - у
+	// nullable-типов нет фиксированной записи там (их бесконечно много, по
+	// одной на каждый внутренний Тип), проверяется структурно: "to" должен
+	// быть именно внутренним типом "from".
+	if from.Kind == ir.KindNullable {
+		if nullableInner(sc, from) == to {
+			return &ir.NullUnwrapExpr{Value: value, Type: to, Line: e.Line}, nil
+		}
+		return nil, fmt.Errorf("строка %d: нельзя привести %s к %s", e.Line, from, to)
+	}
 	// Боксирование в "Значение" - разрешено для ЛЮБОГО from (примитив,
 	// сущность, структура), не только перечисленных в allowedCasts пар -
 	// иначе пришлось бы вручную выписывать пару на каждый существующий и

@@ -71,6 +71,9 @@ var primitiveTypes = map[string]ir.Type{
 // представления, как и в cbackend (genCtx.stateAliases), - или встроенная
 // generic-коллекция (resolveGenericTypeName/resolveDictTypeName).
 func resolveTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, name string) (ir.Type, error) {
+	if strings.HasPrefix(name, "?") {
+		return resolveNullableTypeName(entities, methods, aliases, interfaces, name)
+	}
 	if t, ok := primitiveTypes[name]; ok {
 		return t, nil
 	}
@@ -264,8 +267,8 @@ func resolveGenericTypeName(entities map[string]entitySig, methods map[string]ma
 	if err != nil {
 		return ir.TypeUnknown, fmt.Errorf("тип элемента %q в %q: %w", argName, name, err)
 	}
-	if elem.Kind == ir.KindEntity {
-		return ir.TypeUnknown, fmt.Errorf("%q: элементы встроенных коллекций поддерживаются только для примитивов, не для сущностей", name)
+	if elem.Kind == ir.KindEntity || elem.Kind == ir.KindNullable {
+		return ir.TypeUnknown, fmt.Errorf("%q: элементы встроенных коллекций поддерживаются только для примитивов, не для сущностей/nullable-типов", name)
 	}
 	sigs, ok := genericMethodSigs(template, elem)
 	if !ok {
@@ -310,8 +313,8 @@ func resolveDictTypeName(entities map[string]entitySig, methods map[string]map[s
 	if err != nil {
 		return ir.TypeUnknown, fmt.Errorf("тип значения %q в %q: %w", args[1], name, err)
 	}
-	if val.Kind == ir.KindEntity {
-		return ir.TypeUnknown, fmt.Errorf("%q: значения встроенного словаря поддерживаются только для примитивов, не для сущностей", name)
+	if val.Kind == ir.KindEntity || val.Kind == ir.KindNullable {
+		return ir.TypeUnknown, fmt.Errorf("%q: значения встроенного словаря поддерживаются только для примитивов, не для сущностей/nullable-типов", name)
 	}
 	if _, exists := entities[name]; !exists {
 		entities[name] = entitySig{IsDict: true, KeyType: key, ElemType: val}
