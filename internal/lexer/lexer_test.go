@@ -66,6 +66,42 @@ func TestLexerIncrDoesNotClashWithPlus(t *testing.T) {
 	}
 }
 
+func TestLexerCompoundAssignTokens(t *testing.T) {
+	cases := map[string]TokenType{
+		"+=": PLUS_ASSIGN,
+		"-=": MINUS_ASSIGN,
+		"*=": STAR_ASSIGN,
+		"/=": SLASH_ASSIGN,
+		"?":  QUESTION,
+		"??": QUESTIONQUESTION,
+		"?=": NULL_ASSIGN,
+	}
+	for src, want := range cases {
+		types := tokenTypes(t, src)
+		if len(types) != 2 || types[0] != want { // + EOF
+			t.Fatalf("%q: ожидался токен %v, получено %v", src, want, types)
+		}
+	}
+}
+
+func TestLexerCompoundAssignDoesNotClashWithPlainOps(t *testing.T) {
+	types := tokenTypes(t, "а + б")
+	if len(types) != 4 || types[1] != PLUS {
+		t.Fatalf("одиночный \"+\" должен остаться PLUS: %v", types)
+	}
+	types = tokenTypes(t, "а = б")
+	if len(types) != 4 || types[1] != ASSIGN {
+		t.Fatalf("одиночный \"=\" должен остаться ASSIGN: %v", types)
+	}
+}
+
+func TestLexerNullKeyword(t *testing.T) {
+	types := tokenTypes(t, "Ничто")
+	if len(types) != 2 || types[0] != KwNull {
+		t.Fatalf("\"Ничто\" должно быть ключевым словом KwNull: %v", types)
+	}
+}
+
 func TestLexerCharLiteral(t *testing.T) {
 	toks, err := New(`'a' 'я' '\n' '\''`).Tokenize()
 	if err != nil {

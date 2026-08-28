@@ -175,3 +175,14 @@ type IncDecExpr struct {
 
 func (*IncDecExpr) node() {}
 func (*IncDecExpr) expr() {}
+
+// NullLiteral - "Ничто", отсутствие значения у nullable-переменной
+// ("?Тип") - сам по себе не несёт типа, internal/semantic резолвит его
+// ровно там, где известен ожидаемый nullable-тип (объявление/присваивание/
+// сравнение/аргумент/поле/результат).
+type NullLiteral struct {
+	Line int
+}
+
+func (*NullLiteral) node() {}
+func (*NullLiteral) expr() {}

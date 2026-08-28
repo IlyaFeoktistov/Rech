@@ -84,6 +84,9 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 		if p.peekAt(1).Type == lexer.ASSIGN || isCompoundAssignTok(p.peekAt(1).Type) {
 			return p.parseAssign()
 		}
+		if p.peekAt(1).Type == lexer.NULL_ASSIGN {
+			return p.parseNullCoalesceAssign()
+		}
 		if p.peekAt(1).Type == lexer.DOT {
 			return p.parseDotStatement()
 		}
@@ -191,6 +194,11 @@ func (p *Parser) parseAssertStmt() (ast.Stmt, error) {
 	return &ast.AssertStmt{Cond: cond, Line: kw.Line}, nil
 }
 
+// parseVarDecl разбирает "переменная <имя> = <выражение>" - тип выводится
+// из Value, как раньше - либо, начиная с этой сессии, "переменная <имя>: <Тип>
+// = <выражение>" с явной аннотацией типа (нужна там, куда тип неоткуда
+// вывести из самого Value: "Ничто" у nullable-переменной, пустой литерал
+// списка "[]" - см. ast.VarDecl.Type).
 func (p *Parser) parseVarDecl() (ast.Stmt, error) {
 	kw, err := p.expect(lexer.KwVariable)
 	if err != nil {
@@ -200,6 +208,14 @@ func (p *Parser) parseVarDecl() (ast.Stmt, error) {
 	if err != nil {
 		return nil, fmt.Errorf("после \"переменная\" ожидалось имя переменной: %w", err)
 	}
+	var typeName string
+	if p.cur().Type == lexer.COLON {
+		p.advance()
+		typeName, err = p.parseTypeName()
+		if err != nil {
+			return nil, fmt.Errorf("в аннотации типа переменной %q: %w", name.Value, err)
+		}
+	}
 	if _, err := p.expect(lexer.ASSIGN); err != nil {
 		return nil, fmt.Errorf("объявление переменной %q должно содержать инициализацию (\"=\"): %w", name.Value, err)
 	}
@@ -208,7 +224,7 @@ func (p *Parser) parseVarDecl() (ast.Stmt, error) {
 		return nil, fmt.Errorf("в инициализации переменной %q: %w", name.Value, err)
 	}
 	p.registerNoun(name.Value)
-	return &ast.VarDecl{Name: name.Value, Value: value, Line: kw.Line}, nil
+	return &ast.VarDecl{Name: name.Value, Type: typeName, Value: value, Line: kw.Line}, nil
 }
 
 // parseConstDecl - "константа <имя> = <значение>" (шаг 12) - синтаксически
@@ -271,6 +287,18 @@ func (p *Parser) parseAssign() (ast.Stmt, error) {
 		value = &ast.BinaryExpr{Op: baseOp, Left: &ast.Identifier{Name: name.Value, Line: name.Line}, Right: value, Line: opTok.Line}
 	}
 	return &ast.Assign{Name: name.Value, Value: value, Line: name.Line}, nil
+}
+
+// parseNullCoalesceAssign разбирает "а ?= б" (null-coalescing присваивание,
+// только простое имя переменной - как у parseAssign, не поле сущности).
+func (p *Parser) parseNullCoalesceAssign() (ast.Stmt, error) {
+	name := p.advance()
+	p.advance() // "?="
+	value, err := p.parseExpr()
+	if err != nil {
+		return nil, fmt.Errorf("в присваивании %q: %w", name.Value, err)
+	}
+	return &ast.NullCoalesceAssign{Name: name.Value, Value: value, Line: name.Line}, nil
 }
 
 // parseFieldAssign разбирает "receiver.поле = выражение". Позиция парсера

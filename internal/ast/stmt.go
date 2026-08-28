@@ -38,7 +38,12 @@ func (*ShowStmt) stmt() {}
 // Тип переменной не аннотируется явно - выводится из выражения-инициализатора
 // (простой literal-based inference, см. docs/ROADMAP.md, шаг 1).
 type VarDecl struct {
-	Name  string
+	Name string
+	// Type - явная аннотация типа ("переменная а: ?Целое = Ничто"), "" -
+	// без аннотации (обычный вывод из Value, как раньше). Нужна там, где
+	// вывести тип из Value невозможно - у голого "Ничто" (nullable-тип
+	// иначе неоткуда взять) и у пустого литерала списка "[]".
+	Type  string
 	Value Expr
 	Line  int
 }
@@ -107,6 +112,18 @@ type FieldAssign struct {
 
 func (*FieldAssign) node() {}
 func (*FieldAssign) stmt() {}
+
+// NullCoalesceAssign соответствует "а ?= б" (null-coalescing присваивание) -
+// присвоить б переменной а, только если а сейчас Ничто, иначе оставить как
+// есть. Только простое имя переменной (как у Assign), не поле сущности.
+type NullCoalesceAssign struct {
+	Name  string
+	Value Expr
+	Line  int
+}
+
+func (*NullCoalesceAssign) node() {}
+func (*NullCoalesceAssign) stmt() {}
 
 // BecomeStmt соответствует инструкции смены состояния (шаг 4.1, упрощённая
 // версия):

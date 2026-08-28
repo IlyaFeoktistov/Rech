@@ -9,7 +9,18 @@ import (
 )
 
 func (p *Parser) parseExpr() (ast.Expr, error) {
-	return p.parseOr()
+	return p.parseCoalesce()
+}
+
+// parseCoalesce - "а ?? б" (null-coalescing) - самый низкий приоритет
+// (слабее "или"), левоассоциативно, тем же шаблоном, что и остальные
+// левоассоциативные уровни (parseLeftAssoc), но отдельной функцией - "??" не
+// делит токен ни с чем другим (в отличие от, например, "&"/"&&"), заводить
+// под него запись в общей таблице ops не нужно.
+var coalesceOps = map[lexer.TokenType]string{lexer.QUESTIONQUESTION: "??"}
+
+func (p *Parser) parseCoalesce() (ast.Expr, error) {
+	return p.parseLeftAssoc(p.parseOr, coalesceOps)
 }
 
 // ParseExpr разбирает p.tokens как одно самостоятельное выражение (не всю
@@ -287,6 +298,9 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 	case lexer.KwFalse:
 		p.advance()
 		return &ast.BoolLiteral{Value: false, Line: tok.Line}, nil
+	case lexer.KwNull:
+		p.advance()
+		return &ast.NullLiteral{Line: tok.Line}, nil
 	case lexer.IDENT:
 		if p.peekAt(1).Type == lexer.LPAREN {
 			return p.parseCallExpr()

@@ -13,9 +13,12 @@ package ir
 
 // Program - корень IR-дерева программы.
 type Program struct {
-	Functions   []*Function
-	Entities    []*Entity
-	Generics    []GenericInstantiation
+	Functions []*Function
+	Entities  []*Entity
+	Generics  []GenericInstantiation
+	// Nullables - конкретные "?Тип", встретившиеся в программе, без
+	// повторов - см. package doc NullableInstantiation.
+	Nullables   []NullableInstantiation
 	ExternFuncs []*ExternFuncDecl
 	Interfaces  []*Interface
 	Callables   []CallableSig

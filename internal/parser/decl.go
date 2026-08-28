@@ -316,6 +316,14 @@ func normalizeReturnType(t string) string {
 }
 
 func (p *Parser) parseTypeName() (string, error) {
+	if p.cur().Type == lexer.QUESTION {
+		p.advance()
+		inner, err := p.parseTypeName()
+		if err != nil {
+			return "", fmt.Errorf("после \"?\": %w", err)
+		}
+		return "?" + inner, nil
+	}
 	name, err := p.expect(lexer.IDENT)
 	if err != nil {
 		return "", err

@@ -1,0 +1,104 @@
+package parser
+
+import (
+	"testing"
+
+	"github.com/IlyaFeoktistov/Rech/internal/ast"
+)
+
+func TestParseVarDeclWithNullableAnnotation(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная {
+    переменная а: ?Целое = Ничто
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	decl, ok := prog.Functions[0].Body[0].(*ast.VarDecl)
+	if !ok {
+		t.Fatalf("ожидался VarDecl, получено %T", prog.Functions[0].Body[0])
+	}
+	if decl.Type != "?Целое" {
+		t.Fatalf("ожидалась аннотация \"?Целое\", получено %q", decl.Type)
+	}
+	if _, ok := decl.Value.(*ast.NullLiteral); !ok {
+		t.Fatalf("ожидался NullLiteral, получено %+v", decl.Value)
+	}
+}
+
+func TestParseVarDeclWithoutAnnotationStillWorks(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная {
+    переменная а = 5
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	decl, ok := prog.Functions[0].Body[0].(*ast.VarDecl)
+	if !ok {
+		t.Fatalf("ожидался VarDecl, получено %T", prog.Functions[0].Body[0])
+	}
+	if decl.Type != "" {
+		t.Fatalf("ожидалась пустая аннотация, получено %q", decl.Type)
+	}
+}
+
+func TestParseNullCoalesce(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная {
+    переменная а: ?Целое = Ничто
+    вывести а ?? 0
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	printStmt, ok := prog.Functions[0].Body[1].(*ast.PrintStmt)
+	if !ok {
+		t.Fatalf("ожидался PrintStmt, получено %T", prog.Functions[0].Body[1])
+	}
+	bin, ok := printStmt.Value.(*ast.BinaryExpr)
+	if !ok || bin.Op != "??" {
+		t.Fatalf("ожидался BinaryExpr с оператором \"??\", получено %+v", printStmt.Value)
+	}
+}
+
+func TestParseNullCoalesceAssign(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная {
+    переменная а: ?Целое = Ничто
+    а ?= 5
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	stmt, ok := prog.Functions[0].Body[1].(*ast.NullCoalesceAssign)
+	if !ok {
+		t.Fatalf("ожидался NullCoalesceAssign, получено %T", prog.Functions[0].Body[1])
+	}
+	if stmt.Name != "а" {
+		t.Fatalf("ожидалось имя \"а\", получено %q", stmt.Name)
+	}
+}
+
+func TestParseNullableEntityTypeName(t *testing.T) {
+	prog, err := parseSource(t, `
+сущность Пользователь {
+    имеет:
+        имя: Строка
+}
+функция найти(): ?Пользователь {
+    вернуть Ничто
+}
+функция главная { вывести "ок" }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if prog.Functions[0].ReturnType != "?Пользователь" {
+		t.Fatalf("ожидался тип результата \"?Пользователь\", получено %q", prog.Functions[0].ReturnType)
+	}
+}

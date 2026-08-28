@@ -76,9 +76,24 @@ func resolveBareName(name string, names map[string]string) (string, error) {
 
 // resolveTypeRef - то же самое для имени типа, включая generic-инстанциации
 // ("Список<Целое>") - см. builtinTypeBases про то, почему аргумент внутри
-// "<...>" не нужно резолвить отдельно.
+// "<...>" не нужно резолвить отдельно. "?Тип" (nullable, ir.KindNullable) -
+// отдельный случай ДО проверки "<": сама nullable-обёртка не объявляется и
+// не импортируется (как и "Список"), но её внутренний Тип - обычное имя,
+// которое обязано пройти резолюцию/переименование при импорте как любое
+// другое (например, "?Пользователь" из another-файла с "как" должно стать
+// "?Псевдоним", не остаться нерезолвленным).
 func resolveTypeRef(typeName string, names map[string]string) (string, error) {
-	if typeName == "" || strings.Contains(typeName, "<") {
+	if typeName == "" {
+		return typeName, nil
+	}
+	if strings.HasPrefix(typeName, "?") {
+		inner, err := resolveTypeRef(typeName[len("?"):], names)
+		if err != nil {
+			return "", err
+		}
+		return "?" + inner, nil
+	}
+	if strings.Contains(typeName, "<") {
 		return typeName, nil
 	}
 	return resolveBareName(typeName, names)
@@ -206,6 +221,8 @@ func (r *rewriter) rewriteStmt(s ast.Stmt) error {
 		return r.rewriteExpr(s.Value)
 	case *ast.Assign:
 		return r.rewriteExpr(s.Value)
+	case *ast.NullCoalesceAssign:
+		return r.rewriteExpr(s.Value)
 	case *ast.FieldAssign:
 		if err := r.rewriteExpr(s.Receiver); err != nil {
 			return err
@@ -292,7 +309,7 @@ func (r *rewriter) rewriteExprs(exprs []ast.Expr) error {
 
 func (r *rewriter) rewriteExpr(e ast.Expr) error {
 	switch e := e.(type) {
-	case *ast.StringLiteral, *ast.IntLiteral, *ast.FloatLiteral, *ast.BoolLiteral, *ast.CharLiteral, *ast.Identifier, *ast.ThisExpr, *ast.IncDecExpr:
+	case *ast.StringLiteral, *ast.IntLiteral, *ast.FloatLiteral, *ast.BoolLiteral, *ast.CharLiteral, *ast.NullLiteral, *ast.Identifier, *ast.ThisExpr, *ast.IncDecExpr:
 		return nil
 	case *ast.CallExpr:
 		// Callee здесь может называть либо объявленную функцию (обычный

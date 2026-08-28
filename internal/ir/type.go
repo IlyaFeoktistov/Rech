@@ -100,6 +100,18 @@ const (
 	// не KindEntity - у Тип нет полей/методов пользовательской сущности,
 	// это сам дескриптор, а не значение описываемого им типа.
 	KindTypeInfo
+	// KindNullable - "?Тип" (значение либо самого Тип, либо Ничто) -
+	// Entity несёт полное каноническое имя, включая "?" ("?Целое",
+	// "?Пользователь") - тем же принципом, что Entity у KindTask/
+	// KindCallable несёт составную строку, не голое имя. Внутренний тип
+	// (Тип из "?Тип") не хранится в самом Type (иначе пришлось бы менять
+	// Type на структуру с указателем, теряя сравнимость через "==") -
+	// достаётся отдельно, через entitySig.ElemType по этому же
+	// каноническому имени (см. internal/semantic/nullable.go), тем же
+	// приёмом, что и элемент Список<T>/значение Словарь<К, В>. Отдельный
+	// Kind, не KindEntity - у nullable-обёртки нет ни полей/методов, ни
+	// vtable/JSON/рефлексии обычной сущности, путать с ними не нужно.
+	KindNullable
 )
 
 // Type - тип значения выражения IR, уже разрешённый семантическим анализом
@@ -200,6 +212,15 @@ func TaskType(funcName string) Type {
 	return Type{Kind: KindTask, Entity: funcName}
 }
 
+// NullableType возвращает Type, соответствующий "?<inner>" - Entity несёт
+// полное каноническое имя ("?" + inner.String()), см. package doc
+// KindNullable. inner.Kind == KindNullable (повторная обёртка "??Тип") -
+// вызывающая сторона (internal/semantic) отвергает это раньше, сюда такое
+// не должно доходить.
+func NullableType(inner Type) Type {
+	return Type{Kind: KindNullable, Entity: "?" + inner.String()}
+}
+
 // CallableTypeName - зарезервированное имя типа "функция как значение".
 const CallableTypeName = "Вызываемый"
 
@@ -227,7 +248,7 @@ func CallableType(params []Type, result *Type) Type {
 }
 
 func (t Type) String() string {
-	if t.Kind == KindEntity || t.Kind == KindInterface || t.Kind == KindCallable || t.Kind == KindExternEntity {
+	if t.Kind == KindEntity || t.Kind == KindInterface || t.Kind == KindCallable || t.Kind == KindExternEntity || t.Kind == KindNullable {
 		return t.Entity
 	}
 	if t.Kind == KindTask {

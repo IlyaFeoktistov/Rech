@@ -196,6 +196,16 @@ func TypeOf(e Expr) Type {
 		return TypeTypeInfo
 	case *AsExpr:
 		return e.To
+	case *NullLiteral:
+		return e.Type
+	case *NullWrapExpr:
+		return e.Type
+	case *NullUnwrapExpr:
+		return e.Type
+	case *NullCheckExpr:
+		return TypeBool
+	case *NullCoalesceExpr:
+		return e.Type
 	default:
 		return TypeUnknown
 	}
