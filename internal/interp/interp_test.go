@@ -77,6 +77,7 @@ func TestRunAllExamplesMatchCompiledOutput(t *testing.T) {
 		"основы/побитовые.rech":              "7\n2\n5\n-1\n8\n8\n5\n",
 		"основы/инкремент.rech":              "5\n6\n7\n7\n8\n7\n1.5\n2.5\n",
 		"основы/составное_присваивание.rech": "15\n12\n24\n6\nпривет, мир\n7\n",
+		"основы/значение_или_ничто.rech":     "истина\n10\n10\n99\n5\n10\nАня\nне найден\n",
 		"основы/привет.rech":                 "Привет, мир!\n",
 		"основы/показать.rech":               "5 (Целое)\n3.5 (Действительное)\n\"текст\" (Строка)\nистина (Логическое)\nТочка { x: 1 (Целое), y: 2.5 (Действительное) }\nСписок<Целое> [10 (Целое), 20 (Целое)]\n",
 		"основы/строки.rech":                 "строка1\nстрока2\nколонка1\tколонка2\nон сказал \"привет\"\nпуть: C:\\rech\nистина\nистина\nxy\n",
@@ -519,6 +520,36 @@ func TestRunIntDivisionByZeroReturnsErrorNotCrash(t *testing.T) {
 	err = Run(irProg, &buf, strings.NewReader(""))
 	if err == nil || !strings.Contains(err.Error(), "деление на ноль") {
 		t.Fatalf("ожидалась ошибка про деление на ноль, получено: %v", err)
+	}
+	if buf.String() != "до\n" {
+		t.Fatalf("получили вывод %q", buf.String())
+	}
+}
+
+func TestRunNullableCastOnNichtoPanics(t *testing.T) {
+	toks, err := lexer.New(`
+функция главная
+{
+    вывести "до"
+    переменная а: ?Целое = Ничто
+    вывести (Целое) а
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	irProg, err := semantic.Analyze(prog)
+	if err != nil {
+		t.Fatalf("семантический анализ: %v", err)
+	}
+	var buf bytes.Buffer
+	err = Run(irProg, &buf, strings.NewReader(""))
+	if err == nil || !strings.Contains(err.Error(), "обращение к пустому значению") {
+		t.Fatalf("ожидалась ошибка про обращение к пустому значению (Ничто), получено: %v", err)
 	}
 	if buf.String() != "до\n" {
 		t.Fatalf("получили вывод %q", buf.String())
