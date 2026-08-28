@@ -2,17 +2,18 @@
 //
 // Использование:
 //
-//	rech build [--keep-c] <файл.rech>|<каталог>|-c "<код>"   - собрать бинарник
-//	rech run [--keep-c] <файл.rech>|<каталог>|-c "<код>"     - собрать и выполнить
-//	rech test <файл.rech>|<каталог>                          - найти и запустить тесты
-//	rech debug                                               - сервер DAP по stdin/stdout (для VS Code)
-//	rech lsp                                                 - сервер LSP по stdin/stdout (hover/автодополнение, для VS Code)
-//	rech version                                             - напечатать версию
+//	rech build [--keep-c] <файл.rech>|<каталог>|-c "<код>"        - собрать бинарник
+//	rech build [--keep-c] --lib <файл.rech>|<каталог>|-c "<код>"  - собрать разделяемую библиотеку (.so/.dylib/.dll) + C-заголовок (.h)
+//	rech run [--keep-c] <файл.rech>|<каталог>|-c "<код>"          - собрать и выполнить
+//	rech test <файл.rech>|<каталог>                                - найти и запустить тесты
+//	rech debug                                                     - сервер DAP по stdin/stdout (для VS Code)
+//	rech lsp                                                       - сервер LSP по stdin/stdout (hover/автодополнение, для VS Code)
+//	rech version                                                   - напечатать версию
 //
 // <каталог> у build/run (например, "." - как "go build .") собирает все
 // ".rech"-файлы прямо в нём (без подкаталогов) как одну единицу компиляции -
-// это не система импортов (docs/ROADMAP.md, Шаг 11), а неявное объединение
-// всего каталога, детали - internal/compiler.Compiler.parseDir.
+// это не система импортов, а неявное объединение всего каталога, детали -
+// internal/compiler.Compiler.parseDir.
 //
 // -c/--code "<код>" (как "python -c") собирает/запускает код прямо из
 // аргумента командной строки, без файла - многострочный код передаётся
@@ -105,7 +106,7 @@ func main() {
 		return
 	}
 
-	srcPath, code, keepC, hasCode, err := parseBuildArgs(os.Args[2:])
+	srcPath, code, keepC, hasCode, isLib, err := parseBuildArgs(os.Args[2:])
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ошибка:", err)
 		os.Exit(2)
@@ -139,6 +140,12 @@ func main() {
 				// умолчанию (false) неотличимо от явного выбора пользователя.
 				keepC = pf.KeepC()
 			}
+			if !isLib {
+				// Тот же принцип, что и у keepC/pf.KeepC() выше - --lib из
+				// командной строки не переопределяется файлом проекта в
+				// обратную сторону.
+				isLib = pf.IsLibrary()
+			}
 			outDir, projName = pf.OutputDir(), pf.Имя
 		}
 	}
@@ -150,12 +157,34 @@ func main() {
 
 	comp := InitializeCompiler()
 	build := func() (string, error) { return comp.Build(srcPath, keepC) }
+	buildLib := func() (string, string, error) { return comp.BuildLib(srcPath, keepC) }
 	if hasCode {
 		build = func() (string, error) { return comp.BuildSource(code, keepC) }
+		buildLib = func() (string, string, error) { return comp.BuildLibSource(code, keepC) }
 	}
 
 	switch cmd {
 	case "build":
+		if isLib {
+			libPath, hPath, err := buildLib()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "ошибка:", err)
+				os.Exit(1)
+			}
+			if outDir != "" {
+				if libPath, err = placeInOutputDir(libPath, outDir, projName); err != nil {
+					fmt.Fprintln(os.Stderr, "ошибка:", err)
+					os.Exit(1)
+				}
+				if hPath, err = placeInOutputDir(hPath, outDir, projName); err != nil {
+					fmt.Fprintln(os.Stderr, "ошибка:", err)
+					os.Exit(1)
+				}
+			}
+			fmt.Println(libPath)
+			fmt.Println(hPath)
+			return
+		}
 		binPath, err := build()
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "ошибка:", err)
@@ -175,6 +204,10 @@ func main() {
 			fmt.Println(binPath)
 		}
 	case "run":
+		if isLib {
+			fmt.Fprintln(os.Stderr, "ошибка: библиотека (--lib/сборка.тип: библиотека) не исполняется как программа - соберите её через \"rech build --lib\" и подключите из внешнего кода")
+			os.Exit(2)
+		}
 		binPath, err := build()
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "ошибка:", err)
@@ -211,18 +244,21 @@ func placeInOutputDir(binPath, outDir, projName string) (string, error) {
 	return dst, nil
 }
 
-// parseBuildArgs разбирает аргументы после "build"/"run": флаг --keep-c (в
-// любом месте), путь к .rech-файлу/каталогу ИЛИ -c/--code <код> (взаимно
-// исключающие способы указать программу - hasCode отличает "код есть, но
-// пустая строка" от "кода не было вовсе").
-func parseBuildArgs(args []string) (srcPath, code string, keepC, hasCode bool, err error) {
+// parseBuildArgs разбирает аргументы после "build"/"run": флаги --keep-c/
+// --lib (в любом месте, --lib имеет смысл только у "build" - проверяется
+// вызывающим кодом, не здесь), путь к .rech-файлу/каталогу ИЛИ -c/--code
+// <код> (взаимно исключающие способы указать программу - hasCode отличает
+// "код есть, но пустая строка" от "кода не было вовсе").
+func parseBuildArgs(args []string) (srcPath, code string, keepC, hasCode, isLib bool, err error) {
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--keep-c":
 			keepC = true
+		case "--lib":
+			isLib = true
 		case "-c", "--code":
 			if i+1 >= len(args) {
-				return "", "", false, false, fmt.Errorf("после %q ожидался код программы", args[i])
+				return "", "", false, false, false, fmt.Errorf("после %q ожидался код программы", args[i])
 			}
 			i++
 			code = args[i]
@@ -232,13 +268,13 @@ func parseBuildArgs(args []string) (srcPath, code string, keepC, hasCode bool, e
 		}
 	}
 	if hasCode && srcPath != "" {
-		return "", "", false, false, fmt.Errorf("нельзя одновременно указать -c/--code и путь к файлу/каталогу (%q)", srcPath)
+		return "", "", false, false, false, fmt.Errorf("нельзя одновременно указать -c/--code и путь к файлу/каталогу (%q)", srcPath)
 	}
-	return srcPath, code, keepC, hasCode, nil
+	return srcPath, code, keepC, hasCode, isLib, nil
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "использование: rech build|run [--keep-c] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech test <файл.rech>|<каталог> | rech debug | rech lsp | rech init [имя] | rech version")
+	fmt.Fprintln(os.Stderr, "использование: rech build [--keep-c] [--lib] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech run [--keep-c] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech test <файл.rech>|<каталог> | rech debug | rech lsp | rech init [имя] | rech version")
 }
 
 // testDotsPerLine - сколько точек/"F" печатать в строке прогресса, прежде

@@ -82,7 +82,7 @@ func TestRunTestsNeverAbortsOnFirstFailure(t *testing.T) {
 }
 
 func TestParseBuildArgsPlainPath(t *testing.T) {
-	src, code, keepC, hasCode, err := parseBuildArgs([]string{"--keep-c", "прог.rech"})
+	src, code, keepC, hasCode, _, err := parseBuildArgs([]string{"--keep-c", "прог.rech"})
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
@@ -91,9 +91,19 @@ func TestParseBuildArgsPlainPath(t *testing.T) {
 	}
 }
 
+func TestParseBuildArgsLibFlag(t *testing.T) {
+	src, _, _, _, isLib, err := parseBuildArgs([]string{"--lib", "прог.rech"})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if src != "прог.rech" || !isLib {
+		t.Fatalf("получено src=%q isLib=%v", src, isLib)
+	}
+}
+
 func TestParseBuildArgsCodeFlag(t *testing.T) {
 	for _, flag := range []string{"-c", "--code"} {
-		src, code, _, hasCode, err := parseBuildArgs([]string{flag, "вывести 1"})
+		src, code, _, hasCode, _, err := parseBuildArgs([]string{flag, "вывести 1"})
 		if err != nil {
 			t.Fatalf("неожиданная ошибка: %v", err)
 		}
@@ -104,14 +114,14 @@ func TestParseBuildArgsCodeFlag(t *testing.T) {
 }
 
 func TestParseBuildArgsCodeWithoutValueFails(t *testing.T) {
-	_, _, _, _, err := parseBuildArgs([]string{"-c"})
+	_, _, _, _, _, err := parseBuildArgs([]string{"-c"})
 	if err == nil {
 		t.Fatal("ожидалась ошибка - после -c нет значения")
 	}
 }
 
 func TestParseBuildArgsCodeAndPathConflictFails(t *testing.T) {
-	_, _, _, _, err := parseBuildArgs([]string{"-c", "вывести 1", "прог.rech"})
+	_, _, _, _, _, err := parseBuildArgs([]string{"-c", "вывести 1", "прог.rech"})
 	if err == nil {
 		t.Fatal("ожидалась ошибка - -c и путь одновременно")
 	}

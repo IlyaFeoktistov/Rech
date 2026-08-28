@@ -51,5 +51,12 @@ func Analyze(prog *ast.Program) (*ir.Program, error) {
 		return nil, err
 	}
 
-	return a.buildIR(prog)
+	irProg, err := a.buildIR(prog)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateExports(irProg); err != nil {
+		return nil, err
+	}
+	return irProg, nil
 }

@@ -402,6 +402,18 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 			}
 			ent.Doc = doc
 			prog.Entities = append(prog.Entities, ent)
+		case lexer.KwExport:
+			fn, ent, err := p.parseExportedDecl()
+			if err != nil {
+				return nil, err
+			}
+			if fn != nil {
+				fn.Doc = doc
+				prog.Functions = append(prog.Functions, fn)
+			} else {
+				ent.Doc = doc
+				prog.Entities = append(prog.Entities, ent)
+			}
 		case lexer.KwUse:
 			use, err := p.parseUseDecl()
 			if err != nil {

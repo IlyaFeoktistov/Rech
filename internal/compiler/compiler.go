@@ -3,8 +3,8 @@
 //
 // Конкретная сборка (какой Frontend, какой Backend, какой Toolchain)
 // собирается через Wire - см. cmd/rech/wire.go. Когда появятся
-// interpreter/VM backend или альтернативный toolchain (см. docs/ROADMAP.md),
-// добавление новой конфигурации не потребует переписывать main.go.
+// interpreter/VM backend или альтернативный toolchain, добавление новой
+// конфигурации не потребует переписывать main.go.
 package compiler
 
 import (
@@ -51,12 +51,24 @@ type Frontend interface {
 // Backend превращает AST в исходник на целевом языке (сейчас - C).
 type Backend interface {
 	Generate(prog *ast.Program) (string, error)
+	// GenerateLib - как Generate, но для разделяемой библиотеки (`rech
+	// build --lib`): второй результат - текст C-заголовка (.h) с
+	// прототипами объявлений, помеченных "экспортировать".
+	GenerateLib(prog *ast.Program) (cSource, header string, err error)
 }
 
 // Toolchain отвечает за финальную сборку сгенерированного исходника
-// в нативный бинарник.
+// в нативный бинарник или разделяемую библиотеку (CompileLib, `rech build
+// --lib`).
 type Toolchain interface {
 	CompileC(cPath, binPath string) error
+	// CompileLib компилирует cPath в разделяемую библиотеку libPath - имя
+	// уже несёт правильное платформенное расширение (см. LibExtension).
+	CompileLib(cPath, libPath string) error
+	// LibExtension - расширение разделяемой библиотеки на текущей
+	// платформе (".so"/".dylib"/".dll") - Compiler называет им итоговый
+	// файл, сам не завися от runtime.GOOS.
+	LibExtension() string
 }
 
 type defaultFrontend struct{}
@@ -102,6 +114,15 @@ func (defaultBackend) Generate(prog *ast.Program) (string, error) {
 	return cbackend.GenerateFromIR(irProg)
 }
 
+func (defaultBackend) GenerateLib(prog *ast.Program) (string, string, error) {
+	irProg, err := semantic.Analyze(prog)
+	if err != nil {
+		return "", "", err
+	}
+
+	return cbackend.GenerateLibFromIR(irProg)
+}
+
 // Compiler связывает Frontend, Backend и Toolchain в единый пайплайн
 // "исходник на Rech -> нативный бинарник".
 type Compiler struct {
@@ -127,6 +148,81 @@ func (c *Compiler) Build(srcPath string, keepC bool) (string, error) {
 		return "", err
 	}
 	return c.compileProgram(prog, base, keepC)
+}
+
+// BuildLib - как Build, но собирает srcPath как разделяемую библиотеку
+// (.so/.dylib/.dll, `rech build --lib`) вместо исполняемого файла: не
+// требует функцию "главная" (библиотека не
+// исполняется как программа) и дополнительно возвращает путь к
+// сгенерированному C-заголовку (.h) с прототипами объявлений, помеченных
+// "экспортировать".
+func (c *Compiler) BuildLib(srcPath string, keepC bool) (libPath, hPath string, err error) {
+	prog, base, err := c.ParseSource(srcPath)
+	if err != nil {
+		return "", "", err
+	}
+	return c.compileLibProgram(prog, base, keepC)
+}
+
+// BuildLibSource - BuildLib для кода без файла-источника (-c/--code
+// --lib), симметрично BuildSource/Build.
+func (c *Compiler) BuildLibSource(src string, keepC bool) (libPath, hPath string, err error) {
+	prog, err := c.Frontend.Parse(src)
+	if err != nil {
+		return "", "", err
+	}
+	dir, err := os.MkdirTemp("", "rech-code-")
+	if err != nil {
+		return "", "", fmt.Errorf("не удалось создать временный каталог: %w", err)
+	}
+	return c.compileLibProgram(prog, filepath.Join(dir, "код"), keepC)
+}
+
+// compileLibProgram - общий хвост BuildLib/BuildLibSource, аналогичный
+// compileProgram: генерация C+заголовка, сборка разделяемой библиотекой,
+// необязательная уборка .c. В отличие от compileProgram, заголовок (.h)
+// пишется всегда, а не только при keepC - это часть публичного API
+// библиотеки, а не техническая заготовка вроде .c.
+func (c *Compiler) compileLibProgram(prog *ast.Program, base string, keepC bool) (libPath, hPath string, err error) {
+	cSource, header, err := c.Backend.GenerateLib(prog)
+	if err != nil {
+		return "", "", fmt.Errorf("генерация C: %w", err)
+	}
+
+	tmpDir, err := os.MkdirTemp("", "rech-build-")
+	if err != nil {
+		return "", "", fmt.Errorf("не удалось создать временный каталог сборки: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	tmpBase := filepath.Join(tmpDir, "out")
+	tmpCPath := tmpBase + ".c"
+	if err := os.WriteFile(tmpCPath, []byte(cSource), 0o644); err != nil {
+		return "", "", fmt.Errorf("не удалось записать %s: %w", tmpCPath, err)
+	}
+	libExt := c.Toolchain.LibExtension()
+	tmpLibPath := tmpBase + libExt
+	if err := c.Toolchain.CompileLib(tmpCPath, tmpLibPath); err != nil {
+		return "", "", err
+	}
+
+	libPath = base + libExt
+	if err := MoveFile(tmpLibPath, libPath); err != nil {
+		return "", "", fmt.Errorf("не удалось перенести собранную библиотеку в %s: %w", libPath, err)
+	}
+
+	hPath = base + ".h"
+	if err := os.WriteFile(hPath, []byte(header), 0o644); err != nil {
+		return "", "", fmt.Errorf("не удалось записать %s: %w", hPath, err)
+	}
+
+	if keepC {
+		cPath := base + ".c"
+		if err := os.WriteFile(cPath, []byte(cSource), 0o644); err != nil {
+			return "", "", fmt.Errorf("не удалось записать %s: %w", cPath, err)
+		}
+	}
+	return libPath, hPath, nil
 }
 
 // ParseSource разбирает srcPath (файл .rech или каталог) в *ast.Program -
@@ -272,8 +368,8 @@ func MoveFile(src, dst string) error {
 	return os.Remove(src)
 }
 
-// parseFileRaw разбирает ровно srcPath, без "использовать" (шаг 11) -
-// используется в режиме каталога (parseDir), где у файлов друг с другом и
+// parseFileRaw разбирает ровно srcPath, без "использовать" - используется
+// в режиме каталога (parseDir), где у файлов друг с другом и
 // так нет разделения видимости, поэтому подключать через них ещё и файлы
 // снаружи каталога было бы лишним смешением двух разных механизмов.
 func (c *Compiler) parseFileRaw(srcPath string) (*ast.Program, error) {
@@ -294,7 +390,7 @@ func (c *Compiler) parseFileRaw(srcPath string) (*ast.Program, error) {
 
 // parseFile разбирает srcPath как единицу компиляции верхнего уровня
 // (`rech build/run <файл>`) - в отличие от parseFileRaw, разрешает
-// "использовать" (шаг 11): рекурсивно загружает и линкует файлы, на которые
+// "использовать": рекурсивно загружает и линкует файлы, на которые
 // srcPath ссылается, в одну программу с контролем видимости между файлами
 // (module.Load/Program.Link, включая обнаружение циклических импортов) - у
 // файла без единого "использовать" результат не отличается от обычного
@@ -311,17 +407,16 @@ func (c *Compiler) parseFile(srcPath string) (*ast.Program, error) {
 }
 
 // parseDir собирает все ".rech"-файлы прямо в dirPath (без рекурсии в
-// подкаталоги - как "." у "go build ."; рекурсивный обход отложен до
-// файла-манифеста проекта, docs/ROADMAP.md, Шаг 11) и объединяет их в одну
-// программу. Это НЕ система импортов (Шаг 11, "использовать X из "файла"" -
-// явная, управляемая связь между конкретными файлами) - здесь всё
+// подкаталоги - как "." у "go build .") и объединяет их в одну программу.
+// Это НЕ система импортов ("использовать X из "файла"" - явная,
+// управляемая связь между конкретными файлами) - здесь всё
 // содержимое каталога неявно становится одной единицей компиляции, файлы
 // объединяются в алфавитном порядке имён (детерминированно, но без
 // какого-либо контроля видимости между ними - временное решение до
 // появления настоящих импортов). Дубли имён функций/сущностей между
 // файлами - та же ошибка компиляции, что и дубль внутри одного файла
 // (проверяется дальше по конвейеру, отдельной проверки здесь не нужно).
-// "использовать" (шаг 11) внутри файла каталога - явная ошибка, а не тихо
+// "использовать" внутри файла каталога - явная ошибка, а не тихо
 // игнорируемая конструкция: смешивать "весь каталог - одна единица
 // компиляции" (без контроля видимости) с настоящими, управляемыми
 // импортами (с контролем видимости) для одних и тех же файлов было бы

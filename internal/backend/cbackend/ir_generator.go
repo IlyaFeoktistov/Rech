@@ -54,7 +54,12 @@ type irGenCtx struct {
 	// одной платформе (в отличие от -lm), линковать её для программы без
 	// единой сущности означало бы новое обязательное требование к
 	// окружению сборки без всякой на то нужды.
-	usesGC   bool
+	usesGC bool
+	// libMode - генерация для разделяемой библиотеки (GenerateLibFromIR),
+	// не для обычной программы - см. package doc generateSource. Включает
+	// атрибут видимости у C-функций, соответствующих экспортированным
+	// Rech-функциям (exportAttr).
+	libMode  bool
 	entities map[string]*ir.Entity
 	// externCNames - Rech-facing имя (Alias) внешней функции -> настоящий
 	// C-символ (CName), из prog.ExternFuncs: CallExpr.Callee несёт Alias,
@@ -190,7 +195,7 @@ func (ctx *irGenCtx) receiverIsPointer(receiver ir.Expr) bool {
 }
 
 // entityIsRef - true, если name - объявленная "сущность"/"класс" (ссылочная
-// семантика по умолчанию, шаг 12 - сущность как указатель, GC_MALLOC), а не
+// семантика по умолчанию - сущность как указатель, GC_MALLOC), а не
 // "структура" (по значению). "Не найдено в ctx.entities" - generic-
 // инстанциация (Список<T> и т. п., они регистрируются отдельно, в
 // prog.Generics, не в prog.Entities) - продолжает существующее представление
@@ -201,8 +206,37 @@ func (ctx *irGenCtx) entityIsRef(name string) bool {
 	return ok && !ent.IsStruct
 }
 
-// GenerateFromIR возвращает исходник на C, соответствующий программе prog.
+// GenerateFromIR возвращает исходник на C, соответствующий программе prog -
+// обычная программа, требует функцию "главная" (см. generateSource).
 func GenerateFromIR(prog *ir.Program) (string, error) {
+	return generateSource(prog, false)
+}
+
+// GenerateLibFromIR - как GenerateFromIR, но для разделяемой библиотеки
+// (`rech build --lib`): "главная" не обязательна (библиотека не
+// исполняется как программа), а вторым результатом возвращается текст
+// C-заголовка (.h) с прототипами
+// объявлений, помеченных "экспортировать" - см. header.go.
+func GenerateLibFromIR(prog *ir.Program) (cSource string, header string, err error) {
+	cSource, err = generateSource(prog, true)
+	if err != nil {
+		return "", "", err
+	}
+	header, err = generateHeader(prog)
+	if err != nil {
+		return "", "", err
+	}
+	return cSource, header, nil
+}
+
+// generateSource - общее тело GenerateFromIR/GenerateLibFromIR. libMode
+// снимает требование функции "главная" (см. hasEntryPoint ниже) и включает
+// атрибут видимости у экспортированных функций (exportAttr) - линковка в
+// разделяемую библиотеку без этого сделала бы видимым снаружи КАЖДЫЙ символ
+// программы, не только помеченные "экспортировать" (internal/toolchain.CC
+// добавляет "-fvisibility=hidden" при сборке библиотеки на Linux/macOS
+// именно ради этого атрибута - см. package doc там).
+func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	if err := checkManglingCollisions(prog); err != nil {
 		return "", err
 	}
@@ -226,7 +260,7 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	participants, slots := computeDispatch(prog)
 	excTypeIDs, excTypeNames, excIsaTable := buildIsaTable(prog, participants)
 	ctx := &irGenCtx{
-		entities: entities, externCNames: externCNames, usesGC: usesGC,
+		entities: entities, externCNames: externCNames, usesGC: usesGC, libMode: libMode,
 		interfaces: interfaces, dispatchParticipants: participants, dispatchSlots: slots,
 		// usesVtable - хотя бы одна сущность участвует в диспетчеризации
 		// (participants), не "есть хотя бы один слот" (slots) - сущность
@@ -338,9 +372,9 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 			hasEntryPoint = true
 			continue
 		}
-		fmt.Fprintf(&protos, "%s %s(%s);\n", cReturnTypeFor(ctx, fn.HasReturn, fn.ReturnType), mangleName(fn.Name), cParamListIR(ctx, fn.Params))
+		fmt.Fprintf(&protos, "%s%s %s(%s);\n", exportAttr(ctx, fn.Exported), cReturnTypeFor(ctx, fn.HasReturn, fn.ReturnType), mangleName(fn.Name), cParamListIR(ctx, fn.Params))
 	}
-	if !hasEntryPoint {
+	if !libMode && !hasEntryPoint {
 		return "", fmt.Errorf("в программе не найдена функция %q - она служит точкой входа", entryPointName)
 	}
 
@@ -374,8 +408,8 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	// внутри <gc.h> (потоки, см. ensureTaskWrapper) активен только если сам
 	// <gc.h> уже видит, что windows.h включён.
 	sb.WriteString("#ifdef _WIN32\n#define WIN32_LEAN_AND_MEAN\n#include <windows.h>\n#include <shellapi.h>\n#endif\n")
-	// gc.h - Boehm GC (сущность/класс - ссылочная семантика, шаг 12,
-	// выделяются GC_MALLOC, см. generateIREntityCtor) - только если в
+	// gc.h - Boehm GC (сущность/класс - ссылочная семантика, выделяются
+	// GC_MALLOC, см. generateIREntityCtor) - только если в
 	// программе реально есть хотя бы одна ссылочная сущность (ctx.usesGC) -
 	// в отличие от -lm/остальных всегда-подключаемых заголовков, libgc не
 	// входит в стандартный C-тулчейн ни на одной платформе (проверено
@@ -410,7 +444,7 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 	if ctx.usesSockets {
 		sb.WriteString("#ifdef _WIN32\n#include <winsock2.h>\n#include <ws2tcpip.h>\n#else\n#include <sys/socket.h>\n#include <netinet/in.h>\n#include <arpa/inet.h>\n#include <netdb.h>\n#include <unistd.h>\n#endif\n")
 	}
-	// Потоки (шаг 15, "запустить"/"дождаться") - на Windows CreateThread/
+	// Потоки ("запустить"/"дождаться") - на Windows CreateThread/
 	// WaitForSingleObject/CloseHandle уже объявлены через windows.h выше,
 	// отдельного заголовка не нужно; на POSIX - pthread.h.
 	if ctx.usesThreads {
@@ -727,7 +761,7 @@ func generateIRFunction(ctx *irGenCtx, fn *ir.Function) (string, error) {
 		// из главная.
 		paramList = "int argc, char **argv"
 	}
-	fmt.Fprintf(&sb, "%s %s(%s) {\n", cReturnTypeFor(ctx, fn.HasReturn, fn.ReturnType), cName, paramList)
+	fmt.Fprintf(&sb, "%s%s %s(%s) {\n", exportAttr(ctx, fn.Exported), cReturnTypeFor(ctx, fn.HasReturn, fn.ReturnType), cName, paramList)
 	fmt.Fprintf(&sb, "    %s", tracePush(fn.Name))
 	if cName == "main" {
 		if ctx.usesGC {

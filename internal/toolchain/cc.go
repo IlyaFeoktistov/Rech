@@ -12,7 +12,8 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/compiler"
 )
 
-// CC вызывает системный C-компилятор для сборки нативного бинарника.
+// CC вызывает системный C-компилятор для сборки нативного бинарника или
+// разделяемой библиотеки (CompileLib, lib.go).
 type CC struct{}
 
 // NewCC - провайдер для Wire.
@@ -20,24 +21,28 @@ func NewCC() compiler.Toolchain { return &CC{} }
 
 // CompileC компилирует cPath в исполняемый файл binPath.
 func (*CC) CompileC(cPath, binPath string) error {
-	path, err := findCCompiler()
+	src, err := os.ReadFile(cPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("не удалось прочитать сгенерированный файл %q: %w", cPath, err)
 	}
-	// -lm - математика (шаг 8, internal/builtins: корень/степень/округлить/
+	args := append([]string{cPath, "-o", binPath}, commonLinkFlags(src)...)
+	return runCC(args)
+}
+
+// commonLinkFlags - флаги cc, общие для CompileC (исполняемый файл) и
+// CompileLib (разделяемая библиотека, lib.go) - решение "нужен ли этот
+// флаг" зависит только от содержимого сгенерированного C (src) и платформы,
+// не от того, что именно из него в итоге собирается.
+func commonLinkFlags(src []byte) []string {
+	// -lm - математика (internal/builtins: корень/степень/округлить/
 	// потолок/пол/модуль) может быть не слинкована без этого флага в libc,
 	// не предоставляющей math.h-функции сама по себе; передаётся всегда, а
 	// не только когда программа реально использует эти функции - линковка
 	// неиспользуемой библиотеки безвредна, а решать здесь "нужна ли она"
 	// означало бы протаскивать это знание из cbackend через весь конвейер
 	// компиляции только ради этого одного флага.
-	//
-	src, err := os.ReadFile(cPath)
-	if err != nil {
-		return fmt.Errorf("не удалось прочитать сгенерированный файл %q: %w", cPath, err)
-	}
-	args := []string{cPath, "-o", binPath, "-lm"}
-	// -lgc - Boehm GC (шаг 12, "сущность"/"класс" - ссылочная семантика по
+	flags := []string{"-lm"}
+	// -lgc - Boehm GC ("сущность"/"класс" - ссылочная семантика по
 	// умолчанию, GC_MALLOC в сгенерированном C) - в отличие от -lm, НЕ
 	// входит в состав стандартного C-тулчейна ни на одной платформе
 	// (проверено эмпирически: ни на свежем Ubuntu, ни на MinGW-w64 её нет
@@ -50,9 +55,9 @@ func (*CC) CompileC(cPath, binPath string) error {
 	// решить, нужен ли -lgc, без протаскивания отдельного флага через
 	// весь internal/compiler.Toolchain только ради этого.
 	if bytes.Contains(src, []byte("#include <gc.h>")) {
-		args = append(args, "-lgc")
+		flags = append(flags, "-lgc")
 	}
-	// -pthread - потоки ОС (шаг 15, "запустить"/"дождаться" -
+	// -pthread - потоки ОС ("запустить"/"дождаться" -
 	// internal/backend/cbackend/concurrency.go) - только на POSIX, где
 	// pthread_create и не является частью libc по умолчанию на всех
 	// платформах (glibc сама по себе линкует его безусловно с недавних
@@ -63,10 +68,10 @@ func (*CC) CompileC(cPath, binPath string) error {
 	// когда используются потоки, независимо от платформы - см. package doc
 	// cbackend/ir_generator.go).
 	if bytes.Contains(src, []byte("#include <pthread.h>")) && runtime.GOOS != "windows" {
-		args = append(args, "-pthread")
+		flags = append(flags, "-pthread")
 	}
 	if runtime.GOOS == "windows" {
-		// -lshell32 - CommandLineToArgvW (шаг 8, internal/backend/cbackend.
+		// -lshell32 - CommandLineToArgvW (internal/backend/cbackend.
 		// argFuncHelper/rech_init_args): argv, который сам даёт CRT на
 		// Windows, - в ANSI-кодовой странице процесса, не UTF-8, поэтому
 		// "аргумент"/"количество_аргументов" перечитывают его сами через
@@ -74,12 +79,22 @@ func (*CC) CompileC(cPath, binPath string) error {
 		// GOOS здесь - платформа, на которой на самом деле запущен сам
 		// rech (не кросс-компиляция C-вывода) - тот же компилятор cc и
 		// собирает, и запускается на одной и той же ОС.
-		// -lws2_32 - Winsock2 (шаг 8, internal/backend/cbackend.
+		// -lws2_32 - Winsock2 (internal/backend/cbackend.
 		// socketHelpers): сокеты на Windows - отдельная библиотека, не
 		// часть обычной libc, как BSD-сокеты на POSIX. Тот же принцип, что
 		// и у -lm выше - всегда, безвредно при отсутствии реального
 		// использования сокетов в программе.
-		args = append(args, "-lshell32", "-lws2_32")
+		flags = append(flags, "-lshell32", "-lws2_32")
+	}
+	return flags
+}
+
+// runCC запускает системный компилятор с готовым списком аргументов -
+// общий хвост CompileC/CompileLib.
+func runCC(args []string) error {
+	path, err := findCCompiler()
+	if err != nil {
+		return err
 	}
 	// #nosec G204 -- пути приходят от локального пользователя, вызывающего свой же компилятор.
 	cmd := exec.Command(path, args...)

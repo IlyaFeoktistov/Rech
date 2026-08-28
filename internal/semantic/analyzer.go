@@ -437,7 +437,7 @@ func (a *Analyzer) analyzeEntity(ent *ast.EntityDecl) (*ir.Entity, error) {
 		}
 		ctor = irCtor
 	}
-	return &ir.Entity{Name: ent.Name, IsStruct: ent.IsStruct, BaseName: ent.BaseName, Interfaces: ent.Interfaces, Constants: constants, Fields: fields, Methods: irMethods, Ctor: ctor, Doc: ent.Doc}, nil
+	return &ir.Entity{Name: ent.Name, IsStruct: ent.IsStruct, BaseName: ent.BaseName, Interfaces: ent.Interfaces, Constants: constants, Fields: fields, Methods: irMethods, Ctor: ctor, Doc: ent.Doc, Exported: ent.Exported}, nil
 }
 
 // analyzeConstructor анализирует явное тело конструктора ent.Ctor - как
@@ -511,6 +511,7 @@ func (a *Analyzer) analyzeFunction(fn *ast.FunctionDecl) (*ir.Function, error) {
 		Body:       body,
 		File:       fn.File,
 		Doc:        fn.Doc,
+		Exported:   fn.Exported,
 	}, nil
 }
 

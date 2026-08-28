@@ -16,6 +16,12 @@ func (fakeToolchain) CompileC(cPath, binPath string) error {
 	return os.WriteFile(binPath, []byte{}, 0o755)
 }
 
+func (fakeToolchain) CompileLib(cPath, libPath string) error {
+	return os.WriteFile(libPath, []byte{}, 0o755)
+}
+
+func (fakeToolchain) LibExtension() string { return ".so" }
+
 func newTestCompiler() *Compiler {
 	return NewCompiler(NewFrontend(), NewBackend(), fakeToolchain{})
 }
@@ -27,6 +33,12 @@ type exeAppendingToolchain struct{}
 func (exeAppendingToolchain) CompileC(cPath, binPath string) error {
 	return os.WriteFile(binPath+".exe", []byte{}, 0o755)
 }
+
+func (exeAppendingToolchain) CompileLib(cPath, libPath string) error {
+	return os.WriteFile(libPath, []byte{}, 0o755)
+}
+
+func (exeAppendingToolchain) LibExtension() string { return ".so" }
 
 func newExeAppendingTestCompiler() *Compiler {
 	return NewCompiler(NewFrontend(), NewBackend(), exeAppendingToolchain{})
@@ -53,6 +65,35 @@ func TestBuildDeletesCByDefault(t *testing.T) {
 	cPath := filepath.Join(dir, "прог.c")
 	if _, err := os.Stat(cPath); !os.IsNotExist(err) {
 		t.Fatalf("ожидалось, что %s удалён по умолчанию, stat вернул: %v", cPath, err)
+	}
+}
+
+const libSource = "экспортировать функция сумма(а: Целое, б: Целое): Целое\n{\n    вернуть а + б\n}\n"
+
+// TestBuildLibProducesLibraryAndHeader - BuildLib собирает разделяемую
+// библиотеку (fakeToolchain - см. выше, без вызова настоящего cc) и
+// заголовок рядом с исходником, без требования "главная" - см. package doc
+// Compiler.BuildLib.
+func TestBuildLibProducesLibraryAndHeader(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := writeSource(t, dir, "либа.rech", libSource)
+
+	libPath, hPath, err := newTestCompiler().BuildLib(srcPath, false)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if filepath.Ext(libPath) != ".so" {
+		t.Fatalf("ожидалось расширение .so у %q", libPath)
+	}
+	if _, err := os.Stat(libPath); err != nil {
+		t.Fatalf("библиотека не найдена по %q: %v", libPath, err)
+	}
+	header, err := os.ReadFile(hPath)
+	if err != nil {
+		t.Fatalf("заголовок не найден по %q: %v", hPath, err)
+	}
+	if !strings.Contains(string(header), "rech_summa") {
+		t.Fatalf("ожидался прототип rech_summa в заголовке, получено:\n%s", header)
 	}
 }
 
@@ -126,8 +167,7 @@ func TestBuildKeepsCWhenRequested(t *testing.T) {
 
 // TestBuildDirMergesAllRechFiles - "rech build ." (как "go build .") должен
 // собрать все ".rech"-файлы каталога как одну единицу компиляции без
-// явного импорта (docs/ROADMAP.md, Шаг 11 - это неявное объединение, не
-// система импортов).
+// явного импорта - это неявное объединение, не система импортов.
 func TestBuildDirMergesAllRechFiles(t *testing.T) {
 	dir := t.TempDir()
 	writeSource(t, dir, "помощник.rech", "функция подсказка(): Строка\n{\n    вернуть \"привет из другого файла\"\n}\n")
@@ -216,8 +256,7 @@ func TestBuildFileWithUseRejectsUnimportedName(t *testing.T) {
 }
 
 // TestBuildDirRejectsUse - файл каталога с "использовать" не должен молча
-// смешиваться с "весь каталог - одна единица компиляции" (см.
-// docs/ROADMAP.md, Шаг 11).
+// смешиваться с "весь каталог - одна единица компиляции".
 func TestBuildDirRejectsUse(t *testing.T) {
 	dir := t.TempDir()
 	writeSource(t, dir, "помощник.rech", "функция подсказка(): Строка\n{\n    вернуть \"привет\"\n}\n")

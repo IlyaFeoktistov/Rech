@@ -37,6 +37,53 @@ func TestLoadDefaultsAndPaths(t *testing.T) {
 	if pf.KeepC() {
 		t.Fatalf("режим релиз не должен сохранять .c")
 	}
+	if pf.Тип != "программа" || pf.IsLibrary() {
+		t.Fatalf("ожидался тип по умолчанию \"программа\", получено %+v", pf)
+	}
+}
+
+func TestLoadLibraryType(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := `проект:
+  имя: тест
+
+файлы:
+  главный: исходники/главный.rech
+
+сборка:
+  тип: библиотека
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	pf, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !pf.IsLibrary() {
+		t.Fatal("ожидалось IsLibrary() == true при сборка.тип: библиотека")
+	}
+}
+
+func TestLoadUnknownTypeRejected(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := `проект:
+  имя: тест
+
+файлы:
+  главный: исходники/главный.rech
+
+сборка:
+  тип: непонятно
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("ожидалась ошибка при неизвестном сборка.тип")
+	}
 }
 
 func TestFindSingleAndAmbiguous(t *testing.T) {
