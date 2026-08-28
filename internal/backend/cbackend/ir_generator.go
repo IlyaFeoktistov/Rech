@@ -75,6 +75,11 @@ type irGenCtx struct {
 	// Rech-функциям (exportAttr).
 	libMode  bool
 	entities map[string]*ir.Entity
+	// nullableInner - каноническое имя "?Тип" (ir.Type.Entity) -> его
+	// внутренний Тип, из prog.Nullables - нужен там, где по значению уже
+	// известного KindNullable ir.Type требуется добраться до внутреннего
+	// типа без повторного разбора строки (см. generateIRShowExpr).
+	nullableInner map[string]ir.Type
 	// externCNames - Rech-facing имя (Alias) внешней функции -> настоящий
 	// C-символ (CName), из prog.ExternFuncs: CallExpr.Callee несёт Alias,
 	// вызывается по CName, не по mangleName(Alias) (тот не имеет отношения
@@ -256,6 +261,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	}
 
 	entities := map[string]*ir.Entity{}
+	nullableInner := map[string]ir.Type{}
+	for _, n := range prog.Nullables {
+		nullableInner[n.Name] = n.Inner
+	}
 	usesGC := false
 	for _, ent := range prog.Entities {
 		entities[ent.Name] = ent
@@ -283,7 +292,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	participants, slots := computeDispatch(prog)
 	excTypeIDs, excTypeNames, excIsaTable := buildIsaTable(prog, participants)
 	ctx := &irGenCtx{
-		entities: entities, externCNames: externCNames, usesGC: usesGC, libMode: libMode,
+		entities: entities, nullableInner: nullableInner, externCNames: externCNames, usesGC: usesGC, libMode: libMode,
 		interfaces: interfaces, dispatchParticipants: participants, dispatchSlots: slots,
 		// usesVtable - хотя бы одна сущность участвует в диспетчеризации
 		// (participants), не "есть хотя бы один слот" (slots) - сущность
@@ -361,6 +370,29 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 			genericsCode.WriteString(dictCollectionCCode(g.Name, keyC, elemC, isStringKey))
 		default:
 			return "", fmt.Errorf("неизвестный generic-шаблон %q", g.Template)
+		}
+	}
+
+	// nullablesCode/nullablesAfterTypedefs - typedef struct + функции
+	// (обернуть/пусто/развернуть/??) для каждого конкретного "?Тип",
+	// встретившегося в программе - тем же принципом, что genericsCode выше,
+	// но по prog.Nullables. Разбито на ДВЕ группы по порядку эмита:
+	// "?Целое"/"?Список<T>" и т.п. (внутренний тип - примитив/generic-
+	// коллекция) нужны РАНЬШЕ typedefs сущностей (сущность может нести
+	// nullable-поле по значению - тот же класс проблемы, что у genericsCode/
+	// typedefs), а "?ИмяСущности" - НАОБОРОТ, ПОЗЖЕ (обёртка ссылается на
+	// C-typedef самой сущности, mangleType(entity), который ещё не объявлен
+	// раньше typedefs). Использует rech_panic (usesNullables ниже участвует
+	// в условии panicHelper).
+	var nullablesCode, nullablesAfterTypedefs strings.Builder
+	usesNullables := len(prog.Nullables) > 0
+	for _, n := range prog.Nullables {
+		elemC := fromIRType(n.Inner).cType(ctx)
+		code := nullableCollectionCCode(n.Name, elemC)
+		if n.Inner.Kind == ir.KindEntity {
+			nullablesAfterTypedefs.WriteString(code)
+		} else {
+			nullablesCode.WriteString(code)
 		}
 	}
 
@@ -522,7 +554,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// (например, число -> Строка) - тот же принцип, что и у usesGenerics
 	// здесь: panicHelper должен быть виден целиком, раз в файле есть хотя
 	// бы один потенциальный вызывающий его блок текста.
-	if usesGenerics || ctx.usesPanic || ctx.usesCast || prog.UsesReflection {
+	if usesGenerics || usesNullables || ctx.usesPanic || ctx.usesCast || prog.UsesReflection {
 		sb.WriteString(panicHelper)
 		sb.WriteString("\n")
 	}
@@ -574,6 +606,13 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// может нести сущность как элемент).
 		sb.WriteString(genericsCode.String())
 	}
+	if nullablesCode.Len() > 0 {
+		// После genericsCode (внутренний тип "?Тип" может сам быть Список/
+		// Словарь) и перед typedefs (сущность может нести nullable-поле по
+		// значению) - тот же класс проблемы упорядочивания, что и у
+		// genericsCode/typedefs ниже.
+		sb.WriteString(nullablesCode.String())
+	}
 	if prog.UsesReflection {
 		hasReflectAnyList := false
 		for _, g := range prog.Generics {
@@ -597,6 +636,9 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	}
 	if typedefs.Len() > 0 {
 		sb.WriteString(typedefs.String())
+	}
+	if nullablesAfterTypedefs.Len() > 0 {
+		sb.WriteString(nullablesAfterTypedefs.String())
 	}
 	if ctx.usesExceptions {
 		// После typedefs - использует rech_vtable_header/rech_T_Исключение,
@@ -1026,6 +1068,15 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 		fmt.Fprintf(sb, "%s%s = %s;\n", ind, varRef(ctx, s.Name), code)
 		return nil
 
+	case *ir.NullCoalesceAssignStmt:
+		code, _, err := generateIRExpr(ctx, s.Value)
+		if err != nil {
+			return err
+		}
+		name := varRef(ctx, s.Name)
+		fmt.Fprintf(sb, "%sif (!%s.has) { %s = %s; }\n", ind, name, name, code)
+		return nil
+
 	case *ir.IfStmt:
 		cond, _, err := generateIRExpr(ctx, s.Cond)
 		if err != nil {
@@ -1338,6 +1389,53 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 	case *ir.AsExpr:
 		return generateIRAsExpr(ctx, e)
 
+	case *ir.NullLiteral:
+		t := fromIRType(e.Type)
+		return fmt.Sprintf("%s_empty()", mangleType(t.entity)), t, nil
+
+	case *ir.NullWrapExpr:
+		code, _, err := generateIRExpr(ctx, e.Value)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		t := fromIRType(e.Type)
+		return fmt.Sprintf("%s_wrap(%s)", mangleType(t.entity), code), t, nil
+
+	case *ir.NullUnwrapExpr:
+		code, _, err := generateIRExpr(ctx, e.Value)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		src := fromIRType(ir.TypeOf(e.Value))
+		return fmt.Sprintf("%s_unwrap(%s)", mangleType(src.entity), code), fromIRType(e.Type), nil
+
+	case *ir.NullCheckExpr:
+		code, _, err := generateIRExpr(ctx, e.Value)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		if e.IsNot {
+			return fmt.Sprintf("((%s).has)", code), typeBool, nil
+		}
+		return fmt.Sprintf("(!(%s).has)", code), typeBool, nil
+
+	case *ir.NullCoalesceExpr:
+		leftCode, _, err := generateIRExpr(ctx, e.Left)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		rightCode, _, err := generateIRExpr(ctx, e.Right)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		src := fromIRType(ir.TypeOf(e.Left))
+		structName := mangleType(src.entity)
+		result := fromIRType(e.Type)
+		if result.kind == kindNullable {
+			return fmt.Sprintf("%s_coalesce_n(%s, %s)", structName, leftCode, rightCode), result, nil
+		}
+		return fmt.Sprintf("%s_coalesce(%s, %s)", structName, leftCode, rightCode), result, nil
+
 	default:
 		return "", typeUnknown, fmt.Errorf("генерация C из IR: выражение %T пока не поддерживается", e)
 	}
@@ -1586,6 +1684,9 @@ func fromIRType(t ir.Type) valueType {
 	}
 	if t.Kind == ir.KindExternEntity {
 		return externEntityType(t.Entity)
+	}
+	if t.Kind == ir.KindNullable {
+		return nullableType(t.Entity)
 	}
 	if vt, ok := irKindToValueType[t.Kind]; ok {
 		return vt

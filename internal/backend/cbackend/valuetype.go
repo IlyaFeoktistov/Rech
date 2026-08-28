@@ -63,6 +63,11 @@ const (
 	// дескриптор, свой на каждый примитив/встретившуюся сущность (см.
 	// internal/backend/cbackend/reflect.go).
 	kindTypeInfo
+	// kindNullable - "?Тип" - entity несёт полное каноническое имя (с "?",
+	// тот же формат, что ir.Type.Entity у KindNullable) - C-представление
+	// свой typedef-struct (тег занятости + значение) на каждую встретившуюся
+	// инстанциацию, см. internal/backend/cbackend/nullable.go.
+	kindNullable
 )
 
 // valueType - тип значения выражения C-кодогенерации. Структура (не голое
@@ -126,6 +131,12 @@ func externEntityType(alias string) valueType {
 	return valueType{kind: kindExternEntity, entity: alias}
 }
 
+// nullableType возвращает valueType, соответствующий значению "?Тип" -
+// name несёт полное каноническое имя (с "?").
+func nullableType(name string) valueType {
+	return valueType{kind: kindNullable, entity: name}
+}
+
 // primitiveCTypes - valueType (не kindEntity/kindUnknown) -> C-тип.
 // kindChar - int32_t ("Символ" хранит кодовую точку Unicode, не байт, как C
 // char - язык кириллический по духу, 'я' должен помещаться в один Символ).
@@ -171,6 +182,9 @@ func (t valueType) cType(ctx *irGenCtx) string {
 	}
 	if t.kind == kindExternEntity {
 		return "void *"
+	}
+	if t.kind == kindNullable {
+		return mangleType(t.entity)
 	}
 	if c, ok := primitiveCTypes[t]; ok {
 		return c

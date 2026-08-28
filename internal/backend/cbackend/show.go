@@ -41,6 +41,15 @@ func generateIRShowExpr(ctx *irGenCtx, t ir.Type, cExpr string) string {
 		return fmt.Sprintf(`printf("%%s (Логическое)", (%s) ? "истина" : "ложь")`, cExpr)
 	case ir.KindEntity:
 		return fmt.Sprintf("%s(%s)", showFuncName(t.Entity), cExpr)
+	case ir.KindNullable:
+		// Возвращает if/else БЛОК, не одно выражение - единственный случай
+		// здесь: вызывающая сторона (generateIREntityShowFunc и т. п.)
+		// всегда дописывает результат как отдельную инструкцию ("%s;\n"),
+		// лишняя ";" после "}" в C - пустая инструкция, синтаксически
+		// безобидна.
+		inner := ctx.nullableInner[t.Entity]
+		return fmt.Sprintf(`if ((%[1]s).has) { %[2]s; } else { printf("Ничто (%[3]s)"); }`,
+			cExpr, generateIRShowExpr(ctx, inner, "("+cExpr+").value"), escapeCString(t.String()))
 	default:
 		return fmt.Sprintf(`printf("%%s", "?")`)
 	}
