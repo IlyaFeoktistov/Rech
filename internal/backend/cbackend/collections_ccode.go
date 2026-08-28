@@ -21,6 +21,7 @@ func listCollectionCCode(name, elemC string) string {
 	length := mangleMethod(name, "длина")
 	empty := mangleMethod(name, "пусто")
 	outOfRange := escapeCString(rtmsg.IndexOutOfRange(name))
+	addr := structName + "_addr"
 
 	return fmt.Sprintf(`typedef struct {
     %[1]s *data;
@@ -44,6 +45,18 @@ static %[1]s %[4]s(%[2]s *this_, long long index) {
     return this_->data[index];
 }
 
+// %[9]s - адрес РЕАЛЬНОЙ ячейки хранения элемента (не копия значения) -
+// для "&список[i]" (docs/SPEC.md, "Указатели") - паникует при выходе за
+// границу, тем же принципом, что %[4]s выше. Теряет силу при следующем
+// %[3]s в тот же список, реаллоцирующем this_->data - ответственность
+// программиста, задокументированное ограничение, не проверяется рантаймом.
+static %[1]s *%[9]s(%[2]s *this_, long long index) {
+    if (index < 0 || index >= this_->len) {
+        rech_panic("%[7]s");
+    }
+    return &this_->data[index];
+}
+
 static void %[5]s(%[2]s *this_, long long index, %[1]s value) {
     if (index < 0 || index >= this_->len) {
         rech_panic("%[7]s");
@@ -59,7 +72,7 @@ static bool %[8]s(%[2]s *this_) {
     return this_->len == 0;
 }
 
-`, elemC, structName, add, get, set, length, outOfRange, empty)
+`, elemC, structName, add, get, set, length, outOfRange, empty, addr)
 }
 
 // stackCollectionCCode - как listCollectionCCode, для "Стопка<T>" (LIFO).

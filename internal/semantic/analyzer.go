@@ -697,8 +697,13 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	}
 
 	names := make([]string, 0, len(a.entities))
-	for name := range a.entities {
-		if strings.Contains(name, "<") && !declaredEntityNames[name] {
+	for name, sig := range a.entities {
+		// IsNullable/IsPointer - тоже синтезированные записи, имя которых
+		// может содержать "<" (внутренний тип - сам generic-коллекция или
+		// сама "Указатель<T>"), но у них собственные, отдельные списки
+		// (out.Nullables/out.Pointers, ниже) - не Program.Generics, у них
+		// нет ни typedef, ни методов growable-коллекции.
+		if strings.Contains(name, "<") && !declaredEntityNames[name] && !sig.IsNullable && !sig.IsPointer {
 			names = append(names, name)
 		}
 	}
@@ -728,6 +733,22 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	slices.Sort(nullableNames)
 	for _, name := range nullableNames {
 		out.Nullables = append(out.Nullables, ir.NullableInstantiation{
+			Name:  name,
+			Inner: a.entities[name].ElemType,
+		})
+	}
+
+	// "Указатель<T>" - зарегистрированы resolvePointerTypeName, тот же
+	// принцип отдельного скана, что и у nullableNames выше.
+	var pointerNames []string
+	for name, sig := range a.entities {
+		if sig.IsPointer {
+			pointerNames = append(pointerNames, name)
+		}
+	}
+	slices.Sort(pointerNames)
+	for _, name := range pointerNames {
+		out.Pointers = append(out.Pointers, ir.PointerInstantiation{
 			Name:  name,
 			Inner: a.entities[name].ElemType,
 		})

@@ -124,6 +124,14 @@ const (
 	// (internal/backend/cbackend/db.go, internal/interp/db.go), других
 	// источников пока нет.
 	KindNull
+	// KindPointer - "Указатель<T>" (адрес значения T - переменной/параметра,
+	// поля сущности, элемента списка) - Entity несёт полное каноническое
+	// имя ("Указатель<Целое>"), тем же принципом, что и у KindNullable;
+	// внутренний тип - через PointerInstantiation по этому имени (см. её
+	// package doc), не в самом Type. Отдельный Kind, не generic-коллекция
+	// (Список/Стопка/Очередь/Словарь) - представление тривиально (один
+	// адрес, не растущий буфер), не нуждается в их инфраструктуре.
+	KindPointer
 )
 
 // Type - тип значения выражения IR, уже разрешённый семантическим анализом
@@ -262,7 +270,7 @@ func CallableType(params []Type, result *Type) Type {
 }
 
 func (t Type) String() string {
-	if t.Kind == KindEntity || t.Kind == KindInterface || t.Kind == KindCallable || t.Kind == KindExternEntity || t.Kind == KindNullable {
+	if t.Kind == KindEntity || t.Kind == KindInterface || t.Kind == KindCallable || t.Kind == KindExternEntity || t.Kind == KindNullable || t.Kind == KindPointer {
 		return t.Entity
 	}
 	if t.Kind == KindTask {

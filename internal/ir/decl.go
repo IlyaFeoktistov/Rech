@@ -20,7 +20,10 @@ type Program struct {
 	Generics  []GenericInstantiation
 	// Nullables - конкретные "?Тип", встретившиеся в программе, без
 	// повторов - см. package doc NullableInstantiation.
-	Nullables   []NullableInstantiation
+	Nullables []NullableInstantiation
+	// Pointers - конкретные "Указатель<T>", встретившиеся в программе, без
+	// повторов - см. package doc PointerInstantiation.
+	Pointers    []PointerInstantiation
 	ExternFuncs []*ExternFuncDecl
 	Interfaces  []*Interface
 	Callables   []CallableSig

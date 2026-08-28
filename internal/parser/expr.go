@@ -217,14 +217,52 @@ func (p *Parser) parseUnary() (ast.Expr, error) {
 	case lexer.INCR, lexer.DECR:
 		return p.parsePrefixIncDec()
 	case lexer.BITAND:
+		return p.parseAddressOf()
+	case lexer.STAR:
 		op := p.advance()
-		name, err := p.expect(lexer.IDENT)
+		operand, err := p.parseUnary()
 		if err != nil {
-			return nil, fmt.Errorf("после \"&\" ожидалось имя функции: %w", err)
+			return nil, fmt.Errorf("после \"*\" ожидалось выражение: %w", err)
 		}
-		return &ast.FuncRefExpr{Name: name.Value, Line: op.Line}, nil
+		return &ast.DerefExpr{Value: operand, Line: op.Line}, nil
 	}
 	return p.parsePostfix()
+}
+
+// parseAddressOf разбирает "&имя" (ссылка на функцию как значение ИЛИ
+// адрес переменной/параметра - неоднозначность разрешается семантическим
+// анализом, см. ast.FuncRefExpr), "&имя.поле" (адрес поля сущности) и
+// "&имя[индекс]" (адрес элемента списка) - docs/SPEC.md, "Указатели".
+// Ровно один уровень после имени (та же граница, что у левой части
+// присваивания полю, docs/SPEC.md, раздел 6) - "&а.б.в"/"&а[i].поле" не
+// поддержаны.
+func (p *Parser) parseAddressOf() (ast.Expr, error) {
+	op := p.advance() // "&"
+	name, err := p.expect(lexer.IDENT)
+	if err != nil {
+		return nil, fmt.Errorf("после \"&\" ожидалось имя переменной или функции: %w", err)
+	}
+	switch p.cur().Type {
+	case lexer.DOT:
+		p.advance()
+		field, err := p.expect(lexer.IDENT)
+		if err != nil {
+			return nil, fmt.Errorf("после \"&%s.\" ожидалось имя поля: %w", name.Value, err)
+		}
+		return &ast.AddressOfExpr{Receiver: name.Value, Field: field.Value, Line: op.Line}, nil
+	case lexer.LBRACKET:
+		p.advance()
+		index, err := p.parseExpr()
+		if err != nil {
+			return nil, fmt.Errorf("в индексе \"&%s[...]\": %w", name.Value, err)
+		}
+		if _, err := p.expect(lexer.RBRACKET); err != nil {
+			return nil, fmt.Errorf("после индекса \"&%s[...]\": %w", name.Value, err)
+		}
+		return &ast.AddressOfExpr{Receiver: name.Value, Index: index, Line: op.Line}, nil
+	default:
+		return &ast.FuncRefExpr{Name: name.Value, Line: op.Line}, nil
+	}
 }
 
 // parsePrefixIncDec разбирает "++имя"/"--имя" - операнд обязан быть простым

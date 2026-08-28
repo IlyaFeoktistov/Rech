@@ -374,6 +374,9 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		}
 		return &ir.FieldAssign{Receiver: receiver, Field: s.Field, Value: value, Line: s.Line}, nil
 
+	case *ast.DerefAssignStmt:
+		return analyzeDerefAssignStmt(sc, s)
+
 	case *ast.BecomeStmt:
 		receiver, err := analyzeExpr(sc, s.Receiver)
 		if err != nil {

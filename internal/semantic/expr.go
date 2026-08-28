@@ -88,6 +88,12 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 	case *ast.FuncRefExpr:
 		return analyzeFuncRefExpr(sc, e)
 
+	case *ast.AddressOfExpr:
+		return analyzeAddressOfExpr(sc, e)
+
+	case *ast.DerefExpr:
+		return analyzeDerefExpr(sc, e)
+
 	case *ast.LambdaExpr:
 		return analyzeLambdaExpr(sc, e)
 

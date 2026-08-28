@@ -212,6 +212,12 @@ func TypeOf(e Expr) Type {
 		return e.Type
 	case *ListLiteralExpr:
 		return e.Type
+	case *AddressOfExpr:
+		return e.Type
+	case *DerefExpr:
+		return e.Type
+	case *ListElementRef:
+		return e.Type
 	default:
 		return TypeUnknown
 	}

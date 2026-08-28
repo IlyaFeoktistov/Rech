@@ -136,6 +136,10 @@ type Value struct {
 	// схеме строки подключения при "подключиться_к_бд", здесь это уже не
 	// видно.
 	DB *sql.DB
+
+	// Ptr - непрозрачный "адрес" ("Указатель<T>", Type.Kind ==
+	// ir.KindPointer) - см. package doc internal/interp/pointer.go.
+	Ptr *pointerTarget
 }
 
 func intValue(v int64) Value     { return Value{Type: ir.TypeInt, I: v} }

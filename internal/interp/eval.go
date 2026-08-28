@@ -138,6 +138,12 @@ func (in *Interp) evalExpr(e ir.Expr, env *Env, cc *callCtx) (Value, error) {
 	case *ir.ListLiteralExpr:
 		return in.evalListLiteralExpr(e, env, cc)
 
+	case *ir.AddressOfExpr:
+		return in.evalAddressOfExpr(e, env, cc)
+
+	case *ir.DerefExpr:
+		return in.evalDerefExpr(e, env, cc)
+
 	default:
 		return Value{}, fmt.Errorf("вычисление: выражение %T не поддерживается интерпретатором", e)
 	}

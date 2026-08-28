@@ -29,6 +29,8 @@ func LineOf(s Stmt) int {
 		return s.Line
 	case *FieldAssign:
 		return s.Line
+	case *DerefAssignStmt:
+		return s.Line
 	case *ParentCallStmt:
 		return s.Line
 	case *AssertStmt:

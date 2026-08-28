@@ -29,3 +29,19 @@ type DictIndexExpr struct {
 }
 
 func (*DictIndexExpr) expr() {}
+
+// ListElementRef - "список[i]" как АДРЕСУЕМАЯ ячейка хранения, не как
+// значение - встречается только внутри AddressOfExpr ("&список[i]",
+// internal/ir/pointer.go), паникует при выходе за границу, тем же
+// принципом, что MethodCallExpr{Method: "получить"} (не безопасный
+// ListIndexExpr выше, дающий "?T"). Type - T адресуемого элемента, БЕЗ
+// "Указатель<...>" - обёртку добавляет AddressOfExpr сверху.
+type ListElementRef struct {
+	Receiver       Expr
+	Index          Expr
+	CollectionName string
+	Type           Type
+	Line           int
+}
+
+func (*ListElementRef) expr() {}

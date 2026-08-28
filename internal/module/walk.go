@@ -231,6 +231,11 @@ func (r *rewriter) rewriteStmt(s ast.Stmt) error {
 		return r.rewriteExpr(s.Value)
 	case *ast.BecomeStmt:
 		return r.rewriteExpr(s.Receiver)
+	case *ast.DerefAssignStmt:
+		if err := r.rewriteExpr(s.Pointer); err != nil {
+			return err
+		}
+		return r.rewriteExpr(s.Value)
 	case *ast.AssertStmt:
 		return r.rewriteExpr(s.Cond)
 	case *ast.IfStmt:
@@ -387,16 +392,31 @@ func (r *rewriter) rewriteExpr(e ast.Expr) error {
 	case *ast.AwaitExpr:
 		return r.rewriteExpr(e.Task)
 	case *ast.FuncRefExpr:
-		// В отличие от CallExpr.Callee - "&имя" синтаксически может
-		// называть только объявленную функцию, никогда локальную
-		// переменную (грамматика - "&" IDENT, r.locals здесь не
-		// проверяется), поэтому обычная строгая резолюция, без исключений.
+		// "&имя" называет либо объявленную функцию (обычный случай -
+		// ссылка на неё как на "Вызываемый"), либо локальную переменную
+		// (адрес её значения, "Указатель<T>", docs/SPEC.md, "Указатели") -
+		// тот же принцип исключения через r.locals, что и у CallExpr.Callee
+		// выше (у локальных имён нет записи в r.names).
 		resolved, err := resolveBareName(e.Name, r.names)
 		if err != nil {
-			return fmt.Errorf("строка %d: %w", e.Line, err)
+			if !r.locals[e.Name] {
+				return fmt.Errorf("строка %d: %w", e.Line, err)
+			}
+			return nil
 		}
 		e.Name = resolved
 		return nil
+	case *ast.AddressOfExpr:
+		// Receiver - всегда простое имя локальной переменной/параметра
+		// (docs/SPEC.md, "Указатели") - как и у FuncRefExpr.Name в случае
+		// локальной переменной выше, переименованию не подлежит. Index -
+		// произвольное выражение (может ссылаться на импортированное имя).
+		if e.Index != nil {
+			return r.rewriteExpr(e.Index)
+		}
+		return nil
+	case *ast.DerefExpr:
+		return r.rewriteExpr(e.Value)
 	case *ast.TypeOfExpr:
 		resolved, err := r.resolveType(e.TypeName)
 		if err != nil {

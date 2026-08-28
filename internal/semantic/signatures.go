@@ -126,6 +126,12 @@ type entitySig struct {
 	// в любой точке анализа/кодогенерации, не таская его в самом ir.Type.
 	IsNullable bool
 
+	// IsPointer - синтезированная запись для "Указатель<T>"
+	// (resolvePointerTypeName, internal/semantic/pointer.go), тот же принцип,
+	// что и IsNullable выше - ElemType несёт T (само поле переиспользуется,
+	// не заводится отдельное).
+	IsPointer bool
+
 	// ConstNames/ConstExprs - константы, объявленные в теле сущности
 	// (последовательность объявления). ConstExprs хранит AST-выражения
 	// для значения константы, чтобы их можно было проанализировать позже

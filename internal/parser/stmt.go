@@ -80,6 +80,8 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 		}
 		incDec := expr.(*ast.IncDecExpr)
 		return &ast.ExprStmt{IncDec: incDec, Line: incDec.Line}, nil
+	case lexer.STAR:
+		return p.parseDerefAssignStmt()
 	case lexer.IDENT:
 		if p.peekAt(1).Type == lexer.ASSIGN || isCompoundAssignTok(p.peekAt(1).Type) {
 			return p.parseAssign()
@@ -273,6 +275,27 @@ var compoundAssignOps = map[lexer.TokenType]string{
 func isCompoundAssignTok(t lexer.TokenType) bool {
 	_, ok := compoundAssignOps[t]
 	return ok
+}
+
+// parseDerefAssignStmt разбирает "*указатель = значение" - позиция парсера
+// на входе - на первой "*". Указатель - обычное унарное выражение
+// (parseUnary), поэтому "**p = значение" (запись через один уровень
+// разыменования указателя на указатель) работает без отдельного случая -
+// Pointer получает "*p" (DerefExpr), не голое "p".
+func (p *Parser) parseDerefAssignStmt() (ast.Stmt, error) {
+	star := p.advance() // "*"
+	pointer, err := p.parseUnary()
+	if err != nil {
+		return nil, fmt.Errorf("после \"*\" ожидался указатель: %w", err)
+	}
+	if _, err := p.expect(lexer.ASSIGN); err != nil {
+		return nil, fmt.Errorf("после \"*<указатель>\" ожидалось \"=\": %w", err)
+	}
+	value, err := p.parseExpr()
+	if err != nil {
+		return nil, fmt.Errorf("в присваивании через указатель: %w", err)
+	}
+	return &ast.DerefAssignStmt{Pointer: pointer, Value: value, Line: star.Line}, nil
 }
 
 func (p *Parser) parseAssign() (ast.Stmt, error) {

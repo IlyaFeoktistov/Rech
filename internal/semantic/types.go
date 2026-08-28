@@ -97,6 +97,17 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 		if sig.IsExternOpaque {
 			return ir.ExternEntityType(name), nil
 		}
+		if sig.IsPointer {
+			// "Указатель<T>", уже зарегистрированный resolvePointerTypeName
+			// при первой встрече - в отличие от Список/Стопка/Очередь/
+			// Словарь/пользовательских generic-типов (у которых
+			// инстанциация ДЕЙСТВИТЕЛЬНО KindEntity), у "Указатель<T>"
+			// собственный Kind (KindPointer) - без этой проверки повторное
+			// упоминание уже встреченного "Указатель<T>" (например,
+			// "Указатель<Указатель<T>>" при резолвинге внешнего слоя)
+			// молча вернулось бы как KindEntity.
+			return ir.Type{Kind: ir.KindPointer, Entity: name}, nil
+		}
 		return ir.EntityType(name), nil
 	}
 	if base, ok := aliases[name]; ok {
@@ -312,6 +323,9 @@ func resolveGenericTypeName(entities map[string]entitySig, methods map[string]ma
 	}
 	if template == "Словарь" {
 		return resolveDictTypeName(entities, methods, aliases, interfaces, name)
+	}
+	if template == "Указатель" {
+		return resolvePointerTypeName(entities, methods, aliases, interfaces, name, argName)
 	}
 	elem, err := resolveTypeName(entities, methods, aliases, interfaces, argName)
 	if err != nil {

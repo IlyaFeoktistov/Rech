@@ -80,6 +80,10 @@ type irGenCtx struct {
 	// известного KindNullable ir.Type требуется добраться до внутреннего
 	// типа без повторного разбора строки (см. generateIRShowExpr).
 	nullableInner map[string]ir.Type
+	// pointerInner - каноническое имя "Указатель<T>" (ir.Type.Entity) -> T,
+	// из prog.Pointers - тот же принцип, что и nullableInner выше, нужен
+	// valueType.cType, чтобы построить C-тип "T *" по одному только имени.
+	pointerInner map[string]ir.Type
 	// externCNames - Rech-facing имя (Alias) внешней функции -> настоящий
 	// C-символ (CName), из prog.ExternFuncs: CallExpr.Callee несёт Alias,
 	// вызывается по CName, не по mangleName(Alias) (тот не имеет отношения
@@ -265,6 +269,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	for _, n := range prog.Nullables {
 		nullableInner[n.Name] = n.Inner
 	}
+	pointerInner := map[string]ir.Type{}
+	for _, p := range prog.Pointers {
+		pointerInner[p.Name] = p.Inner
+	}
 	usesGC := false
 	for _, ent := range prog.Entities {
 		entities[ent.Name] = ent
@@ -298,7 +306,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	participants, slots := computeDispatch(prog)
 	excTypeIDs, excTypeNames, excIsaTable := buildIsaTable(prog, participants)
 	ctx := &irGenCtx{
-		entities: entities, nullableInner: nullableInner, externCNames: externCNames, usesGC: usesGC, libMode: libMode,
+		entities: entities, nullableInner: nullableInner, pointerInner: pointerInner, externCNames: externCNames, usesGC: usesGC, libMode: libMode,
 		interfaces: interfaces, dispatchParticipants: participants, dispatchSlots: slots,
 		// usesVtable - хотя бы одна сущность участвует в диспетчеризации
 		// (participants), не "есть хотя бы один слот" (slots) - сущность
@@ -1188,6 +1196,18 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 		fmt.Fprintf(sb, "%s(%s)%s%s = %s;\n", ind, receiverCode, op, mangleField(s.Field), code)
 		return nil
 
+	case *ir.DerefAssignStmt:
+		ptrCode, _, err := generateIRExpr(ctx, s.Pointer)
+		if err != nil {
+			return err
+		}
+		valCode, _, err := generateIRExpr(ctx, s.Value)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(sb, "%s*%s = %s;\n", ind, ptrCode, valCode)
+		return nil
+
 	case *ir.BecomeStmt:
 		// Шаг 4.1, упрощённая версия: состояние уже проверено семантическим
 		// анализом как объявленное - typestate чисто компилятивный на этом
@@ -1478,6 +1498,38 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 		}
 		fn := mangleType(e.CollectionName) + "_get_safe"
 		return fmt.Sprintf("%s(%s, %s)", fn, recvPtr, keyCode), fromIRType(e.Type), nil
+
+	case *ir.AddressOfExpr:
+		switch recv := e.Receiver.(type) {
+		case *ir.Identifier:
+			return fmt.Sprintf("(&%s)", varRef(ctx, recv.Name)), fromIRType(e.Type), nil
+		case *ir.FieldAccess:
+			code, _, err := generateIRExpr(ctx, recv)
+			if err != nil {
+				return "", typeUnknown, err
+			}
+			return fmt.Sprintf("(&%s)", code), fromIRType(e.Type), nil
+		case *ir.ListElementRef:
+			_, listPtr, err := generateIRAddressableExpr(ctx, recv.Receiver)
+			if err != nil {
+				return "", typeUnknown, err
+			}
+			idxCode, _, err := generateIRExpr(ctx, recv.Index)
+			if err != nil {
+				return "", typeUnknown, err
+			}
+			fn := mangleType(recv.CollectionName) + "_addr"
+			return fmt.Sprintf("%s(%s, %s)", fn, listPtr, idxCode), fromIRType(e.Type), nil
+		default:
+			return "", typeUnknown, fmt.Errorf("генерация C из IR: неподдержанный получатель \"&\" %T", e.Receiver)
+		}
+
+	case *ir.DerefExpr:
+		code, _, err := generateIRExpr(ctx, e.Value)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		return fmt.Sprintf("(*%s)", code), fromIRType(e.Type), nil
 
 	case *ir.ListLiteralExpr:
 		fn := mangleType(e.CollectionName) + "_from_literal"
@@ -1780,6 +1832,9 @@ func fromIRType(t ir.Type) valueType {
 	}
 	if t.Kind == ir.KindNullable {
 		return nullableType(t.Entity)
+	}
+	if t.Kind == ir.KindPointer {
+		return pointerType(t.Entity)
 	}
 	if vt, ok := irKindToValueType[t.Kind]; ok {
 		return vt

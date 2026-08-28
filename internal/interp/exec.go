@@ -79,6 +79,9 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 		recv.Obj.fields[s.Field] = in.cloneValue(v)
 		return ctrl{}, nil
 
+	case *ir.DerefAssignStmt:
+		return in.execDerefAssignStmt(s, env, cc)
+
 	case *ir.ParentCallStmt:
 		baseEnt := in.entities[s.BaseEntity]
 		args := make([]Value, len(s.Args))

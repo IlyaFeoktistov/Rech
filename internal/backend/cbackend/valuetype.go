@@ -74,6 +74,10 @@ const (
 	// свой typedef-struct (тег занятости + значение) на каждую встретившуюся
 	// инстанциацию, см. internal/backend/cbackend/nullable.go.
 	kindNullable
+	// kindPointer - "Указатель<T>" - представление в C буквально "T *"
+	// (см. cType) - entity несёт каноническое имя ("Указатель<Целое>"),
+	// тем же принципом, что и kindNullable/kindEntity.
+	kindPointer
 )
 
 // valueType - тип значения выражения C-кодогенерации. Структура (не голое
@@ -144,6 +148,12 @@ func nullableType(name string) valueType {
 	return valueType{kind: kindNullable, entity: name}
 }
 
+// pointerType возвращает valueType, соответствующий значению
+// "Указатель<T>" - name несёт полное каноническое имя ("Указатель<Целое>").
+func pointerType(name string) valueType {
+	return valueType{kind: kindPointer, entity: name}
+}
+
 // primitiveCTypes - valueType (не kindEntity/kindUnknown) -> C-тип.
 // kindChar - int32_t ("Символ" хранит кодовую точку Unicode, не байт, как C
 // char - язык кириллический по духу, 'я' должен помещаться в один Символ).
@@ -193,6 +203,10 @@ func (t valueType) cType(ctx *irGenCtx) string {
 	}
 	if t.kind == kindNullable {
 		return mangleType(t.entity)
+	}
+	if t.kind == kindPointer {
+		inner := fromIRType(ctx.pointerInner[t.entity])
+		return inner.cType(ctx) + " *"
 	}
 	if c, ok := primitiveCTypes[t]; ok {
 		return c
