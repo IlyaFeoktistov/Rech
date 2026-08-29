@@ -29,7 +29,7 @@ type thrownException struct {
 // исключение дошло до самого верха необработанным - см.
 // rtmsg.UncaughtExceptionFormat (тот же формат, что и у cbackend.rech_throw).
 func (e *thrownException) Error() string {
-	return rtmsg.PanicPrefix + rtmsg.UncaughtExceptionFormat(e.value.Obj.typeName, e.value.Obj.fields["сообщение"].S) + traceSuffix(e.trace)
+	return rtmsg.PanicPrefix + rtmsg.UncaughtExceptionFormat(e.value.Obj.typeName, e.value.Obj.getField("сообщение").S) + traceSuffix(e.trace)
 }
 
 // isA - "относится к": typeName == target, или один из предков typeName по

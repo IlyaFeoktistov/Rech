@@ -67,7 +67,7 @@ func (in *Interp) xmlSerializeTagged(sb *strings.Builder, v Value, tag string) {
 		sb.WriteByte('>')
 		ent := in.entities[v.Obj.typeName]
 		for _, f := range ent.Fields {
-			fv := v.Obj.fields[f.Name]
+			fv := v.Obj.getField(f.Name)
 			if fv.Obj != nil && fv.Obj.coll != nil {
 				for _, elem := range fv.Obj.coll.elems {
 					in.xmlSerializeTagged(sb, elem, f.Name)

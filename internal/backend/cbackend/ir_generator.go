@@ -133,6 +133,12 @@ type irGenCtx struct {
 	taskCode      strings.Builder
 	usesThreads   bool
 
+	// usesMutex - хотя бы одна "Блокировка" реально встретилась в
+	// программе (см. internal/backend/cbackend/mutex.go) - гейтит
+	// дополнительно (наравне с usesThreads) #include <pthread.h> на POSIX и
+	// сам блок mutexRuntimeCode.
+	usesMutex bool
+
 	// funcRefTrampolines/lambdaFuncsEmitted/callableCode - см.
 	// internal/backend/cbackend/callable.go (ensureFuncRefTrampoline/
 	// ensureLambdaFunc) - тот же принцип "накопить один раз, вставить в
@@ -323,6 +329,9 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	for _, fn := range prog.Functions {
 		ctx.irFuncs[fn.Name] = fn
 	}
+	if ent, ok := entities[mutexEntityName]; ok && ent.IsMutex {
+		ctx.usesMutex = true
+	}
 
 	var typedefs strings.Builder
 	if ctx.usesVtable {
@@ -439,6 +448,15 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	var showFuncs strings.Builder
 
 	var protos strings.Builder
+	if ctx.usesMutex {
+		// Прототипы - не только определения (mutexRuntimeCode, ниже, в
+		// builder "ctors") - "Блокировка" эмитится в out.Entities поздно
+		// (internal/semantic/analyzer.go, buildIR - после тел всех
+		// функций/методов программы), поэтому код, использующий её РАНЬШЕ
+		// по файлу, не может полагаться на текстовый порядок определений,
+		// как обычные сущности - только на эти прототипы.
+		protos.WriteString(mutexPrototypes())
+	}
 	for _, ext := range prog.ExternFuncs {
 		protos.WriteString(externPrototypeOfIR(ctx, ext))
 	}
@@ -558,10 +576,12 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	if ctx.usesSockets {
 		sb.WriteString("#ifdef _WIN32\n#include <winsock2.h>\n#include <ws2tcpip.h>\n#else\n#include <sys/socket.h>\n#include <netinet/in.h>\n#include <arpa/inet.h>\n#include <netdb.h>\n#include <unistd.h>\n#endif\n")
 	}
-	// Потоки ("запустить"/"дождаться") - на Windows CreateThread/
-	// WaitForSingleObject/CloseHandle уже объявлены через windows.h выше,
-	// отдельного заголовка не нужно; на POSIX - pthread.h.
-	if ctx.usesThreads {
+	// Потоки ("запустить"/"дождаться") и "Блокировка" - на Windows
+	// CreateThread/CRITICAL_SECTION уже объявлены через windows.h выше,
+	// отдельного заголовка не нужно; на POSIX - pthread.h (pthread_mutex_t
+	// оттуда же, что и pthread_create - один и тот же заголовок для обоих
+	// usesThreads/usesMutex, поэтому один общий #include, не два одинаковых).
+	if ctx.usesThreads || ctx.usesMutex {
 		sb.WriteString("#ifndef _WIN32\n#include <pthread.h>\n#endif\n")
 	}
 	sb.WriteString("\n")
@@ -825,6 +845,9 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 // generateIREntityStruct - C typedef struct для ent, как
 // C typedef struct для ent, по уже собранным internal/ir.Field.
 func generateIREntityStruct(ctx *irGenCtx, ent *ir.Entity) string {
+	if ent.IsMutex {
+		return mutexStructTypedef()
+	}
 	var sb strings.Builder
 	sb.WriteString("typedef struct {\n")
 	participates := ctx.dispatchParticipants[ent.Name]
@@ -865,6 +888,9 @@ func generateIREntityStruct(ctx *irGenCtx, ent *ir.Entity) string {
 // ast.EntityDecl.Ctor), у ссылочной сущности ровно одна такая функция на
 // тип, не код на каждый "новый" - тот же принцип, что и у show-функций.
 func generateIREntityCtor(ctx *irGenCtx, ent *ir.Entity) (string, error) {
+	if ent.IsMutex {
+		return mutexRuntimeCode(), nil
+	}
 	if ent.Ctor != nil {
 		initCode, err := generateIREntityCtorInit(ctx, ent)
 		if err != nil {

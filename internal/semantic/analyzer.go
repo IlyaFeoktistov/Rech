@@ -776,6 +776,24 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 			Fields: []ir.Field{{Name: "сообщение", Type: ir.TypeString}},
 		})
 	}
+	// "Блокировка" - проверка ЗДЕСЬ (не раньше цикла по prog.Entities/
+	// prog.Functions выше), потому что она может встретиться впервые не
+	// только как тип поля (это уже зарегистрировало бы её в a.entities к
+	// началу этой функции, через collectEntities), но и внутри тела метода/
+	// функции/конструктора ("переменная м = новая Блокировка()" без единого
+	// поля такого типа нигде) - тела анализируются как раз в циклах выше.
+	// В отличие от "ОшибкаРазбора" (просто append, ссылка на неё не бывает
+	// типом ПОЛЯ другой сущности) - "Блокировка" ставится ПЕРВОЙ в
+	// out.Entities (не последней): если сущность, объявленная в файле
+	// раньше, несёт поле типа "Блокировка", её C-структура (typedefs,
+	// cbackend) ссылается на "rech_T_blokirovka" - этот typedef обязан идти
+	// раньше в файле, что гарантирует только позиция в самом срезе
+	// (порядок конструкторов той же строкой не важен - см. mutexPrototypes,
+	// internal/backend/cbackend/mutex.go, отдельная защита независимо от
+	// текстовой позиции).
+	if sig, ok := a.entities[mutexEntityName]; ok && sig.IsMutex {
+		out.Entities = append([]*ir.Entity{mutexIRType()}, out.Entities...)
+	}
 	out.ParseTargets = a.parseTargets.order
 	out.SerializeTargets = a.serializeTargets.order
 	out.XMLParseTargets = a.xmlParseTargets.order

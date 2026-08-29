@@ -39,6 +39,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"sync"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
@@ -50,12 +51,54 @@ import (
 const entryPointName = "главная"
 
 // entityObj - представление значения сущности во время исполнения. Поля -
-// либо обычные (fields, у пользовательских сущностей), либо встроенная
-// generic-коллекция (coll) - ровно одно из двух заполнено.
+// ровно одно из трёх заполнено: обычные (fields, у пользовательских
+// сущностей), встроенная generic-коллекция (coll) или системная
+// "Блокировка" (mutex, см. package doc mutex.go) - естественный аналог
+// нативного pthread_mutex_t/CRITICAL_SECTION у cbackend, "Блокировка" в
+// интерпретаторе не нуждается ни в каком собственном C-подобном коде.
 type entityObj struct {
 	typeName string
 	fields   map[string]Value
 	coll     *collection
+	mutex    *sync.Mutex
+	// fieldsMu - защищает fields от гонки самого Go-рантайма (не Rech-
+	// уровня "программист не защитил поле"): один и тот же ссылочный
+	// объект может быть виден из нескольких потоков ОС одновременно
+	// ("запустить"/"дождаться") - без этой блокировки конкурентное
+	// чтение ОДНОГО поля и запись ДРУГОГО поля того же объекта уже роняет
+	// сам процесс ("fatal error: concurrent map read and map write" -
+	// свойство встроенной map в Go, не поведение отдельных полей C-
+	// структуры, где это было бы безопасно на уровне памяти) - обнаружено
+	// эмпирически на примере с "Блокировка", защищающей ровно ОДНО поле
+	// объекта, пока другой поток тем же тактом читает ДРУГОЕ его поле
+	// (саму "Блокировку", чтобы её захватить). Осознанная гонка ЗНАЧЕНИЙ
+	// (два потока пишут одно и то же поле без Rech-уровневой блокировки)
+	// по-прежнему не проверяется и не гарантируется - это остаётся на
+	// программисте (docs/ROADMAP.md, "Синхронизация между потоками") - речь
+	// только о том, чтобы интерпретатор сам не падал жёстче, чем упал бы
+	// эквивалентный C.
+	fieldsMu sync.RWMutex
+}
+
+// getField/setField/hasField - единственные места, где entityObj.fields
+// читается/пишется - см. package doc fieldsMu выше.
+func (o *entityObj) getField(name string) Value {
+	o.fieldsMu.RLock()
+	defer o.fieldsMu.RUnlock()
+	return o.fields[name]
+}
+
+func (o *entityObj) getFieldOK(name string) (Value, bool) {
+	o.fieldsMu.RLock()
+	defer o.fieldsMu.RUnlock()
+	v, ok := o.fields[name]
+	return v, ok
+}
+
+func (o *entityObj) setField(name string, v Value) {
+	o.fieldsMu.Lock()
+	defer o.fieldsMu.Unlock()
+	o.fields[name] = v
 }
 
 // collection - буфер встроенной generic-коллекции (Список/Стопка/Очередь/
@@ -220,10 +263,12 @@ func (in *Interp) cloneValue(v Value) Value {
 	if ent, ok := in.entities[v.Obj.typeName]; !ok || !ent.IsStruct {
 		return v
 	}
+	v.Obj.fieldsMu.RLock()
 	newFields := make(map[string]Value, len(v.Obj.fields))
 	for k, fv := range v.Obj.fields {
 		newFields[k] = in.cloneValue(fv)
 	}
+	v.Obj.fieldsMu.RUnlock()
 	return Value{Type: v.Type, Obj: &entityObj{typeName: v.Obj.typeName, fields: newFields}}
 }
 

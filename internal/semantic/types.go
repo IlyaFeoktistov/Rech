@@ -89,6 +89,9 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 	case "ДатаВремя":
 		registerHTTPEntity(entities, "ДатаВремя", dateTimeFields)
 		return ir.EntityType("ДатаВремя"), nil
+	case mutexEntityName:
+		registerMutexEntity(entities, methods)
+		return ir.EntityType(mutexEntityName), nil
 	}
 	if _, ok := interfaces[name]; ok {
 		return ir.InterfaceType(name), nil

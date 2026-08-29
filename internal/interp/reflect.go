@@ -206,7 +206,7 @@ func (in *Interp) reflectGetField(v *Value, name string) (Value, error) {
 	if v.Obj == nil || v.Obj.fields == nil {
 		panicRuntime("%s", rtmsg.ReflectFieldNotFoundFormat(name, v.Type.String()))
 	}
-	fv, ok := v.Obj.fields[name]
+	fv, ok := v.Obj.getFieldOK(name)
 	if !ok {
 		panicRuntime("%s", rtmsg.ReflectFieldNotFoundFormat(name, v.Type.String()))
 	}
@@ -217,10 +217,10 @@ func (in *Interp) reflectSetField(v *Value, name string, boxed Value) {
 	if v.Obj == nil || v.Obj.fields == nil {
 		panicRuntime("%s", rtmsg.ReflectFieldNotFoundFormat(name, v.Type.String()))
 	}
-	if _, ok := v.Obj.fields[name]; !ok {
+	if _, ok := v.Obj.getFieldOK(name); !ok {
 		panicRuntime("%s", rtmsg.ReflectFieldNotFoundFormat(name, v.Type.String()))
 	}
-	v.Obj.fields[name] = in.cloneValue(*boxed.Boxed)
+	v.Obj.setField(name, in.cloneValue(*boxed.Boxed))
 }
 
 // reflectInvoke - "значение.вызвать(имя, аргументы)" - находит метод имя

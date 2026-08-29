@@ -564,7 +564,7 @@ func (d *Debugger) valueChildren(v Value) []Variable {
 	}
 	out := make([]Variable, len(ent.Fields))
 	for i, f := range ent.Fields {
-		out[i] = d.describeVariable(f.Name, v.Obj.fields[f.Name])
+		out[i] = d.describeVariable(f.Name, v.Obj.getField(f.Name))
 	}
 	return out
 }

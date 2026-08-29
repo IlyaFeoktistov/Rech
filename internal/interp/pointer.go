@@ -47,7 +47,7 @@ func (p *pointerTarget) get() Value {
 		v, _ := p.env.get(p.name)
 		return v
 	case p.obj != nil:
-		return p.obj.fields[p.field]
+		return p.obj.getField(p.field)
 	default:
 		if p.index < 0 || p.index >= int64(len(p.coll.elems)) {
 			panicRuntime("%s", rtmsg.IndexOutOfRange(p.collName))
@@ -61,7 +61,7 @@ func (p *pointerTarget) set(v Value) {
 	case p.env != nil:
 		p.env.set(p.name, v)
 	case p.obj != nil:
-		p.obj.fields[p.field] = v
+		p.obj.setField(p.field, v)
 	default:
 		if p.index < 0 || p.index >= int64(len(p.coll.elems)) {
 			panicRuntime("%s", rtmsg.IndexOutOfRange(p.collName))

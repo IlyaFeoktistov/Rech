@@ -76,7 +76,7 @@ func (in *Interp) evalExpr(e ir.Expr, env *Env, cc *callCtx) (Value, error) {
 		if err != nil {
 			return Value{}, err
 		}
-		return recv.Obj.fields[e.Field], nil
+		return recv.Obj.getField(e.Field), nil
 
 	case *ir.ThisExpr:
 		return Value{Type: ir.EntityType(e.Entity), Obj: cc.this}, nil
@@ -392,6 +392,9 @@ func compareOrdered(op string, l, r Value) Value {
 // начинает пустой), см. package doc про то, почему у генериков нет
 // ir.Entity-узла.
 func (in *Interp) evalNewExpr(e *ir.NewExpr, env *Env, cc *callCtx) (Value, error) {
+	if e.Entity == mutexEntityName {
+		return newMutexValue(), nil
+	}
 	if ent, ok := in.entities[e.Entity]; ok {
 		args := make([]Value, len(e.Args))
 		for i, a := range e.Args {
@@ -443,10 +446,10 @@ func (in *Interp) constructEntity(ent *ir.Entity, entName string, args []Value, 
 			if err != nil {
 				return Value{}, err
 			}
-			obj.fields[f.Name] = in.cloneValue(v)
+			obj.setField(f.Name, in.cloneValue(v))
 			continue
 		}
-		obj.fields[f.Name] = zeroValue(f.Type)
+		obj.setField(f.Name, zeroValue(f.Type))
 	}
 	if _, err := in.callMethod(ent.Ctor, obj, args, cc.dbg); err != nil {
 		return Value{}, err
@@ -470,6 +473,9 @@ func (in *Interp) evalMethodCallExpr(e *ir.MethodCallExpr, env *Env, cc *callCtx
 		return in.evalAnyMethod(recv, e, env, cc)
 	case ir.KindTypeInfo:
 		return in.evalTypeInfoMethod(recv, e, env, cc)
+	}
+	if recv.Obj.mutex != nil {
+		return evalMutexMethod(recv.Obj, e)
 	}
 	if recv.Obj.coll != nil {
 		if recv.Obj.coll.template == "Словарь" {
@@ -730,7 +736,7 @@ func (in *Interp) showValue(v Value) string {
 		ent := in.entities[v.Obj.typeName]
 		parts := make([]string, len(ent.Fields))
 		for i, f := range ent.Fields {
-			parts[i] = fmt.Sprintf("%s: %s", f.Name, in.showValue(v.Obj.fields[f.Name]))
+			parts[i] = fmt.Sprintf("%s: %s", f.Name, in.showValue(v.Obj.getField(f.Name)))
 		}
 		return fmt.Sprintf("%s { %s }", v.Obj.typeName, strings.Join(parts, ", "))
 	case ir.KindNullable:

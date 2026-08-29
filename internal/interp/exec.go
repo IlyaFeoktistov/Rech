@@ -76,7 +76,7 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 		if err != nil {
 			return ctrl{}, err
 		}
-		recv.Obj.fields[s.Field] = in.cloneValue(v)
+		recv.Obj.setField(s.Field, in.cloneValue(v))
 		return ctrl{}, nil
 
 	case *ir.DerefAssignStmt:

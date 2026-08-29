@@ -186,6 +186,7 @@ var ReservedEntityNames = map[string]bool{
 	"Ответ":      true,
 	"Вызываемый": true,
 	"ДатаВремя":  true,
+	"Блокировка": true,
 }
 
 // IsReservedName - true для обычной встроенной функции (All) или для имени

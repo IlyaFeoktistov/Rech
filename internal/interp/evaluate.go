@@ -87,7 +87,7 @@ func (in *Interp) evalAstExpr(e ast.Expr, env *Env, this *entityObj) (Value, err
 		if recv.Obj == nil {
 			return Value{}, fmt.Errorf("значение пусто, у него нет поля %q", e.Field)
 		}
-		fv, ok := recv.Obj.fields[e.Field]
+		fv, ok := recv.Obj.getFieldOK(e.Field)
 		if !ok {
 			return Value{}, fmt.Errorf("у сущности %q нет поля %q", recv.Obj.typeName, e.Field)
 		}

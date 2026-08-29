@@ -61,7 +61,7 @@ func (in *Interp) jsonSerialize(sb *strings.Builder, v Value) {
 			}
 			jsonWriteEscapedString(sb, f.JSONKey())
 			sb.WriteByte(':')
-			in.jsonSerialize(sb, v.Obj.fields[f.Name])
+			in.jsonSerialize(sb, v.Obj.getField(f.Name))
 		}
 		sb.WriteByte('}')
 	}

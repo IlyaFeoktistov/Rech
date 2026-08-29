@@ -171,6 +171,10 @@ type entitySig struct {
 	// analyzeNewExpr мог отказать в "новый Тип(...)" на абстрактную
 	// сущность (internal/semantic/expr.go).
 	IsAbstract bool
+	// IsMutex - см. internal/semantic/mutex.go - системная сущность
+	// "Блокировка", регистрируется лениво при первой встрече имени типа,
+	// тем же принципом, что IsList/IsDict/IsNullable/IsPointer выше.
+	IsMutex bool
 	// BaseName - имя базовой сущности ("наследует"), "" - нет
 	// базовой. FieldNames/FieldTypes/... выше уже включают унаследованные
 	// поля (плоский список, база первой) - см. collectEntities.
