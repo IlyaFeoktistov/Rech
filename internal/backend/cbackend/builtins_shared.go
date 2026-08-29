@@ -71,6 +71,9 @@ type builtinFlags struct {
 	// rech_date_to_time/rech_date_to_string (datetime.go) - встроенные
 	// функции "время"/"время_как_дата"/"дата_как_время"/"дата_в_строку".
 	usesDateTime bool
+	// usesCookies - нужны ли rech_cookie_value/rech_cookie_string
+	// (cookies.go) - встроенные функции "значение_куки"/"строка_куки".
+	usesCookies bool
 }
 
 // builtinCallCode генерирует C-вызов встроенной функции (internal/builtins,
@@ -204,6 +207,12 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 	case "дата_в_строку":
 		flags.usesDateTime = true
 		return fmt.Sprintf("rech_date_to_string(%s)", args[0]), true
+	case "значение_куки":
+		flags.usesCookies = true
+		return fmt.Sprintf("rech_cookie_value((%s).%s, %s)", args[0], mangleField("заголовки"), args[1]), true
+	case "строка_куки":
+		flags.usesCookies = true
+		return fmt.Sprintf("rech_cookie_string(%s, %s, %s)", args[0], args[1], args[2]), true
 	case "подключиться_к_бд":
 		flags.usesPanic = true
 		return fmt.Sprintf("rech_db_connect(%s)", args[0]), true

@@ -558,10 +558,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		sb.WriteString("#include <gc.h>\n")
 	}
 	hasStructTargets := len(prog.ParseTargets) > 0 || len(prog.SerializeTargets) > 0 || len(prog.XMLParseTargets) > 0 || len(prog.XMLSerializeTargets) > 0
-	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || hasStructTargets || prog.UsesReflection {
+	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || hasStructTargets || prog.UsesReflection {
 		sb.WriteString("#include <string.h>\n")
 	}
-	if ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesQueryParams || hasStructTargets {
+	if ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesQueryParams || ctx.usesCookies || hasStructTargets {
 		sb.WriteString("#include <stdlib.h>\n")
 	}
 	if ctx.usesMath {
@@ -597,7 +597,9 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	sb.WriteString("\n")
 	sb.WriteString(argsGlobals)
 	sb.WriteString("\n")
-	if ctx.usesConcat {
+	if ctx.usesConcat || ctx.usesCookies {
+		// usesCookies - rech_cookie_string (cookies.go, ниже) сама
+		// собирается через rech_str_concat.
 		sb.WriteString(strConcatHelper)
 		sb.WriteString("\n")
 	}
@@ -744,6 +746,12 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// После typedefs - rech_time_to_date/rech_date_to_time/
 		// rech_date_to_string принимают/возвращают ДатаВремя по значению.
 		sb.WriteString(datetimeHelpers)
+		sb.WriteString("\n")
+	}
+	if ctx.usesCookies {
+		// После typedefs (rech_T_opcii_kuki/rech_T_n_stroka уже объявлены) и
+		// после strConcatHelper выше (rech_cookie_string зовёт rech_str_concat).
+		sb.WriteString(cookieHelpers())
 		sb.WriteString("\n")
 	}
 	if protos.Len() > 0 {

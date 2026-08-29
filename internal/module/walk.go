@@ -43,6 +43,7 @@ var builtinTypeBases = map[string]bool{
 	"ДатаВремя":      true,
 	"ОшибкаРазбора":  true,
 	"Блокировка":     true,
+	"ОпцииКуки":      true,
 	"Целое8":         true,
 	"Целое16":        true,
 	"Целое32":        true,

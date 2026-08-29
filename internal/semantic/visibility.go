@@ -120,7 +120,13 @@ func resolveFieldDefault(sc *ctx, entityName, fieldName string, line int) (ir.Ex
 	}
 	sig := sc.entities[entityName]
 	idx := sig.fieldIndex(fieldName)
-	val, err := analyzeExpr(sc, sig.FieldDefaultExprs[idx])
+	// coerceExpr, не analyzeExpr напрямую - значение по умолчанию nullable-
+	// поля правомерно записано как "Ничто" ("имеет: поле: ?Тип = Ничто"),
+	// а "Ничто" вообще не типизируется без контекста ожидаемого типа
+	// (см. package doc ast.NullLiteral) - тем же принципом, что и у любого
+	// другого места языка, ожидающего значение конкретного типа (аргумент
+	// вызова/присваивание/"вернуть").
+	val, err := coerceExpr(sc, sig.FieldDefaultExprs[idx], sig.FieldTypes[idx])
 	if err != nil {
 		return nil, fmt.Errorf("строка %d: значение по умолчанию поля %q сущности %q: %w", line, fieldName, entityName, err)
 	}

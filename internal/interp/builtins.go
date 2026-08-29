@@ -186,6 +186,10 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return intValue(dateToTime(args[0])), true
 	case "дата_в_строку":
 		return stringValue(dateToString(args[0])), true
+	case "значение_куки":
+		return cookieValue(args[0], args[1].S), true
+	case "строка_куки":
+		return stringValue(cookieString(args[0].S, args[1].S, args[2])), true
 	case "подключиться_к_бд":
 		return dbConnect(args[0].S), true
 	case "запросить":

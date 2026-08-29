@@ -368,6 +368,7 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 	funcs["запрос"] = funcSig{Params: []ir.Type{ir.EntityType("Запрос")}, ReturnType: ir.EntityType("Ответ"), HasReturn: true}
 	registerHTTPServerFuncs(funcs)
 	registerDateTimeFuncs(a.entities, funcs)
+	registerCookieFuncs(a.entities, funcs)
 	registerDBFuncs(funcs)
 	for _, fn := range prog.Functions {
 		if _, exists := funcs[fn.Name]; exists {
@@ -690,6 +691,7 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 		&ir.Entity{Name: "Запрос", IsStruct: true, Fields: httpRequestFields},
 		&ir.Entity{Name: "Ответ", IsStruct: true, Fields: httpResponseFields},
 		&ir.Entity{Name: "ДатаВремя", IsStruct: true, Fields: dateTimeFields},
+		&ir.Entity{Name: "ОпцииКуки", IsStruct: true, Fields: cookieOptionsFields},
 	)
 	// "Исключение" - ссылочная сущность (не структура): "выбросить"
 	// передаёт указатель на неё дальше по стеку вызовов без копирования,

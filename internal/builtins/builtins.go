@@ -175,6 +175,8 @@ var ReservedFuncNames = map[string]bool{
 	"запросить":            true,
 	"выполнить":            true,
 	"закрыть_бд":           true,
+	"значение_куки":        true,
+	"строка_куки":          true,
 }
 
 // ReservedEntityNames - зарезервированные имена сущностей (Запрос/Ответ,
@@ -187,6 +189,7 @@ var ReservedEntityNames = map[string]bool{
 	"Вызываемый": true,
 	"ДатаВремя":  true,
 	"Блокировка": true,
+	"ОпцииКуки":  true,
 }
 
 // IsReservedName - true для обычной встроенной функции (All) или для имени
