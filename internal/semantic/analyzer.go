@@ -294,7 +294,11 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 				params[i] = typ
 				paramStates[i] = aliasState[p.Type]
 			}
-			msig := funcSig{Params: params, ParamStates: paramStates, Visibility: m.Visibility, IsAbstract: m.IsAbstract}
+			revokes, err := resolveOpposesTag(m, ent.Methods, sig.States)
+			if err != nil {
+				return fmt.Errorf("сущность %q: %w", ent.Name, err)
+			}
+			msig := funcSig{Params: params, ParamStates: paramStates, Visibility: m.Visibility, IsAbstract: m.IsAbstract, RevokesStates: revokes}
 			switch {
 			case m.SelfReturn:
 				// "этот" как тип результата - собственный метод сущности X

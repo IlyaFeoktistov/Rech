@@ -367,16 +367,26 @@ func analyzeMethodCallExpr(sc *ctx, e *ast.MethodCallExpr) (*ir.MethodCallExpr, 
 	// переносится на переменную-получателя - safe только потому, что "этот"
 	// передаётся по ссылке (в отличие от обычных параметров, которые
 	// копируются, см. package doc funcSig.GuaranteedThisStates).
-	if len(sig.GuaranteedThisStates) > 0 {
+	// sig.RevokesStates (тег "противоположность") - наоборот, снимается с
+	// получателя ДО добавления собственного постусловия -
+	// собственный "становится" метода (если есть) всегда сильнее, чем
+	// автоматическая отмена состояния другого метода.
+	if len(sig.GuaranteedThisStates) > 0 || len(sig.RevokesStates) > 0 {
 		switch r := receiver.(type) {
 		case *ir.Identifier:
 			next := cloneStates(sc.getEstablished(r.Name))
+			for st := range sig.RevokesStates {
+				delete(next, st)
+			}
 			for st := range sig.GuaranteedThisStates {
 				next[st] = true
 			}
 			sc.setEstablished(r.Name, next)
 		case *ir.ThisExpr:
 			next := cloneStates(sc.thisEstablished)
+			for st := range sig.RevokesStates {
+				delete(next, st)
+			}
 			for st := range sig.GuaranteedThisStates {
 				next[st] = true
 			}

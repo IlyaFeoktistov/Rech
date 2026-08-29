@@ -185,12 +185,16 @@ func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
 			returnType = normalizeReturnType(returnType)
 		}
 	}
+	var tag string
+	if p.cur().Type == lexer.TAG {
+		tag = p.advance().Value
+	}
 	if p.peekPastNewlines().Type != lexer.LBRACE {
 		if !p.inAbstractEntity {
 			return nil, fmt.Errorf("строка %d, столбец %d: у метода %q не указано тело - тело может отсутствовать только внутри \"абстрактная сущность\"/\"абстрактный класс\"",
 				p.cur().Line, p.cur().Col, name.Value)
 		}
-		return &ast.MethodDecl{Name: name.Value, Params: params, ReturnType: returnType, SelfReturn: selfReturn, IsAbstract: true, Visibility: vis, Line: name.Line}, nil
+		return &ast.MethodDecl{Name: name.Value, Params: params, ReturnType: returnType, SelfReturn: selfReturn, IsAbstract: true, Visibility: vis, Line: name.Line, Tag: tag}, nil
 	}
 	p.skipNewlines()
 	prevInMethod := p.inMethodBody
@@ -200,7 +204,7 @@ func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ast.MethodDecl{Name: name.Value, Params: params, ReturnType: returnType, SelfReturn: selfReturn, Body: body, Visibility: vis, Line: name.Line}, nil
+	return &ast.MethodDecl{Name: name.Value, Params: params, ReturnType: returnType, SelfReturn: selfReturn, Body: body, Visibility: vis, Line: name.Line, Tag: tag}, nil
 }
 
 // resolveDeclinedTypeRef разбирает имя после "наследует"/"реализует" -
