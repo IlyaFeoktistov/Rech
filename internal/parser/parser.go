@@ -97,6 +97,12 @@ type Parser struct {
 	// у "этот". Тело конструктора всегда одновременно и inMethodBody (в нём
 	// тоже валиден "этот.поле = ..."), поэтому оба поля включаются вместе.
 	inConstructorBody bool
+
+	// inAbstractEntity - true, пока парсер разбирает тело "абстрактная
+	// сущность"/"абстрактный класс" (parseEntity) - то, что делает
+	// отсутствие тела у метода валидным (parseMethod, ast.MethodDecl.
+	// IsAbstract), тем же принципом, что и inMethodBody у "этот".
+	inAbstractEntity bool
 }
 
 func New(tokens []lexer.Token) *Parser {
@@ -406,7 +412,7 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 				explicitMain = fn
 			}
 			prog.Functions = append(prog.Functions, fn)
-		case lexer.KwEntity, lexer.KwClass, lexer.KwStruct:
+		case lexer.KwAbstract, lexer.KwEntity, lexer.KwClass, lexer.KwStruct:
 			ent, err := p.parseEntity()
 			if err != nil {
 				return nil, err
@@ -488,14 +494,35 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 	return prog, nil
 }
 
-// parseEntity разбирает "сущность"/"класс" (синонимы, ссылочная семантика)
+// parseEntity разбирает необязательный модификатор "абстрактная"/
+// "абстрактный" перед "сущность"/"класс" (синонимы, ссылочная семантика)
 // либо "структура" (та же форма тела, но семантика по значению - см.
 // ast.EntityDecl.IsStruct) и тело объявления.
 func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
+	var abstractTok *lexer.Token
+	if p.cur().Type == lexer.KwAbstract {
+		tok := p.advance()
+		abstractTok = &tok
+	}
+
 	kw := p.advance() // "сущность", "класс" или "структура"
 	label := "сущность"
 	if kw.Type == lexer.KwStruct {
 		label = "структура"
+	}
+
+	if abstractTok != nil {
+		if kw.Type == lexer.KwStruct {
+			return nil, fmt.Errorf("строка %d: \"структура\" не может быть абстрактной - абстрактность применима только к \"сущность\"/\"класс\" (наследование ограничено ссылочными типами)", abstractTok.Line)
+		}
+		want := "абстрактная"
+		if kw.Type == lexer.KwClass {
+			want = "абстрактный"
+		}
+		if abstractTok.Value != want {
+			return nil, fmt.Errorf("строка %d, столбец %d: перед %q модификатор согласуется по роду - ожидалось %q, получено %q",
+				abstractTok.Line, abstractTok.Col, kw.Value, want, abstractTok.Value)
+		}
 	}
 
 	name, err := p.expect(lexer.IDENT)
@@ -551,6 +578,9 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 	if typeParams != nil && (baseName != "" || len(interfaces) > 0) {
 		return nil, fmt.Errorf("%s %q: generic-%s (с параметром типа) не может наследовать/реализовывать - не реализовано в этом срезе", label, name.Value, label)
 	}
+	if typeParams != nil && abstractTok != nil {
+		return nil, fmt.Errorf("%s %q: generic-%s не может быть абстрактной - её нельзя ни унаследовать, ни (тем более) создать экземпляр", label, name.Value, label)
+	}
 
 	p.skipNewlines()
 
@@ -565,6 +595,10 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 	var fields []ast.Field
 	var methods []*ast.MethodDecl
 	var ctor *ast.ConstructorDecl
+
+	prevInAbstractEntity := p.inAbstractEntity
+	p.inAbstractEntity = abstractTok != nil
+	defer func() { p.inAbstractEntity = prevInAbstractEntity }()
 
 	for p.cur().Type != lexer.RBRACE {
 		doc := p.consumeDoc()
@@ -693,6 +727,7 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 	return &ast.EntityDecl{
 		Name:       name.Value,
 		IsStruct:   kw.Type == lexer.KwStruct,
+		IsAbstract: abstractTok != nil,
 		BaseName:   baseName,
 		Interfaces: interfaces,
 		Constants:  constants,

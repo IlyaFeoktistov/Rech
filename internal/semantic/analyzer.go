@@ -268,6 +268,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 			}
 		}
 		sig.IsStruct = ent.IsStruct
+		sig.IsAbstract = ent.IsAbstract
 		sig.IsExternStruct = ent.IsExternStruct
 		// Регистрируется уже сейчас (до разбора методов), не только после
 		// сплющивания с базовой сущностью ниже - иначе метод, ссылающийся
@@ -293,7 +294,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 				params[i] = typ
 				paramStates[i] = aliasState[p.Type]
 			}
-			msig := funcSig{Params: params, ParamStates: paramStates, Visibility: m.Visibility}
+			msig := funcSig{Params: params, ParamStates: paramStates, Visibility: m.Visibility, IsAbstract: m.IsAbstract}
 			switch {
 			case m.SelfReturn:
 				// "этот" как тип результата - собственный метод сущности X
@@ -335,6 +336,13 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 		flatSig, flatMethods, err := a.applyInheritance(entities, methods, ent, sig, ownMethods)
 		if err != nil {
 			return err
+		}
+		if !ent.IsAbstract {
+			for name, msig := range flatMethods {
+				if msig.IsAbstract {
+					return fmt.Errorf("сущность %q: не реализован абстрактный метод %q - дайте ему тело или объявите саму сущность абстрактной", ent.Name, name)
+				}
+			}
 		}
 		entities[ent.Name] = flatSig
 		methods[ent.Name] = flatMethods
@@ -561,7 +569,7 @@ func (a *Analyzer) analyzeEntity(ent *ast.EntityDecl) (*ir.Entity, error) {
 		}
 		ctor = irCtor
 	}
-	return &ir.Entity{Name: ent.Name, IsStruct: ent.IsStruct, BaseName: ent.BaseName, Interfaces: ent.Interfaces, Constants: constants, Fields: fields, Methods: irMethods, Ctor: ctor, Doc: ent.Doc, Exported: ent.Exported}, nil
+	return &ir.Entity{Name: ent.Name, IsStruct: ent.IsStruct, IsAbstract: ent.IsAbstract, BaseName: ent.BaseName, Interfaces: ent.Interfaces, Constants: constants, Fields: fields, Methods: irMethods, Ctor: ctor, Doc: ent.Doc, Exported: ent.Exported}, nil
 }
 
 // analyzeConstructor анализирует явное тело конструктора ent.Ctor - как
@@ -601,7 +609,7 @@ func (a *Analyzer) analyzeMethod(ent *ast.EntityDecl, m *ast.MethodDecl) (*ir.Me
 	if err != nil {
 		return nil, err
 	}
-	if sig.HasReturn && !endsWithReturnValue(body) {
+	if !m.IsAbstract && sig.HasReturn && !endsWithReturnValue(body) {
 		return nil, fmt.Errorf("с объявленным типом результата %s должен заканчиваться \"вернуть <значение>\"", sig.ReturnType)
 	}
 	sig.GuaranteedThisStates = sc.thisEstablished
@@ -612,6 +620,7 @@ func (a *Analyzer) analyzeMethod(ent *ast.EntityDecl, m *ast.MethodDecl) (*ir.Me
 		ReturnType: sig.ReturnType,
 		HasReturn:  sig.HasReturn,
 		Body:       body,
+		IsAbstract: m.IsAbstract,
 		File:       ent.File,
 		Doc:        m.Doc,
 	}, nil

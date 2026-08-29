@@ -216,6 +216,9 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 	if sig.IsExternOpaque {
 		return nil, fmt.Errorf("строка %d: %q - непрозрачный внешний тип (\"внешняя сущность\") - значение можно только получить от внешней функции, не через \"новый\"", e.Line, e.Type)
 	}
+	if sig.IsAbstract {
+		return nil, fmt.Errorf("строка %d: %q - абстрактная сущность, создать экземпляр напрямую нельзя - унаследуйте её и реализуйте недостающие методы", e.Line, e.Type)
+	}
 	if sig.HasCtor {
 		if e.FieldNames != nil {
 			return nil, fmt.Errorf("строка %d: у сущности %q явный конструктор - именованная форма (поле: значение) недоступна, аргументы передаются позиционно, по объявлению конструктора", e.Line, e.Type)

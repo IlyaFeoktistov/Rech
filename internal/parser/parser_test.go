@@ -1477,3 +1477,116 @@ func TestParseStructRejectsInheritsAndImplements(t *testing.T) {
 		t.Fatalf("ожидалась ошибка - структура не может реализовывать интерфейс, получено: %v", err)
 	}
 }
+
+func TestParseAbstractEntity(t *testing.T) {
+	prog, err := parseSource(t, `
+абстрактная сущность Животное
+{
+    голос(): Строка
+
+    представиться(): Строка
+    {
+        вернуть "аноним"
+    }
+}
+функция главная { вывести "ок" }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	ent := prog.Entities[0]
+	if !ent.IsAbstract {
+		t.Fatalf("ожидалась абстрактная сущность, получено %+v", ent)
+	}
+	if len(ent.Methods) != 2 {
+		t.Fatalf("ожидались два метода, получено %+v", ent.Methods)
+	}
+	voice := ent.Methods[0]
+	if voice.Name != "голос" || !voice.IsAbstract || voice.Body != nil {
+		t.Fatalf("ожидался абстрактный метод \"голос\" без тела, получено %+v", voice)
+	}
+	greet := ent.Methods[1]
+	if greet.Name != "представиться" || greet.IsAbstract || greet.Body == nil {
+		t.Fatalf("ожидался обычный метод \"представиться\" с телом, получено %+v", greet)
+	}
+}
+
+func TestParseAbstractClassAcceptsMasculineForm(t *testing.T) {
+	prog, err := parseSource(t, `
+абстрактный класс Фигура
+{
+    площадь(): Действительное
+}
+функция главная { вывести "ок" }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !prog.Entities[0].IsAbstract {
+		t.Fatalf("ожидался абстрактный класс, получено %+v", prog.Entities[0])
+	}
+}
+
+func TestParseAbstractEntityWrongGenderFormRejected(t *testing.T) {
+	_, err := parseSource(t, `
+абстрактный сущность Животное
+{
+    голос(): Строка
+}
+функция главная { вывести "ок" }
+`)
+	if err == nil || !strings.Contains(err.Error(), "согласуется по роду") {
+		t.Fatalf("ожидалась ошибка согласования по роду, получено: %v", err)
+	}
+
+	_, err = parseSource(t, `
+абстрактная класс Фигура
+{
+    площадь(): Действительное
+}
+функция главная { вывести "ок" }
+`)
+	if err == nil || !strings.Contains(err.Error(), "согласуется по роду") {
+		t.Fatalf("ожидалась ошибка согласования по роду, получено: %v", err)
+	}
+}
+
+func TestParseAbstractStructRejected(t *testing.T) {
+	_, err := parseSource(t, `
+абстрактная структура Точка
+{
+    имеет:
+        x: Целое
+}
+функция главная { вывести "ок" }
+`)
+	if err == nil || !strings.Contains(err.Error(), "структура") {
+		t.Fatalf("ожидалась ошибка - структура не может быть абстрактной, получено: %v", err)
+	}
+}
+
+func TestParseGenericEntityCannotBeAbstract(t *testing.T) {
+	_, err := parseSource(t, `
+абстрактная сущность Коробка<T>
+{
+    получить(): T
+}
+функция главная { вывести "ок" }
+`)
+	if err == nil || !strings.Contains(err.Error(), "generic") {
+		t.Fatalf("ожидалась ошибка - generic-сущность не может быть абстрактной, получено: %v", err)
+	}
+}
+
+func TestParseMethodWithoutBodyOutsideAbstractEntityRejected(t *testing.T) {
+	_, err := parseSource(t, `
+сущность Животное
+{
+    голос(): Строка
+}
+функция главная { вывести "ок" }
+`)
+	if err == nil || !strings.Contains(err.Error(), "не указано тело") {
+		t.Fatalf("ожидалась ошибка - у метода не указано тело, получено: %v", err)
+	}
+}

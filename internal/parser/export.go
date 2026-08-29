@@ -29,7 +29,7 @@ func (p *Parser) parseExportedDecl() (fn *ast.FunctionDecl, ent *ast.EntityDecl,
 		}
 		fn.Exported = true
 		return fn, nil, nil
-	case lexer.KwEntity, lexer.KwClass, lexer.KwStruct:
+	case lexer.KwAbstract, lexer.KwEntity, lexer.KwClass, lexer.KwStruct:
 		ent, err = p.parseEntity()
 		if err != nil {
 			return nil, nil, err

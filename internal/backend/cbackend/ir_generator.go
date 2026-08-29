@@ -444,6 +444,12 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	}
 	for _, ent := range prog.Entities {
 		for _, m := range ent.Methods {
+			if m.IsAbstract {
+				// Абстрактный метод (нет тела) - вызвать его напрямую по
+				// мангл-имени нельзя, C-функции для него не существует -
+				// см. package doc ir.Method.IsAbstract.
+				continue
+			}
 			fmt.Fprintf(&protos, "%s %s(%s);\n", cReturnTypeFor(ctx, m.HasReturn, m.ReturnType), mangleMethod(ent.Name, m.Name), cMethodParamListIR(ctx, ent.Name, m.Params))
 		}
 	}
@@ -462,6 +468,9 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	var body strings.Builder
 	for _, ent := range prog.Entities {
 		for _, m := range ent.Methods {
+			if m.IsAbstract {
+				continue
+			}
 			mCode, err := generateIRMethod(ctx, ent.Name, m)
 			if err != nil {
 				return "", fmt.Errorf("сущность %q: метод %q: %w", ent.Name, m.Name, err)

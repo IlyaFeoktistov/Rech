@@ -115,6 +115,10 @@ func (p *Parser) parseBecomeStmt() (ast.Stmt, error) {
 // допустима только форма мужского рода "приватный"/"публичный"/
 // "защищённый", любая другая форма ("приватная" и т.п.) - ошибка
 // компиляции, а не угаданное согласование.
+//
+// block необязателен, только если p.inAbstractEntity (метод без тела внутри
+// "абстрактная сущность"/"абстрактный класс") - тогда результат несёт
+// IsAbstract == true и Body == nil (docs/SPEC.md, "Абстрактные методы").
 func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
 	var vis ast.Visibility
 	if isVisibilityKeyword(p.cur().Type) {
@@ -153,6 +157,13 @@ func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
 			}
 			returnType = normalizeReturnType(returnType)
 		}
+	}
+	if p.peekPastNewlines().Type != lexer.LBRACE {
+		if !p.inAbstractEntity {
+			return nil, fmt.Errorf("строка %d, столбец %d: у метода %q не указано тело - тело может отсутствовать только внутри \"абстрактная сущность\"/\"абстрактный класс\"",
+				p.cur().Line, p.cur().Col, name.Value)
+		}
+		return &ast.MethodDecl{Name: name.Value, Params: params, ReturnType: returnType, SelfReturn: selfReturn, IsAbstract: true, Visibility: vis, Line: name.Line}, nil
 	}
 	p.skipNewlines()
 	prevInMethod := p.inMethodBody

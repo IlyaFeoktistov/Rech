@@ -140,7 +140,15 @@ func generateVtableInstance(ctx *irGenCtx, ent *ir.Entity) string {
 }
 
 // findVtableSlotFunc ищет, какая сущность (сама entityName или предок по
-// BaseName) реально определяет метод name - "" если ни одна.
+// BaseName) реально определяет метод name - "" если ни одна. Абстрактный
+// метод (m.IsAbstract, без тела и без сгенерированной C-функции - см.
+// package doc ir.Method.IsAbstract) не считается определением - поиск идёт
+// дальше вверх по цепочке, как если бы этой сущности метод вовсе не
+// объявляла. Для сущности, реально СОЗДАВАЕМОЙ в программе, дальше по
+// цепочке гарантированно найдётся настоящая реализация (internal/semantic/
+// analyzer.go отклоняет иначе); для самой абстрактной сущности (её
+// собственная таблица диспетчеризации никогда не используется - она не
+// инстанциируется) слот просто останется незаполненным.
 func findVtableSlotFunc(ctx *irGenCtx, entityName, name string) string {
 	for entityName != "" {
 		ent, ok := ctx.entities[entityName]
@@ -148,7 +156,7 @@ func findVtableSlotFunc(ctx *irGenCtx, entityName, name string) string {
 			return ""
 		}
 		for _, m := range ent.Methods {
-			if m.Name == name {
+			if m.Name == name && !m.IsAbstract {
 				return entityName
 			}
 		}

@@ -70,6 +70,9 @@ func (d *doc) hoverBareName(name string, line int) (string, bool) {
 		if ent.IsStruct {
 			kind = "структура"
 		}
+		if ent.IsAbstract {
+			kind = "абстрактная " + kind
+		}
 		block := withDoc(codeBlock(fmt.Sprintf("%s %s", kind, ent.Name)), ent.Doc)
 		return withRefCount(block, d.countEntityRefs(name)), true
 	}

@@ -112,6 +112,7 @@ const (
 	KwXML         // XML (формат-маркер после "разобрать"/"сериализовать", не склоняется)
 	KwType        // тип (тип <Имя> - дескриптор типа без экземпляра, аналог typeof)
 	KwNull        // Ничто (отсутствие значения у nullable-типа "?Тип")
+	KwAbstract    // абстрактный / абстрактная / абстрактное / абстрактные (перед "сущность"/"класс")
 
 	QUESTION         // ? (префикс nullable-типа: "?Тип")
 	QUESTIONQUESTION // ?? (значение слева, если оно не Ничто, иначе - справа)
@@ -198,6 +199,10 @@ var keywords = map[string]TokenType{
 	"XML":            KwXML,
 	"тип":            KwType,
 	"Ничто":          KwNull,
+	"абстрактный":    KwAbstract,
+	"абстрактная":    KwAbstract,
+	"абстрактное":    KwAbstract,
+	"абстрактные":    KwAbstract,
 }
 
 // Token - одна лексема с позицией в исходном файле (для сообщений об ошибках).
@@ -410,6 +415,8 @@ func (t TokenType) String() string {
 		return "тип"
 	case KwNull:
 		return "Ничто"
+	case KwAbstract:
+		return "абстрактный"
 	default:
 		return "UNKNOWN"
 	}

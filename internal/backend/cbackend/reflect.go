@@ -499,7 +499,14 @@ type effectiveReflectMethod struct {
 // effectiveReflectMethods - методы typeName, включая унаследованные - тот
 // же обход цепочки BaseName, что и internal/interp.effectiveMethods
 // (не разделяемый напрямую - структурно идентичный, но оперирует разными
-// типами карт в разных пакетах).
+// типами карт в разных пакетах). Абстрактный метод (m.IsAbstract) не
+// попадает в результат вовсе - у него нет C-функции, которую мог бы
+// обернуть methodInvokerCode (см. её package doc); для любой РЕАЛЬНО
+// создаваемой сущности это не теряет ни одного метода (семантический
+// анализ гарантирует, что настоящая реализация есть раньше по цепочке и
+// перекрывает абстрактную запись через seen), эффект виден только если
+// рефлексии подвергается сама абстрактная сущность напрямую ("тип
+// АбстрактнаяСущность").
 func effectiveReflectMethods(entities map[string]*ir.Entity, typeName string) []effectiveReflectMethod {
 	var chain []string
 	for n := typeName; n != ""; {
@@ -514,7 +521,7 @@ func effectiveReflectMethods(entities map[string]*ir.Entity, typeName string) []
 	var result []effectiveReflectMethod
 	for _, n := range chain {
 		for _, m := range entities[n].Methods {
-			if seen[m.Name] {
+			if seen[m.Name] || m.IsAbstract {
 				continue
 			}
 			seen[m.Name] = true

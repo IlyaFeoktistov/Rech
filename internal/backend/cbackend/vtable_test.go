@@ -123,6 +123,47 @@ func TestGenerateFromIRVtableInstanceFillsOwnAndInheritedSlots(t *testing.T) {
 	}
 }
 
+// TestGenerateFromIRAbstractMethodGetsNoFunctionAndEmptyOwnSlot -
+// абстрактный метод (Method.IsAbstract, без Body) не должен получить ни
+// прототип, ни определение C-функции по своему мангл-имени - переопределение
+// в производной сущности получает собственную функцию и заполняет ей свой
+// слот, а таблица диспетчеризации самой абстрактной сущности (никогда не
+// используемая в рантайме - её нельзя создать) оставляет этот слот
+// незаполненным, а не ссылается на несуществующую функцию.
+func TestGenerateFromIRAbstractMethodGetsNoFunctionAndEmptyOwnSlot(t *testing.T) {
+	base := &ir.Entity{
+		Name:       "Животное",
+		IsAbstract: true,
+		Methods: []*ir.Method{
+			{Name: "голос", ReturnType: ir.TypeString, HasReturn: true, IsAbstract: true},
+		},
+	}
+	derived := &ir.Entity{
+		Name: "Кот", BaseName: "Животное",
+		Methods: []*ir.Method{
+			{Name: "голос", ReturnType: ir.TypeString, HasReturn: true, Body: []ir.Stmt{
+				&ir.ReturnStmt{Value: &ir.StringLiteral{Value: "мяу"}},
+			}},
+		},
+	}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "к", Value: &ir.NewExpr{Entity: "Кот"}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Entities: []*ir.Entity{base, derived}, Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if strings.Contains(out, "rech_M_zhivotnoe_golos") {
+		t.Fatalf("у абстрактного метода не должно быть ни прототипа, ни определения C-функции, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "static const rech_vtable rech_VT_zhivotnoe = {\n    .type_id = 0,\n    .slots = {\n    }\n};") {
+		t.Fatalf("таблица абстрактной сущности должна оставить слот пустым (нет своей реализации), получено:\n%s", out)
+	}
+	if !strings.Contains(out, "[0] = (rech_vtfunc)&rech_M_kot_golos,") {
+		t.Fatalf("ожидался слот производной сущности, ссылающийся на её собственную реализацию, получено:\n%s", out)
+	}
+}
+
 // TestGenerateFromIRInterfaceMethodCallGeneratesDispatchThroughSlot -
 // вызов метода на параметре интерфейсного типа генерирует приведение
 // получателя к rech_vtable_header и косвенный вызов через slots[N], а не
