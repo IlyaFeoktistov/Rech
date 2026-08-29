@@ -254,9 +254,9 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 			sig.FieldDefaultExprs = append(sig.FieldDefaultExprs, f.Default)
 		}
 		if len(ent.States) > 0 {
-			sig.States = map[string]bool{}
+			sig.States = map[string]string{}
 			for _, st := range ent.States {
-				sig.States[st.Name] = true
+				sig.States[st.BecomeForm] = st.Name
 				if _, exists := entities[st.TypeName]; exists {
 					return fmt.Errorf("сущность %q: производный тип состояния %q совпадает с именем уже объявленной сущности", ent.Name, st.TypeName)
 				}

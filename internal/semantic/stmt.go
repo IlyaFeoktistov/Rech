@@ -387,7 +387,16 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			return nil, fmt.Errorf("строка %d: \"становится\" применимо только к сущности, получен тип %s", s.Line, typ)
 		}
 		sig := sc.entities[typ.Entity]
-		if !sig.States[s.State] {
+		// sig.States - ключ полная форма, согласованная по роду/числу И
+		// творительным падежом (см. package doc entitySig.States) - s.State
+		// несёт ровно то, что написано после "становится", не краткую форму.
+		// base - краткая форма, канонический идентификатор состояния дальше
+		// по коду (established/ir.BecomeStmt.State).
+		base, ok := sig.States[s.State]
+		if !ok {
+			if hint := suggestStateForm(sig.States, s.State); hint != "" {
+				return nil, fmt.Errorf("строка %d: у сущности %q нет состояния, записанного как %q - \"становится\" требует полную форму, согласованную по роду и творительным падежом (%q)", s.Line, typ.Entity, s.State, hint)
+			}
 			return nil, fmt.Errorf("строка %d: у сущности %q не объявлено состояние %q", s.Line, typ.Entity, s.State)
 		}
 		// Фиксируем доказанный переход - только для отслеживаемых форм
@@ -397,14 +406,14 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		switch r := receiver.(type) {
 		case *ir.Identifier:
 			next := cloneStates(sc.getEstablished(r.Name))
-			next[s.State] = true
+			next[base] = true
 			sc.setEstablished(r.Name, next)
 		case *ir.ThisExpr:
 			next := cloneStates(sc.thisEstablished)
-			next[s.State] = true
+			next[base] = true
 			sc.thisEstablished = next
 		}
-		return &ir.BecomeStmt{Receiver: receiver, State: s.State}, nil
+		return &ir.BecomeStmt{Receiver: receiver, State: base}, nil
 
 	case *ast.ParentCallStmt:
 		if !sc.allowParentCall {
@@ -462,4 +471,18 @@ func receiverAddressable(e ast.Expr) bool {
 	default:
 		return false
 	}
+}
+
+// suggestStateForm - written совпадает с краткой формой (значением
+// entitySig.States, не ключом) какого-то состояния - типичная ошибка:
+// программист написал краткую форму вместо полной, согласованной
+// творительным падежом. Возвращает ожидаемую полную форму для сообщения об
+// ошибке, "" - written не похоже ни на одну из известных кратких форм.
+func suggestStateForm(states map[string]string, written string) string {
+	for full, base := range states {
+		if base == written {
+			return full
+		}
+	}
+	return ""
 }

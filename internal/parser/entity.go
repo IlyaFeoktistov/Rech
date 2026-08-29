@@ -37,32 +37,59 @@ func (p *Parser) parseStatesSection(entityName string) ([]ast.StateDecl, error) 
 		if err != nil {
 			return nil, fmt.Errorf("строка %d, столбец %d: состояние %q: %w", w.Line, w.Col, w.Value, err)
 		}
-		states[i] = ast.StateDecl{Name: w.Value, TypeName: capitalizeFirst(long) + entityName, Line: w.Line}
+		become, err := p.stateWordInstrumentalAgreement(w.Value, gender, number)
+		if err != nil {
+			return nil, fmt.Errorf("строка %d, столбец %d: состояние %q (творительный падеж для \"становится\"): %w", w.Line, w.Col, w.Value, err)
+		}
+		states[i] = ast.StateDecl{Name: w.Value, TypeName: capitalizeFirst(long) + entityName, BecomeForm: become, Line: w.Line}
 	}
 	return states, nil
 }
 
-// stateWordAgreement выводит полную, согласованную по роду/числу форму
+// stateWordAgreementFn - подпись morph.LongFormAdjective/
+// morph.ActiveParticipleAgreement и их падежных вариантов
+// (morph.InstrumentalLongFormAdjective/morph.InstrumentalActiveParticiple,
+// instrumental.go) - общая, чтобы stateWordAgreementUsing могла принять
+// любую пару из них, не дублируя диспетчеризацию по источнику слова.
+type stateWordAgreementFn func(string, morph.Gender, morph.Number) (string, error)
+
+// stateWordAgreementUsing выводит полную, согласованную по роду/числу форму
 // слова состояния из word - двумя источниками (шаг 6.4 добавил второй
-// наравне с уже существующим первым):
+// наравне с уже существующим первым), одна и та же диспетчеризация нужна
+// дважды (именительный падеж для производного имени типа состояния -
+// stateWordAgreement, творительный для BecomeStmt -
+// stateWordInstrumentalAgreement), меняется только то, какая конкретно
+// пара функций согласования вызывается:
 //
 //  1. Действительное причастие прошедшего времени известного глагола
 //     ("вошедший" из "войти", зарегистрированного в SystemVerbs -
 //     p.dict.Analyze находит его как VerbForm == morph.FormPastParticiple) -
-//     word уже сам по себе полная форма (муж. рода), morph.
-//     ActiveParticipleAgreement согласует её с gender/number.
+//     word уже сам по себе полная форма (муж. рода), participleFn
+//     согласует её с gender/number.
 //  2. Краткая форма страдательного причастия ("авторизован", "закрыт") -
-//     как и раньше, morph.LongFormAdjective.
+//     adjectiveFn.
 //
 // Первый источник проверяется раньше: он специфичнее (конкретный
 // зарегистрированный глагол), второй - общее суффиксальное правило.
-func (p *Parser) stateWordAgreement(word string, gender morph.Gender, number morph.Number) (string, error) {
+func (p *Parser) stateWordAgreementUsing(word string, gender morph.Gender, number morph.Number, participleFn, adjectiveFn stateWordAgreementFn) (string, error) {
 	for _, a := range p.dict.Analyze(word) {
 		if a.POS == morph.Verb && a.VerbForm == morph.FormPastParticiple {
-			return morph.ActiveParticipleAgreement(word, gender, number)
+			return participleFn(word, gender, number)
 		}
 	}
-	return morph.LongFormAdjective(word, gender, number)
+	return adjectiveFn(word, gender, number)
+}
+
+// stateWordAgreement - именительный падеж (производное имя типа состояния,
+// "АвторизованныйПользователь").
+func (p *Parser) stateWordAgreement(word string, gender morph.Gender, number morph.Number) (string, error) {
+	return p.stateWordAgreementUsing(word, gender, number, morph.ActiveParticipleAgreement, morph.LongFormAdjective)
+}
+
+// stateWordInstrumentalAgreement - творительный падеж (StateDecl.BecomeForm,
+// то, что обязан написать программист после "становится").
+func (p *Parser) stateWordInstrumentalAgreement(word string, gender morph.Gender, number morph.Number) (string, error) {
+	return p.stateWordAgreementUsing(word, gender, number, morph.InstrumentalActiveParticiple, morph.InstrumentalLongFormAdjective)
 }
 
 // capitalizeFirst делает первую букву s заглавной - для имени

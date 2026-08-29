@@ -933,7 +933,7 @@ func TestAnalyzeBecomeStmtAndDerivedType(t *testing.T) {
 
     авторизовать()
     {
-        этот становится авторизован
+        этот становится авторизованным
     }
 }
 функция показатьПрофиль(пользователь: АвторизованныйПользователь)
@@ -986,6 +986,89 @@ func TestAnalyzeBecomeUndeclaredStateFails(t *testing.T) {
 	_, err = Analyze(prog)
 	if err == nil || !strings.Contains(err.Error(), "не объявлено состояние") {
 		t.Fatalf("ожидалась ошибка про необъявленное состояние, получено: %v", err)
+	}
+}
+
+// TestAnalyzeBecomeStmtRejectsWrongGenderForm - "становится" требует
+// творительный падеж, согласованный с родом сущности: для "Пользователь"
+// (муж. род) форма женского рода "авторизованной" неверна.
+func TestAnalyzeBecomeStmtRejectsWrongGenderForm(t *testing.T) {
+	toks, err := lexer.New(`
+сущность Пользователь
+{
+    состояние: авторизован
+}
+функция главная
+{
+    переменная пользователь = новый Пользователь()
+    пользователь становится авторизованной
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
+	if err == nil || !strings.Contains(err.Error(), "не объявлено состояние") {
+		t.Fatalf("ожидалась ошибка про необъявленное состояние, получено: %v", err)
+	}
+}
+
+// TestAnalyzeBecomeStmtSuggestsInstrumentalFormForOldShortSyntax -
+// программист написал старую краткую форму ("авторизован" вместо
+// "авторизованным") - ошибка должна подсказать правильную форму
+// (suggestStateForm).
+func TestAnalyzeBecomeStmtSuggestsInstrumentalFormForOldShortSyntax(t *testing.T) {
+	toks, err := lexer.New(`
+сущность Пользователь
+{
+    состояние: авторизован
+}
+функция главная
+{
+    переменная пользователь = новый Пользователь()
+    пользователь становится авторизован
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
+	if err == nil || !strings.Contains(err.Error(), "\"авторизованным\"") {
+		t.Fatalf("ожидалась ошибка с подсказкой \"авторизованным\", получено: %v", err)
+	}
+}
+
+// TestAnalyzeBecomeStmtAcceptsFeminineInstrumentalForm - сущность женского
+// рода согласуется по-другому ("авторизованной", не "авторизованным").
+func TestAnalyzeBecomeStmtAcceptsFeminineInstrumentalForm(t *testing.T) {
+	irProg := parseProgram(t, `
+сущность Система
+{
+    состояние: авторизован
+
+    авторизовать()
+    {
+        этот становится авторизованной
+    }
+}
+функция главная
+{
+    переменная система = новая Система()
+    система.авторизовать()
+}
+`)
+	entity := irProg.Entities[0]
+	become, ok := entity.Methods[0].Body[0].(*ir.BecomeStmt)
+	if !ok || become.State != "авторизован" {
+		t.Fatalf("ожидался *ir.BecomeStmt(\"авторизован\"), получено %+v", entity.Methods[0].Body[0])
 	}
 }
 

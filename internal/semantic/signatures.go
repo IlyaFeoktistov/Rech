@@ -103,10 +103,14 @@ type entitySig struct {
 	// Analyze - тем же принципом, что и ConstExprs, см. resolveFieldDefault.
 	FieldDefaultExprs []ast.Expr
 
-	// States - краткие формы, объявленные под "состояние:" (упрощённая
-	// версия) - для проверки BecomeStmt ("получатель становится
-	// <состояние>"). nil у сущностей без "состояние:".
-	States map[string]bool
+	// States - для проверки BecomeStmt ("получатель становится
+	// <форма>") - ключ ast.StateDecl.BecomeForm (полная форма,
+	// согласованная по роду/числу И творительным падежом - ровно то, что
+	// обязан написать программист, см. package doc ast.StateDecl.BecomeForm),
+	// значение - краткая форма (ast.StateDecl.Name, канонический
+	// идентификатор состояния, используемый дальше везде - established,
+	// ir.BecomeStmt.State, ParamStates). nil у сущностей без "состояние:".
+	States map[string]string
 
 	// IsList/ElemType - заполнены только для синтезированных инстанциаций
 	// встроенных generic-коллекций (resolveTypeName) - IsList
