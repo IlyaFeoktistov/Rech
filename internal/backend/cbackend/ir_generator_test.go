@@ -39,8 +39,8 @@ func TestGenerateFromIRVarDeclAssignAndArithmetic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, "long long v_a = 10LL;") {
-		t.Fatalf("ожидалось объявление переменной, получено:\n%s", out)
+	if !strings.Contains(out, "long long v_a_INIT = 10LL;\n") || !strings.Contains(out, "long long v_a = v_a_INIT;\n") {
+		t.Fatalf("ожидалось объявление переменной через временную (см. package doc VarDecl codegen), получено:\n%s", out)
 	}
 	if !strings.Contains(out, "v_a = (v_a + 1LL);") {
 		t.Fatalf("ожидалось присваивание с арифметикой, получено:\n%s", out)
@@ -192,7 +192,7 @@ func TestGenerateFromIREntityFieldsConstructorMethodsAndThis(t *testing.T) {
 	if !strings.Contains(out, "typedef struct {") || !strings.Contains(out, "long long f_vozrast;\n} rech_T_polzovatel;") {
 		t.Fatalf("ожидался typedef struct для сущности, получено:\n%s", out)
 	}
-	if !strings.Contains(out, "rech_T_polzovatel * v_polzovatel = rech_new_polzovatel(30LL);") {
+	if !strings.Contains(out, "rech_T_polzovatel * v_polzovatel_INIT = rech_new_polzovatel(30LL);") {
 		t.Fatalf("ожидался вызов GC-конструктора (сущность - ссылочный тип по умолчанию), получено:\n%s", out)
 	}
 	if !strings.Contains(out, "static rech_T_polzovatel *rech_new_polzovatel(long long v_vozrast) {") ||
@@ -247,7 +247,7 @@ func TestGenerateFromIRStructFieldsConstructorMethodsAndThis(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, "rech_T_polzovatel v_polzovatel = (rech_T_polzovatel){.f_vozrast = 30LL};") {
+	if !strings.Contains(out, "rech_T_polzovatel v_polzovatel_INIT = (rech_T_polzovatel){.f_vozrast = 30LL};") {
 		t.Fatalf("ожидался конструктор-значение (compound literal), получено:\n%s", out)
 	}
 	if strings.Contains(out, "rech_new_polzovatel") {

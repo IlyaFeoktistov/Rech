@@ -36,8 +36,8 @@ func TestGenerateFromIRLaunchAwaitEmitsThreadWrapper(t *testing.T) {
 		"static long long rech_await_poschitat(rech_TASK_poschitat *t) {",
 		"pthread_create(&t->thread, NULL, rech_task_entry_poschitat, t);",
 		"CreateThread(NULL, 0, rech_task_entry_poschitat, t, 0, NULL);",
-		"rech_TASK_poschitat * v_zadacha = rech_launch_poschitat(2LL, 3LL);",
-		"long long v_rezultat = rech_await_poschitat(v_zadacha);",
+		"rech_TASK_poschitat * v_zadacha_INIT = rech_launch_poschitat(2LL, 3LL);",
+		"long long v_rezultat_INIT = rech_await_poschitat(v_zadacha);",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("ожидался фрагмент %q, получено:\n%s", want, out)

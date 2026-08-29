@@ -18,7 +18,7 @@ func TestGenerateFromIRTypeOfPrimitiveEmitsDescriptor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, "v_t = (&rech_type_meta_celoe);") {
+	if !strings.Contains(out, "v_t_INIT = (&rech_type_meta_celoe);") {
 		t.Fatalf("ожидался адрес дескриптора Целое, получено:\n%s", out)
 	}
 	if !strings.Contains(out, `static const rech_type_meta_t rech_type_meta_celoe = {"Целое", NULL, 0, NULL, 0, NULL, 0};`) {

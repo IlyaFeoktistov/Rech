@@ -1144,7 +1144,21 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(sb, "%s%s %s = %s;\n", ind, typ.cType(ctx), mangleVar(s.Name), code)
+		// Через временную переменную, не напрямую "Тип v_x = <code>;" - в C
+		// имя объявляемой переменной входит в область видимости уже в точке
+		// её собственного объявления, ДО инициализатора справа от "=" -
+		// самоссылающийся инициализатор при затенении внешней переменной с
+		// тем же именем ("если истина { переменная х = х + 1 }", где
+		// снаружи уже есть своя "х") иначе читал бы ещё не
+		// проинициализированную (мусорную) новую "х", а не старую. "_INIT" -
+		// заглавными буквами специально: mangleVar/transliterate всегда
+		// приводят весь мангл-идентификатор к нижнему регистру, поэтому
+		// такое имя не может совпасть ни с одной настоящей переменной Rech.
+		cType := typ.cType(ctx)
+		mangled := mangleVar(s.Name)
+		tmp := mangled + "_INIT"
+		fmt.Fprintf(sb, "%s%s %s = %s;\n", ind, cType, tmp, code)
+		fmt.Fprintf(sb, "%s%s %s = %s;\n", ind, cType, mangled, tmp)
 		return nil
 
 	case *ir.Assign:
@@ -1181,6 +1195,19 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 				if err := generateIRStmt(sb, ctx, st, depth+1); err != nil {
 					return err
 				}
+			}
+		}
+		fmt.Fprintf(sb, "%s}\n", ind)
+		return nil
+
+	case *ir.GerundStmt:
+		// "{"/"}" без условия - только чтобы у "результат" (первый элемент
+		// Body, см. package doc ir.GerundStmt) была собственная область
+		// видимости в C, не любая специальная кодогенерация.
+		fmt.Fprintf(sb, "%s{\n", ind)
+		for _, st := range s.Body {
+			if err := generateIRStmt(sb, ctx, st, depth+1); err != nil {
+				return err
 			}
 		}
 		fmt.Fprintf(sb, "%s}\n", ind)

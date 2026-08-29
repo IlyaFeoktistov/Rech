@@ -217,6 +217,19 @@ type ExprStmt struct {
 
 func (*ExprStmt) stmt() {}
 
+// GerundStmt - деепричастный вызов с блоком (ast.GerundStmt) -
+// Body уже несёт САМ вызов первым элементом (VarDecl{Name: "результат",
+// Value: CallExpr{...}} - см. internal/semantic/gerund.go, analyzeGerundStmt),
+// GerundStmt здесь - только маркер "это отдельная область видимости"
+// (backend'у достаточно исполнить/сгенерировать Body в новой вложенной
+// области, как тело если/пока - см. package doc там же).
+type GerundStmt struct {
+	Body []Stmt
+	Line int
+}
+
+func (*GerundStmt) stmt() {}
+
 // TypeKind - "форма" типа значения: один из встроенных примитивов или
 // KindEntity (сущность, чьё имя несёт сама Type.Entity - без этого
 // сравнение двух Type/вывод C-типа нуждались бы во внешнем реестре, тот же

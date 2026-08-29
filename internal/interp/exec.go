@@ -133,6 +133,12 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 		}
 		return ctrl{}, nil
 
+	case *ir.GerundStmt:
+		// Новый Env - только чтобы "результат" (первый элемент Body, см.
+		// package doc ir.GerundStmt) не была видна снаружи этого блока, тем
+		// же принципом, что и у если/пока.
+		return in.execBlock(s.Body, newEnv(env), cc)
+
 	case *ir.WhileStmt:
 		for {
 			cond, err := in.evalExpr(s.Cond, env, cc)

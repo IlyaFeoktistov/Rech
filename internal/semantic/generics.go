@@ -193,6 +193,8 @@ func substStmt(s ast.Stmt, subst map[string]string) ast.Stmt {
 			Body: substStmts(s.Body, subst), CatchVar: s.CatchVar, CatchTypes: catchTypes,
 			CatchBody: substStmts(s.CatchBody, subst), Line: s.Line,
 		}
+	case *ast.GerundStmt:
+		return &ast.GerundStmt{Callee: s.Callee, Args: substExprs(s.Args, subst), Body: substStmts(s.Body, subst), Line: s.Line}
 	default:
 		return s
 	}
@@ -589,6 +591,13 @@ func (inst *instantiator) scanStmt(s ast.Stmt) error {
 			}
 		}
 		return inst.scanStmts(s.CatchBody)
+	case *ast.GerundStmt:
+		for _, a := range s.Args {
+			if err := inst.scanExpr(a); err != nil {
+				return err
+			}
+		}
+		return inst.scanStmts(s.Body)
 	default:
 		return nil
 	}

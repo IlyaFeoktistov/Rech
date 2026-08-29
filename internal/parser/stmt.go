@@ -104,6 +104,9 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 			incDec := &ast.IncDecExpr{Name: name.Value, Op: op.Value, Prefix: false, Line: name.Line}
 			return &ast.ExprStmt{IncDec: incDec, Line: name.Line}, nil
 		}
+		if lemma, ok := p.gerundWords[p.cur().Value]; ok && p.peekAt(1).Type == lexer.LPAREN {
+			return p.parseGerundStmt(lemma)
+		}
 		if p.peekAt(1).Type == lexer.LPAREN {
 			call, err := p.parseCallExpr()
 			if err != nil {

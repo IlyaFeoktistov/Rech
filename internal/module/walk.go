@@ -302,6 +302,19 @@ func (r *rewriter) rewriteStmt(s ast.Stmt) error {
 			s.CatchTypes[i] = resolved
 		}
 		return r.rewriteStmts(s.CatchBody)
+	case *ast.GerundStmt:
+		resolved, err := resolveBareName(s.Callee, r.names)
+		if err != nil {
+			if !r.locals[s.Callee] {
+				return fmt.Errorf("строка %d: %w", s.Line, err)
+			}
+		} else {
+			s.Callee = resolved
+		}
+		if err := r.rewriteExprs(s.Args); err != nil {
+			return err
+		}
+		return r.rewriteStmts(s.Body)
 	default:
 		return fmt.Errorf("внутренняя ошибка: неизвестная инструкция %T", s)
 	}

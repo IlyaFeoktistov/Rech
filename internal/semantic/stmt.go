@@ -441,6 +441,9 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 	case *ast.TryStmt:
 		return analyzeTryStmt(sc, s)
 
+	case *ast.GerundStmt:
+		return analyzeGerundStmt(sc, s)
+
 	default:
 		return nil, fmt.Errorf("инструкция %T не поддерживается", s)
 	}

@@ -7,6 +7,16 @@ import "strings"
 // заглушкой в тестах и не тащить внешнюю зависимость в остальной код.
 type gomorphyAnalyzer interface {
 	Tag(word string) string
+	WordForms(word string) []string
+}
+
+// tagFields разбивает тег gomorphy ("NOUN,inan,masc sing,nomn") на отдельные
+// грамматические признаки по общим для всего пакета разделителям (","/" ") -
+// общий хелпер для lookupGenderViaGomorphy/lookupAnimacyViaGomorphy (один
+// конкретный признак) и GerundOf/gerund.go (нужен порядок и количество
+// токенов целиком, не один конкретный).
+func tagFields(tag string) []string {
+	return strings.FieldsFunc(tag, func(r rune) bool { return r == ',' || r == ' ' })
 }
 
 // sharedGomorphy - разделяемый экземпляр анализатора gomorphy, найден при
@@ -32,7 +42,7 @@ func lookupGenderViaGomorphy(nomSg string) (Gender, bool) {
 	if tag == "" || !strings.HasPrefix(tag, "NOUN") {
 		return 0, false
 	}
-	for _, tok := range strings.FieldsFunc(tag, func(r rune) bool { return r == ',' || r == ' ' }) {
+	for _, tok := range tagFields(tag) {
 		switch tok {
 		case "masc":
 			return Masculine, true
@@ -60,7 +70,7 @@ func lookupAnimacyViaGomorphy(nomSg string) (Animacy, bool) {
 	if tag == "" || !strings.HasPrefix(tag, "NOUN") {
 		return 0, false
 	}
-	for _, tok := range strings.FieldsFunc(tag, func(r rune) bool { return r == ',' || r == ' ' }) {
+	for _, tok := range tagFields(tag) {
 		switch tok {
 		case "anim":
 			return Animate, true

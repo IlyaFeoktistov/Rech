@@ -74,6 +74,11 @@ type Parser struct {
 	// раньше, и позже места вызова, как и для строгого вызова, шаг 3.2).
 	funcParams map[string][]ast.Param
 
+	// gerundWords - деепричастная форма -> имя функции, собрано тем же
+	// предварительным проходом (collectFunctionSignatures), что и funcParams -
+	// см. internal/parser/gerund.go, registerGerundWord.
+	gerundWords map[string]string
+
 	// genericFuncs - имена функций, объявленных с параметром типа
 	// ("первый<T>(...)") - собрано тем же предварительным проходом,
 	// что и funcParams. Нужен, чтобы разобрать "имя<Тип>(...)" как generic-
@@ -326,6 +331,13 @@ func (p *Parser) collectFunctionSignatures() error {
 				if _, err := p.parseTypeName(); err != nil {
 					return fmt.Errorf("после \":\" у функции %q ожидалось имя типа результата: %w", name.Value, err)
 				}
+			}
+			var tag string
+			if p.cur().Type == lexer.TAG {
+				tag = p.advance().Value
+			}
+			if err := p.registerGerundWord(name.Value, tag); err != nil {
+				return err
 			}
 			sigs[name.Value] = params
 			if err := p.skipFunctionBody(); err != nil {

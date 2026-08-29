@@ -194,6 +194,8 @@ func collectVarDecls(stmts []ir.Stmt, maxLine int, out map[string]ir.Type) {
 			collectVarDecls(s.Body, maxLine, out)
 			out[s.CatchVar] = s.CatchVarType
 			collectVarDecls(s.CatchBody, maxLine, out)
+		case *ir.GerundStmt:
+			collectVarDecls(s.Body, maxLine, out)
 		}
 	}
 }

@@ -43,7 +43,7 @@ func TestGenerateFromIRExplicitConstructorSplitsInitFromNew(t *testing.T) {
 		!strings.Contains(out, "rech_init_tochka(p, v_x, v_y);") {
 		t.Fatalf("ожидался GC_MALLOC + вызов инициализации в обёртке, получено:\n%s", out)
 	}
-	if !strings.Contains(out, "rech_T_tochka * v_p = rech_new_tochka(1LL, 2LL);") {
+	if !strings.Contains(out, "rech_T_tochka * v_p_INIT = rech_new_tochka(1LL, 2LL);") {
 		t.Fatalf("ожидался вызов rech_new_tochka с аргументами конструктора, получено:\n%s", out)
 	}
 }

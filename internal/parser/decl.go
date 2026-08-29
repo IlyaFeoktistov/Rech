@@ -250,12 +250,17 @@ func (p *Parser) parseFunction() (*ast.FunctionDecl, error) {
 		return nil, fmt.Errorf("строка %d: %q - точка входа программы, у неё фиксированная сигнатура: нельзя объявить параметры или тип результата", kw.Line, entryPointName)
 	}
 
+	var tag string
+	if p.cur().Type == lexer.TAG {
+		tag = p.advance().Value
+	}
+
 	p.skipNewlines()
 	body, err := p.parseBlock()
 	if err != nil {
 		return nil, err
 	}
-	return &ast.FunctionDecl{Name: name.Value, Params: params, ReturnType: returnType, Body: body, TypeParams: typeParams, Line: kw.Line}, nil
+	return &ast.FunctionDecl{Name: name.Value, Params: params, ReturnType: returnType, Body: body, TypeParams: typeParams, Line: kw.Line, Tag: tag}, nil
 }
 
 // parseParams разбирает "(" [ param { "," param } ] ")". Позиция парсера
