@@ -127,7 +127,13 @@ func vtableTypedefs(slotCount int) string {
 // семантический анализ такого не пропустит.
 func generateVtableInstance(ctx *irGenCtx, ent *ir.Entity) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "static const %s %s = {\n    .type_id = %d,\n    .slots = {\n", vtableType, vtableInstanceName(ent.Name), ctx.excTypeIDs[ent.Name])
+	fmt.Fprintf(
+		&sb,
+		"static const %s %s = {\n    .type_id = %d,\n    .slots = {\n",
+		vtableType,
+		vtableInstanceName(ent.Name),
+		ctx.excTypeIDs[ent.Name],
+	)
 	for name, slot := range ctx.dispatchSlots {
 		definer := findVtableSlotFunc(ctx, ent.Name, name)
 		if definer == "" {

@@ -312,8 +312,15 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	participants, slots := computeDispatch(prog)
 	excTypeIDs, excTypeNames, excIsaTable := buildIsaTable(prog, participants)
 	ctx := &irGenCtx{
-		entities: entities, nullableInner: nullableInner, pointerInner: pointerInner, externCNames: externCNames, usesGC: usesGC, libMode: libMode,
-		interfaces: interfaces, dispatchParticipants: participants, dispatchSlots: slots,
+		entities:             entities,
+		nullableInner:        nullableInner,
+		pointerInner:         pointerInner,
+		externCNames:         externCNames,
+		usesGC:               usesGC,
+		libMode:              libMode,
+		interfaces:           interfaces,
+		dispatchParticipants: participants,
+		dispatchSlots:        slots,
 		// usesVtable - хотя бы одна сущность участвует в диспетчеризации
 		// (participants), не "есть хотя бы один слот" (slots) - сущность
 		// без единого метода (например, системная "Исключение" и её
@@ -321,8 +328,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// поле vt в своей C-структуре (см. generateIREntityStruct), значит
 		// rech_vtable/rech_vtable_header обязаны быть объявлены, даже если
 		// slots в итоге пуст.
-		usesVtable: len(participants) > 0,
-		excTypeIDs: excTypeIDs, excTypeNames: excTypeNames, excIsaTable: excIsaTable,
+		usesVtable:    len(participants) > 0,
+		excTypeIDs:    excTypeIDs,
+		excTypeNames:  excTypeNames,
+		excIsaTable:   excIsaTable,
 		launchedFuncs: map[string]bool{},
 	}
 	ctx.irFuncs = map[string]*ir.Function{}
@@ -597,12 +606,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	sb.WriteString("\n")
 	sb.WriteString(argsGlobals)
 	sb.WriteString("\n")
-	if ctx.usesConcat || ctx.usesCookies {
-		// usesCookies - rech_cookie_string (cookies.go, ниже) сама
-		// собирается через rech_str_concat.
-		sb.WriteString(strConcatHelper)
-		sb.WriteString("\n")
-	}
+
+	// usesCookies - rech_cookie_string (cookies.go, ниже) сама
+	// собирается через rech_str_concat.
+	appendCodeIf(&sb, ctx.usesConcat || ctx.usesCookies, strConcatHelper)
 	// ctx.usesCast - castHelpers (ниже) - один общий блок текста на все
 	// явные касты (int/float/char <-> Строка, см. package doc cast.go), не
 	// отдельная функция на каждый - несколько из них (разбор строки в
@@ -611,38 +618,15 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// (например, число -> Строка) - тот же принцип, что и у usesGenerics
 	// здесь: panicHelper должен быть виден целиком, раз в файле есть хотя
 	// бы один потенциальный вызывающий его блок текста.
-	if usesGenerics || usesNullables || ctx.usesPanic || ctx.usesCast || prog.UsesReflection {
-		sb.WriteString(panicHelper)
-		sb.WriteString("\n")
-	}
-	if ctx.usesArgs {
-		sb.WriteString(argFuncHelper)
-		sb.WriteString("\n")
-	}
-	if ctx.usesCast {
-		sb.WriteString(castHelpers)
-		sb.WriteString("\n")
-	}
-	if ctx.usesIntDiv {
-		sb.WriteString(intDivHelper)
-		sb.WriteString("\n")
-	}
-	if ctx.usesUintDiv {
-		sb.WriteString(uintDivHelper)
-		sb.WriteString("\n")
-	}
-	if ctx.usesConsoleInput {
-		sb.WriteString(readHelpers)
-		sb.WriteString("\n")
-	}
-	if ctx.usesFileIO {
-		sb.WriteString(fileHelpers)
-		sb.WriteString("\n")
-	}
-	if ctx.usesSockets {
-		sb.WriteString(socketHelpers)
-		sb.WriteString("\n")
-	}
+	appendCodeIf(&sb, usesGenerics || usesNullables || ctx.usesPanic || ctx.usesCast || prog.UsesReflection, panicHelper)
+	appendCodeIf(&sb, ctx.usesArgs, argFuncHelper)
+	appendCodeIf(&sb, ctx.usesCast, castHelpers)
+
+	appendCodeIf(&sb, ctx.usesIntDiv, intDivHelper)
+	appendCodeIf(&sb, ctx.usesUintDiv, uintDivHelper)
+	appendCodeIf(&sb, ctx.usesConsoleInput, readHelpers)
+	appendCodeIf(&sb, ctx.usesFileIO, fileHelpers)
+	appendCodeIf(&sb, ctx.usesSockets, socketHelpers)
 	if prog.UsesReflection {
 		// Перед genericsCode - Список<Значение> ссылается на rech_any_t как
 		// на свой C-тип элемента (см. package doc reflectTypedefs) - тот же
@@ -656,22 +640,20 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		sb.WriteString(reflectTagLookupHelper)
 		sb.WriteString("\n")
 	}
-	if genericsCode.Len() > 0 {
-		// Перед typedefs - сущность может нести поле generic-коллекции по
-		// значению (например, "товары: Список<Строка>"), значит её C-typedef
-		// (типа rech_T_spisok_of_stroka) обязан быть уже объявлен раньше
-		// typedef самой сущности - обратная зависимость невозможна
-		// (элементы встроенных коллекций - только примитивы, коллекция не
-		// может нести сущность как элемент).
-		sb.WriteString(genericsCode.String())
-	}
-	if nullablesCode.Len() > 0 {
-		// После genericsCode (внутренний тип "?Тип" может сам быть Список/
-		// Словарь) и перед typedefs (сущность может нести nullable-поле по
-		// значению) - тот же класс проблемы упорядочивания, что и у
-		// genericsCode/typedefs ниже.
-		sb.WriteString(nullablesCode.String())
-	}
+
+	// Перед typedefs - сущность может нести поле generic-коллекции по
+	// значению (например, "товары: Список<Строка>"), значит её C-typedef
+	// (типа rech_T_spisok_of_stroka) обязан быть уже объявлен раньше
+	// typedef самой сущности - обратная зависимость невозможна
+	// (элементы встроенных коллекций - только примитивы, коллекция не
+	// может нести сущность как элемент).
+	appendCodeIf(&sb, genericsCode.Len() > 0, genericsCode.String())
+
+	// После genericsCode (внутренний тип "?Тип" может сам быть Список/
+	// Словарь) и перед typedefs (сущность может нести nullable-поле по
+	// значению) - тот же класс проблемы упорядочивания, что и у
+	// genericsCode/typedefs ниже.
+	appendCodeIf(&sb, nullablesCode.Len() > 0, nullablesCode.String())
 	if prog.UsesReflection {
 		hasReflectAnyList := false
 		for _, g := range prog.Generics {
@@ -693,125 +675,86 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 			sb.WriteString("\n")
 		}
 	}
-	if typedefs.Len() > 0 {
-		sb.WriteString(typedefs.String())
-	}
-	if nullablesAfterTypedefs.Len() > 0 {
-		sb.WriteString(nullablesAfterTypedefs.String())
-	}
-	if indexSafeGetCode.Len() > 0 {
-		// После genericsCode (нужен C-typedef/find-функция самой коллекции)
-		// И после ОБЕИХ групп nullablesCode/nullablesAfterTypedefs (нужна
-		// обёртка "?T" элемента, независимо от того, в какую из двух групп
-		// она попала) - см. package doc internal/backend/cbackend/index.go.
-		sb.WriteString(indexSafeGetCode.String())
-	}
-	if ctx.usesExceptions {
-		// После typedefs - использует rech_vtable_header/rech_T_Исключение,
-		// оба уже должны быть объявлены (см. exceptions.go).
-		sb.WriteString(exceptionRuntimeCode(ctx))
-		sb.WriteString("\n")
-	}
-	if callableTypedefs.Len() > 0 {
-		sb.WriteString(callableTypedefs.String())
-	}
-	if ctx.usesShow && showFuncs.Len() > 0 {
-		sb.WriteString(showFuncs.String())
-	}
-	if ctx.usesHTTP || ctx.usesHTTPServer {
-		// rech_dup - общий для HTTP-клиента и HTTP-сервера, эмитится один
-		// раз перед обоими (см. rechDupHelper).
-		sb.WriteString(rechDupHelper)
-	}
-	if ctx.usesHTTP {
-		// После typedefs - rech_http_request принимает/возвращает Запрос/
-		// Ответ по значению, их typedef должен быть уже виден.
-		sb.WriteString(httpHelpers)
-		sb.WriteString("\n")
-	}
-	if ctx.usesHTTPServer {
-		// После typedefs, тем же принципом, что и usesHTTP выше.
-		sb.WriteString(httpServerHelpers)
-		sb.WriteString("\n")
-	}
-	if ctx.usesQueryParams {
-		// После genericsCode выше - rech_query_params использует typedef/
-		// метод "установить" Словарь<Строка, Строка>, уже эмитированные там
-		// (queryParamsDictType зарегистрирован в prog.Generics принудительно,
-		// см. internal/semantic/httpserver.go).
-		sb.WriteString(queryParamsHelper)
-		sb.WriteString("\n")
-	}
-	if ctx.usesDateTime {
-		// После typedefs - rech_time_to_date/rech_date_to_time/
-		// rech_date_to_string принимают/возвращают ДатаВремя по значению.
-		sb.WriteString(datetimeHelpers)
-		sb.WriteString("\n")
-	}
-	if ctx.usesCookies {
-		// После typedefs (rech_T_opcii_kuki/rech_T_n_stroka уже объявлены) и
-		// после strConcatHelper выше (rech_cookie_string зовёт rech_str_concat).
-		sb.WriteString(cookieHelpers())
-		sb.WriteString("\n")
-	}
-	if protos.Len() > 0 {
-		sb.WriteString(protos.String())
-		sb.WriteString("\n")
-	}
+	appendCodeIf(&sb, typedefs.Len() > 0, typedefs.String())
+	appendCodeIf(&sb, nullablesAfterTypedefs.Len() > 0, nullablesAfterTypedefs.String())
+
+	// После genericsCode (нужен C-typedef/find-функция самой коллекции)
+	// И после ОБЕИХ групп nullablesCode/nullablesAfterTypedefs (нужна
+	// обёртка "?T" элемента, независимо от того, в какую из двух групп
+	// она попала) - см. package doc internal/backend/cbackend/index.go.
+	appendCodeIf(&sb, indexSafeGetCode.Len() > 0, indexSafeGetCode.String())
+
+	// После typedefs - использует rech_vtable_header/rech_T_Исключение,
+	// оба уже должны быть объявлены (см. exceptions.go).
+	appendCodeIf(&sb, ctx.usesExceptions, exceptionRuntimeCode(ctx))
+	appendCodeIf(&sb, callableTypedefs.Len() > 0, callableTypedefs.String())
+	appendCodeIf(&sb, ctx.usesShow && showFuncs.Len() > 0, showFuncs.String())
+	// rech_dup - общий для HTTP-клиента и HTTP-сервера, эмитится один
+	// раз перед обоими (см. rechDupHelper).
+	appendCodeIf(&sb, ctx.usesHTTP || ctx.usesHTTPServer, rechDupHelper)
+
+	// После typedefs - rech_http_request принимает/возвращает Запрос/
+	// Ответ по значению, их typedef должен быть уже виден.
+	appendCodeIf(&sb, ctx.usesHTTP, httpHelpers)
+	// После typedefs, тем же принципом, что и usesHTTP выше.
+	appendCodeIf(&sb, ctx.usesHTTPServer, httpServerHelpers)
+	// После genericsCode выше - rech_query_params использует typedef/
+	// метод "установить" Словарь<Строка, Строка>, уже эмитированные там
+	// (queryParamsDictType зарегистрирован в prog.Generics принудительно,
+	// см. internal/semantic/httpserver.go).
+	appendCodeIf(&sb, ctx.usesQueryParams, queryParamsHelper)
+	// После typedefs - rech_time_to_date/rech_date_to_time/
+	// rech_date_to_string принимают/возвращают ДатаВремя по значению.
+	appendCodeIf(&sb, ctx.usesDateTime, datetimeHelpers)
+	// После typedefs (rech_T_opcii_kuki/rech_T_n_stroka уже объявлены) и
+	// после strConcatHelper выше (rech_cookie_string зовёт rech_str_concat).
+	appendCodeIf(&sb, ctx.usesCookies, cookieHelpers())
+	appendCodeIf(&sb, protos.Len() > 0, protos.String())
+
 	// vtables (ссылается на &rech_M_... - нужны protos выше) и ctors
 	// (ссылается на &rech_VT_... у участвующих в диспетчеризации сущностей
 	// - нужны vtables) - строго в этом порядке, оба перед body (который их
 	// использует).
-	if vtables.Len() > 0 {
-		sb.WriteString(vtables.String())
+	appendCodeIf(&sb, vtables.Len() > 0, vtables.String())
+	appendCodeIf(&sb, ctors.Len() > 0, ctors.String())
+	// После ctors - функции извлечения ("разобрать JSON"/"разобрать
+	// XML") конструируют целевые сущности через уже сгенерированный
+	// rech_new_<Тип> (mangleCtor) и выбрасывают "ОшибкаРазбора" через
+	// rech_struct_throw/rech_throw (exceptionRuntimeCode выше) - общий
+	// для обоих форматов, эмитится один раз.
+	appendCodeIf(&sb, len(prog.ParseTargets) > 0 || len(prog.XMLParseTargets) > 0, structParseThrowHelperCode())
+
+	err := resolveRuntimeCode(
+		&sb,
+		ctx,
+		prog,
+		prog.ParseTargets,
+		jsonRuntimeCode,
+	)
+	if err != nil {
+		return "", err
 	}
-	if ctors.Len() > 0 {
-		sb.WriteString(ctors.String())
+
+	appendCodeIf(&sb, len(prog.XMLParseTargets) > 0 || len(prog.XMLSerializeTargets) > 0, xmlSbCode)
+
+	err = resolveRuntimeCode(&sb, ctx, prog, prog.XMLParseTargets, xmlRuntimeCode)
+	if err != nil {
+		return "", err
 	}
-	if len(prog.ParseTargets) > 0 || len(prog.XMLParseTargets) > 0 {
-		// После ctors - функции извлечения ("разобрать JSON"/"разобрать
-		// XML") конструируют целевые сущности через уже сгенерированный
-		// rech_new_<Тип> (mangleCtor) и выбрасывают "ОшибкаРазбора" через
-		// rech_struct_throw/rech_throw (exceptionRuntimeCode выше) - общий
-		// для обоих форматов, эмитится один раз.
-		sb.WriteString(structParseThrowHelperCode())
+
+	// Обратное к разбору выше - не зависит от ctors/exceptionRuntimeCode
+	// (сериализация не создаёт новых сущностей и не может провалиться),
+	// только от typedefs.
+	err = resolveRuntimeCode(&sb, ctx, prog, prog.SerializeTargets, jsonSerializeRuntimeCode)
+	if err != nil {
+		return "", err
 	}
-	if len(prog.ParseTargets) > 0 {
-		jsonCode, err := jsonRuntimeCode(ctx, prog, prog.ParseTargets)
-		if err != nil {
-			return "", err
-		}
-		sb.WriteString(jsonCode)
+
+	err = resolveRuntimeCode(&sb, ctx, prog, prog.XMLSerializeTargets, xmlSerializeRuntimeCode)
+	if err != nil {
+		return "", err
 	}
-	if len(prog.XMLParseTargets) > 0 || len(prog.XMLSerializeTargets) > 0 {
-		// rech_xml_sb - общий для разбора и сериализации XML, эмитится один
-		// раз перед обоими (см. xmlSbCode, xml_extract.go).
-		sb.WriteString(xmlSbCode)
-	}
-	if len(prog.XMLParseTargets) > 0 {
-		xmlCode, err := xmlRuntimeCode(ctx, prog, prog.XMLParseTargets)
-		if err != nil {
-			return "", err
-		}
-		sb.WriteString(xmlCode)
-	}
-	if len(prog.SerializeTargets) > 0 {
-		// Обратное к разбору выше - не зависит от ctors/exceptionRuntimeCode
-		// (сериализация не создаёт новых сущностей и не может провалиться),
-		// только от typedefs.
-		serCode, err := jsonSerializeRuntimeCode(ctx, prog, prog.SerializeTargets)
-		if err != nil {
-			return "", err
-		}
-		sb.WriteString(serCode)
-	}
-	if len(prog.XMLSerializeTargets) > 0 {
-		xmlSerCode, err := xmlSerializeRuntimeCode(ctx, prog, prog.XMLSerializeTargets)
-		if err != nil {
-			return "", err
-		}
-		sb.WriteString(xmlSerCode)
-	}
+
 	if len(prog.ReflectTargets) > 0 {
 		// После protos/ctors - геттеры/сеттеры/инвокеры полей и методов
 		// вызывают уже сгенерированные C-функции полей/методов/rech_new_<Тип>
@@ -822,32 +765,57 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		}
 		sb.WriteString(reflectCode)
 	}
-	if prog.UsesDB {
-		// После genericsCode (Список<Значение>/Список<Словарь<Строка,
-		// Значение>>/Словарь<Строка, Значение> уже эмитированы там - см.
-		// internal/semantic/db.go, dbResultType) и после primitiveReflectDescriptors
-		// (rech_db_substitute сравнивает .type с &rech_type_meta_Целое и т.
-		// п. - эмитируются безусловно вместе с rech_any_t, prog.UsesDB
-		// всегда влечёт prog.UsesReflection).
-		sb.WriteString(dbRuntimeCode())
-	}
+
+	// После genericsCode (Список<Значение>/Список<Словарь<Строка,
+	// Значение>>/Словарь<Строка, Значение> уже эмитированы там - см.
+	// internal/semantic/db.go, dbResultType) и после primitiveReflectDescriptors
+	// (rech_db_substitute сравнивает .type с &rech_type_meta_Целое и т.
+	// п. - эмитируются безусловно вместе с rech_any_t, prog.UsesDB
+	// всегда влечёт prog.UsesReflection).
+	appendCodeIf(&sb, prog.UsesDB, dbRuntimeCode())
+
 	// taskCode - обёртки "запустить"/"дождаться" (internal/backend/cbackend/
 	// concurrency.go) - ссылаются на &rech_<имя> обёрнутых функций (нужны
 	// protos выше) и на rech_throw (нужен exceptionRuntimeCode выше), сама
 	// заполняется как побочный эффект генерации body ниже, поэтому текст
 	// уже готов к этому моменту, хотя размещается в файле раньше него.
-	if ctx.taskCode.Len() > 0 {
-		sb.WriteString(ctx.taskCode.String())
-	}
+	appendCodeIf(&sb, ctx.taskCode.Len() > 0, ctx.taskCode.String())
+
 	// callableCode - обёртки "&имя"/тела лямбд (internal/backend/cbackend/
 	// callable.go) - тот же принцип, что и taskCode выше: заполняется как
 	// побочный эффект генерации body, размещается в файле раньше него
 	// (ссылается на &rech_<имя> обёрнутых функций - нужны protos выше).
-	if ctx.callableCode.Len() > 0 {
-		sb.WriteString(ctx.callableCode.String())
-	}
+	appendCodeIf(&sb, ctx.callableCode.Len() > 0, ctx.callableCode.String())
+
 	sb.WriteString(body.String())
 	return sb.String(), nil
+}
+
+type ResolveFn = func(ctx *irGenCtx, prog *ir.Program, targets []ir.Type) (string, error)
+
+func resolveRuntimeCode(
+	sb *strings.Builder,
+	ctx *irGenCtx,
+	prog *ir.Program,
+	irType []ir.Type,
+	resolveFn ResolveFn,
+) error {
+	if len(irType) > 0 {
+		runtimeCode, err := resolveFn(ctx, prog, irType)
+		if err != nil {
+			return err
+		}
+		sb.WriteString(runtimeCode)
+	}
+
+	return nil
+}
+
+func appendCodeIf(sb *strings.Builder, appendIf bool, code string) {
+	if appendIf {
+		sb.WriteString(code)
+		sb.WriteString("\n")
+	}
 }
 
 // generateIREntityStruct - C typedef struct для ent, как
