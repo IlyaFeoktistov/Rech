@@ -108,6 +108,10 @@ type Parser struct {
 	// отсутствие тела у метода валидным (parseMethod, ast.MethodDecl.
 	// IsAbstract), тем же принципом, что и inMethodBody у "этот".
 	inAbstractEntity bool
+
+	// pendingVarDecls - отложенные объявления ("переменная X" без "=") в
+	// ТЕКУЩЕМ блоке - см. pendingvar.go.
+	pendingVarDecls []pendingVarDecl
 }
 
 func New(tokens []lexer.Token) *Parser {
@@ -411,6 +415,10 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 	var topLevelStmts []ast.Stmt
 	var explicitMain *ast.FunctionDecl
 	p.skipSeparators()
+	// Инструкции верхнего уровня - тело неявной "главная" (см. ниже) - та
+	// же область отложенных объявлений (pendingvar.go), что и у настоящего
+	// тела функции.
+	savedPending := p.beginPendingScope()
 	for p.cur().Type != lexer.EOF {
 		doc := p.consumeDoc()
 		switch p.cur().Type {
@@ -488,7 +496,11 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 			if err != nil {
 				return nil, err
 			}
-			topLevelStmts = append(topLevelStmts, stmt)
+			if stmt != nil {
+				// nil - "переменная X" без инициализации (pendingvar.go),
+				// см. тот же случай в parseBlock.
+				topLevelStmts = append(topLevelStmts, stmt)
+			}
 		}
 		if p.cur().Type == lexer.EOF {
 			break
@@ -496,6 +508,9 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 		if err := p.requireSeparator(); err != nil {
 			return nil, err
 		}
+	}
+	if err := p.endPendingScope(savedPending); err != nil {
+		return nil, err
 	}
 	if len(topLevelStmts) > 0 {
 		if explicitMain != nil {

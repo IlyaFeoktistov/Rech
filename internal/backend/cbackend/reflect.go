@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/codegen"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
@@ -638,13 +639,18 @@ func (g *reflectGen) ensure(t ir.Type) error {
 // cloneValue при боксировании) + указатель на неё в rech_any_t.v.ptr.
 func (g *reflectGen) structBoxFuncCode(ent *ir.Entity) string {
 	cType := mangleType(ent.Name)
-	return fmt.Sprintf(`static rech_any_t %s(%s v) {
-    %s *p = GC_MALLOC(sizeof(%s));
-    *p = v;
-    return (rech_any_t){.type = &%s, .v.ptr = (void *)p};
-}
-
-`, reflectBoxStructFuncName(ent.Name), cType, cType, cType, reflectMetaVarFor(ir.EntityType(ent.Name)))
+	fn := codegen.Func(reflectBoxStructFuncName(ent.Name)).
+		Static().
+		ReturnType("rech_any_t").
+		Params(codegen.Parameter(cType, "v")).
+		Statements(
+			codegen.Decl(cType+" *", "p", codegen.Call("GC_MALLOC", codegen.Sizeof(codegen.Raw(cType)))),
+			codegen.Assign(codegen.Deref(codegen.Var("p")), codegen.Var("v")),
+			codegen.Return(codegen.Raw(fmt.Sprintf("(rech_any_t){.type = &%s, .v.ptr = (void *)p}", reflectMetaVarFor(ir.EntityType(ent.Name))))),
+		)
+	w := codegen.NewWriter()
+	fn.Write(w)
+	return w.String() + "\n"
 }
 
 // fieldAccessorsCode - геттер/сеттер поля f сущности ent - self всегда
@@ -654,12 +660,21 @@ func (g *reflectGen) structBoxFuncCode(ent *ir.Entity) string {
 // ref/структура.
 func (g *reflectGen) fieldAccessorsCode(ent *ir.Entity, f ir.Field) string {
 	selfExpr := fmt.Sprintf("((%s *)self)->%s", mangleType(ent.Name), mangleField(f.Name))
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "static rech_any_t %s(void *self) {\n    return %s;\n}\n\n",
-		reflectGetterName(ent.Name, f.Name), reflectBoxExprCode(g.ctx, f.Type, selfExpr))
-	fmt.Fprintf(&sb, "static void %s(void *self, rech_any_t v) {\n    %s = %s;\n}\n\n",
-		reflectSetterName(ent.Name, f.Name), selfExpr, reflectCheckedUnboxExprCode(g.ctx, f.Type, "v"))
-	return sb.String()
+	getter := codegen.Func(reflectGetterName(ent.Name, f.Name)).
+		Static().
+		ReturnType("rech_any_t").
+		Params(codegen.Parameter("void *", "self")).
+		Statements(codegen.Return(codegen.Raw(reflectBoxExprCode(g.ctx, f.Type, selfExpr))))
+	setter := codegen.Func(reflectSetterName(ent.Name, f.Name)).
+		Static().
+		Params(codegen.Parameter("void *", "self"), codegen.Parameter("rech_any_t", "v")).
+		Statements(codegen.Assign(codegen.Raw(selfExpr), codegen.Raw(reflectCheckedUnboxExprCode(g.ctx, f.Type, "v"))))
+	w := codegen.NewWriter()
+	getter.Write(w)
+	w.Raw("\n")
+	setter.Write(w)
+	w.Raw("\n")
+	return w.String()
 }
 
 // methodInvokerCode - "значение.вызвать(имя, аргументы)" - обёртка с

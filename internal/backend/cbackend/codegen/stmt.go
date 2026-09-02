@@ -79,9 +79,7 @@ func (DeclStmt) stmt() {}
 
 func (s DeclStmt) write(w *Writer) {
 	w.writeIndent()
-	w.Raw(s.Type)
-	w.Raw(" ")
-	w.Raw(s.Name)
+	w.writeTypedName(s.Type, s.Name)
 
 	if s.Init != nil {
 		w.Raw(" = ")

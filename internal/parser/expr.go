@@ -393,6 +393,19 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 			op := p.advance()
 			return &ast.IncDecExpr{Name: tok.Value, Op: op.Value, Prefix: false, Line: tok.Line}, nil
 		}
+		if params, ok := p.funcParams[tok.Value]; ok && len(params) > 0 {
+			// Естественный вызов как значение (docs/GRAMMAR.md, "Естественный
+			// вызов как значение") - тот же parseNaturalCall, что и на месте
+			// самостоятельной инструкции (stmt.go): число слов фразы известно
+			// заранее (len(params), из предварительного прохода
+			// collectFunctionSignatures), поэтому граница фразы не гадается по
+			// следующему токену - ровно len(params) словоформ, и всё. После
+			// них управление возвращается в обычный разбор выражения
+			// (бинарные операторы/",'/")"/"]" и т. п.), как после любого
+			// другого primary - естественный вызов свободно участвует в
+			// более крупном выражении ("1 + позвать пользователя").
+			return p.parseNaturalCall(params)
+		}
 		p.advance()
 		return &ast.Identifier{Name: tok.Value, Line: tok.Line}, nil
 	case lexer.KwNew:

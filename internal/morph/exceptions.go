@@ -195,6 +195,43 @@ var nounFullExceptions = map[string]struct {
 			{Prepositional, Singular}: "темени",
 		},
 	},
+
+	// "остаток" - беглая "о" (остаток/остатка, а не "остатока"), тот же
+	// случай, что и "список" выше.
+	"остаток": {
+		Gender: Masculine,
+		Paradigm: Paradigm{
+			{Nominative, Singular}:    "остаток",
+			{Genitive, Singular}:      "остатка",
+			{Dative, Singular}:        "остатку",
+			{Instrumental, Singular}:  "остатком",
+			{Prepositional, Singular}: "остатке",
+			{Nominative, Plural}:      "остатки",
+			{Genitive, Plural}:        "остатков",
+			{Dative, Plural}:          "остаткам",
+			{Instrumental, Plural}:    "остатками",
+			{Prepositional, Plural}:   "остатках",
+		},
+	},
+
+	// "слагаемое" - субстантивированное причастие (склоняется как
+	// прилагательное на "-ое", не по одному из generic-классов
+	// существительного - ClassifyByEnding его поэтому не берёт).
+	"слагаемое": {
+		Gender: Neuter,
+		Paradigm: Paradigm{
+			{Nominative, Singular}:    "слагаемое",
+			{Genitive, Singular}:      "слагаемого",
+			{Dative, Singular}:        "слагаемому",
+			{Instrumental, Singular}:  "слагаемым",
+			{Prepositional, Singular}: "слагаемом",
+			{Nominative, Plural}:      "слагаемые",
+			{Genitive, Plural}:        "слагаемых",
+			{Dative, Plural}:          "слагаемым",
+			{Instrumental, Plural}:    "слагаемыми",
+			{Prepositional, Plural}:   "слагаемых",
+		},
+	},
 }
 
 // nounAnimacy - курируемый словарь одушевлённости для идентификаторов

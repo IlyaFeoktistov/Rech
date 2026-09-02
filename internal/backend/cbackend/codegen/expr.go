@@ -94,6 +94,12 @@ func (e CallExpr) write(w *Writer) {
 	w.Raw(")")
 }
 
+// Sizeof строит "sizeof(value)" - value обычно Raw(typeName) (sizeof типа,
+// не выражения) или Var(name) (sizeof переменной).
+func Sizeof(value Expr) Expr {
+	return CallExpr{Name: "sizeof", Args: []Expr{value}}
+}
+
 type BinaryExpr struct {
 	Left  Expr
 	Op    string

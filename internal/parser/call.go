@@ -280,3 +280,57 @@ func (p *Parser) parseNaturalCall(params []ast.Param) (*ast.CallExpr, error) {
 
 	return &ast.CallExpr{Callee: name.Value, Args: args, Line: name.Line}, nil
 }
+
+// naturalCallPutWord - контекстное слово "положить" в продолжении "...
+// и положить в <переменная>" (parseNaturalCallContinuation) - НЕ заведено
+// отдельным токеном лексера, в отличие от "и"/"вывести"/"в": "положить"
+// уже занято как имя метода Стопка<T> (docs/MANUAL.md,
+// "положить(значение: T)"), обычный IDENT после точки
+// ("стопка.положить(...)") - зарезервировать его как ключевое слово
+// лексера сломало бы этот вызов. Здесь просто сравнивается буквальное
+// значение текущего IDENT-токена, в позиции сразу после "и", где имя
+// метода появиться не может.
+const naturalCallPutWord = "положить"
+
+// parseNaturalCallContinuation разбирает необязательное продолжение
+// естественного вызова call - "и <действие>" (docs/GRAMMAR.md,
+// "Естественный вызов как значение"):
+//
+//	<вызов> и вывести               - печатает результат немедленно
+//	<вызов> и положить в <имя>      - сохраняет результат в имя (обычное
+//	                                   присваивание уже существующей
+//	                                   переменной либо, если имя -
+//	                                   отложенное объявление того же блока
+//	                                   ("переменная имя" без "=",
+//	                                   pendingvar.go) - её объявление)
+//
+// Без "и" - как раньше: результат отбрасывается, самостоятельная
+// инструкция. Оба продолжения не требуют новых токенов лексера сверх уже
+// существующих (KwAnd/KwPrint/KwIn) - только сам факт "и" сразу после
+// фразы естественного вызова снимает неоднозначность (docs/GRAMMAR.md,
+// закрытый этим открытый вопрос): граница фразы уже известна (ровно
+// len(params) словоформ, см. parseNaturalCall), "и" - явный маркер
+// продолжения, не часть выражения.
+func (p *Parser) parseNaturalCallContinuation(call *ast.CallExpr) (ast.Stmt, error) {
+	if p.cur().Type != lexer.KwAnd {
+		return &ast.ExprStmt{Call: call, Line: call.Line}, nil
+	}
+	p.advance() // "и"
+	if p.cur().Type == lexer.KwPrint {
+		p.advance()
+		return &ast.PrintStmt{Value: call, Line: call.Line}, nil
+	}
+	if p.cur().Type == lexer.IDENT && p.cur().Value == naturalCallPutWord {
+		p.advance() // "положить"
+		if _, err := p.expect(lexer.KwIn); err != nil {
+			return nil, fmt.Errorf("после %q ожидалось \"в\" и имя переменной: %w", naturalCallPutWord, err)
+		}
+		target, err := p.expect(lexer.IDENT)
+		if err != nil {
+			return nil, fmt.Errorf("после \"в\" ожидалось имя переменной: %w", err)
+		}
+		return p.resolveAssignTarget(target, call), nil
+	}
+	return nil, fmt.Errorf("строка %d, столбец %d: после \"и\" ожидалось \"вывести\" или %q в <переменная>, получено %q",
+		p.cur().Line, p.cur().Col, naturalCallPutWord, p.cur().Value)
+}

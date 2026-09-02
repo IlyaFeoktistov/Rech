@@ -16,6 +16,7 @@ func (p *Parser) parseBlock() ([]ast.Stmt, error) {
 	// же строке или с переносом - вопрос стиля, а не грамматики.
 	p.skipSeparators()
 
+	savedPending := p.beginPendingScope()
 	var stmts []ast.Stmt
 	for p.cur().Type != lexer.RBRACE {
 		if p.cur().Type == lexer.EOF {
@@ -25,7 +26,12 @@ func (p *Parser) parseBlock() ([]ast.Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		stmts = append(stmts, stmt)
+		if stmt != nil {
+			// nil - "переменная X" без инициализации (pendingvar.go): не
+			// порождает узел AST сама по себе, только регистрирует
+			// отложенное объявление в этом блоке.
+			stmts = append(stmts, stmt)
+		}
 		if p.cur().Type == lexer.RBRACE {
 			break
 		}
@@ -34,6 +40,9 @@ func (p *Parser) parseBlock() ([]ast.Stmt, error) {
 		}
 	}
 	if _, err := p.expect(lexer.RBRACE); err != nil {
+		return nil, err
+	}
+	if err := p.endPendingScope(savedPending); err != nil {
 		return nil, err
 	}
 	return stmts, nil
@@ -126,7 +135,7 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 			if err != nil {
 				return nil, err
 			}
-			return &ast.ExprStmt{Call: call, Line: call.Line}, nil
+			return p.parseNaturalCallContinuation(call)
 		}
 		return nil, fmt.Errorf("строка %d, столбец %d: неожиданный токен %q в теле функции",
 			p.cur().Line, p.cur().Col, p.cur().Value)
@@ -224,6 +233,16 @@ func (p *Parser) parseVarDecl() (ast.Stmt, error) {
 			return nil, fmt.Errorf("в аннотации типа переменной %q: %w", name.Value, err)
 		}
 	}
+	if p.cur().Type != lexer.ASSIGN && typeName == "" {
+		// Отложенное объявление (pendingvar.go, "переменная X" без "=") -
+		// настоящий ast.VarDecl появится позже, в точке первого
+		// присваивания X в этом же блоке. Типизированное "переменная X:
+		// Тип" без значения этим не покрывается - остаётся ошибкой ниже,
+		// как и раньше (тип без значения означал бы отдельный вопрос
+		// zero-значений, который эта фича не решает).
+		p.registerPendingVarDecl(name)
+		return nil, nil
+	}
 	if _, err := p.expect(lexer.ASSIGN); err != nil {
 		return nil, fmt.Errorf("объявление переменной %q должно содержать инициализацию (\"=\"): %w", name.Value, err)
 	}
@@ -313,9 +332,14 @@ func (p *Parser) parseAssign() (ast.Stmt, error) {
 		return nil, fmt.Errorf("в присваивании %q: %w", name.Value, err)
 	}
 	if baseOp, ok := compoundAssignOps[opTok.Type]; ok {
+		// Составное присваивание всегда читает старое значение name -
+		// отложенное объявление (pendingvar.go) им заведомо не разрешается
+		// (у него ещё нет значения, которое можно было бы прочитать),
+		// resolveAssignTarget здесь не нужен.
 		value = &ast.BinaryExpr{Op: baseOp, Left: &ast.Identifier{Name: name.Value, Line: name.Line}, Right: value, Line: opTok.Line}
+		return &ast.Assign{Name: name.Value, Value: value, Line: name.Line}, nil
 	}
-	return &ast.Assign{Name: name.Value, Value: value, Line: name.Line}, nil
+	return p.resolveAssignTarget(name, value), nil
 }
 
 // parseNullCoalesceAssign разбирает "а ?= б" (null-coalescing присваивание,

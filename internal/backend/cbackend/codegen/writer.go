@@ -41,3 +41,23 @@ func (w *Writer) Block(fn func()) {
 	w.indent--
 	w.Line("}")
 }
+
+// typeSep - разделитель между типом и последующим именем (переменной,
+// параметра, функции): без пробела, если typ уже оканчивается на "*" - в
+// этой кодовой базе указатель всегда пишется слитно с именем ("T *name",
+// не "T* name" и не "T * name" - см. cParamListIR/cMethodParamListIR и
+// весь остальной cbackend), иначе один пробел.
+func typeSep(typ string) string {
+	if strings.HasSuffix(typ, "*") {
+		return ""
+	}
+	return " "
+}
+
+// writeTypedName пишет "typ" + разделитель (typeSep) + "name" - общая точка
+// для Decl/Param/Function, чтобы указатели везде форматировались одинаково.
+func (w *Writer) writeTypedName(typ, name string) {
+	w.Raw(typ)
+	w.Raw(typeSep(typ))
+	w.Raw(name)
+}

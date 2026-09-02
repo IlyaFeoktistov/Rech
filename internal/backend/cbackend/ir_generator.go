@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/codegen"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
@@ -824,24 +825,24 @@ func generateIREntityStruct(ctx *irGenCtx, ent *ir.Entity) string {
 	if ent.IsMutex {
 		return mutexStructTypedef()
 	}
-	var sb strings.Builder
-	sb.WriteString("typedef struct {\n")
+	s := codegen.Struct(mangleType(ent.Name))
 	participates := ctx.dispatchParticipants[ent.Name]
 	if participates {
 		// "vt" - первым полем и всегда (не только у собственно
 		// объявляющей сущности, но и у каждого её потомка) - общий
 		// начальный кусок структуры делает приведение к vtableHeaderType
 		// определённым для чтения (см. package doc vtable.go).
-		fmt.Fprintf(&sb, "    const %s *vt;\n", vtableType)
+		s.Field("const "+vtableType+" *", "vt")
 	}
 	if len(ent.Fields) == 0 && !participates {
-		sb.WriteString("    char _rech_empty;\n")
+		s.Field("char", "_rech_empty")
 	}
 	for _, f := range ent.Fields {
-		fmt.Fprintf(&sb, "    %s %s;\n", fromIRType(f.Type).cType(ctx), mangleField(f.Name))
+		s.Field(fromIRType(f.Type).cType(ctx), mangleField(f.Name))
 	}
-	fmt.Fprintf(&sb, "} %s;\n\n", mangleType(ent.Name))
-	return sb.String()
+	w := codegen.NewWriter()
+	s.Write(w)
+	return w.String() + "\n"
 }
 
 // generateIREntityCtor - конструктор ссылочной сущности ("сущность"/
@@ -874,27 +875,37 @@ func generateIREntityCtor(ctx *irGenCtx, ent *ir.Entity) (string, error) {
 		}
 		return initCode + generateIREntityCtorNewWithInit(ctx, ent), nil
 	}
-	var sb strings.Builder
 	cType := mangleType(ent.Name)
-	params := make([]string, len(ent.Fields))
+	fn := codegen.Func(mangleCtor(ent.Name)).Static().ReturnType(cType + " *")
+	params := make([]codegen.Param, len(ent.Fields))
 	for i, f := range ent.Fields {
-		params[i] = fmt.Sprintf("%s %s", fromIRType(f.Type).cType(ctx), mangleVar(f.Name))
+		params[i] = codegen.Parameter(fromIRType(f.Type).cType(ctx), mangleVar(f.Name))
 	}
-	paramList := "void"
-	if len(params) > 0 {
-		paramList = strings.Join(params, ", ")
-	}
-	fmt.Fprintf(&sb, "static %s *%s(%s) {\n", cType, mangleCtor(ent.Name), paramList)
-	fmt.Fprintf(&sb, "    %s *p = GC_MALLOC(sizeof(%s));\n", cType, cType)
-	if ctx.dispatchParticipants[ent.Name] {
-		fmt.Fprintf(&sb, "    p->vt = &%s;\n", vtableInstanceName(ent.Name))
-	}
+	fn.Params(params...)
+	stmts := gcAllocStmts(ctx, ent, cType)
 	for _, f := range ent.Fields {
-		fmt.Fprintf(&sb, "    p->%s = %s;\n", mangleField(f.Name), mangleVar(f.Name))
+		stmts = append(stmts, codegen.Assign(codegen.PointerField(codegen.Var("p"), mangleField(f.Name)), codegen.Var(mangleVar(f.Name))))
 	}
-	sb.WriteString("    return p;\n")
-	sb.WriteString("}\n\n")
-	return sb.String(), nil
+	stmts = append(stmts, codegen.Return(codegen.Var("p")))
+	fn.Statements(stmts...)
+	w := codegen.NewWriter()
+	fn.Write(w)
+	return w.String() + "\n", nil
+}
+
+// gcAllocStmts - "Тип *p = GC_MALLOC(sizeof(Тип));" + (если ent участвует в
+// диспетчеризации) "p->vt = &rech_VT_...;" - общее начало тела и у
+// позиционного конструктора (generateIREntityCtor), и у обёртки над явным
+// (generateIREntityCtorNewWithInit) - единственная разница между ними дальше
+// (позиционное заполнение полей против вызова rech_init_...).
+func gcAllocStmts(ctx *irGenCtx, ent *ir.Entity, cType string) []codegen.Stmt {
+	stmts := []codegen.Stmt{
+		codegen.Decl(cType+" *", "p", codegen.Call("GC_MALLOC", codegen.Sizeof(codegen.Raw(cType)))),
+	}
+	if ctx.dispatchParticipants[ent.Name] {
+		stmts = append(stmts, codegen.Assign(codegen.PointerField(codegen.Var("p"), "vt"), codegen.Address(codegen.Raw(vtableInstanceName(ent.Name)))))
+	}
+	return stmts
 }
 
 // generateIREntityCtorInit - тело явного конструктора ent.Ctor как отдельная
@@ -950,22 +961,27 @@ func generateIREntityCtorInit(ctx *irGenCtx, ent *ir.Entity) (string, error) {
 // rech_init_БАЗА к моменту, когда до неё доходит очередь в этом же цикле
 // (GenerateFromIR), без отдельного прототипа и для этого случая тоже.
 func generateIREntityCtorNewWithInit(ctx *irGenCtx, ent *ir.Entity) string {
-	var sb strings.Builder
 	cType := mangleType(ent.Name)
-	fmt.Fprintf(&sb, "static %s *%s(%s) {\n", cType, mangleCtor(ent.Name), cParamListIR(ctx, ent.Ctor.Params))
-	fmt.Fprintf(&sb, "    %s *p = GC_MALLOC(sizeof(%s));\n", cType, cType)
-	if ctx.dispatchParticipants[ent.Name] {
-		fmt.Fprintf(&sb, "    p->vt = &%s;\n", vtableInstanceName(ent.Name))
-	}
-	initArgs := make([]string, len(ent.Ctor.Params)+1)
-	initArgs[0] = "p"
+	fn := codegen.Func(mangleCtor(ent.Name)).Static().ReturnType(cType + " *")
+	params := make([]codegen.Param, len(ent.Ctor.Params))
 	for i, p := range ent.Ctor.Params {
-		initArgs[i+1] = mangleVar(p.Name)
+		params[i] = codegen.Parameter(fromIRType(p.Type).cType(ctx), mangleVar(p.Name))
 	}
-	fmt.Fprintf(&sb, "    %s(%s);\n", mangleCtorInit(ent.Name), strings.Join(initArgs, ", "))
-	sb.WriteString("    return p;\n")
-	sb.WriteString("}\n\n")
-	return sb.String()
+	fn.Params(params...)
+	initArgs := make([]codegen.Expr, len(ent.Ctor.Params)+1)
+	initArgs[0] = codegen.Var("p")
+	for i, p := range ent.Ctor.Params {
+		initArgs[i+1] = codegen.Var(mangleVar(p.Name))
+	}
+	stmts := gcAllocStmts(ctx, ent, cType)
+	stmts = append(stmts,
+		codegen.ExprStatement(codegen.Call(mangleCtorInit(ent.Name), initArgs...)),
+		codegen.Return(codegen.Var("p")),
+	)
+	fn.Statements(stmts...)
+	w := codegen.NewWriter()
+	fn.Write(w)
+	return w.String() + "\n"
 }
 
 // cReturnTypeFor - C-тип результата функции/метода: сама Type, если он
