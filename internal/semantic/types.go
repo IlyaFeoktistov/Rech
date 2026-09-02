@@ -158,7 +158,7 @@ func registerHTTPEntity(entities map[string]entitySig, name string, fields []ir.
 	if _, exists := entities[name]; exists {
 		return
 	}
-	sig := entitySig{}
+	sig := entitySig{IsStruct: true}
 	for _, f := range fields {
 		sig.FieldNames = append(sig.FieldNames, f.Name)
 		sig.FieldTypes = append(sig.FieldTypes, f.Type)

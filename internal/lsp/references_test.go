@@ -46,8 +46,8 @@ func TestHoverShowsReferenceCountForField(t *testing.T) {
 	if !ok {
 		t.Fatalf("ожидался hover на поле x")
 	}
-	if !strings.Contains(text, "2 ссылки") {
-		t.Fatalf("ожидались две ссылки на \"x\", получено: %q", text)
+	if !strings.Contains(text, "3 ссылки") {
+		t.Fatalf("ожидались три ссылки на \"x\" (включая присваивание в конструкторе), получено: %q", text)
 	}
 }
 
@@ -73,6 +73,11 @@ const constHoverSrc = `
 
     имеет:
         x: Целое
+
+    конструктор(x: Целое)
+    {
+        этот.x = x
+    }
 }
 функция главная
 {

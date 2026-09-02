@@ -101,7 +101,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			return nil, err
 		}
 		if hasAnnotation {
-			if typ := ir.TypeOf(value); !isAssignable(sc.entities, typ, declared) {
+			if typ := ir.TypeOf(value); !isAssignable(sc.entities, sc.interfaces, typ, declared) {
 				return nil, fmt.Errorf("строка %d: переменная %q объявлена типом %s, но инициализирована значением типа %s", s.Line, s.Name, declared, typ)
 			}
 		}
@@ -145,7 +145,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		if typ := ir.TypeOf(value); !isAssignable(sc.entities, typ, declared) {
+		if typ := ir.TypeOf(value); !isAssignable(sc.entities, sc.interfaces, typ, declared) {
 			return nil, fmt.Errorf("строка %d: переменной %q типа %s нельзя присвоить значение типа %s", s.Line, s.Name, declared, typ)
 		}
 		sc.setEstablished(s.Name, establishedForNewBinding(sc, s.Name, value))
@@ -299,7 +299,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		if typ := ir.TypeOf(value); !isAssignable(sc.entities, typ, sc.returnType) {
+		if typ := ir.TypeOf(value); !isAssignable(sc.entities, sc.interfaces, typ, sc.returnType) {
 			return nil, fmt.Errorf("строка %d: функция объявлена с типом результата %s, но возвращается значение типа %s", s.Line, sc.returnType, typ)
 		}
 		return &ir.ReturnStmt{Value: value, Line: s.Line}, nil
@@ -369,7 +369,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		if vt := ir.TypeOf(value); !isAssignable(sc.entities, vt, sig.FieldTypes[idx]) {
+		if vt := ir.TypeOf(value); !isAssignable(sc.entities, sc.interfaces, vt, sig.FieldTypes[idx]) {
 			return nil, fmt.Errorf("строка %d: полю %q типа %s нельзя присвоить значение типа %s", s.Line, s.Field, sig.FieldTypes[idx], vt)
 		}
 		return &ir.FieldAssign{Receiver: receiver, Field: s.Field, Value: value, Line: s.Line}, nil
@@ -437,7 +437,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			if err != nil {
 				return nil, err
 			}
-			if typ := ir.TypeOf(arg); !isAssignable(sc.entities, typ, baseSig.CtorParams[i]) {
+			if typ := ir.TypeOf(arg); !isAssignable(sc.entities, sc.interfaces, typ, baseSig.CtorParams[i]) {
 				return nil, fmt.Errorf("строка %d: аргумент %d конструктора %q должен быть типа %s, получен %s", s.Line, i+1, baseName, baseSig.CtorParams[i], typ)
 			}
 			args[i] = arg

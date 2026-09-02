@@ -268,6 +268,12 @@ func TestAnalyzeEntityInstanceConstantAccess(t *testing.T) {
 	имеет:
 		имя: Строка
 		счет: Целое
+
+	конструктор(имя: Строка, счет: Целое)
+	{
+		этот.имя = имя
+		этот.счет = счет
+	}
 }
 
 функция главная
@@ -290,6 +296,11 @@ func TestAssignToEntityConstantViaInstanceFails(t *testing.T) {
 	константа ЛИМИТ = 100
 	имеет:
 		счет: Целое
+
+	конструктор(счет: Целое)
+	{
+		этот.счет = счет
+	}
 }
 
 функция главная
@@ -318,6 +329,11 @@ func TestPrivateEntityConstantAccessibleInMethod(t *testing.T) {
 	приватная константа КОД = 1234
 	имеет:
 		поле: Целое
+
+	конструктор(поле: Целое)
+	{
+		этот.поле = поле
+	}
 
 	раскрыть(): Целое
 	{
@@ -755,6 +771,12 @@ func TestAnalyzeEntityFieldsConstructorAndFieldAccess(t *testing.T) {
     имеет:
         имя: Строка
         возраст: Целое
+
+    конструктор(имя: Строка, возраст: Целое)
+    {
+        этот.имя = имя
+        этот.возраст = возраст
+    }
 }
 функция главная
 {
@@ -813,6 +835,12 @@ func TestAnalyzeNamedConstructorArgsNormalizedToPositional(t *testing.T) {
     имеет:
         имя: Строка
         возраст: Целое
+
+    конструктор(имя: Строка, возраст: Целое)
+    {
+        этот.имя = имя
+        этот.возраст = возраст
+    }
 }
 функция главная
 {
@@ -835,6 +863,11 @@ func TestAnalyzeMethodAndThisMutation(t *testing.T) {
 {
     имеет:
         возраст: Целое
+
+    конструктор(возраст: Целое)
+    {
+        этот.возраст = возраст
+    }
 
     состариться()
     {
@@ -895,6 +928,11 @@ func TestAnalyzeMethodCallOnTemporaryFails(t *testing.T) {
     имеет:
         возраст: Целое
 
+    конструктор(возраст: Целое)
+    {
+        этот.возраст = возраст
+    }
+
     прочитать(): Целое
     {
         вернуть этот.возраст
@@ -930,6 +968,11 @@ func TestAnalyzeBecomeStmtAndDerivedType(t *testing.T) {
 
     имеет:
         имя: Строка
+
+    конструктор(имя: Строка)
+    {
+        этот.имя = имя
+    }
 
     авторизовать()
     {
@@ -1174,6 +1217,11 @@ func TestAnalyzeCollectionEntityElementFails(t *testing.T) {
 {
     имеет:
         имя: Строка
+
+    конструктор(имя: Строка)
+    {
+        этот.имя = имя
+    }
 }
 функция главная
 {
@@ -1421,6 +1469,11 @@ func TestAnalyzeLocalVariableShadowsEnumName(t *testing.T) {
 {
     имеет:
         поле: Целое
+
+    конструктор(поле: Целое)
+    {
+        этот.поле = поле
+    }
 }
 функция главная
 {
@@ -1613,6 +1666,11 @@ func TestAnalyzeStructDeclSetsIRIsStruct(t *testing.T) {
 {
     имеет:
         имя: Строка
+
+    конструктор(имя: Строка)
+    {
+        этот.имя = имя
+    }
 }
 функция главная
 {

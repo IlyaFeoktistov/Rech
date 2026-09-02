@@ -14,6 +14,11 @@ func TestAnalyzeProtectedFieldAccessibleFromSubclassMethod(t *testing.T) {
 }
 сущность Собака наследует Животное
 {
+    конструктор(имя: Строка)
+    {
+        этот.имя = имя
+    }
+
     представиться(): Строка
     {
         вернуть этот.имя
@@ -36,6 +41,11 @@ func TestAnalyzeProtectedFieldNotAccessibleFromOutsideHierarchy(t *testing.T) {
 {
     имеет:
         защищённое имя: Строка
+
+    конструктор(имя: Строка)
+    {
+        этот.имя = имя
+    }
 }
 функция главная
 {

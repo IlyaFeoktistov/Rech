@@ -42,7 +42,7 @@ func registerCookieOptionsEntity(entities map[string]entitySig) {
 	if _, exists := entities["ОпцииКуки"]; exists {
 		return
 	}
-	sig := entitySig{}
+	sig := entitySig{IsStruct: true}
 	for _, f := range cookieOptionsFields {
 		sig.FieldNames = append(sig.FieldNames, f.Name)
 		sig.FieldTypes = append(sig.FieldTypes, f.Type)

@@ -56,6 +56,11 @@ func TestAnalyzeListLiteralEntityElementRejected(t *testing.T) {
 сущность Точка {
     имеет:
         x: Целое
+
+    конструктор(x: Целое)
+    {
+        этот.x = x
+    }
 }
 функция главная {
     переменная а = новая Точка(1)

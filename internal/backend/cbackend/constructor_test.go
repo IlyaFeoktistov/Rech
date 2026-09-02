@@ -51,21 +51,26 @@ func TestGenerateFromIRExplicitConstructorSplitsInitFromNew(t *testing.T) {
 // TestGenerateFromIREntityWithoutCtorUnchangedBehavior - сущность без
 // ent.Ctor продолжает старую позиционную форму (один rech_new_X,
 // заполняющий поля напрямую) - явный конструктор не должен менять
-// поведение для сущностей, которые его не объявили.
+// поведение для сущностей, которые его не объявили: "как в нормальных
+// языках" (docs/SPEC.md, "Явные конструкторы") - internal/semantic
+// подставляет синтетический пустой Ctor (0 параметров, см. package doc
+// analyzeEntity в analyzer.go) - "новый Точка()" без аргументов, поле без
+// значения по умолчанию просто зануляется GC_MALLOC'ом, никакого
+// присваивания в теле не требуется.
 func TestGenerateFromIREntityWithoutCtorUnchangedBehavior(t *testing.T) {
-	ent := &ir.Entity{Name: "Точка", Fields: []ir.Field{{Name: "x", Type: ir.TypeInt}}}
+	ent := &ir.Entity{Name: "Точка", Fields: []ir.Field{{Name: "x", Type: ir.TypeInt}}, Ctor: &ir.Method{}}
 	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
-		&ir.VarDecl{Name: "p", Value: &ir.NewExpr{Entity: "Точка", Args: []ir.Expr{&ir.IntLiteral{Value: 1}}}},
+		&ir.VarDecl{Name: "p", Value: &ir.NewExpr{Entity: "Точка"}},
 	}}
 	out, err := GenerateFromIR(&ir.Program{Entities: []*ir.Entity{ent}, Functions: []*ir.Function{main}})
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if strings.Contains(out, "rech_init_tochka") {
-		t.Fatalf("не ожидалась функция инициализации у сущности без явного конструктора, получено:\n%s", out)
+	if !strings.Contains(out, "static void rech_init_tochka(rech_T_tochka *this_) {") {
+		t.Fatalf("ожидался пустой rech_init_tochka(Тип *this_), получено:\n%s", out)
 	}
-	if !strings.Contains(out, "rech_T_tochka *p = GC_MALLOC(sizeof(rech_T_tochka));\n    p->f_x = v_x;") {
-		t.Fatalf("ожидалось прежнее прямое присваивание поля, получено:\n%s", out)
+	if !strings.Contains(out, "static rech_T_tochka *rech_new_tochka(void) {") {
+		t.Fatalf("ожидался rech_new_tochka(void), получено:\n%s", out)
 	}
 }
 

@@ -16,6 +16,31 @@ import (
 // (напрямую или транзитивно) все типы, участвующие в "выбросить"/"поймать".
 const systemExceptionEntity = "Исключение"
 
+// systemExceptionCtor - конструктор "Исключение(сообщение: Строка)",
+// эквивалентный ровно тому, что написал бы пользователь сам ("этот.сообщение
+// = сообщение") - в отличие от обычной пользовательской сущности без
+// собственного "конструктор(...)" (docs/SPEC.md, "Явные конструкторы"),
+// "Исключение" не остаётся с пустым синтетическим - "новое Исключение(...)"
+// обязано продолжать работать без единой строки пользовательского кода, тем
+// же принципом, что и у `Exception(String message)` в Java/C#. Наследник
+// без своего "конструктор" (`сущность ОшибкаХ наследует Исключение {}`)
+// этот конструктор НЕ наследует (HasCtor никогда не наследуется, см.
+// package doc entitySig.HasCtor) - ему, как и у Java/C#, нужен свой,
+// пробрасывающий сообщение через "родитель(сообщение)" - см.
+// docs/SPEC.md, "Явные конструкторы".
+func systemExceptionCtor() *ir.Method {
+	return &ir.Method{
+		Params: []ir.Param{{Name: "сообщение", Type: ir.TypeString}},
+		Body: []ir.Stmt{
+			&ir.FieldAssign{
+				Receiver: &ir.ThisExpr{Entity: systemExceptionEntity},
+				Field:    "сообщение",
+				Value:    &ir.Identifier{Name: "сообщение", Type: ir.TypeString},
+			},
+		},
+	}
+}
+
 // analyzeThrowStmt - "выбросить <выражение>": значение обязано быть
 // сущностью "Исключение" или её наследником - не структурой/интерфейсом/
 // примитивом (нелокальный выход, реализуемый как передача указателя
@@ -118,7 +143,7 @@ func analyzeIsExpr(sc *ctx, e *ast.IsExpr) (ir.Expr, error) {
 	if target.Kind != ir.KindEntity && target.Kind != ir.KindInterface {
 		return nil, fmt.Errorf("строка %d: \"относится к\" ожидает сущность/интерфейс, получено %s", e.Line, target)
 	}
-	if !relatedForIsCheck(sc.entities, vt, target) {
+	if !relatedForIsCheck(sc.entities, sc.interfaces, vt, target) {
 		return nil, fmt.Errorf("строка %d: \"относится к\": %s и %s не связаны наследованием/интерфейсом", e.Line, vt, target)
 	}
 	return &ir.IsExpr{Value: value, Target: target.Entity}, nil
@@ -131,16 +156,16 @@ func analyzeIsExpr(sc *ctx, e *ast.IsExpr) (ir.Expr, error) {
 // (в отличие от isAssignable: там направление всегда "from -> to" одной
 // присваиваемой стороны, здесь both operands могут быть как более общим,
 // так и более узким статическим типом места использования).
-func relatedForIsCheck(entities map[string]entitySig, a, b ir.Type) bool {
+func relatedForIsCheck(entities map[string]entitySig, interfaces map[string]interfaceSig, a, b ir.Type) bool {
 	switch {
 	case a.Kind == ir.KindEntity && b.Kind == ir.KindEntity:
 		return entityIsOrExtends(entities, a.Entity, b.Entity) || entityIsOrExtends(entities, b.Entity, a.Entity)
 	case a.Kind == ir.KindEntity && b.Kind == ir.KindInterface:
-		return entitySatisfies(entities, a.Entity, b.Entity)
+		return entitySatisfies(entities, interfaces, a.Entity, b.Entity)
 	case a.Kind == ir.KindInterface && b.Kind == ir.KindEntity:
-		return entitySatisfies(entities, b.Entity, a.Entity)
+		return entitySatisfies(entities, interfaces, b.Entity, a.Entity)
 	case a.Kind == ir.KindInterface && b.Kind == ir.KindInterface:
-		return a.Entity == b.Entity
+		return interfaceIsOrExtends(interfaces, a.Entity, b.Entity) || interfaceIsOrExtends(interfaces, b.Entity, a.Entity)
 	default:
 		return false
 	}

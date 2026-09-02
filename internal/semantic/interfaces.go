@@ -18,6 +18,22 @@ import (
 type interfaceSig struct {
 	MethodNames []string
 	MethodSigs  []funcSig
+	// IRMethods - готовые ir.InterfaceMethod (с ИМЕНАМИ параметров, не
+	// только типами, как в MethodSigs) в том же порядке, что MethodNames/
+	// MethodSigs - buildIR (analyzer.go) просто копирует их в ir.Interface,
+	// не переизвлекает из iface.Methods по индексу: при "наследует"
+	// унаследованные методы сдвигают индексы относительно AST-списка
+	// СОБСТВЕННЫХ методов этого интерфейса (см. collectInterfaces), поэтому
+	// "iface.Methods[i]" для унаследованного i была бы неверной сущностью
+	// вообще (или паникой за границей среза).
+	IRMethods []ir.InterfaceMethod
+	// Extends - интерфейсы, перечисленные после "наследует" (см. package
+	// doc ast.InterfaceDecl.Extends) - собственный список ЭТОГО интерфейса
+	// (не транзитивно свёрнутый), используется interfaceIsOrExtends. Методы
+	// уже свёрнуты в MethodNames/MethodSigs (collectInterfaces) - Extends
+	// нужен отдельно только для проверки "интерфейс X - это (тоже) Y"
+	// (entitySatisfies через цепочку "реализует").
+	Extends []string
 }
 
 func (s interfaceSig) methodIndex(name string) int {
@@ -44,7 +60,28 @@ func (a *Analyzer) collectInterfaces(prog *ast.Program) error {
 		if _, exists := interfaces[iface.Name]; exists {
 			return fmt.Errorf("интерфейс %q объявлен более одного раза", iface.Name)
 		}
+		// "наследует А, Б" - методы каждого перечисленного интерфейса
+		// становятся частью контракта этого интерфейса тоже (сплющивание,
+		// тот же принцип, что и у FieldNames/FieldTypes сущности при
+		// "наследует" - internal/semantic/inheritance.go) - базовый
+		// интерфейс обязан быть уже собран (объявлен раньше в файле, как и
+		// у сущностей).
 		var sig interfaceSig
+		sig.Extends = iface.Extends
+		for _, baseName := range iface.Extends {
+			base, ok := interfaces[baseName]
+			if !ok {
+				return fmt.Errorf("интерфейс %q: наследует %q - базовый интерфейс не объявлен (или объявлен позже в файле)", iface.Name, baseName)
+			}
+			for i, name := range base.MethodNames {
+				if sig.methodIndex(name) != -1 {
+					return fmt.Errorf("интерфейс %q: метод %q конфликтует с унаследованным методом того же имени из другого базового интерфейса", iface.Name, name)
+				}
+				sig.MethodNames = append(sig.MethodNames, name)
+				sig.MethodSigs = append(sig.MethodSigs, base.MethodSigs[i])
+				sig.IRMethods = append(sig.IRMethods, base.IRMethods[i])
+			}
+		}
 		for _, m := range iface.Methods {
 			if sig.methodIndex(m.Name) != -1 {
 				return fmt.Errorf("интерфейс %q: метод %q объявлен более одного раза", iface.Name, m.Name)
@@ -79,6 +116,10 @@ func (a *Analyzer) collectInterfaces(prog *ast.Program) error {
 			}
 			sig.MethodNames = append(sig.MethodNames, m.Name)
 			sig.MethodSigs = append(sig.MethodSigs, msig)
+			sig.IRMethods = append(sig.IRMethods, ir.InterfaceMethod{
+				Name: m.Name, Params: paramsFromTypes(m.Params, params),
+				ReturnType: msig.ReturnType, HasReturn: msig.HasReturn,
+			})
 		}
 		interfaces[iface.Name] = sig
 	}
@@ -157,8 +198,11 @@ func sigsMatch(a, b funcSig) bool {
 // "наследует") интерфейс ifaceName - обходит BaseName вверх (защита от
 // цикла - циклы в BaseName и так невозможны, см. inheritance.go, базовая
 // сущность обязана быть объявлена раньше в файле, но bound на число
-// итераций всё равно ставится, а не полагается на это молча).
-func entitySatisfies(entities map[string]entitySig, entityName, ifaceName string) bool {
+// итераций всё равно ставится, а не полагается на это молча). Каждый
+// "реализует"-интерфейс сущности (own) засчитывается и тогда, когда сам
+// own лишь наследует ifaceName (не обязательно совпадает с ним дословно) -
+// см. interfaceIsOrExtends.
+func entitySatisfies(entities map[string]entitySig, interfaces map[string]interfaceSig, entityName, ifaceName string) bool {
 	name := entityName
 	for range entities {
 		sig, ok := entities[name]
@@ -166,7 +210,7 @@ func entitySatisfies(entities map[string]entitySig, entityName, ifaceName string
 			return false
 		}
 		for _, own := range sig.OwnInterfaces {
-			if own == ifaceName {
+			if interfaceIsOrExtends(interfaces, own, ifaceName) {
 				return true
 			}
 		}
@@ -174,6 +218,27 @@ func entitySatisfies(entities map[string]entitySig, entityName, ifaceName string
 			return false
 		}
 		name = sig.BaseName
+	}
+	return false
+}
+
+// interfaceIsOrExtends - name сам ifaceName или наследует его (напрямую
+// или транзитивно, через "наследует" у самого интерфейса) - тот же принцип,
+// что entityIsOrExtends (inheritance.go), но по interfaceSig.Extends
+// (список, не одно имя - интерфейс может наследовать несколько сразу,
+// поэтому обход в глубину по всем, а не цепочкой).
+func interfaceIsOrExtends(interfaces map[string]interfaceSig, name, target string) bool {
+	if name == target {
+		return true
+	}
+	sig, ok := interfaces[name]
+	if !ok {
+		return false
+	}
+	for _, base := range sig.Extends {
+		if interfaceIsOrExtends(interfaces, base, target) {
+			return true
+		}
 	}
 	return false
 }

@@ -181,6 +181,15 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 		FieldNames:      []string{"сообщение"},
 		FieldTypes:      []ir.Type{ir.TypeString},
 		FieldVisibility: []ast.Visibility{ast.Public},
+		// HasCtor/CtorParams - "Исключение" не остаётся без явного
+		// конструктора, как обычная сущность без своего "конструктор(...)"
+		// (docs/SPEC.md, "Явные конструкторы") - "новое Исключение(сообщение)"
+		// должно продолжать работать без объявления пользователем ни
+		// единой строки, тем же принципом, что у `Exception(String message)`
+		// в Java/C# - см. Ctor у ir.Entity "Исключение" ниже (systemExceptionCtor).
+		HasCtor:        true,
+		CtorParams:     []ir.Type{ir.TypeString},
+		CtorParamNames: []string{"сообщение"},
 	}
 	methods["Исключение"] = map[string]funcSig{}
 	// "внешняя сущность" - непрозрачные внешние типы (FFI) - регистрируются
@@ -322,15 +331,18 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 
 		if ent.Ctor != nil {
 			ctorParams := make([]ir.Type, len(ent.Ctor.Params))
+			ctorParamNames := make([]string, len(ent.Ctor.Params))
 			for i, p := range ent.Ctor.Params {
 				typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, p.Type)
 				if err != nil {
 					return fmt.Errorf("сущность %q: конструктор: параметр %q: %w", ent.Name, p.Name, err)
 				}
 				ctorParams[i] = typ
+				ctorParamNames[i] = p.Name
 			}
 			sig.HasCtor = true
 			sig.CtorParams = ctorParams
+			sig.CtorParamNames = ctorParamNames
 		}
 
 		// Наследование ("наследует")/интерфейсы ("реализует") -
@@ -573,6 +585,19 @@ func (a *Analyzer) analyzeEntity(ent *ast.EntityDecl) (*ir.Entity, error) {
 			return nil, fmt.Errorf("конструктор: %w", err)
 		}
 		ctor = irCtor
+	} else if !ent.IsStruct {
+		// "как в нормальных языках" (docs/SPEC.md, "Явные конструкторы") -
+		// у сущности/класса без своего "конструктор(...)" в исходнике всё
+		// равно есть конструктор на уровне IR/backend'ов - синтетический,
+		// без параметров и без тела. И cbackend (generateIREntityCtorInit),
+		// и internal/interp (constructEntity) уже применяют "имеет: поле =
+		// значение" и зануляют остальное ДО тела конструктора - с пустым
+		// телом это ровно "новый Тип()" без аргументов, поля - только из
+		// своих значений по умолчанию/нулей. "структура" не участвует - у
+		// неё конструкторов нет вообще (generateIRNewExpr - compound
+		// literal, см. её package doc), analyzeNewExpr держит её отдельной
+		// веткой (sig.IsStruct).
+		ctor = &ir.Method{}
 	}
 	return &ir.Entity{Name: ent.Name, IsStruct: ent.IsStruct, IsAbstract: ent.IsAbstract, BaseName: ent.BaseName, Interfaces: ent.Interfaces, Constants: constants, Fields: fields, Methods: irMethods, Ctor: ctor, Doc: ent.Doc, Exported: ent.Exported}, nil
 }
@@ -657,15 +682,11 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	out := &ir.Program{ExternFuncs: a.externFuncs}
 	for _, iface := range prog.Interfaces {
 		sig := a.interfaces[iface.Name]
-		irIface := &ir.Interface{Name: iface.Name}
-		for i, name := range sig.MethodNames {
-			m := sig.MethodSigs[i]
-			irIface.Methods = append(irIface.Methods, ir.InterfaceMethod{
-				Name: name, Params: paramsFromTypes(iface.Methods[i].Params, m.Params),
-				ReturnType: m.ReturnType, HasReturn: m.HasReturn,
-			})
-		}
-		out.Interfaces = append(out.Interfaces, irIface)
+		// sig.IRMethods - уже готовые ir.InterfaceMethod, включая
+		// унаследованные через "наследует" (см. package doc
+		// interfaceSig.IRMethods, collectInterfaces) - не переизвлекаются
+		// из iface.Methods здесь.
+		out.Interfaces = append(out.Interfaces, &ir.Interface{Name: iface.Name, Methods: sig.IRMethods})
 	}
 	// declaredEntityNames - имена, уже получившие настоящее ir.Entity в
 	// цикле ниже (обычные сущности программы, включая раскрытые
@@ -699,9 +720,20 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	)
 	// "Исключение" - ссылочная сущность (не структура): "выбросить"
 	// передаёт указатель на неё дальше по стеку вызовов без копирования,
-	// как и любую другую сущность/класс.
+	// как и любую другую сущность/класс. Порядок в out.Entities (после
+	// пользовательских) не создаёт проблему для "родитель(...)" в
+	// пользовательском наследнике - её C-прототип (rech_init_isklyuchenie)
+	// эмитится в общий "protos" раньше вообще всех тел (см. package doc
+	// internal/backend/cbackend/ir_generator.go, generateSource), только
+	// само ОПРЕДЕЛЕНИЕ идёт позже, порядок определений здесь значения не
+	// имеет.
 	out.Entities = append(out.Entities,
-		&ir.Entity{Name: "Исключение", Fields: []ir.Field{{Name: "сообщение", Type: ir.TypeString}}},
+		// Ctor - НЕ пустой синтетический (в отличие от пользовательских
+		// сущностей без своего "конструктор(...)", см. analyzeEntity выше) -
+		// "новое Исключение(сообщение)" продолжает работать без единой
+		// строки пользовательского кода, тем же принципом, что и у
+		// `Exception(String message)` в Java/C# - см. systemExceptionCtor.
+		&ir.Entity{Name: "Исключение", Fields: []ir.Field{{Name: "сообщение", Type: ir.TypeString}}, Ctor: systemExceptionCtor()},
 	)
 	for _, fn := range prog.Functions {
 		irFn, err := a.analyzeFunction(fn)
@@ -780,6 +812,12 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 		out.Entities = append(out.Entities, &ir.Entity{
 			Name: parseErrorEntity, BaseName: systemExceptionEntity,
 			Fields: []ir.Field{{Name: "сообщение", Type: ir.TypeString}},
+			// Ctor - тот же принцип, что и у "Исключение" (systemExceptionCtor) -
+			// rech_struct_throw (internal/backend/cbackend/json_extract.go)
+			// вызывает mangleCtor(parseErrorEntity) с одним аргументом
+			// (сообщением) напрямую, минуя "новый" - конструктор обязан
+			// принимать ровно этот один параметр.
+			Ctor: systemExceptionCtor(),
 		})
 	}
 	// "Блокировка" - проверка ЗДЕСЬ (не раньше цикла по prog.Entities/

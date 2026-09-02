@@ -34,6 +34,13 @@ func registerParseErrorEntity(entities map[string]entitySig) {
 		FieldNames:      []string{"сообщение"},
 		FieldTypes:      []ir.Type{ir.TypeString},
 		FieldVisibility: []ast.Visibility{ast.Public},
+		// HasCtor/CtorParams - тот же принцип, что и у "Исключение" самой
+		// (analyzer.go, collectEntities) - "новая ОшибкаРазбора(сообщение)"
+		// не должна требовать пустых аргументов, даже если пользователь
+		// (не только rech_struct_throw) когда-нибудь создаст её сам.
+		HasCtor:        true,
+		CtorParams:     []ir.Type{ir.TypeString},
+		CtorParamNames: []string{"сообщение"},
 	}
 }
 

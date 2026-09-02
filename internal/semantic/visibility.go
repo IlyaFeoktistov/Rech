@@ -130,7 +130,7 @@ func resolveFieldDefault(sc *ctx, entityName, fieldName string, line int) (ir.Ex
 	if err != nil {
 		return nil, fmt.Errorf("строка %d: значение по умолчанию поля %q сущности %q: %w", line, fieldName, entityName, err)
 	}
-	if typ := ir.TypeOf(val); !isAssignable(sc.entities, typ, sig.FieldTypes[idx]) {
+	if typ := ir.TypeOf(val); !isAssignable(sc.entities, sc.interfaces, typ, sig.FieldTypes[idx]) {
 		return nil, fmt.Errorf("строка %d: значение по умолчанию поля %q сущности %q должно быть типа %s, получено %s", line, fieldName, entityName, sig.FieldTypes[idx], typ)
 	}
 	sc.a.resolvedFieldDefaults[key] = val

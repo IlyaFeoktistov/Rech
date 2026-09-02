@@ -155,6 +155,14 @@ func TestGenerateFromIREntityFieldsConstructorMethodsAndThis(t *testing.T) {
 	entity := &ir.Entity{
 		Name:   "Пользователь",
 		Fields: []ir.Field{{Name: "возраст", Type: ir.TypeInt}},
+		Ctor: &ir.Method{
+			Params: []ir.Param{{Name: "возраст", Type: ir.TypeInt}},
+			Body: []ir.Stmt{&ir.FieldAssign{
+				Receiver: &ir.ThisExpr{Entity: "Пользователь"},
+				Field:    "возраст",
+				Value:    &ir.Identifier{Name: "возраст", Type: ir.TypeInt},
+			}},
+		},
 		Methods: []*ir.Method{
 			{
 				Name: "состариться",

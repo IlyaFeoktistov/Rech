@@ -58,6 +58,11 @@ func TestAnalyzeConcreteEntityImplementingAbstractMethodSucceeds(t *testing.T) {
 }
 сущность Кот наследует Животное
 {
+    конструктор(имя: Строка)
+    {
+        этот.имя = имя
+    }
+
     голос(): Строка
     {
         вернуть "мяу"

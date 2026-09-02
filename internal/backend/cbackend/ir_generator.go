@@ -480,6 +480,22 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 			}
 			fmt.Fprintf(&protos, "%s %s(%s);\n", cReturnTypeFor(ctx, m.HasReturn, m.ReturnType), mangleMethod(ent.Name, m.Name), cMethodParamListIR(ctx, ent.Name, m.Params))
 		}
+		// Прототипы rech_init_X/rech_new_X - тем же принципом, что и у
+		// методов выше: сущность, эмитированная в prog.Entities поздно
+		// (например, системная "Исключение" - см. package doc buildIR,
+		// internal/semantic/analyzer.go), не может полагаться на текстовый
+		// порядок определений, если её конструктор вызван РАНЬШЕ по файлу -
+		// как напрямую ("новый X(...)"), так и через "родитель(...)" в
+		// конструкторе пользовательского наследника. mutex - отдельным
+		// mutexPrototypes() выше, здесь не участвует.
+		if !ent.IsStruct && !ent.IsMutex {
+			ctorParams := []ir.Param(nil)
+			if ent.Ctor != nil {
+				ctorParams = ent.Ctor.Params
+			}
+			fmt.Fprintf(&protos, "static void %s(%s);\n", mangleCtorInit(ent.Name), cMethodParamListIR(ctx, ent.Name, ctorParams))
+			fmt.Fprintf(&protos, "static %s *%s(%s);\n", mangleType(ent.Name), mangleCtor(ent.Name), cParamListIR(ctx, ctorParams))
+		}
 	}
 	hasEntryPoint := false
 	for _, fn := range prog.Functions {
@@ -852,45 +868,39 @@ func generateIREntityStruct(ctx *irGenCtx, ent *ir.Entity) string {
 // GC_MALLOC_ATOMIC) - поля сущности сами могут быть указателями на другие
 // GC-объекты (вложенная сущность), нужно сканирование; она же зануляет
 // выделенную память (документированная гарантия Boehm GC, в отличие от
-// обычного malloc) - опора для explicit-конструктора ниже, чьё тело не
-// обязано присвоить каждое поле явно.
+// обычного malloc) - опора для тела конструктора ниже, чьё тело не обязано
+// присвоить каждое поле явно.
 //
-// Без ent.Ctor - заполняет поля позиционно (Args уже позиционны по полю,
-// см. package doc ir.NewExpr) прямо здесь, одной функцией. С ent.Ctor -
-// выделение памяти отделено от самого тела конструктора
+// ent.Ctor никогда не nil здесь (ctx.entityIsRef(ent.Name) == true) - у
+// сущности без своего "конструктор(...)" в исходнике internal/semantic
+// подставляет синтетический пустой (0 параметров, пустое тело, см. package
+// doc analyzer.go) - "как в нормальных языках" неявный конструктор не
+// зависит от полей вообще, а "новый Тип()" без аргументов - единственная
+// форма, доступная без явного "конструктор(...)" (docs/SPEC.md, "Явные
+// конструкторы"). Выделение памяти отделено от самого тела конструктора
 // (generateIREntityCtorInit) - см. её package doc про то, зачем именно.
 //
 // В отличие от "структура" (generateIRNewExpr - compound literal прямо в
-// месте вызова, структуры не участвуют в явных конструкторах - см.
+// месте вызова, структуры не участвуют в конструкторах вообще - см.
 // ast.EntityDecl.Ctor), у ссылочной сущности ровно одна такая функция на
 // тип, не код на каждый "новый" - тот же принцип, что и у show-функций.
 func generateIREntityCtor(ctx *irGenCtx, ent *ir.Entity) (string, error) {
 	if ent.IsMutex {
 		return mutexRuntimeCode(), nil
 	}
-	if ent.Ctor != nil {
-		initCode, err := generateIREntityCtorInit(ctx, ent)
-		if err != nil {
-			return "", err
-		}
-		return initCode + generateIREntityCtorNewWithInit(ctx, ent), nil
+	if ent.Ctor == nil {
+		// internal/semantic держит этот инвариант (каждая ссылочная
+		// сущность получает Ctor - явный или синтетический пустой, см.
+		// analyzeEntity) - запасной вариант здесь только на случай
+		// системной сущности, заведённой напрямую литералом ir.Entity{...}
+		// в обход analyzeEntity (как когда-то было с "Исключение").
+		ent.Ctor = &ir.Method{}
 	}
-	cType := mangleType(ent.Name)
-	fn := codegen.Func(mangleCtor(ent.Name)).Static().ReturnType(cType + " *")
-	params := make([]codegen.Param, len(ent.Fields))
-	for i, f := range ent.Fields {
-		params[i] = codegen.Parameter(fromIRType(f.Type).cType(ctx), mangleVar(f.Name))
+	initCode, err := generateIREntityCtorInit(ctx, ent)
+	if err != nil {
+		return "", err
 	}
-	fn.Params(params...)
-	stmts := gcAllocStmts(ctx, ent, cType)
-	for _, f := range ent.Fields {
-		stmts = append(stmts, codegen.Assign(codegen.PointerField(codegen.Var("p"), mangleField(f.Name)), codegen.Var(mangleVar(f.Name))))
-	}
-	stmts = append(stmts, codegen.Return(codegen.Var("p")))
-	fn.Statements(stmts...)
-	w := codegen.NewWriter()
-	fn.Write(w)
-	return w.String() + "\n", nil
+	return initCode + generateIREntityCtorNewWithInit(ctx, ent), nil
 }
 
 // gcAllocStmts - "Тип *p = GC_MALLOC(sizeof(Тип));" + (если ent участвует в
@@ -908,8 +918,10 @@ func gcAllocStmts(ctx *irGenCtx, ent *ir.Entity, cType string) []codegen.Stmt {
 	return stmts
 }
 
-// generateIREntityCtorInit - тело явного конструктора ent.Ctor как отдельная
-// C-функция, с тем же "Тип *this_" первым скрытым параметром, что и у
+// generateIREntityCtorInit - тело конструктора ent.Ctor (явного или
+// синтетического пустого, см. package doc generateIREntityCtor) как
+// отдельная C-функция, с тем же "Тип *this_" первым скрытым параметром, что
+// и у
 // метода (cMethodParamListIR/ctx.thisEntity - буквально тот же путь
 // кодогенерации тела, что и generateIRMethod, включая "этот"). Отделена от
 // выделения памяти (generateIREntityCtorNewWithInit) ровно для того, чтобы

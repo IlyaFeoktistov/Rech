@@ -18,6 +18,32 @@ func (p *Parser) parseInterfaceDecl() (*ast.InterfaceDecl, error) {
 		return nil, fmt.Errorf("после %q ожидалось имя интерфейса: %w", kw.Value, err)
 	}
 	p.registerNoun(name.Value)
+
+	// "наследует А, Б" - методы каждого перечисленного интерфейса становятся
+	// частью контракта этого интерфейса тоже (см. package doc
+	// internal/semantic/interfaces.go, collectInterfaces) - через запятую
+	// можно несколько (в отличие от "наследует" у сущности, где базовая
+	// ровно одна).
+	var extends []string
+	if p.cur().Type == lexer.KwInherits {
+		verb := p.advance() // "наследует"
+		for {
+			base, err := p.expect(lexer.IDENT)
+			if err != nil {
+				return nil, fmt.Errorf("интерфейс %q: после \"наследует\" ожидалось имя интерфейса: %w", name.Value, err)
+			}
+			baseName, err := p.resolveDeclinedTypeRef(base, verb.Value)
+			if err != nil {
+				return nil, fmt.Errorf("интерфейс %q: %w", name.Value, err)
+			}
+			extends = append(extends, baseName)
+			if p.cur().Type != lexer.COMMA {
+				break
+			}
+			p.advance() // ","
+		}
+	}
+
 	p.skipNewlines()
 	if _, err := p.expect(lexer.LBRACE); err != nil {
 		return nil, err
@@ -36,7 +62,7 @@ func (p *Parser) parseInterfaceDecl() (*ast.InterfaceDecl, error) {
 	if _, err := p.expect(lexer.RBRACE); err != nil {
 		return nil, err
 	}
-	return &ast.InterfaceDecl{Name: name.Value, Methods: methods, Line: kw.Line}, nil
+	return &ast.InterfaceDecl{Name: name.Value, Extends: extends, Methods: methods, Line: kw.Line}, nil
 }
 
 // parseInterfaceMethod разбирает одну сигнатуру метода внутри "интерфейс" -

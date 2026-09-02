@@ -221,7 +221,7 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 	}
 	if sig.HasCtor {
 		if e.FieldNames != nil {
-			return nil, fmt.Errorf("строка %d: у сущности %q явный конструктор - именованная форма (поле: значение) недоступна, аргументы передаются позиционно, по объявлению конструктора", e.Line, e.Type)
+			return analyzeNewExprCtorNamed(sc, e, sig)
 		}
 		if len(e.Args) != len(sig.CtorParams) {
 			return nil, fmt.Errorf("строка %d: конструктор %q ожидает аргументов: %d, передано: %d", e.Line, e.Type, len(sig.CtorParams), len(e.Args))
@@ -232,12 +232,28 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 			if err != nil {
 				return nil, err
 			}
-			if typ := ir.TypeOf(arg); !isAssignable(sc.entities, typ, sig.CtorParams[i]) {
+			if typ := ir.TypeOf(arg); !isAssignable(sc.entities, sc.interfaces, typ, sig.CtorParams[i]) {
 				return nil, fmt.Errorf("строка %d: аргумент %d конструктора %q должен быть типа %s, получен %s", e.Line, i+1, e.Type, sig.CtorParams[i], typ)
 			}
 			args[i] = arg
 		}
 		return &ir.NewExpr{Entity: e.Type, Args: args}, nil
+	}
+	if !sig.IsStruct {
+		// Сущность/класс без явного конструктора - только "новый Тип()", без
+		// аргументов (docs/SPEC.md, "Явные конструкторы"): неявный
+		// конструктор "как в нормальных языках" ничего не знает про поля -
+		// они получают значения по умолчанию ("имеет: поле: Тип = выражение")
+		// либо зануляются GC_MALLOC'ом (тот же путь, что и необъявленные в
+		// теле явного конструктора поля, см. generateIREntityCtorInit).
+		// Полю без значения по умолчанию, которое обязательно нужно
+		// задать при создании - ровно тот случай, ради которого стоит
+		// написать явный "конструктор(...)".
+		if len(e.Args) > 0 || e.FieldNames != nil {
+			return nil, fmt.Errorf("строка %d: у сущности %q нет явного конструктора - объявите \"конструктор(...)\" в её теле, либо создайте без аргументов (\"новый %s()\"), поля получат значения по умолчанию",
+				e.Line, e.Type, e.Type)
+		}
+		return &ir.NewExpr{Entity: e.Type}, nil
 	}
 	args := make([]ir.Expr, len(sig.FieldNames))
 	if e.FieldNames != nil {
@@ -258,7 +274,7 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 			if err != nil {
 				return nil, err
 			}
-			if typ := ir.TypeOf(arg); !isAssignable(sc.entities, typ, sig.FieldTypes[idx]) {
+			if typ := ir.TypeOf(arg); !isAssignable(sc.entities, sc.interfaces, typ, sig.FieldTypes[idx]) {
 				return nil, fmt.Errorf("строка %d: поле %q сущности %q должно быть типа %s, получено %s", e.Line, label, e.Type, sig.FieldTypes[idx], typ)
 			}
 			args[idx] = arg
@@ -286,7 +302,7 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		if typ := ir.TypeOf(arg); !isAssignable(sc.entities, typ, sig.FieldTypes[i]) {
+		if typ := ir.TypeOf(arg); !isAssignable(sc.entities, sc.interfaces, typ, sig.FieldTypes[i]) {
 			return nil, fmt.Errorf("строка %d: аргумент %d конструктора %q должен быть типа %s, получен %s", e.Line, i+1, e.Type, sig.FieldTypes[i], typ)
 		}
 		args[i] = arg
@@ -300,6 +316,46 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 			return nil, err
 		}
 		args[i] = val
+	}
+	return &ir.NewExpr{Entity: e.Type, Args: args}, nil
+}
+
+// analyzeNewExprCtorNamed разбирает именованную форму "новый Тип(параметр:
+// значение, ...)" у сущности с явным конструктором - по именам ПАРАМЕТРОВ
+// конструктора (sig.CtorParamNames), не полей (они не обязаны совпадать, см.
+// package doc entitySig.HasCtor). В отличие от именованной формы у "новый"
+// без конструктора (заполняет позиционные args ниже analyzeNewExpr), здесь
+// ВСЕ параметры обязательны - у параметра, в отличие от поля, нет
+// собственного значения по умолчанию, пропускать нечем.
+func analyzeNewExprCtorNamed(sc *ctx, e *ast.NewExpr, sig entitySig) (ir.Expr, error) {
+	if len(e.FieldNames) != len(sig.CtorParamNames) {
+		return nil, fmt.Errorf("строка %d: конструктор %q ожидает аргументов: %d, передано: %d", e.Line, e.Type, len(sig.CtorParamNames), len(e.FieldNames))
+	}
+	args := make([]ir.Expr, len(sig.CtorParamNames))
+	seen := make([]bool, len(sig.CtorParamNames))
+	for i, label := range e.FieldNames {
+		idx := -1
+		for j, name := range sig.CtorParamNames {
+			if name == label {
+				idx = j
+				break
+			}
+		}
+		if idx == -1 {
+			return nil, fmt.Errorf("строка %d: у конструктора %q нет параметра %q", e.Line, e.Type, label)
+		}
+		if seen[idx] {
+			return nil, fmt.Errorf("строка %d: параметр %q конструктора %q указан более одного раза", e.Line, label, e.Type)
+		}
+		seen[idx] = true
+		arg, err := coerceExpr(sc, e.Args[i], sig.CtorParams[idx])
+		if err != nil {
+			return nil, err
+		}
+		if typ := ir.TypeOf(arg); !isAssignable(sc.entities, sc.interfaces, typ, sig.CtorParams[idx]) {
+			return nil, fmt.Errorf("строка %d: параметр %q конструктора %q должен быть типа %s, получен %s", e.Line, label, e.Type, sig.CtorParams[idx], typ)
+		}
+		args[idx] = arg
 	}
 	return &ir.NewExpr{Entity: e.Type, Args: args}, nil
 }
@@ -465,7 +521,7 @@ func analyzeCallValueExpr(sc *ctx, value ir.Expr, e *ast.CallExpr) (*ir.CallValu
 		if err != nil {
 			return nil, err
 		}
-		if t := ir.TypeOf(arg); !isAssignable(sc.entities, t, sig.Params[i]) {
+		if t := ir.TypeOf(arg); !isAssignable(sc.entities, sc.interfaces, t, sig.Params[i]) {
 			return nil, fmt.Errorf("строка %d: аргумент %d вызова %s должен быть типа %s, получен %s", e.Line, i+1, typ, sig.Params[i], t)
 		}
 		args[i] = arg
@@ -510,7 +566,7 @@ func checkCallArgs(sc *ctx, args []ast.Expr, sig funcSig, line int, callee, argL
 		if err != nil {
 			return nil, err
 		}
-		if t := ir.TypeOf(arg); !isAssignable(sc.entities, t, sig.Params[i]) {
+		if t := ir.TypeOf(arg); !isAssignable(sc.entities, sc.interfaces, t, sig.Params[i]) {
 			return nil, fmt.Errorf("строка %d: аргумент %d %s должен быть типа %s, получен %s", line, i+1, argLabel, sig.Params[i], t)
 		}
 		if i < len(sig.ParamStates) && sig.ParamStates[i] != "" {

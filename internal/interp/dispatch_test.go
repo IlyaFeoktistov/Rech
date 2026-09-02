@@ -49,6 +49,12 @@ func TestRunInheritedUnmodifiedMethodCallableOnDerivedInstance(t *testing.T) {
 {
     имеет:
         порода: Строка
+
+    конструктор(имя: Строка, порода: Строка)
+    {
+        этот.имя = имя
+        этот.порода = порода
+    }
 }
 функция главная
 {

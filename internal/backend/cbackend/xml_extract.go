@@ -195,7 +195,17 @@ func (g *xmlExtractorGen) xmlEntityExtractorCode(ent *ir.Entity) string {
 
 	var construct string
 	if g.ctx.entityIsRef(ent.Name) {
-		construct = fmt.Sprintf("return %s(%s);\n", mangleCtor(ent.Name), strings.Join(args, ", "))
+		// rech_new_X() без аргументов - тот же принцип, что и у JSON
+		// (internal/backend/cbackend/json_extract.go, jsonEntityExtractorCode) -
+		// собственный "конструктор(...)" у сущности-цели разбора запрещён
+		// отдельной проверкой, поля присваиваются напрямую.
+		var b strings.Builder
+		fmt.Fprintf(&b, "%s p = %s();\n", retC, mangleCtor(ent.Name))
+		for i, f := range ent.Fields {
+			fmt.Fprintf(&b, "    p->%s = %s;\n", mangleField(f.Name), args[i])
+		}
+		b.WriteString("    return p;\n")
+		construct = b.String()
 	} else {
 		parts := make([]string, len(ent.Fields))
 		for i, f := range ent.Fields {

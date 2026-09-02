@@ -180,7 +180,7 @@ func analyzeNullCoalesceAssignStmt(sc *ctx, s *ast.NullCoalesceAssign) (ir.Stmt,
 	if err != nil {
 		return nil, err
 	}
-	if typ := ir.TypeOf(value); !isAssignable(sc.entities, typ, declared) {
+	if typ := ir.TypeOf(value); !isAssignable(sc.entities, sc.interfaces, typ, declared) {
 		return nil, fmt.Errorf("строка %d: переменной %q типа %s нельзя присвоить значение типа %s", s.Line, s.Name, declared, typ)
 	}
 	return &ir.NullCoalesceAssignStmt{Name: s.Name, Value: value, Line: s.Line}, nil

@@ -221,7 +221,22 @@ func (g *jsonExtractorGen) jsonEntityExtractorCode(ent *ir.Entity) string {
 
 	var construct string
 	if g.ctx.entityIsRef(ent.Name) {
-		construct = fmt.Sprintf("return %s(%s);\n", mangleCtor(ent.Name), strings.Join(args, ", "))
+		// rech_new_X() у сущности-цели разбора всегда без аргументов - её
+		// собственный "конструктор(...)" запрещён отдельной проверкой (см.
+		// jsonCompatible/xmlCompatible, "у сущности есть собственный
+		// конструктор") именно ради того, чтобы разбор мог заполнять поля
+		// напрямую, а не гадать о смысле параметров пользовательского
+		// конструктора - GC_MALLOC уже занулил объект, дальше просто
+		// присваиваем разобранные значения полям одно за другим, тем же
+		// принципом, что и у сущности БЕЗ явного конструктора вообще
+		// (docs/SPEC.md, "Явные конструкторы").
+		var b strings.Builder
+		fmt.Fprintf(&b, "%s p = %s();\n", retC, mangleCtor(ent.Name))
+		for i, f := range ent.Fields {
+			fmt.Fprintf(&b, "    p->%s = %s;\n", mangleField(f.Name), args[i])
+		}
+		b.WriteString("    return p;\n")
+		construct = b.String()
 	} else {
 		parts := make([]string, len(ent.Fields))
 		for i, f := range ent.Fields {

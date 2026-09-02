@@ -136,7 +136,7 @@ func analyzeDerefAssignStmt(sc *ctx, s *ast.DerefAssignStmt) (ir.Stmt, error) {
 	if err != nil {
 		return nil, err
 	}
-	if vt := ir.TypeOf(value); !isAssignable(sc.entities, vt, inner) {
+	if vt := ir.TypeOf(value); !isAssignable(sc.entities, sc.interfaces, vt, inner) {
 		return nil, fmt.Errorf("строка %d: через указатель на %s нельзя записать значение типа %s", s.Line, inner, vt)
 	}
 	return &ir.DerefAssignStmt{Pointer: pointer, Value: value, Line: s.Line}, nil

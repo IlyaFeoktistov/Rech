@@ -18,6 +18,11 @@ func TestAnalyzeVerbFamilyRevokesStateOnCall(t *testing.T) {
     имеет:
         имя: Строка
 
+    конструктор(имя: Строка)
+    {
+        этот.имя = имя
+    }
+
     войти(): Пользователь
     {
         этот становится вошедшим
@@ -57,6 +62,11 @@ func TestAnalyzeVerbFamilyAllowsUseBeforeOppositeCalled(t *testing.T) {
 
     имеет:
         имя: Строка
+
+    конструктор(имя: Строка)
+    {
+        этот.имя = имя
+    }
 
     войти(): Пользователь
     {

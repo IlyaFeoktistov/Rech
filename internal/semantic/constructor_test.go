@@ -41,7 +41,44 @@ func TestAnalyzeExplicitConstructorPositionalCall(t *testing.T) {
 	}
 }
 
-func TestAnalyzeExplicitConstructorRejectsNamedFieldForm(t *testing.T) {
+// TestAnalyzeExplicitConstructorNamedFormByParamName - именованная форма у
+// явного конструктора сопоставляет по ИМЕНАМ ЕГО ПАРАМЕТРОВ (не полей -
+// они не обязаны совпадать, см. package doc entitySig.HasCtor), любой
+// порядок, но обязательны все параметры.
+func TestAnalyzeExplicitConstructorNamedFormByParamName(t *testing.T) {
+	irProg := parseProgram(t, `
+сущность Точка
+{
+    имеет:
+        x: Целое
+        y: Целое
+
+    конструктор(x: Целое, y: Целое)
+    {
+        этот.x = x
+        этот.y = y
+    }
+}
+функция главная
+{
+    переменная точка = новая Точка(y: 4, x: 3)
+    вывести точка.x
+}
+`)
+	var точка *ir.Entity
+	for _, ent := range irProg.Entities {
+		if ent.Name == "Точка" {
+			точка = ent
+		}
+	}
+	if точка == nil || точка.Ctor == nil {
+		t.Fatalf("ожидался ir.Entity.Ctor у сущности с явным конструктором")
+	}
+}
+
+// TestAnalyzeExplicitConstructorNamedFormUnknownParamFails - именованная
+// форма ссылается на имя, которого нет среди параметров конструктора.
+func TestAnalyzeExplicitConstructorNamedFormUnknownParamFails(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 сущность Точка
 {
@@ -55,11 +92,38 @@ func TestAnalyzeExplicitConstructorRejectsNamedFieldForm(t *testing.T) {
 }
 функция главная
 {
+    переменная точка = новая Точка(y: 3)
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "нет параметра") {
+		t.Fatalf("ожидалась ошибка про отсутствующий параметр конструктора, получено: %v", err)
+	}
+}
+
+// TestAnalyzeExplicitConstructorNamedFormMissingParamFails - именованная
+// форма обязана указать ВСЕ параметры конструктора (в отличие от полей у
+// "новый" без конструктора, у параметра нет своего значения по умолчанию).
+func TestAnalyzeExplicitConstructorNamedFormMissingParamFails(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+сущность Точка
+{
+    имеет:
+        x: Целое
+        y: Целое
+
+    конструктор(x: Целое, y: Целое)
+    {
+        этот.x = x
+        этот.y = y
+    }
+}
+функция главная
+{
     переменная точка = новая Точка(x: 3)
 }
 `)
-	if err == nil || !strings.Contains(err.Error(), "именованная форма") {
-		t.Fatalf("ожидалась ошибка про недоступность именованной формы, получено: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "ожидает аргументов") {
+		t.Fatalf("ожидалась ошибка о числе аргументов конструктора, получено: %v", err)
 	}
 }
 
@@ -218,9 +282,51 @@ func TestAnalyzeParentCallWithoutBaseNameFails(t *testing.T) {
 
 // TestAnalyzeEntityWithoutOwnCtorDoesNotInheritBaseCtor - HasCtor/CtorParams
 // не наследуются: у наследника без своего "конструктор" ir.Entity.Ctor -
-// nil, даже если у базы он есть (см. package doc entitySig.HasCtor).
+// синтетический ПУСТОЙ (0 параметров, см. package doc analyzeEntity в
+// analyzer.go), не конструктор базы, даже если у неё он есть (см. package
+// doc entitySig.HasCtor) - "новый Гость(...)" с аргументами поэтому
+// недоступен, только "новый Гость()".
 func TestAnalyzeEntityWithoutOwnCtorDoesNotInheritBaseCtor(t *testing.T) {
 	irProg := parseProgram(t, `
+сущность Пользователь
+{
+    имеет:
+        имя: Строка
+
+    конструктор(имя: Строка)
+    {
+        этот.имя = имя
+    }
+}
+сущность Гость наследует Пользователя
+{
+    имеет:
+        код: Целое
+}
+функция главная
+{
+    переменная гость = новый Гость()
+}
+`)
+	var гость *ir.Entity
+	for _, ent := range irProg.Entities {
+		if ent.Name == "Гость" {
+			гость = ent
+		}
+	}
+	if гость == nil {
+		t.Fatalf("сущность Гость не найдена")
+	}
+	if гость.Ctor == nil || len(гость.Ctor.Params) != 0 {
+		t.Fatalf("ожидался синтетический пустой Ctor у наследника без собственного \"конструктор\", получено %+v", гость.Ctor)
+	}
+}
+
+// TestAnalyzeEntityWithoutOwnCtorRejectsArgs - "новый Гость(...)" с
+// аргументами недоступен без собственного "конструктор", даже если у базы
+// он есть (см. TestAnalyzeEntityWithoutOwnCtorDoesNotInheritBaseCtor выше).
+func TestAnalyzeEntityWithoutOwnCtorRejectsArgs(t *testing.T) {
+	_, err := AnalyzeSource(t, `
 сущность Пользователь
 {
     имеет:
@@ -241,16 +347,7 @@ func TestAnalyzeEntityWithoutOwnCtorDoesNotInheritBaseCtor(t *testing.T) {
     переменная гость = новый Гость("аноним", 7)
 }
 `)
-	var гость *ir.Entity
-	for _, ent := range irProg.Entities {
-		if ent.Name == "Гость" {
-			гость = ent
-		}
-	}
-	if гость == nil {
-		t.Fatalf("сущность Гость не найдена")
-	}
-	if гость.Ctor != nil {
-		t.Fatalf("ожидался nil Ctor у наследника без собственного \"конструктор\", получено %+v", гость.Ctor)
+	if err == nil || !strings.Contains(err.Error(), "нет явного конструктора") {
+		t.Fatalf("ожидалась ошибка про отсутствие явного конструктора, получено: %v", err)
 	}
 }

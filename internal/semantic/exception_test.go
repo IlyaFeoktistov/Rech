@@ -11,6 +11,10 @@ func TestAnalyzeThrowCatchSingleTypeBindsExactCatchVarType(t *testing.T) {
 	prog := parseProgram(t, `
 сущность ОшибкаДеления наследует Исключение
 {
+    конструктор(сообщение: Строка)
+    {
+        родитель(сообщение)
+    }
 }
 функция главная
 {
@@ -32,9 +36,17 @@ func TestAnalyzeThrowCatchUnionTypeBindsSystemExceptionEntity(t *testing.T) {
 	prog := parseProgram(t, `
 сущность ОшибкаВвода наследует Исключение
 {
+    конструктор(сообщение: Строка)
+    {
+        родитель(сообщение)
+    }
 }
 сущность ОшибкаВывода наследует Исключение
 {
+    конструктор(сообщение: Строка)
+    {
+        родитель(сообщение)
+    }
 }
 функция главная
 {
@@ -57,11 +69,11 @@ func TestAnalyzeThrowRejectsNonExceptionType(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
+        x: Целое = 0
 }
 функция главная
 {
-    выбросить новая Точка(1)
+    выбросить новая Точка()
 }
 `)
 	if err == nil || !strings.Contains(err.Error(), "выбросить") {
@@ -74,7 +86,7 @@ func TestAnalyzeCatchRejectsNonExceptionType(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
+        x: Целое = 0
 }
 функция главная
 {
@@ -110,6 +122,10 @@ func TestAnalyzeIsExprBetweenRelatedEntities(t *testing.T) {
 	prog := parseProgram(t, `
 сущность ОшибкаДеления наследует Исключение
 {
+    конструктор(сообщение: Строка)
+    {
+        родитель(сообщение)
+    }
 }
 функция главная
 {
@@ -139,11 +155,11 @@ func TestAnalyzeIsExprRejectsUnrelatedTypes(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
+        x: Целое = 0
 }
 функция главная
 {
-    переменная т = новая Точка(1)
+    переменная т = новая Точка()
     если т относится к Исключение {
         вывести "да"
     }

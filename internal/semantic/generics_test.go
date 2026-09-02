@@ -14,6 +14,11 @@ func TestAnalyzeGenericEntityInstantiation(t *testing.T) {
     имеет:
         содержимое: T
 
+    конструктор(содержимое: T)
+    {
+        этот.содержимое = содержимое
+    }
+
     получить(): T
     {
         вернуть этот.содержимое
@@ -73,6 +78,12 @@ func TestAnalyzeGenericMultipleParamsAndNesting(t *testing.T) {
     имеет:
         первый: A
         второй: Б
+
+    конструктор(первый: A, второй: Б)
+    {
+        этот.первый = первый
+        этот.второй = второй
+    }
 }
 функция главная
 {
@@ -194,6 +205,11 @@ func TestAnalyzeGenericFieldTypeMismatchStillCaught(t *testing.T) {
 {
     имеет:
         содержимое: T
+
+    конструктор(содержимое: T)
+    {
+        этот.содержимое = содержимое
+    }
 }
 функция главная
 {

@@ -707,7 +707,7 @@ func (a *Analyzer) checkGenericConstraints(entities map[string]entitySig, method
 			if err != nil {
 				return fmt.Errorf("строка %d: %q: параметр типа %q: ограничение %q: %w", c.Line, name, c.ParamName, constraint, err)
 			}
-			if isAssignable(entities, argType, constraintType) {
+			if isAssignable(entities, a.interfaces, argType, constraintType) {
 				satisfied = true
 				break
 			}

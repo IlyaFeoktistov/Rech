@@ -95,17 +95,15 @@ func TestRunParentCallStmtRunsBaseConstructorOnSameObject(t *testing.T) {
 	}
 }
 
-// TestRunEntityWithoutOwnConstructorKeepsImplicitForm - у наследника без
-// СВОЕГО "конструктор" - "новый" остаётся неявным позиционным
-// присваиванием всех полей (включая унаследованные), даже если у базовой
-// сущности есть явный конструктор - см. package doc entitySig.HasCtor.
-// TestRunImplicitConstructorOmitsTrailingDefaultField - без явного
-// "конструктор" поле со значением по умолчанию ("имеет: y: Целое = 0")
-// можно пропустить в позиционном "новый Тип(...)" - тем самым оно
-// становится последним, необязательным.
+// TestRunImplicitConstructorOmitsTrailingDefaultField - позиционная форма
+// "новый Тип(...)" с пропуском поля со значением по умолчанию доступна
+// только у "структура" - у "сущность"/"класс" без явного конструктора
+// допустим только "новый Тип()" без аргументов вовсе (docs/SPEC.md,
+// "Явные конструкторы") - см. TestRunEntityWithoutOwnConstructorRejectsArgs
+// ниже.
 func TestRunImplicitConstructorOmitsTrailingDefaultField(t *testing.T) {
 	got := runSrc(t, `
-сущность Точка
+структура Точка
 {
     имеет:
         x: Целое
@@ -127,10 +125,11 @@ func TestRunImplicitConstructorOmitsTrailingDefaultField(t *testing.T) {
 }
 
 // TestRunImplicitConstructorNamedFormOmitsDefaultField - та же гарантия, но
-// в именованной форме "новый Тип(поле: значение)".
+// в именованной форме "новый Тип(поле: значение)" - тоже только у "структура"
+// (см. TestRunImplicitConstructorOmitsTrailingDefaultField выше).
 func TestRunImplicitConstructorNamedFormOmitsDefaultField(t *testing.T) {
 	got := runSrc(t, `
-сущность Пользователь
+структура Пользователь
 {
     имеет:
         имя: Строка
@@ -177,12 +176,19 @@ func TestRunExplicitConstructorFieldStartsAtDefaultBeforeBody(t *testing.T) {
 	}
 }
 
+// TestRunEntityWithoutOwnConstructorKeepsImplicitForm - у наследника без
+// СВОЕГО "конструктор" - "новый" получает синтетический пустой конструктор
+// (0 параметров, см. package doc analyzeEntity в internal/semantic/
+// analyzer.go), даже если у базовой сущности есть явный конструктор - "как
+// в нормальных языках" (docs/SPEC.md, "Явные конструкторы"), не наследует
+// конструктор базы (см. package doc entitySig.HasCtor). Поля (свои и
+// унаследованные) получают значения по умолчанию/зануляются.
 func TestRunEntityWithoutOwnConstructorKeepsImplicitForm(t *testing.T) {
 	got := runSrc(t, `
 сущность Пользователь
 {
     имеет:
-        имя: Строка
+        имя: Строка = "неизвестно"
 
     конструктор(имя: Строка)
     {
@@ -196,12 +202,12 @@ func TestRunEntityWithoutOwnConstructorKeepsImplicitForm(t *testing.T) {
 }
 функция главная
 {
-    переменная гость = новый Гость("аноним", 7)
+    переменная гость = новый Гость()
     вывести гость.имя
     вывести гость.код
 }
 `)
-	if got != "аноним\n7\n" {
-		t.Fatalf("ожидалась неявная позиционная форма для наследника без своего конструктора, получили %q", got)
+	if got != "неизвестно\n0\n" {
+		t.Fatalf("ожидался синтетический пустой конструктор для наследника без своего конструктора, получили %q", got)
 	}
 }

@@ -42,6 +42,10 @@ func TestRunUncaughtExceptionInTaskRethrownAtAwaitAndCatchable(t *testing.T) {
 	out := runSrc(t, `
 сущность ОшибкаВвода наследует Исключение
 {
+    конструктор(сообщение: Строка)
+    {
+        родитель(сообщение)
+    }
 }
 функция сломать()
 {

@@ -64,6 +64,12 @@ func TestAnalyzeSelfReturnInheritedMethodResolvesToDerivedEntityAtCallSite(t *te
     имеет:
         доп_поле: Целое
 
+    конструктор(имя_поле: Строка, доп_поле: Целое)
+    {
+        этот.имя_поле = имя_поле
+        этот.доп_поле = доп_поле
+    }
+
     задать_доп(значение: Целое): этот
     {
         этот.доп_поле = значение
@@ -120,6 +126,11 @@ func TestAnalyzeSelfReturnInterfaceMethodResolvesToInterfaceType(t *testing.T) {
 {
     имеет:
         имя_поле: Строка
+
+    конструктор(имя_поле: Строка)
+    {
+        этот.имя_поле = имя_поле
+    }
 
     задать_имя(значение: Строка): этот
     {

@@ -14,6 +14,12 @@ func TestDebuggerEvaluateLocalsAndFields(t *testing.T) {
     имеет:
         x: Целое
         y: Целое
+
+    конструктор(x: Целое, y: Целое)
+    {
+        этот.x = x
+        этот.y = y
+    }
 }
 
 функция главная
@@ -27,7 +33,7 @@ func TestDebuggerEvaluateLocalsAndFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDebugger: %v", err)
 	}
-	d.SetBreakpoints(debugTestFile, []int{13})
+	d.SetBreakpoints(debugTestFile, []int{19})
 	d.Start(false)
 	waitStopped(t, d, 1, 2*time.Second)
 	frames := d.StackTrace(1)
@@ -71,6 +77,11 @@ func TestDebuggerEvaluateMethodCall(t *testing.T) {
     имеет:
         значение: Целое
 
+    конструктор(значение: Целое)
+    {
+        этот.значение = значение
+    }
+
     удвоить(): Целое
     {
         вернуть этот.значение * 2
@@ -87,7 +98,7 @@ func TestDebuggerEvaluateMethodCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDebugger: %v", err)
 	}
-	d.SetBreakpoints(debugTestFile, []int{16})
+	d.SetBreakpoints(debugTestFile, []int{21})
 	d.Start(false)
 	waitStopped(t, d, 1, 2*time.Second)
 	frames := d.StackTrace(1)

@@ -66,8 +66,9 @@ func (a *Analyzer) applyInheritance(entities map[string]entitySig, methods map[s
 			OwnInterfaces:     ent.Interfaces,
 			// HasCtor/CtorParams - НЕ из baseSig: собственный конструктор
 			// каждой сущности независим, см. package doc entitySig.
-			HasCtor:    ownSig.HasCtor,
-			CtorParams: ownSig.CtorParams,
+			HasCtor:        ownSig.HasCtor,
+			CtorParams:     ownSig.CtorParams,
+			CtorParamNames: ownSig.CtorParamNames,
 		}
 
 		baseMethods := methods[ent.BaseName]
@@ -108,15 +109,22 @@ func (a *Analyzer) applyInheritance(entities map[string]entitySig, methods map[s
 // явного каста - оба они про ссылочные сущности/интерфейсы, не про
 // примитивы (числовая промоция - отдельный механизм,
 // generateIRArithmetic/analyzeArithmetic, isAssignable её не подменяет).
-func isAssignable(entities map[string]entitySig, from, to ir.Type) bool {
+func isAssignable(entities map[string]entitySig, interfaces map[string]interfaceSig, from, to ir.Type) bool {
 	if from == to {
 		return true
 	}
 	if to.Kind == ir.KindInterface && from.Kind == ir.KindEntity {
-		return entitySatisfies(entities, from.Entity, to.Entity)
+		return entitySatisfies(entities, interfaces, from.Entity, to.Entity)
 	}
 	if to.Kind == ir.KindEntity && from.Kind == ir.KindEntity {
 		return entityIsOrExtends(entities, from.Entity, to.Entity)
+	}
+	// Интерфейсное значение более узкого интерфейса (from) - там, где
+	// ожидается более общий (to), которому from соответствует через
+	// "наследует" - тот же принцип, что и у сущности выше, но между двумя
+	// уже интерфейсными статическими типами (не через конкретную сущность).
+	if to.Kind == ir.KindInterface && from.Kind == ir.KindInterface {
+		return interfaceIsOrExtends(interfaces, from.Entity, to.Entity)
 	}
 	return false
 }

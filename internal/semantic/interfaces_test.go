@@ -131,6 +131,11 @@ func TestAnalyzeInterfaceTypeInField(t *testing.T) {
 {
     имеет:
         обитатель: Звучащий
+
+    конструктор(обитатель: Звучащий)
+    {
+        этот.обитатель = обитатель
+    }
 }
 функция главная
 {
@@ -147,5 +152,119 @@ func TestAnalyzeInterfaceTypeInField(t *testing.T) {
 	}
 	if клетка == nil || len(клетка.Fields) != 1 || клетка.Fields[0].Type.Kind != ir.KindInterface {
 		t.Fatalf("ожидалось поле \"обитатель\" интерфейсного типа, получено %+v", клетка)
+	}
+}
+
+// TestAnalyzeInterfaceExtendsFlattensMethodsIntoIR - "интерфейс Б наследует
+// А" - методы А становятся частью ir.Interface Б тоже (сплющивание, см.
+// package doc collectInterfaces/interfaceSig.IRMethods).
+func TestAnalyzeInterfaceExtendsFlattensMethodsIntoIR(t *testing.T) {
+	irProg := parseProgram(t, `
+интерфейс Именуемый
+{
+    имя(): Строка
+}
+интерфейс Звучащий наследует Именуемый
+{
+    издать_звук(): Строка
+}
+сущность Кошка реализует Звучащий
+{
+    имя(): Строка
+    {
+        вернуть "Мурка"
+    }
+    издать_звук(): Строка
+    {
+        вернуть "мяу"
+    }
+}
+функция главная
+{
+    переменная кошка = новая Кошка()
+    вывести кошка.имя()
+}
+`)
+	var звучащий *ir.Interface
+	for _, iface := range irProg.Interfaces {
+		if iface.Name == "Звучащий" {
+			звучащий = iface
+		}
+	}
+	if звучащий == nil {
+		t.Fatal("интерфейс \"Звучащий\" не найден в IR")
+	}
+	names := map[string]bool{}
+	for _, m := range звучащий.Methods {
+		names[m.Name] = true
+	}
+	if !names["имя"] || !names["издать_звук"] {
+		t.Fatalf("ожидались оба метода (свой + унаследованный) у \"Звучащий\", получено %+v", звучащий.Methods)
+	}
+}
+
+// TestAnalyzeInterfaceExtendsRequiresInheritedMethodImplemented - сущность,
+// реализующая производный интерфейс, обязана реализовать и унаследованный
+// метод, не только собственный метод производного интерфейса.
+func TestAnalyzeInterfaceExtendsRequiresInheritedMethodImplemented(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+интерфейс Именуемый
+{
+    имя(): Строка
+}
+интерфейс Звучащий наследует Именуемый
+{
+    издать_звук(): Строка
+}
+сущность Кошка реализует Звучащий
+{
+    издать_звук(): Строка
+    {
+        вернуть "мяу"
+    }
+}
+функция главная { переменная кот = новая Кошка() }
+`)
+	if err == nil || !strings.Contains(err.Error(), "не реализует метод \"имя\"") {
+		t.Fatalf("ожидалась ошибка про нереализованный унаследованный метод \"имя\", получено: %v", err)
+	}
+}
+
+// TestAnalyzeInterfaceExtendsSatisfiesBaseInterface - сущность,
+// реализующая производный интерфейс, удовлетворяет и базовому - значение
+// присваивается параметру, типизированному базовым интерфейсом, без каста.
+func TestAnalyzeInterfaceExtendsSatisfiesBaseInterface(t *testing.T) {
+	irProg := parseProgram(t, `
+интерфейс Именуемый
+{
+    имя(): Строка
+}
+интерфейс Звучащий наследует Именуемый
+{
+    издать_звук(): Строка
+}
+сущность Кошка реализует Звучащий
+{
+    имя(): Строка
+    {
+        вернуть "Мурка"
+    }
+    издать_звук(): Строка
+    {
+        вернуть "мяу"
+    }
+}
+функция представить(х: Именуемый): Строка
+{
+    вернуть х.имя()
+}
+функция главная
+{
+    переменная кошка = новая Кошка()
+    вывести представить(кошка)
+}
+`)
+	if len(irProg.Functions) < 1 {
+		t.Fatal("ожидалась хотя бы одна функция в IR")
 	}
 }

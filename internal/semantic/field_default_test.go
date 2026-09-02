@@ -5,9 +5,15 @@ import (
 	"testing"
 )
 
+// Позиционная/именованная формы "новый Тип(...)" с пропуском полей со
+// значением по умолчанию доступны только у "структура" - у "сущность"/
+// "класс" без явного конструктора допустим только "новый Тип()" без
+// аргументов вовсе (docs/SPEC.md, "Явные конструкторы") - см.
+// constructor_test.go, TestAnalyzeEntityWithoutOwnCtorRejectsArgs.
+
 func TestAnalyzeNewExprPositionalOmitsTrailingDefault(t *testing.T) {
 	src := `
-сущность Точка
+структура Точка
 {
     имеет:
         x: Целое
@@ -25,7 +31,7 @@ func TestAnalyzeNewExprPositionalOmitsTrailingDefault(t *testing.T) {
 
 func TestAnalyzeNewExprNamedOmitsDefault(t *testing.T) {
 	src := `
-сущность Точка
+структура Точка
 {
     имеет:
         x: Целое
@@ -42,7 +48,7 @@ func TestAnalyzeNewExprNamedOmitsDefault(t *testing.T) {
 
 func TestAnalyzeNewExprPositionalMissingRequiredIsError(t *testing.T) {
 	src := `
-сущность Точка
+структура Точка
 {
     имеет:
         x: Целое = 0
@@ -61,7 +67,7 @@ func TestAnalyzeNewExprPositionalMissingRequiredIsError(t *testing.T) {
 
 func TestAnalyzeNewExprNamedMissingRequiredIsError(t *testing.T) {
 	src := `
-сущность Точка
+структура Точка
 {
     имеет:
         x: Целое
@@ -115,7 +121,13 @@ func TestAnalyzeFieldDefaultWrongTypeIsError(t *testing.T) {
 	}
 }
 
-func TestAnalyzeInheritedFieldDefaultUsableInPositionalOmission(t *testing.T) {
+// TestAnalyzeInheritedAndOwnFieldDefaultsApplyOnEmptyConstruction - "новый
+// Круг()" без аргументов (без своего "конструктор") - и унаследованное поле
+// без значения по умолчанию зануляется, и своё со значением по умолчанию
+// получает его - оба пути идут через один и тот же синтетический пустой
+// конструктор (см. package doc analyzeEntity в analyzer.go), не через
+// прежнее позиционное заполнение.
+func TestAnalyzeInheritedAndOwnFieldDefaultsApplyOnEmptyConstruction(t *testing.T) {
 	src := `
 сущность Фигура
 {
@@ -129,7 +141,7 @@ func TestAnalyzeInheritedFieldDefaultUsableInPositionalOmission(t *testing.T) {
 }
 функция главная
 {
-    переменная круг = новый Круг(5)
+    переменная круг = новый Круг()
     вывести круг.номер
     вывести круг.радиус
 }

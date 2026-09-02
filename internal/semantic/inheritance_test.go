@@ -23,6 +23,12 @@ func TestAnalyzeEntityInheritsFieldsAndMethods(t *testing.T) {
 {
     имеет:
         порода: Строка
+
+    конструктор(имя: Строка, порода: Строка)
+    {
+        этот.имя = имя
+        этот.порода = порода
+    }
 }
 функция главная
 {
@@ -167,6 +173,12 @@ func TestAnalyzeDerivedValueAssignableToBaseTypedParam(t *testing.T) {
 {
     имеет:
         порода: Строка
+
+    конструктор(имя: Строка, порода: Строка)
+    {
+        этот.имя = имя
+        этот.порода = порода
+    }
 }
 функция представить(а: Животное): Строка
 {
@@ -194,6 +206,11 @@ func TestAnalyzeUnrelatedEntityNotAssignableToBaseTypedParam(t *testing.T) {
 {
     имеет:
         марка: Строка
+
+    конструктор(марка: Строка)
+    {
+        этот.марка = марка
+    }
 }
 функция представить(а: Животное): Строка
 {

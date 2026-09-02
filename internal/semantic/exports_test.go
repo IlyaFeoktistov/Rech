@@ -36,6 +36,11 @@ func TestAnalyzeExportedFunctionWithExportedEntity(t *testing.T) {
 {
     имеет:
         x: Целое
+
+    конструктор(x: Целое)
+    {
+        этот.x = x
+    }
 }
 экспортировать функция новая_точка(x: Целое): Точка
 {
@@ -54,6 +59,11 @@ func TestAnalyzeExportedFunctionWithNonExportedEntityRejected(t *testing.T) {
 {
     имеет:
         x: Целое
+
+    конструктор(x: Целое)
+    {
+        этот.x = x
+    }
 }
 экспортировать функция новая_точка(x: Целое): Точка
 {

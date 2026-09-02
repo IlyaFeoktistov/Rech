@@ -36,6 +36,11 @@ func TestAnalyzeBoxCastAnyValueOK(t *testing.T) {
 {
     имеет:
         x: Целое
+
+    конструктор(x: Целое)
+    {
+        этот.x = x
+    }
 }
 функция главная
 {
