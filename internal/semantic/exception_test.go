@@ -185,8 +185,9 @@ func TestAnalyzeBareSystemExceptionConstructsAndCatches(t *testing.T) {
 	for _, ent := range prog.Entities {
 		if ent.Name == "Исключение" {
 			found = true
-			if len(ent.Fields) != 1 || ent.Fields[0].Name != "сообщение" || ent.Fields[0].Type != ir.TypeString {
-				t.Fatalf("ожидалось единственное поле сообщение:Строка у системной сущности Исключение, получено %+v", ent.Fields)
+			if len(ent.Fields) != 2 || ent.Fields[0].Name != "сообщение" || ent.Fields[0].Type != ir.TypeString ||
+				ent.Fields[1].Name != "код" || ent.Fields[1].Type != ir.NullableType(ir.TypeInt) {
+				t.Fatalf("ожидались поля сообщение:Строка и код:?Целое у системной сущности Исключение, получено %+v", ent.Fields)
 			}
 		}
 	}

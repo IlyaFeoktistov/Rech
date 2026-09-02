@@ -206,9 +206,9 @@ func (in *Interp) evalAstBinary(e *ast.BinaryExpr, env *Env, this *entityObj) (V
 		if l.Type == ir.TypeString && r.Type == ir.TypeString {
 			return stringValue(l.S + r.S), nil
 		}
-		return arithmetic(e.Op, l, r), nil
+		return arithmetic(e.Op, l, r)
 	case "-", "*", "/":
-		return arithmetic(e.Op, l, r), nil
+		return arithmetic(e.Op, l, r)
 	case "==":
 		return boolValue(valuesEqual(l, r)), nil
 	case "!=":

@@ -63,10 +63,7 @@ type xmlRawParser struct {
 }
 
 func (in *Interp) xmlParseFail(msg string) error {
-	return &thrownException{value: Value{
-		Type: ir.EntityType(parseErrorEntity),
-		Obj:  &entityObj{typeName: parseErrorEntity, fields: map[string]Value{"сообщение": stringValue(msg)}},
-	}}
+	return newSystemException(parseErrorEntity, msg)
 }
 
 func (in *Interp) evalXMLParseExpr(e *ir.ParseExpr, src Value) (Value, error) {

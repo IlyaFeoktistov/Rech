@@ -656,6 +656,15 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	appendCodeIf(&sb, ctx.usesArgs, argFuncHelper)
 	appendCodeIf(&sb, ctx.usesCast, castHelpers)
 
+	if ctx.usesIntDiv || ctx.usesUintDiv {
+		// Прототип - ДО intDivHelper/uintDivHelper ниже (они уже вызывают
+		// rech_divzero_throw): определение (divZeroThrowHelperCode) эмитится
+		// сильно позже, вместе с structParseThrowHelperCode (нужны и
+		// rech_throw, и прототип rech_new_<ОшибкаДеленияНаНоль> из
+		// protos, оба готовы только там) - без прототипа здесь был бы
+		// неявный вызов необъявленной функции (ошибка в C99+).
+		sb.WriteString("static void rech_divzero_throw(const char *msg);\n")
+	}
 	appendCodeIf(&sb, ctx.usesIntDiv, intDivHelper)
 	appendCodeIf(&sb, ctx.usesUintDiv, uintDivHelper)
 	appendCodeIf(&sb, ctx.usesConsoleInput, readHelpers)
@@ -759,6 +768,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// rech_struct_throw/rech_throw (exceptionRuntimeCode выше) - общий
 	// для обоих форматов, эмитится один раз.
 	appendCodeIf(&sb, len(prog.ParseTargets) > 0 || len(prog.XMLParseTargets) > 0, structParseThrowHelperCode())
+	appendCodeIf(&sb, ctx.usesIntDiv || ctx.usesUintDiv, divZeroThrowHelperCode())
 
 	err = resolveRuntimeCode(
 		&sb,
@@ -1788,7 +1798,7 @@ func generateIRArithmetic(ctx *irGenCtx, op string, lc string, lt ir.Type, rc st
 			vt := fromIRType(lt)
 			cType := vt.cType(ctx)
 			if op == "/" {
-				ctx.usesPanic = true
+				ctx.usesExceptions = true
 				if signed {
 					ctx.usesIntDiv = true
 					return fmt.Sprintf("((%s)rech_int_div((long long)%s, (long long)%s))", cType, lc, rc), vt, nil
@@ -1809,7 +1819,7 @@ func generateIRArithmetic(ctx *irGenCtx, op string, lc string, lt ir.Type, rc st
 		return fmt.Sprintf("(%s %s %s)", lc, op, rc), typeFloat, nil
 	}
 	if op == "/" {
-		ctx.usesPanic = true
+		ctx.usesExceptions = true
 		ctx.usesIntDiv = true
 		return fmt.Sprintf("rech_int_div(%s, %s)", lc, rc), typeInt, nil
 	}

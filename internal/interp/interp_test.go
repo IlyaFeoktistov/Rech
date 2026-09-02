@@ -66,6 +66,7 @@ func TestRunAllExamplesMatchCompiledOutput(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chdir(origWD) })
 	cases := map[string]string{
 		"исключения/деление.rech":                "деление: \nделение на ноль\nснаружи: \nнет данных\n",
+		"исключения/встроенные.rech":             "поймано: \nделение на ноль\nнедостаточно прав\n403\n",
 		"коллекции/очередь.rech":                 "истина\n3\n1\n1\n2\n1\nложь\n",
 		"параллелизм/задачи.rech":                "2\n4\n6\nпоймано: \nне удалось\n",
 		"обобщённые/коробка.rech":                "5\n1\nтекст\nпривет\nмяу\n",

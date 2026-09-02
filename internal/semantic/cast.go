@@ -20,6 +20,19 @@ var numericRanks = map[ir.Type]int{
 	ir.TypeFloat:   2,
 }
 
+// isIntegerArithmeticType - true для "Целое" и любого фиксированной ширины
+// Целое8/16/32/64/Натуральное/8/16/32/64 (analyzeArithmetic) - целочисленное
+// "/" на этих типах - рантайм-ошибка деления на ноль (в отличие от
+// Дробное/Действительное, где результат "/0" - обычный IEEE 754,
+// исключение не нужно, см. registerDivByZeroException).
+func isIntegerArithmeticType(t ir.Type) bool {
+	if t.Kind == ir.KindInt {
+		return true
+	}
+	_, _, ok := t.Kind.IntWidthSigned()
+	return ok
+}
+
 // orderableTypes - типы, поддерживающие "< > <= >=" (сравнение по величине,
 // не только на равенство) - числа плюс Символ/Байт (у обоих естественный
 // порядок - код точки/значение байта), но не Строка/Логическое.

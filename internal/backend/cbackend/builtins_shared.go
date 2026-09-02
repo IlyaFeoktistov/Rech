@@ -354,11 +354,13 @@ var panicHelper = fmt.Sprintf(`static void rech_panic(const char *msg) {
 
 // intDivHelper - целочисленное "/" с проверкой делителя на ноль (без него
 // это UB в C - обычно SIGFPE, платформенно-зависимое поведение, а не
-// понятная ошибка) - требует rech_panic (usesPanic ставится вместе с
-// usesIntDiv, см. вызывающий код).
+// понятная ошибка) - выбрасывает перехватываемое "ОшибкаДеленияНаНоль"
+// через rech_divzero_throw (см. divZeroThrowHelperCode, json_extract.go),
+// не rech_panic - usesExceptions ставится вместе с usesIntDiv/usesUintDiv,
+// см. вызывающий код (generateIRArithmetic).
 var intDivHelper = fmt.Sprintf(`static long long rech_int_div(long long a, long long b) {
     if (b == 0) {
-        rech_panic("%s");
+        rech_divzero_throw("%s");
     }
     return a / b;
 }
@@ -370,7 +372,7 @@ var intDivHelper = fmt.Sprintf(`static long long rech_int_div(long long a, long 
 // отрицательное (см. её package doc и generateIRArithmetic).
 var uintDivHelper = fmt.Sprintf(`static uint64_t rech_uint_div(uint64_t a, uint64_t b) {
     if (b == 0) {
-        rech_panic("%s");
+        rech_divzero_throw("%s");
     }
     return a / b;
 }

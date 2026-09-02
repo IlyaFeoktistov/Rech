@@ -63,23 +63,23 @@ func fixedWidthToFloat(k ir.TypeKind, raw int64) float64 {
 // тип, без неявной промоции). "/" беззнаковых - через uint64(...), как и
 // cbackend.rech_uint_div - обычное int64-деление интерпретировало бы
 // Натуральное64 > INT64_MAX как отрицательное и дало бы неверный частное.
-func fixedWidthArithmetic(op string, l, r Value) Value {
+func fixedWidthArithmetic(op string, l, r Value) (Value, error) {
 	k := l.Type.Kind
 	switch op {
 	case "+":
-		return Value{Type: l.Type, I: wrapFixedWidth(k, l.I+r.I)}
+		return Value{Type: l.Type, I: wrapFixedWidth(k, l.I+r.I)}, nil
 	case "-":
-		return Value{Type: l.Type, I: wrapFixedWidth(k, l.I-r.I)}
+		return Value{Type: l.Type, I: wrapFixedWidth(k, l.I-r.I)}, nil
 	case "*":
-		return Value{Type: l.Type, I: wrapFixedWidth(k, l.I*r.I)}
+		return Value{Type: l.Type, I: wrapFixedWidth(k, l.I*r.I)}, nil
 	case "/":
 		if r.I == 0 {
-			panicRuntime("%s", rtmsg.DivisionByZero)
+			return Value{}, newSystemException(divByZeroExceptionEntity, rtmsg.DivisionByZero)
 		}
 		if isUnsignedFixedWidth(k) {
-			return Value{Type: l.Type, I: wrapFixedWidth(k, int64(uint64(l.I)/uint64(r.I)))}
+			return Value{Type: l.Type, I: wrapFixedWidth(k, int64(uint64(l.I)/uint64(r.I)))}, nil
 		}
-		return Value{Type: l.Type, I: wrapFixedWidth(k, l.I/r.I)}
+		return Value{Type: l.Type, I: wrapFixedWidth(k, l.I/r.I)}, nil
 	}
-	return Value{}
+	return Value{}, nil
 }

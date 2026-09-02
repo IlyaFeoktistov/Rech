@@ -48,6 +48,20 @@ func structParseThrowHelperCode() string {
 		mangleCtor(parseErrorEntity), escapeCString(parseErrorEntity))
 }
 
+// divZeroThrowHelperCode - rech_divzero_throw - тот же принцип, что и
+// rech_struct_throw выше, для целочисленного деления на ноль
+// (internal/backend/cbackend/builtins_shared.go, rech_int_div/rech_uint_div):
+// выбрасывает перехватываемое "ОшибкаДеленияНаНоль" через rech_throw, не
+// rech_panic. Определение эмитится ПОСЛЕ exceptionRuntimeCode (нужен
+// rech_throw уже объявленным) - см. divZeroExceptionEntity в
+// internal/semantic/exception.go и прототип в protos (ir_generator.go), без
+// которого rech_int_div/rech_uint_div (эмитятся раньше по файлу) не смогли
+// бы её вызвать.
+func divZeroThrowHelperCode() string {
+	return fmt.Sprintf("static void rech_divzero_throw(const char *msg) {\n    rech_throw(%s(msg), \"%s\");\n}\n\n",
+		mangleCtor(divByZeroExceptionEntity), escapeCString(divByZeroExceptionEntity))
+}
+
 func mangleJSONExtractor(name string) string {
 	return "rech_json_extract_" + transliterate(name)
 }

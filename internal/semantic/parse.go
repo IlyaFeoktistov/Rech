@@ -29,11 +29,12 @@ func registerParseErrorEntity(entities map[string]entitySig) {
 	if _, exists := entities[parseErrorEntity]; exists {
 		return
 	}
+	names, types, vis := systemExceptionSigFields()
 	entities[parseErrorEntity] = entitySig{
 		BaseName:        systemExceptionEntity,
-		FieldNames:      []string{"сообщение"},
-		FieldTypes:      []ir.Type{ir.TypeString},
-		FieldVisibility: []ast.Visibility{ast.Public},
+		FieldNames:      names,
+		FieldTypes:      types,
+		FieldVisibility: vis,
 		// HasCtor/CtorParams - тот же принцип, что и у "Исключение" самой
 		// (analyzer.go, collectEntities) - "новая ОшибкаРазбора(сообщение)"
 		// не должна требовать пустых аргументов, даже если пользователь

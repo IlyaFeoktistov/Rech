@@ -2,10 +2,11 @@ package interp
 
 import "testing"
 
-// TestRunPanicIncludesCallChain - паника рантайма (деление на ноль) внутри
-// цепочки вложенных вызовов - err.Error() несёт стек вызовов от места
-// паники до "главная" (см. package doc internal/interp/trace.go), тот же
-// формат, что и cbackend (rtmsg.TraceHeader/TraceFrameFormat).
+// TestRunPanicIncludesCallChain - необработанное исключение (деление на
+// ноль - ОшибкаДеленияНаНоль, катчable, но здесь не поймано) внутри цепочки
+// вложенных вызовов - err.Error() несёт стек вызовов от места throw до
+// "главная" (см. package doc internal/interp/trace.go), тот же формат, что
+// и cbackend (rtmsg.TraceHeader/TraceFrameFormat).
 func TestRunPanicIncludesCallChain(t *testing.T) {
 	err := runSrcExpectRuntimeError(t, `
 функция внутренняя(число: Целое): Целое
@@ -28,7 +29,7 @@ func TestRunPanicIncludesCallChain(t *testing.T) {
 	if err == nil {
 		t.Fatalf("ожидалась ошибка - деление на ноль")
 	}
-	want := "выполнение прервано: деление на ноль\nстек вызовов:\n  в внутренняя, строка 4\n  в средняя, строка 9\n  в главная, строка 15"
+	want := "выполнение прервано: необработанное исключение ОшибкаДеленияНаНоль: деление на ноль\nстек вызовов:\n  в внутренняя, строка 4\n  в средняя, строка 9\n  в главная, строка 15"
 	if got := err.Error(); got != want {
 		t.Fatalf("неожиданный текст ошибки:\nполучено: %q\nожидалось: %q", got, want)
 	}
@@ -64,7 +65,7 @@ func TestRunPanicIncludesMethodFrame(t *testing.T) {
 	if err == nil {
 		t.Fatalf("ожидалась ошибка - деление на ноль")
 	}
-	want := "выполнение прервано: деление на ноль\nстек вызовов:\n  в Счёт.снять, строка 14\n  в главная, строка 22"
+	want := "выполнение прервано: необработанное исключение ОшибкаДеленияНаНоль: деление на ноль\nстек вызовов:\n  в Счёт.снять, строка 14\n  в главная, строка 22"
 	if got := err.Error(); got != want {
 		t.Fatalf("неожиданный текст ошибки:\nполучено: %q\nожидалось: %q", got, want)
 	}

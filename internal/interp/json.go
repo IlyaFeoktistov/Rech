@@ -21,10 +21,7 @@ import (
 const parseErrorEntity = "ОшибкаРазбора"
 
 func (in *Interp) jsonParseFail(msg string) error {
-	return &thrownException{value: Value{
-		Type: ir.EntityType(parseErrorEntity),
-		Obj:  &entityObj{typeName: parseErrorEntity, fields: map[string]Value{"сообщение": stringValue(msg)}},
-	}}
+	return newSystemException(parseErrorEntity, msg)
 }
 
 func (in *Interp) evalParseExpr(e *ir.ParseExpr, env *Env, cc *callCtx) (Value, error) {

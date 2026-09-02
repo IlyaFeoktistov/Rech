@@ -185,16 +185,30 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 	// resolveTypeName, значит запись обязана существовать здесь заранее,
 	// иначе любой пользовательский наследник, объявленный раньше в файле,
 	// чем гипотетическое "первое упоминание", не нашёл бы её вовсе.
+	// nullableIntType - "?Целое", тип поля "код" ниже - зарегистрирована тем
+	// же путём, что и любое другое "?Тип" встреченное в исходнике
+	// (resolveNullableTypeName, синтезирует entitySig{IsNullable, ElemType}
+	// при первой встрече) - здесь она встречена программно, не через текст
+	// исходника, но регистрация нужна ровно та же (backend читает поле
+	// "код" сущности "Исключение" точно так же, как любое другое nullable-
+	// поле - см. systemExceptionCodeType).
+	nullableIntType, err := resolveNullableTypeName(entities, methods, aliases, a.interfaces, "?Целое")
+	if err != nil {
+		return fmt.Errorf("внутренняя ошибка: %w", err)
+	}
 	entities["Исключение"] = entitySig{
-		FieldNames:      []string{"сообщение"},
-		FieldTypes:      []ir.Type{ir.TypeString},
-		FieldVisibility: []ast.Visibility{ast.Public},
+		FieldNames:      []string{"сообщение", "код"},
+		FieldTypes:      []ir.Type{ir.TypeString, nullableIntType},
+		FieldVisibility: []ast.Visibility{ast.Public, ast.Public},
 		// HasCtor/CtorParams - "Исключение" не остаётся без явного
 		// конструктора, как обычная сущность без своего "конструктор(...)"
 		// (docs/SPEC.md, "Явные конструкторы") - "новое Исключение(сообщение)"
 		// должно продолжать работать без объявления пользователем ни
 		// единой строки, тем же принципом, что у `Exception(String message)`
 		// в Java/C# - см. Ctor у ir.Entity "Исключение" ниже (systemExceptionCtor).
+		// "код" не входит в параметры конструктора (по умолчанию "Ничто",
+		// docs/SPEC.md) - присваивается отдельно, полю, уже после создания
+		// (`искл.код = 1`), как и любому другому обычному полю.
 		HasCtor:        true,
 		CtorParams:     []ir.Type{ir.TypeString},
 		CtorParamNames: []string{"сообщение"},
@@ -764,7 +778,7 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 		// "новое Исключение(сообщение)" продолжает работать без единой
 		// строки пользовательского кода, тем же принципом, что и у
 		// `Exception(String message)` в Java/C# - см. systemExceptionCtor.
-		&ir.Entity{Name: "Исключение", Fields: []ir.Field{{Name: "сообщение", Type: ir.TypeString}}, Ctor: systemExceptionCtor()},
+		&ir.Entity{Name: "Исключение", Fields: systemExceptionFields(), Ctor: systemExceptionCtor()},
 	)
 	for _, fn := range prog.Functions {
 		irFn, err := a.analyzeFunction(fn)
@@ -842,12 +856,26 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	if _, ok := a.entities[parseErrorEntity]; ok {
 		out.Entities = append(out.Entities, &ir.Entity{
 			Name: parseErrorEntity, BaseName: systemExceptionEntity,
-			Fields: []ir.Field{{Name: "сообщение", Type: ir.TypeString}},
+			Fields: systemExceptionFields(),
 			// Ctor - тот же принцип, что и у "Исключение" (systemExceptionCtor) -
 			// rech_struct_throw (internal/backend/cbackend/json_extract.go)
 			// вызывает mangleCtor(parseErrorEntity) с одним аргументом
 			// (сообщением) напрямую, минуя "новый" - конструктор обязан
 			// принимать ровно этот один параметр.
+			Ctor: systemExceptionCtor(),
+		})
+	}
+	// "ОшибкаДеленияНаНоль" - тот же принцип лениво-условной регистрации,
+	// что и "ОшибкаРазбора" выше (см. package doc divByZeroExceptionEntity,
+	// registerDivByZeroException).
+	if _, ok := a.entities[divByZeroExceptionEntity]; ok {
+		out.Entities = append(out.Entities, &ir.Entity{
+			Name: divByZeroExceptionEntity, BaseName: systemExceptionEntity,
+			Fields: systemExceptionFields(),
+			// Ctor - тот же принцип, что и у "ОшибкаРазбора" выше -
+			// internal/backend/cbackend/builtins_shared.go (rech_int_div/
+			// rech_uint_div) вызывает mangleCtor(divByZeroExceptionEntity) с
+			// одним аргументом (сообщением) напрямую.
 			Ctor: systemExceptionCtor(),
 		})
 	}

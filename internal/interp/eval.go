@@ -253,9 +253,9 @@ func (in *Interp) evalBinary(e *ir.BinaryExpr, env *Env, cc *callCtx) (Value, er
 		if l.Type == ir.TypeString && r.Type == ir.TypeString {
 			return stringValue(l.S + r.S), nil
 		}
-		return arithmetic(e.Op, l, r), nil
+		return arithmetic(e.Op, l, r)
 	case "-", "*", "/":
-		return arithmetic(e.Op, l, r), nil
+		return arithmetic(e.Op, l, r)
 	case "==":
 		return boolValue(valuesEqual(l, r)), nil
 	case "!=":
@@ -283,31 +283,31 @@ func (in *Interp) evalBinary(e *ir.BinaryExpr, env *Env, cc *callCtx) (Value, er
 // определяет и тип результата, и точность вычисления (float32Value
 // округляет результат Дробное-арифметики до одинарной точности, как C
 // float).
-func arithmetic(op string, l, r Value) Value {
+func arithmetic(op string, l, r Value) (Value, error) {
 	if l.Type == ir.TypeFloat || r.Type == ir.TypeFloat {
 		lf, rf := toFloat(l), toFloat(r)
 		switch op {
 		case "+":
-			return floatValue(lf + rf)
+			return floatValue(lf + rf), nil
 		case "-":
-			return floatValue(lf - rf)
+			return floatValue(lf - rf), nil
 		case "*":
-			return floatValue(lf * rf)
+			return floatValue(lf * rf), nil
 		case "/":
-			return floatValue(lf / rf)
+			return floatValue(lf / rf), nil
 		}
 	}
 	if l.Type == ir.TypeFloat32 || r.Type == ir.TypeFloat32 {
 		lf, rf := toFloat(l), toFloat(r)
 		switch op {
 		case "+":
-			return float32Value(lf + rf)
+			return float32Value(lf + rf), nil
 		case "-":
-			return float32Value(lf - rf)
+			return float32Value(lf - rf), nil
 		case "*":
-			return float32Value(lf * rf)
+			return float32Value(lf * rf), nil
 		case "/":
-			return float32Value(lf / rf)
+			return float32Value(lf / rf), nil
 		}
 	}
 	if l.Type == r.Type && isFixedWidthInt(l.Type.Kind) {
@@ -315,18 +315,18 @@ func arithmetic(op string, l, r Value) Value {
 	}
 	switch op {
 	case "+":
-		return intValue(l.I + r.I)
+		return intValue(l.I + r.I), nil
 	case "-":
-		return intValue(l.I - r.I)
+		return intValue(l.I - r.I), nil
 	case "*":
-		return intValue(l.I * r.I)
+		return intValue(l.I * r.I), nil
 	case "/":
 		if r.I == 0 {
-			panicRuntime("%s", rtmsg.DivisionByZero)
+			return Value{}, newSystemException(divByZeroExceptionEntity, rtmsg.DivisionByZero)
 		}
-		return intValue(l.I / r.I)
+		return intValue(l.I / r.I), nil
 	}
-	return Value{}
+	return Value{}, nil
 }
 
 // toFloat - числовое значение v как float64, независимо от того, в каком

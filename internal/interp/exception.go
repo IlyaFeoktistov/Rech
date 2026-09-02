@@ -25,6 +25,28 @@ type thrownException struct {
 	trace []traceFrame
 }
 
+// divByZeroExceptionEntity - см. internal/semantic/exception.go, тот же
+// принцип общего идентификатора константы, что и parseErrorEntity (json.go).
+const divByZeroExceptionEntity = "ОшибкаДеленияНаНоль"
+
+// newSystemException строит thrownException для системного исключения
+// (typeName - "ОшибкаРазбора"/"ОшибкаДеленияНаНоль"/...), выброшенного
+// напрямую рантаймом интерпретатора, не пользовательским "выбросить" -
+// общий для json.go/xml.go/eval.go (деление на ноль), чтобы поля не
+// расходились: "код" всегда явно "Ничто" (zeroValue нужного nullable-типа),
+// а не отсутствующий ключ map - getField на отсутствующем ключе тоже
+// вернул бы нулевое Value, которое СЛУЧАЙНО читается как "Ничто", но
+// полагаться на это совпадение опаснее, чем задать его явно.
+func newSystemException(entityName, msg string) *thrownException {
+	return &thrownException{value: Value{
+		Type: ir.EntityType(entityName),
+		Obj: &entityObj{typeName: entityName, fields: map[string]Value{
+			"сообщение": stringValue(msg),
+			"код":       zeroValue(ir.NullableType(ir.TypeInt)),
+		}},
+	}}
+}
+
 // Error - текст, который увидит вызывающий код (rech run/rech test), если
 // исключение дошло до самого верха необработанным - см.
 // rtmsg.UncaughtExceptionFormat (тот же формат, что и у cbackend.rech_throw).

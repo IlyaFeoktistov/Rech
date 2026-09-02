@@ -35,6 +35,10 @@ import (
 // принцип общего идентификатора константы, что и entryPointName.
 const systemExceptionEntity = "Исключение"
 
+// divByZeroExceptionEntity - см. internal/semantic/exception.go, тот же
+// принцип, что и systemExceptionEntity выше.
+const divByZeroExceptionEntity = "ОшибкаДеленияНаНоль"
+
 // buildIsaTable строит соответствие "имя типа -> type_id" (rows - только
 // сущности-участники диспетчеризации, т. к. только у них бывают реальные
 // экземпляры; следом, тем же пространством id - интерфейсы, они встречаются
