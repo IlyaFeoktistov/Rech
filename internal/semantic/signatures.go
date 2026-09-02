@@ -84,6 +84,15 @@ type funcSig struct {
 	// flatMethods ни одной записи с IsAbstract == true - см.
 	// internal/semantic/analyzer.go, проверка после applyInheritance.
 	IsAbstract bool
+
+	// IsStatic - только для элементов methods (funcSig как сигнатура
+	// метода): объявлен с модификатором "статический" (ast.MethodDecl.
+	// IsStatic) - вызывается "Тип::метод(...)" (analyzeExpr/
+	// *ast.MethodCallExpr со Static == true), не через получатель-
+	// экземпляр, и не участвует в диспетчеризации/наследовании (тем же
+	// принципом, что и обычная функция, просто зарегистрирован под именем
+	// сущности). Всегда false у элементов funcs.
+	IsStatic bool
 }
 
 // entitySig - сигнатура сущности: поля в порядке объявления (для
@@ -114,6 +123,18 @@ type entitySig struct {
 	// умолчанию. Разрешается в ir.Expr лениво и ровно один раз на весь
 	// Analyze - тем же принципом, что и ConstExprs, см. resolveFieldDefault.
 	FieldDefaultExprs []ast.Expr
+
+	// StaticFieldNames/Types/Visibility/DefaultExprs - поля, объявленные с
+	// модификатором "статический" (ast.Field.IsStatic) - параллельные
+	// массивы, тот же принцип, что и FieldNames/... выше, но отдельные (не
+	// подмешаны в FieldNames): у статического поля нет места в C-структуре
+	// экземпляра, доступ только "Тип::имя" (см. staticFieldIndex,
+	// analyzeExpr/*ast.FieldAccess). DefaultExprs[i] == nil - поле без "="
+	// получает нулевое значение типа (см. resolveStaticFieldDefault).
+	StaticFieldNames        []string
+	StaticFieldTypes        []ir.Type
+	StaticFieldVisibility   []ast.Visibility
+	StaticFieldDefaultExprs []ast.Expr
 
 	// States - для проверки BecomeStmt ("получатель становится
 	// <форма>") - ключ ast.StateDecl.BecomeForm (полная форма,
@@ -247,6 +268,15 @@ func (s entitySig) constIndex(name string) int {
 
 func (s entitySig) fieldIndex(name string) int {
 	for i, n := range s.FieldNames {
+		if n == name {
+			return i
+		}
+	}
+	return -1
+}
+
+func (s entitySig) staticFieldIndex(name string) int {
+	for i, n := range s.StaticFieldNames {
 		if n == name {
 			return i
 		}

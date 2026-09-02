@@ -105,7 +105,13 @@ func (*NewExpr) expr() {}
 type FieldAccess struct {
 	Receiver Expr
 	Field    string
-	Line     int
+	// Static - разобрано через "::" ("Тип::ИМЯ"), а не "." - Receiver
+	// обязан резолвиться в имя типа (сущности/структуры), а не значение, и
+	// Field - обязан быть статическим членом (см. docs/SPEC.md,
+	// "Статические члены"). false - обычное "." (получатель - значение,
+	// поле/константа читается через него как раньше).
+	Static bool
+	Line   int
 }
 
 func (*FieldAccess) node() {}
@@ -131,7 +137,11 @@ type MethodCallExpr struct {
 	Receiver Expr
 	Method   string
 	Args     []Expr
-	Line     int
+	// Static - разобрано через "::" ("Тип::метод(...)") - см. package doc
+	// FieldAccess.Static, тот же смысл, для вызова метода вместо чтения
+	// поля.
+	Static bool
+	Line   int
 }
 
 func (*MethodCallExpr) node() {}

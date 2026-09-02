@@ -145,7 +145,7 @@ func substStmt(s ast.Stmt, subst map[string]string) ast.Stmt {
 	case *ast.ShowStmt:
 		return &ast.ShowStmt{Value: substExpr(s.Value, subst), Line: s.Line}
 	case *ast.VarDecl:
-		return &ast.VarDecl{Name: s.Name, Value: substExpr(s.Value, subst), Line: s.Line}
+		return &ast.VarDecl{Name: s.Name, Type: s.Type, Value: substExpr(s.Value, subst), IsStatic: s.IsStatic, Line: s.Line}
 	case *ast.ConstDecl:
 		return &ast.ConstDecl{Name: s.Name, Value: substExpr(s.Value, subst), Visibility: s.Visibility, Line: s.Line}
 	case *ast.Assign:
@@ -227,9 +227,9 @@ func substExpr(e ast.Expr, subst map[string]string) ast.Expr {
 	case *ast.NewExpr:
 		return &ast.NewExpr{Type: substituteTypeString(e.Type, subst), Args: substExprs(e.Args, subst), FieldNames: e.FieldNames, Line: e.Line}
 	case *ast.FieldAccess:
-		return &ast.FieldAccess{Receiver: substExpr(e.Receiver, subst), Field: e.Field, Line: e.Line}
+		return &ast.FieldAccess{Receiver: substExpr(e.Receiver, subst), Field: e.Field, Static: e.Static, Line: e.Line}
 	case *ast.MethodCallExpr:
-		return &ast.MethodCallExpr{Receiver: substExpr(e.Receiver, subst), Method: e.Method, Args: substExprs(e.Args, subst), Line: e.Line}
+		return &ast.MethodCallExpr{Receiver: substExpr(e.Receiver, subst), Method: e.Method, Args: substExprs(e.Args, subst), Static: e.Static, Line: e.Line}
 	case *ast.BinaryExpr:
 		return &ast.BinaryExpr{Op: e.Op, Left: substExpr(e.Left, subst), Right: substExpr(e.Right, subst), Line: e.Line}
 	case *ast.UnaryExpr:

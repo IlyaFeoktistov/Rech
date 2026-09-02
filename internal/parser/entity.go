@@ -147,6 +147,15 @@ func (p *Parser) parseBecomeStmt() (ast.Stmt, error) {
 // "абстрактная сущность"/"абстрактный класс") - тогда результат несёт
 // IsAbstract == true и Body == nil (docs/SPEC.md, "Абстрактные методы").
 func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
+	isStatic := false
+	if p.cur().Type == lexer.KwStatic {
+		tok := p.advance()
+		if tok.Value != "статический" {
+			return nil, fmt.Errorf("строка %d, столбец %d: у метода модификатор \"статический\" не согласуется по роду (метод - не существительное) - нужна форма \"статический\", получено %q",
+				tok.Line, tok.Col, tok.Value)
+		}
+		isStatic = true
+	}
 	var vis ast.Visibility
 	if isVisibilityKeyword(p.cur().Type) {
 		tok := p.advance()
@@ -194,17 +203,25 @@ func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
 			return nil, fmt.Errorf("строка %d, столбец %d: у метода %q не указано тело - тело может отсутствовать только внутри \"абстрактная сущность\"/\"абстрактный класс\"",
 				p.cur().Line, p.cur().Col, name.Value)
 		}
+		if isStatic {
+			return nil, fmt.Errorf("строка %d, столбец %d: статический метод %q не может быть абстрактным - у него нет получателя, отменять/переопределять через наследование нечего",
+				p.cur().Line, p.cur().Col, name.Value)
+		}
 		return &ast.MethodDecl{Name: name.Value, Params: params, ReturnType: returnType, SelfReturn: selfReturn, IsAbstract: true, Visibility: vis, Line: name.Line, Tag: tag}, nil
 	}
 	p.skipNewlines()
 	prevInMethod := p.inMethodBody
-	p.inMethodBody = true
+	// Статический метод разбирается как обычная функция - inMethodBody
+	// остаётся false, поэтому "этот" внутри его тела грамматически
+	// недопустим, той же проверкой, что и вне метода вообще (у него нет
+	// получателя, см. package doc ast.MethodDecl.IsStatic).
+	p.inMethodBody = !isStatic
 	body, err := p.parseBlock()
 	p.inMethodBody = prevInMethod
 	if err != nil {
 		return nil, err
 	}
-	return &ast.MethodDecl{Name: name.Value, Params: params, ReturnType: returnType, SelfReturn: selfReturn, Body: body, Visibility: vis, Line: name.Line, Tag: tag}, nil
+	return &ast.MethodDecl{Name: name.Value, Params: params, ReturnType: returnType, SelfReturn: selfReturn, Body: body, Visibility: vis, IsStatic: isStatic, Line: name.Line, Tag: tag}, nil
 }
 
 // resolveDeclinedTypeRef разбирает имя после "наследует"/"реализует" -
@@ -333,12 +350,20 @@ func (p *Parser) parseFieldsSection() ([]ast.Field, error) {
 	return fields, nil
 }
 
-// parseField разбирает одно поле, необязательно с модификатором видимости
-// перед именем: "[приватный|публичный|защищённый] имя: Тип". Модификатор
-// согласуется по роду с именем поля тем же принципом, что и "новый"/"новая"
+// parseField разбирает одно поле, необязательно с модификатором "статический"
+// и/или модификатором видимости перед именем: "[статический|статическая|
+// статическое] [приватный|публичный|защищённый] имя: Тип". Оба модификатора
+// согласуются по роду с именем поля тем же принципом, что и "новый"/"новая"
 // у конструктора (см. visibilityKeywordFor/checkVisibilityAgreement) - без
-// модификатора поле публичное (Field.Visibility == ast.Public).
+// модификатора видимости поле публичное (Field.Visibility == ast.Public), без
+// "статический" - обычное поле экземпляра (Field.IsStatic == false, см.
+// package doc ast.Field.IsStatic).
 func (p *Parser) parseField() (ast.Field, error) {
+	var staticTok *lexer.Token
+	if p.cur().Type == lexer.KwStatic {
+		tok := p.advance()
+		staticTok = &tok
+	}
 	var visTok *lexer.Token
 	if isVisibilityKeyword(p.cur().Type) {
 		tok := p.advance()
@@ -347,6 +372,11 @@ func (p *Parser) parseField() (ast.Field, error) {
 	name, err := p.expect(lexer.IDENT)
 	if err != nil {
 		return ast.Field{}, fmt.Errorf("ожидалось имя поля: %w", err)
+	}
+	if staticTok != nil {
+		if err := checkStaticAgreement(*staticTok, name.Value); err != nil {
+			return ast.Field{}, fmt.Errorf("поле %q: %w", name.Value, err)
+		}
 	}
 	var vis ast.Visibility
 	if visTok != nil {
@@ -374,7 +404,38 @@ func (p *Parser) parseField() (ast.Field, error) {
 	if p.cur().Type == lexer.TAG {
 		tag = p.advance().Value
 	}
-	return ast.Field{Name: name.Value, Type: typeName, Visibility: vis, Line: name.Line, Default: def, Tag: tag}, nil
+	return ast.Field{Name: name.Value, Type: typeName, Visibility: vis, IsStatic: staticTok != nil, Line: name.Line, Default: def, Tag: tag}, nil
+}
+
+// staticKeywordFor - форма модификатора "статический", согласованная по
+// роду/числу - тем же принципом, что и visibilityKeywordFor.
+func staticKeywordFor(gender morph.Gender, number morph.Number) string {
+	if number == morph.Plural {
+		return "статические"
+	}
+	switch gender {
+	case morph.Feminine:
+		return "статическая"
+	case morph.Neuter:
+		return "статическое"
+	default:
+		return "статический"
+	}
+}
+
+// checkStaticAgreement - как checkVisibilityAgreement, но для модификатора
+// "статический" перед именем поля.
+func checkStaticAgreement(kw lexer.Token, fieldName string) error {
+	gender, number, ok := morph.NounAgreement(fieldName)
+	if !ok {
+		return nil
+	}
+	want := staticKeywordFor(gender, number)
+	if kw.Value != want {
+		return fmt.Errorf("строка %d, столбец %d: модификатор \"статический\" не согласован по роду с именем поля - требует форму %q, получено %q",
+			kw.Line, kw.Col, want, kw.Value)
+	}
+	return nil
 }
 
 // isVisibilityKeyword - true для любого из трёх модификаторов видимости

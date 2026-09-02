@@ -139,6 +139,31 @@ type MethodCallExpr struct {
 
 func (*MethodCallExpr) expr() {}
 
+// StaticFieldExpr - чтение статического поля сущности ("Тип::поле", см.
+// package doc Entity.StaticFields) - в отличие от FieldAccess нет
+// получателя-значения вообще, Entity - имя типа как оно написано в
+// исходнике (не результат разрешения выражения).
+type StaticFieldExpr struct {
+	Entity string
+	Field  string
+	Type   Type
+}
+
+func (*StaticFieldExpr) expr() {}
+
+// StaticMethodCallExpr - вызов статического метода ("Тип::метод(...)") -
+// как MethodCallExpr, но без Receiver (backend генерирует C-функцию без
+// скрытого "this_", см. package doc Method.IsStatic).
+type StaticMethodCallExpr struct {
+	Entity    string
+	Method    string
+	Args      []Expr
+	Type      Type
+	HasReturn bool
+}
+
+func (*StaticMethodCallExpr) expr() {}
+
 // TypeOf возвращает тип значения выражения e - у литералов известен по
 // самому узлу, у остальных - уже разрешён семантическим анализом и
 // хранится в поле Type (или выводится из Entity/Receiver, как у
@@ -169,6 +194,10 @@ func TypeOf(e Expr) Type {
 	case *ThisExpr:
 		return EntityType(e.Entity)
 	case *MethodCallExpr:
+		return e.Type
+	case *StaticFieldExpr:
+		return e.Type
+	case *StaticMethodCallExpr:
 		return e.Type
 	case *IncDecExpr:
 		return e.Type

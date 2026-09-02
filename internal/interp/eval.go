@@ -84,6 +84,12 @@ func (in *Interp) evalExpr(e ir.Expr, env *Env, cc *callCtx) (Value, error) {
 	case *ir.MethodCallExpr:
 		return in.evalMethodCallExpr(e, env, cc)
 
+	case *ir.StaticFieldExpr:
+		return in.staticFields[e.Entity][e.Field], nil
+
+	case *ir.StaticMethodCallExpr:
+		return in.evalStaticMethodCallExpr(e, env, cc)
+
 	case *ir.FuncRefExpr:
 		return in.evalFuncRefExpr(e)
 
@@ -202,6 +208,9 @@ func (in *Interp) evalIncDec(e *ir.IncDecExpr, env *Env) (Value, error) {
 		updated = intValue(v.I + delta)
 	}
 	env.set(e.Name, updated)
+	if id, ok := env.lookupStaticID(e.Name); ok {
+		in.staticLocals[id] = updated
+	}
 	if e.Prefix {
 		return updated, nil
 	}
@@ -496,6 +505,24 @@ func (in *Interp) evalMethodCallExpr(e *ir.MethodCallExpr, env *Env, cc *callCtx
 		args[i] = v
 	}
 	return in.callMethod(m, recv.Obj, args, cc.dbg)
+}
+
+// evalStaticMethodCallExpr - "Тип::метод(...)" (см. package doc
+// ir.StaticMethodCallExpr).
+func (in *Interp) evalStaticMethodCallExpr(e *ir.StaticMethodCallExpr, env *Env, cc *callCtx) (Value, error) {
+	m := in.findMethod(e.Entity, e.Method)
+	if m == nil {
+		return Value{}, fmt.Errorf("у сущности %q нет статического метода %q", e.Entity, e.Method)
+	}
+	args := make([]Value, len(e.Args))
+	for i, a := range e.Args {
+		v, err := in.evalExpr(a, env, cc)
+		if err != nil {
+			return Value{}, err
+		}
+		args[i] = v
+	}
+	return in.callStaticMethod(m, e.Entity, args, cc.dbg)
 }
 
 // evalCollectionMethod - встроенные методы Список/Стопка/Очередь

@@ -218,7 +218,18 @@ type Entity struct {
 	Interfaces []string
 	Constants  []Constant
 	Fields     []Field
-	Methods    []*Method
+	// StaticFields - поля, объявленные с модификатором "статический"
+	// (ast.Field.IsStatic): одно хранилище на всю сущность сразу, не на
+	// экземпляр - НЕ входит в Fields/C-структуру экземпляра, backend
+	// заводит для каждого отдельную глобальную переменную и инициализирует
+	// её Default РОВНО один раз при старте программы (см.
+	// internal/backend/cbackend/statics.go, internal/interp/statics.go).
+	// Default никогда не nil (поле без "= выражение" получает нулевое
+	// значение типа тем же способом, что и обычное поле без значения по
+	// умолчанию). Доступ - ir.StaticFieldExpr/ir.StaticFieldAssign
+	// ("Тип::имя"), никогда через получатель-экземпляр.
+	StaticFields []Field
+	Methods      []*Method
 	// Ctor - явное тело конструктора этой сущности, nil - нет (у "новый
 	// Тип(...)" остаётся неявное позиционное присваивание Fields один-в-
 	// один - backend решает это сам по Ctor == nil, не по отдельному
@@ -300,6 +311,15 @@ type Method struct {
 	// реализацию дальше по цепочке "наследует" (см. internal/backend/
 	// cbackend/vtable.go, findVtableSlotFunc).
 	IsAbstract bool
+	// IsStatic - объявлен с модификатором "статический" (ast.MethodDecl.
+	// IsStatic) - принадлежит самой сущности, не экземпляру: у него нет
+	// скрытого параметра "this_" (см. package doc Method выше), backend
+	// генерирует его как обычную функцию (cParamListIR, не
+	// cMethodParamListIR), вызывается через ir.StaticMethodCallExpr
+	// ("Тип::метод(...)"), не ir.MethodCallExpr. Не участвует в vtable
+	// (диспетчеризация виртуальна только для методов экземпляра) и не
+	// наследуется/не переопределяется.
+	IsStatic bool
 	// File - файл сущности, объявившей этот метод/конструктор (см.
 	// ast.EntityDecl.File) - НЕ обязательно совпадает с файлом сущности
 	// получателя вызова: неизменённый унаследованный метод несёт файл

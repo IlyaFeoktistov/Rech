@@ -140,6 +140,12 @@ type irGenCtx struct {
 	// сам блок mutexRuntimeCode.
 	usesMutex bool
 
+	// usesStaticInit - хотя бы одно статическое поле сущности/структуры
+	// программы объявлено со значением по умолчанию ("=") - гейтит вызов
+	// rech_init_statics() из main() (см. internal/backend/cbackend/
+	// statics.go, staticFieldsInitCode).
+	usesStaticInit bool
+
 	// funcRefTrampolines/lambdaFuncsEmitted/callableCode - см.
 	// internal/backend/cbackend/callable.go (ensureFuncRefTrampoline/
 	// ensureLambdaFunc) - тот же принцип "накопить один раз, вставить в
@@ -377,6 +383,13 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		}
 	}
 
+	staticDecl := staticFieldsDecl(ctx, prog)
+	staticInit, err := staticFieldsInitCode(ctx, prog)
+	if err != nil {
+		return "", err
+	}
+	ctx.usesStaticInit = staticInit != ""
+
 	// genericsCode - typedef struct + функции для встроенных generic-
 	// коллекций, использованных в программе - переиспользует
 	// listCollectionCCode/stackCollectionCCode/queueCollectionCCode/
@@ -476,6 +489,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 				// Абстрактный метод (нет тела) - вызвать его напрямую по
 				// мангл-имени нельзя, C-функции для него не существует -
 				// см. package doc ir.Method.IsAbstract.
+				continue
+			}
+			if m.IsStatic {
+				fmt.Fprintf(&protos, "%s %s(%s);\n", cReturnTypeFor(ctx, m.HasReturn, m.ReturnType), mangleMethod(ent.Name, m.Name), cParamListIR(ctx, m.Params))
 				continue
 			}
 			fmt.Fprintf(&protos, "%s %s(%s);\n", cReturnTypeFor(ctx, m.HasReturn, m.ReturnType), mangleMethod(ent.Name, m.Name), cMethodParamListIR(ctx, ent.Name, m.Params))
@@ -693,6 +710,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		}
 	}
 	appendCodeIf(&sb, typedefs.Len() > 0, typedefs.String())
+	appendCodeIf(&sb, staticDecl != "", staticDecl)
 	appendCodeIf(&sb, nullablesAfterTypedefs.Len() > 0, nullablesAfterTypedefs.String())
 
 	// После genericsCode (нужен C-typedef/find-функция самой коллекции)
@@ -734,6 +752,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// использует).
 	appendCodeIf(&sb, vtables.Len() > 0, vtables.String())
 	appendCodeIf(&sb, ctors.Len() > 0, ctors.String())
+	appendCodeIf(&sb, staticInit != "", staticInit)
 	// После ctors - функции извлечения ("разобрать JSON"/"разобрать
 	// XML") конструируют целевые сущности через уже сгенерированный
 	// rech_new_<Тип> (mangleCtor) и выбрасывают "ОшибкаРазбора" через
@@ -741,7 +760,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// для обоих форматов, эмитится один раз.
 	appendCodeIf(&sb, len(prog.ParseTargets) > 0 || len(prog.XMLParseTargets) > 0, structParseThrowHelperCode())
 
-	err := resolveRuntimeCode(
+	err = resolveRuntimeCode(
 		&sb,
 		ctx,
 		prog,
@@ -1069,6 +1088,9 @@ func generateIRFunction(ctx *irGenCtx, fn *ir.Function) (string, error) {
 		}
 		sb.WriteString("    rech_init_console();\n")
 		sb.WriteString("    rech_init_args(argc, argv);\n")
+		if ctx.usesStaticInit {
+			sb.WriteString("    rech_init_statics();\n")
+		}
 	}
 	for _, s := range fn.Body {
 		if err := generateIRStmt(&sb, ctx, s, 1); err != nil {
@@ -1090,10 +1112,19 @@ func generateIRFunction(ctx *irGenCtx, fn *ir.Function) (string, error) {
 func generateIRMethod(ctx *irGenCtx, entityName string, m *ir.Method) (string, error) {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "// %s.%s\n", entityName, m.Name)
-	fmt.Fprintf(&sb, "%s %s(%s) {\n", cReturnTypeFor(ctx, m.HasReturn, m.ReturnType), mangleMethod(entityName, m.Name), cMethodParamListIR(ctx, entityName, m.Params))
+	paramList := cMethodParamListIR(ctx, entityName, m.Params)
+	if m.IsStatic {
+		// Статический метод - обычная C-функция, без скрытого "this_" (см.
+		// package doc ir.Method.IsStatic) - "этот" внутри тела грамматически
+		// невозможен (парсер), поэтому ctx.thisEntity не выставляется.
+		paramList = cParamListIR(ctx, m.Params)
+	}
+	fmt.Fprintf(&sb, "%s %s(%s) {\n", cReturnTypeFor(ctx, m.HasReturn, m.ReturnType), mangleMethod(entityName, m.Name), paramList)
 	fmt.Fprintf(&sb, "    %s", tracePush(entityName+"."+m.Name))
-	ctx.thisEntity = entityName
-	defer func() { ctx.thisEntity = "" }()
+	if !m.IsStatic {
+		ctx.thisEntity = entityName
+		defer func() { ctx.thisEntity = "" }()
+	}
 	for _, s := range m.Body {
 		if err := generateIRStmt(&sb, ctx, s, 1); err != nil {
 			return "", err
@@ -1136,6 +1167,9 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 		return nil
 
 	case *ir.VarDecl:
+		if s.IsStatic {
+			return generateIRStaticVarDecl(sb, ctx, s, ind)
+		}
 		code, typ, err := generateIRExpr(ctx, s.Value)
 		if err != nil {
 			return err
@@ -1262,6 +1296,14 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 		fmt.Fprintf(sb, "%s(%s)%s%s = %s;\n", ind, receiverCode, op, mangleField(s.Field), code)
 		return nil
 
+	case *ir.StaticFieldAssign:
+		code, _, err := generateIRExpr(ctx, s.Value)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(sb, "%s%s = %s;\n", ind, mangleStaticField(s.Entity, s.Field), code)
+		return nil
+
 	case *ir.DerefAssignStmt:
 		ptrCode, _, err := generateIRExpr(ctx, s.Pointer)
 		if err != nil {
@@ -1307,6 +1349,8 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 		switch {
 		case s.MethodCall != nil:
 			call = s.MethodCall
+		case s.StaticMethodCall != nil:
+			call = s.StaticMethodCall
 		case s.IncDec != nil:
 			call = s.IncDec
 		case s.Await != nil:
@@ -1474,6 +1518,12 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 
 	case *ir.MethodCallExpr:
 		return generateIRMethodCallExpr(ctx, e)
+
+	case *ir.StaticFieldExpr:
+		return mangleStaticField(e.Entity, e.Field), fromIRType(e.Type), nil
+
+	case *ir.StaticMethodCallExpr:
+		return generateIRStaticMethodCallExpr(ctx, e)
 
 	case *ir.CharLiteral:
 		return fmt.Sprintf("%d", e.Value), typeChar, nil
@@ -1849,6 +1899,22 @@ func generateIRMethodCallExpr(ctx *irGenCtx, e *ir.MethodCallExpr) (string, valu
 	}
 	if ctx.needsDispatch(e.Entity) {
 		return generateDispatchCall(ctx, e, receiverCode, argCodes)
+	}
+	return fmt.Sprintf("%s(%s)", mangleMethod(e.Entity, e.Method), strings.Join(argCodes, ", ")), fromIRType(e.Type), nil
+}
+
+// generateIRStaticMethodCallExpr - "Тип::метод(...)" - как
+// generateIRMethodCallExpr, но без получателя (см. package doc
+// ir.StaticMethodCallExpr) - статический метод не участвует в
+// диспетчеризации (needsDispatch), вызывается напрямую по мангл-имени.
+func generateIRStaticMethodCallExpr(ctx *irGenCtx, e *ir.StaticMethodCallExpr) (string, valueType, error) {
+	argCodes := make([]string, len(e.Args))
+	for i, a := range e.Args {
+		code, _, err := generateIRExpr(ctx, a)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		argCodes[i] = code
 	}
 	return fmt.Sprintf("%s(%s)", mangleMethod(e.Entity, e.Method), strings.Join(argCodes, ", ")), fromIRType(e.Type), nil
 }

@@ -949,6 +949,36 @@ func TestParseNaturalCallNotEnoughArgumentsAfterBothPasses(t *testing.T) {
 	}
 }
 
+// TestParseBareIdentifierNotConfusedWithSameNameFunction - параметр
+// конструктора, названный так же, как отдельная функция файла ("первый"),
+// используется как обычное значение ("этот.первый = первый") - не должен
+// ошибочно приниматься за начало естественного вызова (тому неоткуда взять
+// аргумент - следом сразу конец строки).
+func TestParseBareIdentifierNotConfusedWithSameNameFunction(t *testing.T) {
+	prog, err := parseSource(t, `
+функция первый(список: Строка): Строка { вернуть список }
+сущность Коробка
+{
+    имеет:
+        первый: Строка
+
+    конструктор(первый: Строка)
+    {
+        этот.первый = первый
+    }
+}
+функция главная { переменная коробка = новая Коробка("а") }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	fa := prog.Entities[0].Ctor.Body[0].(*ast.FieldAssign)
+	id, ok := fa.Value.(*ast.Identifier)
+	if !ok || id.Name != "первый" {
+		t.Fatalf("ожидалась ссылка на параметр \"первый\" как обычный идентификатор, получено %+v", fa.Value)
+	}
+}
+
 func TestParseReturnWithoutValueStillWorks(t *testing.T) {
 	prog, err := parseSource(t, `
 функция главная {

@@ -62,7 +62,7 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 		return p.parseShowStmt()
 	case lexer.KwAssert:
 		return p.parseAssertStmt()
-	case lexer.KwVariable:
+	case lexer.KwVariable, lexer.KwStatic:
 		return p.parseVarDecl()
 	case lexer.KwConst:
 		return p.parseConstDecl()
@@ -101,7 +101,7 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 		if p.peekAt(1).Type == lexer.LBRACKET {
 			return p.parseIndexAssign()
 		}
-		if p.peekAt(1).Type == lexer.DOT {
+		if p.peekAt(1).Type == lexer.DOT || p.peekAt(1).Type == lexer.DBLCOLON {
 			return p.parseDotStatement()
 		}
 		if p.peekAt(1).Type == lexer.KwBecomes {
@@ -217,6 +217,18 @@ func (p *Parser) parseAssertStmt() (ast.Stmt, error) {
 // вывести из самого Value: "Ничто" у nullable-переменной, пустой литерал
 // списка "[]" - см. ast.VarDecl.Type).
 func (p *Parser) parseVarDecl() (ast.Stmt, error) {
+	isStatic := false
+	if p.cur().Type == lexer.KwStatic {
+		tok := p.advance()
+		// "переменная" - существительное женского рода, модификатор
+		// согласуется с НИМ, не с именем объявляемой переменной (в отличие
+		// от "статический"/"приватный" у поля сущности) - единственная
+		// правильная форма всегда "статическая".
+		if tok.Value != "статическая" {
+			return nil, fmt.Errorf("строка %d, столбец %d: перед \"переменная\" нужна форма \"статическая\", получено %q", tok.Line, tok.Col, tok.Value)
+		}
+		isStatic = true
+	}
 	kw, err := p.expect(lexer.KwVariable)
 	if err != nil {
 		return nil, err
@@ -234,6 +246,9 @@ func (p *Parser) parseVarDecl() (ast.Stmt, error) {
 		}
 	}
 	if p.cur().Type != lexer.ASSIGN && typeName == "" {
+		if isStatic {
+			return nil, fmt.Errorf("строка %d, столбец %d: \"статическая переменная\" должна содержать инициализацию (\"=\") - без неё непонятно, каким значением она заполнится ровно один раз", p.cur().Line, p.cur().Col)
+		}
 		// Отложенное объявление (pendingvar.go, "переменная X" без "=") -
 		// настоящий ast.VarDecl появится позже, в точке первого
 		// присваивания X в этом же блоке. Типизированное "переменная X:
@@ -251,7 +266,7 @@ func (p *Parser) parseVarDecl() (ast.Stmt, error) {
 		return nil, fmt.Errorf("в инициализации переменной %q: %w", name.Value, err)
 	}
 	p.registerNoun(name.Value)
-	return &ast.VarDecl{Name: name.Value, Type: typeName, Value: value, Line: kw.Line}, nil
+	return &ast.VarDecl{Name: name.Value, Type: typeName, Value: value, IsStatic: isStatic, Line: kw.Line}, nil
 }
 
 // parseConstDecl - "константа <имя> = <значение>" (шаг 12) - синтаксически
@@ -398,7 +413,8 @@ func (p *Parser) parseFieldAssign() (ast.Stmt, error) {
 	} else {
 		receiver = &ast.Identifier{Name: receiverTok.Value, Line: receiverTok.Line}
 	}
-	p.advance() // "."
+	static := p.cur().Type == lexer.DBLCOLON
+	p.advance() // "." или "::"
 	field, err := p.expect(lexer.IDENT)
 	if err != nil {
 		return nil, fmt.Errorf("после \".\" ожидалось имя поля: %w", err)
@@ -413,9 +429,9 @@ func (p *Parser) parseFieldAssign() (ast.Stmt, error) {
 		return nil, fmt.Errorf("в присваивании полю %q: %w", field.Value, err)
 	}
 	if baseOp, ok := compoundAssignOps[opTok.Type]; ok {
-		value = &ast.BinaryExpr{Op: baseOp, Left: &ast.FieldAccess{Receiver: receiver, Field: field.Value, Line: receiverTok.Line}, Right: value, Line: opTok.Line}
+		value = &ast.BinaryExpr{Op: baseOp, Left: &ast.FieldAccess{Receiver: receiver, Field: field.Value, Static: static, Line: receiverTok.Line}, Right: value, Line: opTok.Line}
 	}
-	return &ast.FieldAssign{Receiver: receiver, Field: field.Value, Value: value, Line: receiverTok.Line}, nil
+	return &ast.FieldAssign{Receiver: receiver, Field: field.Value, Static: static, Value: value, Line: receiverTok.Line}, nil
 }
 
 func (p *Parser) parseIfStmt() (ast.Stmt, error) {

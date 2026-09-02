@@ -45,7 +45,15 @@ type VarDecl struct {
 	// иначе неоткуда взять) и у пустого литерала списка "[]".
 	Type  string
 	Value Expr
-	Line  int
+	// IsStatic - объявлена как "статическая переменная имя = значение":
+	// значение вычисляется и сохраняется РОВНО один раз за всё время
+	// работы программы (при первом достижении этой инструкции), а не
+	// заново при каждом входе в функцию/тело цикла - как "static" локальная
+	// переменная в C. "переменная" - существительное женского рода, форма
+	// модификатора здесь не согласуется с именем самой переменной (в
+	// отличие от видимости поля) - всегда "статическая".
+	IsStatic bool
+	Line     int
 }
 
 func (*VarDecl) node() {}
@@ -106,8 +114,11 @@ func (*Assign) stmt() {}
 type FieldAssign struct {
 	Receiver Expr
 	Field    string
-	Value    Expr
-	Line     int
+	// Static - разобрано через "::" ("Тип::поле = значение") - см. package
+	// doc FieldAccess.Static.
+	Static bool
+	Value  Expr
+	Line   int
 }
 
 func (*FieldAssign) node() {}

@@ -104,3 +104,11 @@ func mangleCtorInit(name string) string {
 func mangleMethod(entity, method string) string {
 	return "rech_M_" + transliterate(entity) + "_" + transliterate(method)
 }
+
+// mangleStaticField мангирует пару (сущность, статическое поле) в имя
+// C-глобальной переменной (см. package doc ir.Entity.StaticFields,
+// internal/backend/cbackend/statics.go) - отдельный префикс (rech_S_) тем же
+// принципом, что и у mangleMethod/mangleField.
+func mangleStaticField(entity, field string) string {
+	return "rech_S_" + transliterate(entity) + "_" + transliterate(field)
+}

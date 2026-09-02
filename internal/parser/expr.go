@@ -308,6 +308,21 @@ func (p *Parser) parsePostfix() (ast.Expr, error) {
 				continue
 			}
 			expr = &ast.FieldAccess{Receiver: expr, Field: field.Value, Line: dot.Line}
+		case lexer.DBLCOLON:
+			dc := p.advance()
+			field, err := p.expect(lexer.IDENT)
+			if err != nil {
+				return nil, fmt.Errorf("после \"::\" ожидалось имя статического поля или метода: %w", err)
+			}
+			if p.cur().Type == lexer.LPAREN {
+				args, err := p.parseArgList()
+				if err != nil {
+					return nil, fmt.Errorf("в аргументах вызова статического метода %q: %w", field.Value, err)
+				}
+				expr = &ast.MethodCallExpr{Receiver: expr, Method: field.Value, Args: args, Static: true, Line: dc.Line}
+				continue
+			}
+			expr = &ast.FieldAccess{Receiver: expr, Field: field.Value, Static: true, Line: dc.Line}
 		case lexer.LBRACKET:
 			lb := p.advance()
 			index, err := p.parseExpr()
@@ -393,7 +408,7 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 			op := p.advance()
 			return &ast.IncDecExpr{Name: tok.Value, Op: op.Value, Prefix: false, Line: tok.Line}, nil
 		}
-		if params, ok := p.funcParams[tok.Value]; ok && len(params) > 0 {
+		if params, ok := p.funcParams[tok.Value]; ok && len(params) > 0 && startsNaturalCallArg(p.peekAt(1)) {
 			// Естественный вызов как значение (docs/GRAMMAR.md, "Естественный
 			// вызов как значение") - тот же parseNaturalCall, что и на месте
 			// самостоятельной инструкции (stmt.go): число слов фразы известно
@@ -404,6 +419,14 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 			// (бинарные операторы/",'/")"/"]" и т. п.), как после любого
 			// другого primary - естественный вызов свободно участвует в
 			// более крупном выражении ("1 + позвать пользователя").
+			//
+			// startsNaturalCallArg - без неё голый идентификатор, совпавший
+			// именем с какой-то функцией файла (например, параметр
+			// конструктора, названный так же, как отдельная generic-функция),
+			// ошибочно принимался бы за начало вызова, даже когда сразу за
+			// ним идёт то, что явно завершает выражение (","/")"/оператор/
+			// конец строки) - естественному вызову неоткуда взять аргументы,
+			// и parseNaturalCall падал с "не хватает аргументов".
 			return p.parseNaturalCall(params)
 		}
 		p.advance()

@@ -40,6 +40,27 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 		return ctrl{}, nil
 
 	case *ir.VarDecl:
+		if s.IsStatic {
+			// "статическая переменная" - значение вычисляется и сохраняется
+			// РОВНО один раз за всё время работы программы (см. package doc
+			// Interp.staticLocals) - при повторном достижении этой
+			// инструкции (следующий вызов функции/следующая итерация
+			// цикла) уже вычисленное значение просто переносится в текущий
+			// Env, инициализатор s.Value не выполняется заново.
+			if v, ok := in.staticLocals[s.StaticID]; ok {
+				env.declare(s.Name, v)
+			} else {
+				v, err := in.evalExpr(s.Value, env, cc)
+				if err != nil {
+					return ctrl{}, err
+				}
+				cv := in.cloneValue(v)
+				in.staticLocals[s.StaticID] = cv
+				env.declare(s.Name, cv)
+			}
+			env.declareStatic(s.Name, s.StaticID)
+			return ctrl{}, nil
+		}
 		v, err := in.evalExpr(s.Value, env, cc)
 		if err != nil {
 			return ctrl{}, err
@@ -52,7 +73,11 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 		if err != nil {
 			return ctrl{}, err
 		}
-		env.set(s.Name, in.cloneValue(v))
+		cv := in.cloneValue(v)
+		env.set(s.Name, cv)
+		if id, ok := env.lookupStaticID(s.Name); ok {
+			in.staticLocals[id] = cv
+		}
 		return ctrl{}, nil
 
 	case *ir.NullCoalesceAssignStmt:
@@ -64,7 +89,22 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 		if err != nil {
 			return ctrl{}, err
 		}
-		env.set(s.Name, in.cloneValue(v))
+		cv := in.cloneValue(v)
+		env.set(s.Name, cv)
+		if id, ok := env.lookupStaticID(s.Name); ok {
+			in.staticLocals[id] = cv
+		}
+		return ctrl{}, nil
+
+	case *ir.StaticFieldAssign:
+		v, err := in.evalExpr(s.Value, env, cc)
+		if err != nil {
+			return ctrl{}, err
+		}
+		if in.staticFields[s.Entity] == nil {
+			in.staticFields[s.Entity] = map[string]Value{}
+		}
+		in.staticFields[s.Entity][s.Field] = in.cloneValue(v)
 		return ctrl{}, nil
 
 	case *ir.FieldAssign:
@@ -222,6 +262,8 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 		switch {
 		case s.MethodCall != nil:
 			e = s.MethodCall
+		case s.StaticMethodCall != nil:
+			e = s.StaticMethodCall
 		case s.IncDec != nil:
 			e = s.IncDec
 		case s.Await != nil:

@@ -69,11 +69,27 @@ func (a *Analyzer) applyInheritance(entities map[string]entitySig, methods map[s
 			HasCtor:        ownSig.HasCtor,
 			CtorParams:     ownSig.CtorParams,
 			CtorParamNames: ownSig.CtorParamNames,
+			// StaticField* - НЕ из baseSig, тем же принципом, что и
+			// HasCtor/CtorParams выше: статический член принадлежит
+			// конкретно объявившей его сущности, "Тип::имя" валиден только
+			// для точного имени этого типа, никогда для потомка (см.
+			// package doc ir.Entity.StaticFields).
+			StaticFieldNames:        ownSig.StaticFieldNames,
+			StaticFieldTypes:        ownSig.StaticFieldTypes,
+			StaticFieldVisibility:   ownSig.StaticFieldVisibility,
+			StaticFieldDefaultExprs: ownSig.StaticFieldDefaultExprs,
 		}
 
 		baseMethods := methods[ent.BaseName]
 		flatMethods = make(map[string]funcSig, len(baseMethods)+len(ownMethods))
 		for name, sig := range baseMethods {
+			if sig.IsStatic {
+				// Статический метод не наследуется - тем же принципом, что
+				// и конструктор (см. package doc funcSig.IsStatic):
+				// "Потомок::статМетод" не должен резолвиться в реализацию
+				// базовой сущности.
+				continue
+			}
 			if sig.SelfReturn {
 				// Унаследованный без переопределения метод с "этот" как
 				// типом результата - перерезолвливается в ЭТУ (ent.Name)

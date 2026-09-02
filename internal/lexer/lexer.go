@@ -108,6 +108,10 @@ func (l *Lexer) next() (Token, error) {
 		return Token{Type: COMMA, Value: ",", Line: line, Col: col}, nil
 	case r == ':':
 		l.advance()
+		if l.peek() == ':' {
+			l.advance()
+			return Token{Type: DBLCOLON, Value: "::", Line: line, Col: col}, nil
+		}
 		return Token{Type: COLON, Value: ":", Line: line, Col: col}, nil
 	case r == '.':
 		l.advance()

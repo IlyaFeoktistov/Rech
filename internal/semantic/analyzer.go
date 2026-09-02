@@ -61,6 +61,14 @@ type Analyzer struct {
 	// нумерации одних и тех же лямбд).
 	lambdaCounter int
 
+	// nextStaticVarID - следующий уникальный номер для "статическая
+	// переменная" (ir.VarDecl.StaticID) - общий на весь Analyze счётчик,
+	// тем же принципом, что и lambdaCounter: два разных объявления "статическая
+	// переменная x" (в разных функциях, либо даже в разных ветках одной)
+	// обязаны получить разные хранилища у backend'а, см. package doc
+	// ir.VarDecl.IsStatic.
+	nextStaticVarID int
+
 	// parseTargets/serializeTargets/xmlParseTargets/xmlSerializeTargets -
 	// дедуплицированные по имени типа списки целей "разобрать"/
 	// "сериализовать" (JSON/XML отдельно - backend генерирует разные
@@ -245,7 +253,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 		}
 
 		for _, f := range ent.Fields {
-			if sig.fieldIndex(f.Name) != -1 {
+			if sig.fieldIndex(f.Name) != -1 || sig.staticFieldIndex(f.Name) != -1 || sig.constIndex(f.Name) != -1 {
 				return fmt.Errorf("сущность %q: поле %q объявлено более одного раза", ent.Name, f.Name)
 			}
 			typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, f.Type)
@@ -254,6 +262,16 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 			}
 			if ent.IsExternStruct && !isFFIType(entities, typ) {
 				return fmt.Errorf("внешняя структура %q: поле %q имеет тип %s - допустимы только примитивы (Целое/Действительное/Дробное/Логическое/Байт/Символ/Строка) и внешние сущности (\"внешняя сущность\") - иначе реальный размер C-структуры был бы искажён", ent.Name, f.Name, typ)
+			}
+			if f.IsStatic {
+				if ent.IsExternStruct {
+					return fmt.Errorf("внешняя структура %q: статическое поле %q недопустимо - у внешней структуры разрешены только поля FFI-совместимого C-представления", ent.Name, f.Name)
+				}
+				sig.StaticFieldNames = append(sig.StaticFieldNames, f.Name)
+				sig.StaticFieldTypes = append(sig.StaticFieldTypes, typ)
+				sig.StaticFieldVisibility = append(sig.StaticFieldVisibility, f.Visibility)
+				sig.StaticFieldDefaultExprs = append(sig.StaticFieldDefaultExprs, f.Default)
+				continue
 			}
 			sig.FieldNames = append(sig.FieldNames, f.Name)
 			sig.FieldTypes = append(sig.FieldTypes, typ)
@@ -307,7 +325,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 			if err != nil {
 				return fmt.Errorf("сущность %q: %w", ent.Name, err)
 			}
-			msig := funcSig{Params: params, ParamStates: paramStates, Visibility: m.Visibility, IsAbstract: m.IsAbstract, RevokesStates: revokes}
+			msig := funcSig{Params: params, ParamStates: paramStates, Visibility: m.Visibility, IsAbstract: m.IsAbstract, IsStatic: m.IsStatic, RevokesStates: revokes}
 			switch {
 			case m.SelfReturn:
 				// "этот" как тип результата - собственный метод сущности X
@@ -551,6 +569,18 @@ func (a *Analyzer) analyzeEntity(ent *ast.EntityDecl) (*ir.Entity, error) {
 		}
 		fields[i] = ir.Field{Name: name, Type: sig.FieldTypes[i], Doc: doc, Default: def, Tag: tag}
 	}
+	staticFields := make([]ir.Field, len(sig.StaticFieldNames))
+	for i, name := range sig.StaticFieldNames {
+		var def ir.Expr
+		if i < len(sig.StaticFieldDefaultExprs) && sig.StaticFieldDefaultExprs[i] != nil {
+			val, err := resolveStaticFieldDefault(fsc, ent.Name, name, ent.Line)
+			if err != nil {
+				return nil, fmt.Errorf("статическое поле %q: %w", name, err)
+			}
+			def = val
+		}
+		staticFields[i] = ir.Field{Name: name, Type: sig.StaticFieldTypes[i], Default: def}
+	}
 	// Константы сущности - через resolveEntityConstant, ту же функцию, что
 	// использует доступ "Сущность.Константа"/"экземпляр.Константа" в
 	// analyzeExpr, чтобы значение было одно и то же и вычислялось один раз
@@ -599,7 +629,7 @@ func (a *Analyzer) analyzeEntity(ent *ast.EntityDecl) (*ir.Entity, error) {
 		// веткой (sig.IsStruct).
 		ctor = &ir.Method{}
 	}
-	return &ir.Entity{Name: ent.Name, IsStruct: ent.IsStruct, IsAbstract: ent.IsAbstract, BaseName: ent.BaseName, Interfaces: ent.Interfaces, Constants: constants, Fields: fields, Methods: irMethods, Ctor: ctor, Doc: ent.Doc, Exported: ent.Exported}, nil
+	return &ir.Entity{Name: ent.Name, IsStruct: ent.IsStruct, IsAbstract: ent.IsAbstract, BaseName: ent.BaseName, Interfaces: ent.Interfaces, Constants: constants, Fields: fields, StaticFields: staticFields, Methods: irMethods, Ctor: ctor, Doc: ent.Doc, Exported: ent.Exported}, nil
 }
 
 // analyzeConstructor анализирует явное тело конструктора ent.Ctor - как
@@ -651,6 +681,7 @@ func (a *Analyzer) analyzeMethod(ent *ast.EntityDecl, m *ast.MethodDecl) (*ir.Me
 		HasReturn:  sig.HasReturn,
 		Body:       body,
 		IsAbstract: m.IsAbstract,
+		IsStatic:   m.IsStatic,
 		File:       ent.File,
 		Doc:        m.Doc,
 	}, nil

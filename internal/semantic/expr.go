@@ -101,6 +101,9 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 		return analyzeNewExpr(sc, e)
 
 	case *ast.FieldAccess:
+		if e.Static {
+			return analyzeStaticFieldAccess(sc, e)
+		}
 		// "Имя.Член" перечисления - синтаксически неотличимо от
 		// обычного FieldAccess (получатель - идентификатор), парсер не
 		// различает их вообще - разрешается здесь, до попытки
@@ -151,6 +154,9 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 				}
 				return resolveEntityConstant(sc, typ.Entity, e.Field, e.Line)
 			}
+			if sig.staticFieldIndex(e.Field) != -1 {
+				return nil, fmt.Errorf("строка %d: %q - статическое поле сущности %q, доступ только через \"%s::%s\", не через экземпляр", e.Line, e.Field, typ.Entity, typ.Entity, e.Field)
+			}
 			return nil, fmt.Errorf("строка %d: у сущности %q нет поля %q", e.Line, typ.Entity, e.Field)
 		}
 		if err := checkFieldVisibility(sc, typ.Entity, e.Field, sig.FieldVisibility[idx], e.Line); err != nil {
@@ -164,6 +170,16 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 		return &ir.ThisExpr{Entity: sc.thisEntity}, nil
 
 	case *ast.MethodCallExpr:
+		if e.Static {
+			call, err := analyzeStaticMethodCallExpr(sc, e)
+			if err != nil {
+				return nil, err
+			}
+			if !call.HasReturn {
+				return nil, fmt.Errorf("строка %d: статический метод %q не имеет объявленного типа результата - его нельзя использовать как выражение", e.Line, e.Method)
+			}
+			return call, nil
+		}
 		call, err := analyzeMethodCallExpr(sc, e)
 		if err != nil {
 			return nil, err

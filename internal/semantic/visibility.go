@@ -61,6 +61,10 @@ func checkConstVisibility(sc *ctx, entityName, constName string, vis ast.Visibil
 	return checkVisibility(sc, "константа", "ая", "доступ", entityName, constName, vis, line)
 }
 
+func checkStaticFieldVisibility(sc *ctx, entityName, fieldName string, vis ast.Visibility, line int) error {
+	return checkVisibility(sc, "статическое поле", "ое", "доступ", entityName, fieldName, vis, line)
+}
+
 // resolveEntityConstant возвращает значение константы entityName.constName.
 // Значение вычисляется РОВНО один раз на весь Analyze: результат кладётся в
 // sc.resolvedConsts (общая для всей программы карта, см. newCtx) и на
@@ -134,6 +138,25 @@ func resolveFieldDefault(sc *ctx, entityName, fieldName string, line int) (ir.Ex
 		return nil, fmt.Errorf("строка %d: значение по умолчанию поля %q сущности %q должно быть типа %s, получено %s", line, fieldName, entityName, sig.FieldTypes[idx], typ)
 	}
 	sc.a.resolvedFieldDefaults[key] = val
+	return val, nil
+}
+
+// resolveStaticFieldDefault - как resolveFieldDefault, но для статического
+// поля (entitySig.StaticField*) - используется РОВНО один раз, при сборке
+// ir.Entity.StaticFields (см. analyzeEntity), не при каждом "новый Тип(...)"
+// (у статического поля нет отдельного экземпляра, которому подставлять
+// значение) - поэтому не нуждается в собственном кэше, в отличие от
+// resolveFieldDefault.
+func resolveStaticFieldDefault(sc *ctx, entityName, fieldName string, line int) (ir.Expr, error) {
+	sig := sc.entities[entityName]
+	idx := sig.staticFieldIndex(fieldName)
+	val, err := coerceExpr(sc, sig.StaticFieldDefaultExprs[idx], sig.StaticFieldTypes[idx])
+	if err != nil {
+		return nil, fmt.Errorf("строка %d: значение по умолчанию статического поля %q сущности %q: %w", line, fieldName, entityName, err)
+	}
+	if typ := ir.TypeOf(val); !isAssignable(sc.entities, sc.interfaces, typ, sig.StaticFieldTypes[idx]) {
+		return nil, fmt.Errorf("строка %d: значение по умолчанию статического поля %q сущности %q должно быть типа %s, получено %s", line, fieldName, entityName, sig.StaticFieldTypes[idx], typ)
+	}
 	return val, nil
 }
 

@@ -29,6 +29,8 @@ func LineOf(s Stmt) int {
 		return s.Line
 	case *FieldAssign:
 		return s.Line
+	case *StaticFieldAssign:
+		return s.Line
 	case *DerefAssignStmt:
 		return s.Line
 	case *ParentCallStmt:
@@ -81,7 +83,21 @@ func (*ShowStmt) stmt() {}
 type VarDecl struct {
 	Name  string
 	Value Expr
-	Line  int
+	// IsStatic - объявлена "статическая переменная" (ast.VarDecl.IsStatic):
+	// Value вычисляется и запоминается РОВНО один раз за всё время работы
+	// программы (при первом достижении этой инструкции), при повторных
+	// достижениях (новый вызов функции, следующая итерация цикла) backend
+	// пропускает вычисление и подставляет уже сохранённое значение - как
+	// "static" локальная переменная в C. StaticID при этом всегда заполнен.
+	IsStatic bool
+	// StaticID - уникальный на всю программу номер этого объявления,
+	// назначенный семантическим анализом (Analyzer.nextStaticVarID) только
+	// когда IsStatic - хранилище для значения ключуется им, а не именем
+	// переменной (два разных "статическая переменная x" в разных функциях -
+	// два независимых хранилища, как и должно быть у "static" в C). 0 -
+	// IsStatic == false.
+	StaticID int
+	Line     int
 }
 
 func (*VarDecl) stmt() {}
@@ -108,6 +124,18 @@ type FieldAssign struct {
 }
 
 func (*FieldAssign) stmt() {}
+
+// StaticFieldAssign соответствует "Тип::поле = выражение" - как
+// FieldAssign, но без получателя-значения (см. package doc
+// ir.StaticFieldExpr).
+type StaticFieldAssign struct {
+	Entity string
+	Field  string
+	Value  Expr
+	Line   int
+}
+
+func (*StaticFieldAssign) stmt() {}
 
 // BecomeStmt соответствует "receiver становится <состояние>" (шаг 4.1,
 // упрощённая версия - состояние без падежного согласования, ровно как в
@@ -207,12 +235,13 @@ type ReturnStmt struct {
 func (*ReturnStmt) stmt() {}
 
 type ExprStmt struct {
-	Call       *CallExpr
-	CallValue  *CallValueExpr
-	MethodCall *MethodCallExpr
-	IncDec     *IncDecExpr
-	Await      *AwaitExpr
-	Line       int
+	Call             *CallExpr
+	CallValue        *CallValueExpr
+	MethodCall       *MethodCallExpr
+	StaticMethodCall *StaticMethodCallExpr
+	IncDec           *IncDecExpr
+	Await            *AwaitExpr
+	Line             int
 }
 
 func (*ExprStmt) stmt() {}

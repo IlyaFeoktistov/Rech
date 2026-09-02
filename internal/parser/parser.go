@@ -731,6 +731,26 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 			m2.Doc = doc
 			methods = append(methods, m2)
 
+		case lexer.KwStatic:
+			// "статический [видимость] имя(...)" - статический метод
+			// (константа уже статическая сама по себе, см. package doc
+			// ast.MethodDecl.IsStatic - "статическая константа" не
+			// поддержана, только поле/метод). parseMethod сам разбирает
+			// ведущий "статический" (в отличие от видимости выше, здесь не
+			// нужен lookahead - у "статический" перед константой нет
+			// смысла).
+			m3, err := p.parseMethod()
+			if err != nil {
+				return nil, fmt.Errorf(
+					"%s %q: %w",
+					label,
+					name.Value,
+					err,
+				)
+			}
+			m3.Doc = doc
+			methods = append(methods, m3)
+
 		default:
 			return nil, fmt.Errorf(
 				"%s %q: неожиданный токен %q",

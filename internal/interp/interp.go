@@ -278,10 +278,49 @@ func (in *Interp) cloneValue(v Value) Value {
 type Env struct {
 	vars   map[string]Value
 	parent *Env
+
+	// staticIDs - имя "статической переменной" (ir.VarDecl.IsStatic) в
+	// этой области видимости -> ir.VarDecl.StaticID. Параллельная vars
+	// структура (та же цепочка родителей, то же затенение) - значение
+	// самой переменной по-прежнему живёт в vars (обычный env, как у любой
+	// другой переменной, копия на каждый вызов), но её АКТУАЛЬНОЕ значение
+	// обязано пережить возврат из функции - staticIDs говорит записывающей
+	// стороне (Assign/IncDec/NullCoalesceAssign), что после обновления vars
+	// нужно ЕЩЁ И зеркально обновить Interp.staticLocals[id] - см. package
+	// doc Interp.staticLocals.
+	staticIDs map[string]int
 }
 
 func newEnv(parent *Env) *Env {
 	return &Env{vars: map[string]Value{}, parent: parent}
+}
+
+// declareStatic регистрирует name как статическую переменную с этим id - в
+// самой внутренней области видимости, тем же принципом, что и declare (см.
+// package doc staticIDs).
+func (e *Env) declareStatic(name string, id int) {
+	if e.staticIDs == nil {
+		e.staticIDs = map[string]int{}
+	}
+	e.staticIDs[name] = id
+}
+
+// lookupStaticID ищет name в staticIDs через цепочку родителей (тот же
+// порядок, что и get/set) - true и StaticID, если name - статическая
+// переменная, объявленная где-то в видимой области.
+func (e *Env) lookupStaticID(name string) (int, bool) {
+	for cur := e; cur != nil; cur = cur.parent {
+		if id, ok := cur.staticIDs[name]; ok {
+			return id, true
+		}
+		if _, ok := cur.vars[name]; ok {
+			// Дошли до обычной (не статической) переменной с этим именем в
+			// более внутренней области, чем возможная статическая с тем же
+			// именем снаружи - она её затеняет, дальше искать не нужно.
+			return 0, false
+		}
+	}
+	return 0, false
 }
 
 func (e *Env) get(name string) (Value, bool) {
@@ -373,6 +412,18 @@ type Interp struct {
 	entities map[string]*ir.Entity
 	generics map[string]ir.GenericInstantiation
 	debugger *Debugger
+
+	// staticFields - значение статического поля сущности ("Тип::поле", см.
+	// ir.Entity.StaticFields) по (имя сущности, имя поля) - одно общее
+	// хранилище на всю программу, заполняется значениями по умолчанию один
+	// раз в newInterp (см. initStaticFields), до вызова "главная".
+	staticFields map[string]map[string]Value
+
+	// staticLocals - значение "статической переменной" (ir.VarDecl.
+	// IsStatic) по StaticID - хранилище живёт дольше одного вызова функции/
+	// метода (в отличие от обычного Env, который создаётся заново на
+	// каждый вызов), см. package doc Env.staticIDs.
+	staticLocals map[int]Value
 }
 
 // Run исполняет prog: находит "главная" и выполняет её тело, печатая
@@ -423,11 +474,13 @@ func newInterp(prog *ir.Program, out io.Writer, stdin io.Reader) (*Interp, *ir.F
 			prog.ExternFuncs[0].Alias)
 	}
 	in := &Interp{
-		out:      out,
-		stdin:    bufio.NewReader(stdin),
-		funcs:    map[string]*ir.Function{},
-		entities: map[string]*ir.Entity{},
-		generics: map[string]ir.GenericInstantiation{},
+		out:          out,
+		stdin:        bufio.NewReader(stdin),
+		funcs:        map[string]*ir.Function{},
+		entities:     map[string]*ir.Entity{},
+		generics:     map[string]ir.GenericInstantiation{},
+		staticFields: map[string]map[string]Value{},
+		staticLocals: map[int]Value{},
 	}
 	for _, fn := range prog.Functions {
 		in.funcs[fn.Name] = fn
@@ -438,11 +491,44 @@ func newInterp(prog *ir.Program, out io.Writer, stdin io.Reader) (*Interp, *ir.F
 	for _, g := range prog.Generics {
 		in.generics[g.Name] = g
 	}
+	if err := in.initStaticFields(prog); err != nil {
+		return nil, nil, err
+	}
 	main, ok := in.funcs[entryPointName]
 	if !ok {
 		return nil, nil, fmt.Errorf("в программе не найдена функция %q - она служит точкой входа", entryPointName)
 	}
 	return in, main, nil
+}
+
+// initStaticFields заполняет in.staticFields значениями по умолчанию всех
+// статических полей программы (см. package doc Entity.StaticFields в
+// internal/ir/decl.go) - РОВНО один раз, до вызова "главная", тем же
+// принципом, что и rech_init_statics() в cbackend (internal/backend/
+// cbackend/statics.go). Поле без Default получает нулевое значение своего
+// типа (zeroValue) - та же гарантия, что и у C-глобальной переменной без
+// явного инициализатора.
+func (in *Interp) initStaticFields(prog *ir.Program) error {
+	cc := &callCtx{curLine: new(int)}
+	for _, ent := range prog.Entities {
+		if len(ent.StaticFields) == 0 {
+			continue
+		}
+		fields := map[string]Value{}
+		for _, f := range ent.StaticFields {
+			if f.Default == nil {
+				fields[f.Name] = zeroValue(f.Type)
+				continue
+			}
+			v, err := in.evalExpr(f.Default, newEnv(nil), cc)
+			if err != nil {
+				return fmt.Errorf("сущность %q: статическое поле %q: %w", ent.Name, f.Name, err)
+			}
+			fields[f.Name] = in.cloneValue(v)
+		}
+		in.staticFields[ent.Name] = fields
+	}
+	return nil
 }
 
 // callFunction/callMethod - см. package doc internal/interp/trace.go про то,
@@ -507,6 +593,44 @@ func (in *Interp) callMethod(m *ir.Method, this *entityObj, args []Value, dbg *d
 	displayName := this.typeName + "." + name
 	cc := &callCtx{this: this, curLine: new(int), dbg: dbg}
 	dbg.pushMethod(displayName, m.File, this)
+	defer dbg.pop()
+	defer func() {
+		if r := recover(); r != nil {
+			re, ok := r.(*runtimeError)
+			if !ok {
+				panic(r)
+			}
+			re.trace = append(re.trace, traceFrame{name: displayName, line: *cc.curLine})
+			panic(re)
+		}
+	}()
+	ctrl, execErr := in.execBlock(m.Body, env, cc)
+	if execErr != nil {
+		if te, ok := execErr.(*thrownException); ok {
+			te.trace = append(te.trace, traceFrame{name: displayName, line: *cc.curLine})
+		}
+		return Value{}, execErr
+	}
+	if ctrl.kind == ctrlReturn {
+		return ctrl.value, nil
+	}
+	return Value{}, nil
+}
+
+// callStaticMethod - как callMethod, но для статического метода
+// (ir.Method.IsStatic): нет получателя ("this" всегда nil в cc и в кадре
+// отладчика - "этот" внутри тела грамматически невозможен, парсер уже это
+// гарантирует), displayName строится из имени сущности-владельца
+// напрямую, а не через this.typeName (this.typeName обратился бы к полю
+// нулевого указателя).
+func (in *Interp) callStaticMethod(m *ir.Method, entityName string, args []Value, dbg *dbgThread) (result Value, err error) {
+	env := newEnv(nil)
+	for i, p := range m.Params {
+		env.declare(p.Name, in.cloneValue(args[i]))
+	}
+	displayName := entityName + "." + m.Name
+	cc := &callCtx{this: nil, curLine: new(int), dbg: dbg}
+	dbg.pushMethod(displayName, m.File, nil)
 	defer dbg.pop()
 	defer func() {
 		if r := recover(); r != nil {

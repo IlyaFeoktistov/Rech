@@ -28,6 +28,7 @@ const (
 	SEMICOLON // ;
 	COMMA     // ,
 	COLON     // :
+	DBLCOLON  // :: (доступ к статическому члену - Тип::имя)
 	DOT       // .
 
 	ASSIGN // =
@@ -87,6 +88,7 @@ const (
 	KwPrivate     // приватный / приватная / приватное / приватные
 	KwPublic      // публичный / публичная / публичное / публичные
 	KwProtected   // защищённый / защищённая / защищённое / защищённые
+	KwStatic      // статический / статическая / статическое / статические
 	KwUse         // использовать (импорт)
 	KwOf          // из (предлог перед путём импорта)
 	KwAs          // как (переименование импортируемого имени)
@@ -174,6 +176,10 @@ var keywords = map[string]TokenType{
 	"защищённая":     KwProtected,
 	"защищённое":     KwProtected,
 	"защищённые":     KwProtected,
+	"статический":    KwStatic,
+	"статическая":    KwStatic,
+	"статическое":    KwStatic,
+	"статические":    KwStatic,
 	"использовать":   KwUse,
 	"из":             KwOf,
 	"как":            KwAs,
@@ -245,6 +251,8 @@ func (t TokenType) String() string {
 		return ","
 	case COLON:
 		return ":"
+	case DBLCOLON:
+		return "::"
 	case DOT:
 		return "."
 	case ASSIGN:
@@ -365,6 +373,8 @@ func (t TokenType) String() string {
 		return "публичный"
 	case KwProtected:
 		return "защищённый"
+	case KwStatic:
+		return "статический"
 	case KwUse:
 		return "использовать"
 	case KwOf:

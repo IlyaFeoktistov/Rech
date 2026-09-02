@@ -114,7 +114,12 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			return nil, fmt.Errorf("строка %d: %w", s.Line, err)
 		}
 		sc.setEstablished(s.Name, newEstablished)
-		return &ir.VarDecl{Name: s.Name, Value: value, Line: s.Line}, nil
+		var staticID int
+		if s.IsStatic {
+			sc.a.nextStaticVarID++
+			staticID = sc.a.nextStaticVarID
+		}
+		return &ir.VarDecl{Name: s.Name, Value: value, IsStatic: s.IsStatic, StaticID: staticID, Line: s.Line}, nil
 
 	case *ast.ConstDecl:
 		// Полностью тот же код, что и VarDecl выше (одна и та же ir.VarDecl -
@@ -313,6 +318,13 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			return &ir.ExprStmt{Await: await, Line: s.Line}, nil
 		}
 		if s.MethodCall != nil {
+			if s.MethodCall.Static {
+				call, err := analyzeStaticMethodCallExpr(sc, s.MethodCall)
+				if err != nil {
+					return nil, err
+				}
+				return &ir.ExprStmt{StaticMethodCall: call, Line: s.Line}, nil
+			}
 			call, err := analyzeMethodCallExpr(sc, s.MethodCall)
 			if err != nil {
 				return nil, err
@@ -340,6 +352,9 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		}
 
 	case *ast.FieldAssign:
+		if s.Static {
+			return analyzeStaticFieldAssign(sc, s)
+		}
 		if !receiverAddressable(s.Receiver) {
 			return nil, fmt.Errorf("строка %d: получателем присваивания полю может быть только переменная, поле или \"этот\"", s.Line)
 		}
@@ -360,6 +375,9 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 
 		idx := sig.fieldIndex(s.Field)
 		if idx == -1 {
+			if sig.staticFieldIndex(s.Field) != -1 {
+				return nil, fmt.Errorf("строка %d: %q - статическое поле сущности %q, присваивать только через \"%s::%s\", не через экземпляр", s.Line, s.Field, typ.Entity, typ.Entity, s.Field)
+			}
 			return nil, fmt.Errorf("строка %d: у сущности %q нет поля %q", s.Line, typ.Entity, s.Field)
 		}
 		if err := checkFieldVisibility(sc, typ.Entity, s.Field, sig.FieldVisibility[idx], s.Line); err != nil {

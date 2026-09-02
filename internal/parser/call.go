@@ -163,6 +163,16 @@ var naturalCallPrepositions = map[lexer.TokenType]bool{
 	lexer.KwOf:   true,
 }
 
+// startsNaturalCallArg - true, если tok может быть первым токеном аргумента
+// естественного вызова (сам аргумент - lexer.IDENT, возможно после предлога
+// из naturalCallPrepositions, см. parseNaturalCall) - используется
+// parsePrimary (expr.go), чтобы отличить голый идентификатор-значение,
+// случайно совпавший именем с какой-то функцией файла, от настоящего начала
+// естественного вызова.
+func startsNaturalCallArg(tok lexer.Token) bool {
+	return tok.Type == lexer.IDENT || naturalCallPrepositions[tok.Type]
+}
+
 // parseNaturalCall разбирает естественный вызов - вызов функции без скобок,
 // с аргументами, которые связываются с параметрами по падежу словоформы
 // (docs/GRAMMAR.md, "Естественный вызов и падежное сопоставление"), а не по
