@@ -47,3 +47,27 @@ func TestGenerateFromIRPointerAddressAndDeref(t *testing.T) {
 		t.Fatalf("ожидалась запись через указатель \"*v_p = 99LL;\", получено:\n%s", out)
 	}
 }
+
+// TestGenerateFromIRPrintPointerUsesPercentP - "вывести &а" (без
+// разыменования) печатает адрес через "%p" - не "%s" (было бы неопределённым
+// поведением на указателе, не char *, см. printCall).
+func TestGenerateFromIRPrintPointerUsesPercentP(t *testing.T) {
+	ptrType := ir.Type{Kind: ir.KindPointer, Entity: "Указатель<Целое>"}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "а", Value: &ir.IntLiteral{Value: 5}},
+		&ir.PrintStmt{Value: &ir.AddressOfExpr{
+			Receiver: &ir.Identifier{Name: "а", Type: ir.TypeInt},
+			Type:     ptrType,
+		}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{
+		Functions: []*ir.Function{main},
+		Pointers:  []ir.PointerInstantiation{{Name: ptrType.Entity, Inner: ir.TypeInt}},
+	})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, `printf("%p\n", (void *)((&v_a)));`) {
+		t.Fatalf("ожидался printf(\"%%p\\n\", ...) для указателя, получено:\n%s", out)
+	}
+}

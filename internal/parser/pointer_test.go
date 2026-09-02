@@ -64,6 +64,21 @@ func TestParseDerefExpr(t *testing.T) {
 	}
 }
 
+// TestParseStarTypeSugarEqualsPointerGeneric - "*Тип" в аннотации типа -
+// синтаксический сахар над "Указатель<Тип>" (как в C/Go/Rust) - оба
+// разбираются в одну и ту же строку типа, дальше по конвейеру неразличимы.
+func TestParseStarTypeSugarEqualsPointerGeneric(t *testing.T) {
+	src := "функция главная { переменная п: *Целое = &а\nвывести *п }\n"
+	prog, err := parseSource(t, src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	decl := prog.Functions[0].Body[0].(*ast.VarDecl)
+	if decl.Type != "Указатель<Целое>" {
+		t.Fatalf("ожидался тип \"Указатель<Целое>\", получено %q", decl.Type)
+	}
+}
+
 func TestParseDoubleDerefExpr(t *testing.T) {
 	src := "функция главная { вывести **пп }\n"
 	prog, err := parseSource(t, src)

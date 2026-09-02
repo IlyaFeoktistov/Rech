@@ -49,6 +49,13 @@ func printCall(ctx *irGenCtx, typ valueType, code string) string {
 			}
 			return fmt.Sprintf(`printf("[%s]<%s>\n");`, kind, escapeCString(typ.entity))
 		}
+		if typ.kind == kindPointer {
+			// Адрес, не разыменованное значение - "%p" (не "%s": code -
+			// указатель на T, не на char, printf("%s", ...) на нём было бы
+			// неопределённым поведением). (void *) - C требует именно этот
+			// тип аргумента для "%p", каким бы ни было T.
+			return fmt.Sprintf(`printf("%%p\n", (void *)(%s));`, code)
+		}
 		return fmt.Sprintf(`printf("%%s\n", %s);`, code)
 	}
 }

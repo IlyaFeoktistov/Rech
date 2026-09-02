@@ -678,6 +678,12 @@ func (in *Interp) printValue(v Value) {
 		fmt.Fprintln(in.out, "[сокет]")
 	case ir.KindDB:
 		fmt.Fprintln(in.out, "[бд]")
+	case ir.KindPointer:
+		// В отличие от cbackend (настоящий C-указатель, "%p") -
+		// pointerTarget интерпретатора не настоящий адрес памяти
+		// (package doc pointer.go), печатать нечего, кроме факта "это
+		// указатель" - тем же принципом, что и у файла/сокета/БД выше.
+		fmt.Fprintln(in.out, "[указатель]")
 	case ir.KindEntity:
 		kind := "сущность"
 		if ent, ok := in.entities[v.Obj.typeName]; ok && ent.IsStruct {
