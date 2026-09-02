@@ -374,16 +374,31 @@ func (p *Parser) parseTypeName() (string, error) {
 	return result, nil
 }
 
-// parseParam разбирает параметр в одной из двух форм:
+// parseParam разбирает параметр в одной из форм:
 //
 //	падеж: Тип             - падежное слово одновременно и роль, и имя
 //	падеж имя: Тип         - падежная роль отдельно от отображаемого имени
 //	имя: Тип               - без падежной роли, только позиционный параметр
+//	с кем/с чем [имя]: Тип - двусловная запись ParamWithWhom/ParamWithWhat
+//	                          (morph.RequiresMandatoryPreposition) - "с" сам
+//	                          по себе не IDENT (лексер отдаёт его как
+//	                          KwWith), поэтому разбирается отдельно, до
+//	                          обычного expect(IDENT) ниже. "с_кем"/"с_чем"
+//	                          слитно - та же роль, обычным путём (это уже
+//	                          просто IDENT, morph.CaseOfParamName их знает).
 //
 // Различаются лукахедом: если первое слово - падежное (morph.CaseOfParamName)
 // и следом идёт ещё один IDENT (а не ":"), это двусловная форма; иначе
 // первое слово - и есть Name (падежное или нет).
 func (p *Parser) parseParam() (ast.Param, error) {
+	if p.cur().Type == lexer.KwWith && p.peekAt(1).Type == lexer.IDENT &&
+		(p.peekAt(1).Value == "кем" || p.peekAt(1).Value == "чем") {
+		return p.parseTwoWordCaseParam(morph.ParamWithWhom, morph.ParamWithWhat)
+	}
+	if p.cur().Type == lexer.KwFor && p.peekAt(1).Type == lexer.IDENT &&
+		(p.peekAt(1).Value == "кого" || p.peekAt(1).Value == "чего") {
+		return p.parseTwoWordCaseParam(morph.ParamForWhom, morph.ParamForWhat)
+	}
 	first, err := p.expect(lexer.IDENT)
 	if err != nil {
 		return ast.Param{}, fmt.Errorf("ожидалось имя параметра: %w", err)
@@ -407,4 +422,33 @@ func (p *Parser) parseParam() (ast.Param, error) {
 		return ast.Param{}, fmt.Errorf("после \":\" у параметра %q ожидалось имя типа: %w", name.Value, err)
 	}
 	return ast.Param{Name: name.Value, CaseWord: caseWord, Type: typeName, Line: first.Line}, nil
+}
+
+// parseTwoWordCaseParam разбирает двухсловную запись падежной роли с
+// обязательным предлогом (сам предлог уже проверен лукахедом в parseParam) -
+// "с кем"/"с чем" (animateWord=ParamWithWhom, inanimateWord=ParamWithWhat)
+// или "для кого"/"для чего" (ParamForWhom/ParamForWhat) - [имя]: Тип.
+func (p *Parser) parseTwoWordCaseParam(animateWord, inanimateWord string) (ast.Param, error) {
+	withTok := p.advance() // "с"/"для"
+	word := p.advance()    // "кем"/"чем" или "кого"/"чего"
+	caseWord := animateWord
+	if word.Value == "чем" || word.Value == "чего" {
+		caseWord = inanimateWord
+	}
+	name := word
+	if p.cur().Type == lexer.IDENT {
+		var err error
+		name, err = p.expect(lexer.IDENT)
+		if err != nil {
+			return ast.Param{}, err
+		}
+	}
+	if _, err := p.expect(lexer.COLON); err != nil {
+		return ast.Param{}, fmt.Errorf("после имени параметра %q ожидалось \":\" и тип: %w", name.Value, err)
+	}
+	typeName, err := p.parseTypeName()
+	if err != nil {
+		return ast.Param{}, fmt.Errorf("после \":\" у параметра %q ожидалось имя типа: %w", name.Value, err)
+	}
+	return ast.Param{Name: name.Value, CaseWord: caseWord, Type: typeName, Line: withTok.Line}, nil
 }

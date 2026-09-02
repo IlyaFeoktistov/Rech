@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
@@ -157,6 +158,9 @@ func (p *Parser) checkNewKeywordAgreement(kw lexer.Token, typeName string) error
 var naturalCallPrepositions = map[lexer.TokenType]bool{
 	lexer.KwWith: true,
 	lexer.KwIn:   true,
+	lexer.KwFor:  true,
+	lexer.KwFrom: true,
+	lexer.KwOf:   true,
 }
 
 // parseNaturalCall разбирает естественный вызов - вызов функции без скобок,
@@ -190,9 +194,18 @@ func (p *Parser) parseNaturalCall(params []ast.Param) (*ast.CallExpr, error) {
 	name := p.advance() // имя функции
 
 	tokens := make([]lexer.Token, len(params))
+	// tokenPrep[i] - предлог, реально стоявший перед tokens[i] в исходном
+	// тексте ("" - не было). Для большинства падежных имён декоративно и не
+	// проверяется, но для параметров с morph.MandatoryPrepositions (ParamWith*/
+	// ParamFor*/ParamWhereTo/ParamWhereFrom) обязателен и должен входить в
+	// её список допустимых предлогов - см. проверку ниже, после того как
+	// токен сопоставлен с параметром (какой параметр - неизвестно, пока не
+	// пройден проход 1).
+	tokenPrep := make([]string, len(params))
 	for i := range tokens {
 		if naturalCallPrepositions[p.cur().Type] {
-			p.advance() // декоративный предлог
+			tokenPrep[i] = p.cur().Value
+			p.advance()
 		}
 		argTok, err := p.expect(lexer.IDENT)
 		if err != nil {
@@ -222,9 +235,9 @@ func (p *Parser) parseNaturalCall(params []ast.Param) (*ast.CallExpr, error) {
 				if a.POS != morph.Noun || a.Tag.Case != paramCase {
 					continue
 				}
-				if paramCase == morph.Accusative {
-					lemma, ok := p.dict.Lookup(a.Lemma)
-					if !ok || lemma.Noun == nil || (lemma.Noun.Animacy == morph.Animate) != morph.IsAnimateParamName(param.CaseWord) {
+				if wantAnimacy, ok := morph.AnimacyRequiredByParamName(param.CaseWord); ok {
+					lemma, lok := p.dict.Lookup(a.Lemma)
+					if !lok || lemma.Noun == nil || lemma.Noun.Animacy != wantAnimacy {
 						continue
 					}
 				}
@@ -236,6 +249,10 @@ func (p *Parser) parseNaturalCall(params []ast.Param) (*ast.CallExpr, error) {
 			}
 		}
 		if matchIdx != -1 {
+			if allowed, needsPrep := morph.MandatoryPrepositions(params[matchIdx].CaseWord); needsPrep && !slices.Contains(allowed, tokenPrep[ti]) {
+				return nil, fmt.Errorf("строка %d, столбец %d: параметру %q нужен предлог (%s) перед аргументом",
+					argTok.Line, argTok.Col, params[matchIdx].Name, strings.Join(allowed, "/"))
+			}
 			args[matchIdx] = &ast.Identifier{Name: matchLemma, Line: argTok.Line}
 			filled[matchIdx] = true
 			tokenUsed[ti] = true
