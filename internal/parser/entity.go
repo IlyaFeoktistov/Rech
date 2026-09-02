@@ -332,8 +332,26 @@ func (p *Parser) parseFieldsSection() ([]ast.Field, error) {
 
 	var fields []ast.Field
 	for {
-		next := p.peekPastNewlines()
-		if next.Col <= label.Col || next.Type == lexer.RBRACE || next.Type == lexer.EOF {
+		// peekPastNewlinesAndDoc, не peekPastNewlines - висячий
+		// doc-комментарий в конце секции (не перед реальным полем) не
+		// должен ложно продлевать её только потому, что формально стоит на
+		// отступе глубже метки "имеет".
+		next := p.peekPastNewlinesAndDoc()
+		if next.Type == lexer.RBRACE || next.Type == lexer.EOF {
+			// Секция закончилась - если по дороге был пропущен doc-
+			// комментарий, он висит перед самой "}" (концом тела сущности),
+			// ни к чему не привязан - съедаем его тоже, как обычный
+			// комментарий, чтобы не запнуться на нём снаружи (parseEntity).
+			for p.cur().Type == lexer.NEWLINE || p.cur().Type == lexer.DOC_COMMENT {
+				p.advance()
+			}
+			break
+		}
+		if next.Col <= label.Col {
+			// Секция закончилась - но если по дороге был пропущен doc-
+			// комментарий, он привязан к СЛЕДУЮЩЕМУ члену сущности (не
+			// полю), не висит без дела - оставляем его непотреблённым,
+			// внешний цикл (parseEntity) заберёт его своим consumeDoc().
 			break
 		}
 		if err := p.requireSeparator(); err != nil {

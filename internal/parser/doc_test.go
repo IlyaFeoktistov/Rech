@@ -66,16 +66,57 @@ func TestParseDocCommentOnEntityFieldMethodConst(t *testing.T) {
 	}
 }
 
-func TestParseDocCommentBeforeStatementInsideBodyIsError(t *testing.T) {
+// TestParseDocCommentBeforeStatementInsideBodyIsIgnored - "/** ... */" не
+// сразу перед объявлением (сущность/функция/поле/метод/константа) ведёт
+// себя как обычный "/* ... */" - молча пропускается, не падает и никуда не
+// прикрепляется.
+func TestParseDocCommentBeforeStatementInsideBodyIsIgnored(t *testing.T) {
 	src := `
 функция главная
 {
     /** это не объявление верхнего уровня */
-    переменная х = 1
+    переменная число = 1
+    вывести число
 }
 `
-	if _, err := parseSource(t, src); err == nil {
-		t.Fatalf("ожидалась ошибка - doc-комментарий перед обычной инструкцией внутри тела не поддержан")
+	prog, err := parseSource(t, src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if len(prog.Functions[0].Body) != 2 {
+		t.Fatalf("ожидалось 2 инструкции в теле (doc-комментарий не должен породить свою), получено %d", len(prog.Functions[0].Body))
+	}
+}
+
+// TestParseDocCommentTrailingBeforeClosingBraceIsIgnored - "/** ... */"
+// прямо перед закрывающей "}" (тела функции, тела сущности, секции "имеет:")
+// - тоже не объявление, тем же принципом, что и
+// TestParseDocCommentBeforeStatementInsideBodyIsIgnored.
+func TestParseDocCommentTrailingBeforeClosingBraceIsIgnored(t *testing.T) {
+	src := `
+сущность Точка
+{
+    имеет:
+        x: Целое
+        /** висячий - не поле */
+
+    конструктор(x: Целое) { этот.x = x }
+
+    /** висячий - не метод */
+}
+функция главная
+{
+    переменная т = новая Точка(1)
+    вывести т.x
+    /** висячий - не инструкция */
+}
+`
+	prog, err := parseSource(t, src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if len(prog.Entities[0].Fields) != 1 {
+		t.Fatalf("ожидалось 1 поле, получено %d", len(prog.Entities[0].Fields))
 	}
 }
 

@@ -263,6 +263,26 @@ func (p *Parser) peekPastNewlines() lexer.Token {
 	return p.peekAt(offset)
 }
 
+// peekPastNewlinesAndDoc - как peekPastNewlines, но пропускает вперёд ещё и
+// "/** ... */" (в любом чередовании с переносами строк) - используется там,
+// где решение "продолжать секцию или нет" нельзя принимать по самому
+// doc-комментарию (parseFieldsSection): висячий комментарий в конце секции
+// не должен ложно продлевать её только потому, что формально стоит на более
+// глубоком отступе, чем метка секции.
+func (p *Parser) peekPastNewlinesAndDoc() lexer.Token {
+	offset := 0
+	for {
+		for p.peekAt(offset).Type == lexer.NEWLINE {
+			offset++
+		}
+		if p.peekAt(offset).Type == lexer.DOC_COMMENT {
+			offset++
+			continue
+		}
+		return p.peekAt(offset)
+	}
+}
+
 // skipSeparators пропускает ноль или больше разделителей инструкций
 // (перенос строки или ";", в любом сочетании) и возвращает, сколько было
 // пропущено.
@@ -421,6 +441,12 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 	savedPending := p.beginPendingScope()
 	for p.cur().Type != lexer.EOF {
 		doc := p.consumeDoc()
+		if p.cur().Type == lexer.EOF {
+			// "/** ... */" висело в самом конце файла, не перед
+			// объявлением - обычный комментарий, ни к чему не привязанный
+			// (doc уже прочитан и отбрасывается).
+			continue
+		}
 		switch p.cur().Type {
 		case lexer.KwFunction:
 			fn, err := p.parseFunction()
@@ -629,6 +655,12 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 
 	for p.cur().Type != lexer.RBRACE {
 		doc := p.consumeDoc()
+		if p.cur().Type == lexer.RBRACE {
+			// "/** ... */" висело в конце тела, не перед объявлением -
+			// обычный комментарий, ни к чему не привязанный (doc уже
+			// прочитан и отбрасывается).
+			continue
+		}
 		switch p.cur().Type {
 		case lexer.KwConstructor:
 			if ctor != nil {

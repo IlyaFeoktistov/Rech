@@ -22,6 +22,15 @@ func (p *Parser) parseBlock() ([]ast.Stmt, error) {
 		if p.cur().Type == lexer.EOF {
 			return nil, fmt.Errorf("строка %d: не найдена закрывающая }", p.cur().Line)
 		}
+		if p.cur().Type == lexer.DOC_COMMENT {
+			// "/** ... */" внутри тела - не сразу перед объявлением
+			// (consumeDoc уже забрал бы его в соответствующей точке
+			// разбора, если бы был) - ведёт себя как обычный комментарий,
+			// просто пропускается, ни к чему не привязываясь.
+			p.advance()
+			p.skipSeparators()
+			continue
+		}
 		stmt, err := p.parseStatement()
 		if err != nil {
 			return nil, err
