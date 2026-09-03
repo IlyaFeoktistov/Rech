@@ -51,6 +51,10 @@ func Analyze(prog *ast.Program) (*ir.Program, error) {
 		return nil, err
 	}
 
+	if err := a.collectModuleConsts(prog); err != nil {
+		return nil, err
+	}
+
 	irProg, err := a.buildIR(prog)
 	if err != nil {
 		return nil, err

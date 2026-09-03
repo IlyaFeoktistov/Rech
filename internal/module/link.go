@@ -157,6 +157,13 @@ func (p *Program) Link() (*ast.Program, error) {
 		// мангла, "использовать" пока не умеет импортировать интерфейс по
 		// имени - осознанный, а не забытый пробел этого среза.
 		merged.Interfaces = append(merged.Interfaces, m.AST.Interfaces...)
+		// Consts - константы уровня модуля (ast.Program.Consts) - тот же
+		// принцип, что и у Enums/Interfaces: без мангла, "использовать" не
+		// импортирует константу по имени (internal/semantic.
+		// collectModuleConsts просто видит все константы всех слитых
+		// файлов сразу - то же намеренное ослабление, что и у приватности
+		// функций/сущностей в режиме нескольких файлов, docs/ROADMAP.md).
+		merged.Consts = append(merged.Consts, m.AST.Consts...)
 	}
 	return merged, nil
 }

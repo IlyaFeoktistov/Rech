@@ -62,6 +62,9 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 	case *ast.Identifier:
 		typ, exists := sc.lookup(e.Name)
 		if !exists {
+			if _, isModuleConst := sc.a.moduleConstExprs[e.Name]; isModuleConst {
+				return resolveModuleConstant(sc, e.Name, e.Line)
+			}
 			return nil, fmt.Errorf("строка %d: переменная %q не объявлена", e.Line, e.Name)
 		}
 		return &ir.Identifier{Name: e.Name, Type: typ}, nil

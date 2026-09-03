@@ -532,6 +532,19 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 				return nil, err
 			}
 			prog.Interfaces = append(prog.Interfaces, iface)
+		case lexer.KwConst:
+			// Отдельная ветка, не "default" -> parseStatement: константа
+			// уровня модуля - ОБЪЯВЛЕНИЕ (как функция/сущность), не
+			// топ-уровневая ИНСТРУКЦИЯ неявной "главная" - файл может иметь
+			// её одновременно с явной "функция главная" без конфликта
+			// "объявляет главная явно и одновременно содержит инструкции
+			// на верхнем уровне" (см. ниже, после цикла).
+			c, err := p.parseConstDecl()
+			if err != nil {
+				return nil, err
+			}
+			c.Doc = doc
+			prog.Consts = append(prog.Consts, c)
 		default:
 			stmt, err := p.parseStatement()
 			if err != nil {

@@ -105,6 +105,29 @@ func resolveEntityConstant(sc *ctx, entityName, constName string, line int) (ir.
 	return val, nil
 }
 
+// resolveModuleConstant - то же самое, что resolveEntityConstant, но для
+// константы уровня МОДУЛЯ (ast.Program.Consts, sc.a.moduleConstExprs) -
+// ключ кэша resolvedConsts/resolvingConsts - голое имя константы (без
+// точки, тем же общим кэшем - см. package doc Analyzer.moduleConstExprs).
+// name - точно из sc.a.moduleConstExprs (вызывающая сторона -
+// analyzeExpr, *ast.Identifier - уже проверила наличие ключа).
+func resolveModuleConstant(sc *ctx, name string, line int) (ir.Expr, error) {
+	if v, ok := sc.resolvedConsts[name]; ok {
+		return v, nil
+	}
+	if sc.resolvingConsts[name] {
+		return nil, fmt.Errorf("строка %d: константа %q уровня модуля ссылается сама на себя (прямо или через другую константу) - вычислить значение невозможно", line, name)
+	}
+	sc.resolvingConsts[name] = true
+	val, err := analyzeExpr(sc, sc.a.moduleConstExprs[name])
+	delete(sc.resolvingConsts, name)
+	if err != nil {
+		return nil, fmt.Errorf("строка %d: при вычислении константы %q уровня модуля: %w", line, name, err)
+	}
+	sc.resolvedConsts[name] = val
+	return val, nil
+}
+
 // resolveFieldDefault возвращает значение по умолчанию поля entityName.
 // fieldName (см. ast.Field.Default) - тем же принципом, что и
 // resolveEntityConstant: вычисляется через analyzeExpr РОВНО один раз на

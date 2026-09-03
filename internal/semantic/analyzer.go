@@ -29,6 +29,17 @@ type Analyzer struct {
 	resolvedConsts  map[string]ir.Expr
 	resolvingConsts map[string]bool
 
+	// moduleConstExprs - имя -> ещё НЕ проанализированное выражение
+	// константы уровня модуля (ast.Program.Consts, "константа <имя> =
+	// <значение>" вне функции/сущности) - собрано целиком до анализа тел
+	// (см. collectModuleConsts), поэтому функция может ссылаться на
+	// константу, объявленную НИЖЕ по файлу. Разрешение в ir.Expr - лениво,
+	// resolveModuleConstant, тем же кэшем resolvedConsts/resolvingConsts,
+	// что и у констант уровня сущности (ключ - голое имя константы, без
+	// точки - у EntityDecl.Constants ключ всегда "Сущность.Константа",
+	// коллизий по формату быть не может).
+	moduleConstExprs map[string]ast.Expr
+
 	// resolvedFieldDefaults - кэш значений по умолчанию полей ("Сущность.
 	// поле" -> уже разрешённый ir.Expr), тем же принципом, что и
 	// resolvedConsts (см. resolveFieldDefault) - без своего множества
@@ -537,6 +548,40 @@ func (a *Analyzer) collectEnums(prog *ast.Program) error {
 		enums[e.Name] = members
 	}
 	a.enums = enums
+	return nil
+}
+
+// collectModuleConsts регистрирует имена констант уровня модуля
+// (ast.Program.Consts) - только СОБИРАЕТ ast.Expr по имени, само значение
+// разрешается лениво при первом обращении (resolveModuleConstant) - тем же
+// принципом, что и константы уровня сущности (collectEntities не
+// анализирует ConstExprs сразу). Вызывается после collectEntities/
+// collectFuncSigs/collectEnums - все три таблицы уже готовы для проверки
+// коллизии имени.
+func (a *Analyzer) collectModuleConsts(prog *ast.Program) error {
+	if len(prog.Consts) == 0 {
+		return nil
+	}
+	consts := make(map[string]ast.Expr, len(prog.Consts))
+	for _, c := range prog.Consts {
+		if _, exists := consts[c.Name]; exists {
+			return fmt.Errorf("строка %d: константа %q уровня модуля объявлена более одного раза", c.Line, c.Name)
+		}
+		if _, exists := a.entities[c.Name]; exists {
+			return fmt.Errorf("строка %d: константа %q уровня модуля: имя совпадает с уже объявленной сущностью", c.Line, c.Name)
+		}
+		if _, exists := a.funcs[c.Name]; exists {
+			return fmt.Errorf("строка %d: константа %q уровня модуля: имя совпадает с уже объявленной функцией", c.Line, c.Name)
+		}
+		if _, exists := a.enums[c.Name]; exists {
+			return fmt.Errorf("строка %d: константа %q уровня модуля: имя совпадает с уже объявленным перечислением", c.Line, c.Name)
+		}
+		if _, exists := a.interfaces[c.Name]; exists {
+			return fmt.Errorf("строка %d: константа %q уровня модуля: имя совпадает с уже объявленным интерфейсом", c.Line, c.Name)
+		}
+		consts[c.Name] = c.Value
+	}
+	a.moduleConstExprs = consts
 	return nil
 }
 
