@@ -128,10 +128,33 @@ func TestParseBuildArgsCodeAndPathConflictFails(t *testing.T) {
 }
 
 // TestRunBinaryPassesEnv - "окружение:" из .rechproj (project.File.
-// Окружение) должно реально дойти до процесса - env добавляется ПОВЕРХ
-// os.Environ() самого "rech", значит переопределяет одноимённую переменную,
-// уже заданную снаружи.
+// Окружение) должно реально дойти до процесса, если переменная снаружи не
+// задана вовсе.
 func TestRunBinaryPassesEnv(t *testing.T) {
+	dir := t.TempDir()
+	scriptPath := filepath.Join(dir, "echo_env.sh")
+	writeTestFile(t, scriptPath, "#!/bin/sh\necho \"$RECH_TEST_VAR\"\n")
+	if err := os.Chmod(scriptPath, 0o755); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+
+	os.Unsetenv("RECH_TEST_VAR")
+	out := captureStdout(t, func() {
+		if err := runBinary(scriptPath, map[string]string{"RECH_TEST_VAR": "из_манифеста"}); err != nil {
+			t.Fatalf("runBinary: %v", err)
+		}
+	})
+	if strings.TrimSpace(out) != "из_манифеста" {
+		t.Fatalf("получено %q, ожидалось значение из .rechproj", out)
+	}
+}
+
+// TestRunBinaryExternalEnvOverridesManifest - НАЙДЕННОЕ И ИСПРАВЛЕННОЕ (по
+// ходу обсуждения, до первого релиза фичи) поведение: "окружение:" из
+// .rechproj - значение ПО УМОЛЧАНИЮ, не безусловное - уже заданная снаружи
+// переменная (Docker "-e"/docker-compose/CI/шелл) должна побеждать, иначе
+// задать порт контейнеру извне стало бы невозможно.
+func TestRunBinaryExternalEnvOverridesManifest(t *testing.T) {
 	dir := t.TempDir()
 	scriptPath := filepath.Join(dir, "echo_env.sh")
 	writeTestFile(t, scriptPath, "#!/bin/sh\necho \"$RECH_TEST_VAR\"\n")
@@ -145,7 +168,7 @@ func TestRunBinaryPassesEnv(t *testing.T) {
 			t.Fatalf("runBinary: %v", err)
 		}
 	})
-	if strings.TrimSpace(out) != "из_манифеста" {
-		t.Fatalf("получено %q, ожидалось значение из .rechproj, переопределяющее внешнее окружение", out)
+	if strings.TrimSpace(out) != "снаружи" {
+		t.Fatalf("получено %q, внешнее окружение должно побеждать значение из .rechproj", out)
 	}
 }
