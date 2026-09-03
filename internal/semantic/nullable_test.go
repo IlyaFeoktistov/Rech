@@ -150,6 +150,98 @@ func TestAnalyzeExplicitCastUnwrapsNullable(t *testing.T) {
 	}
 }
 
+// TestAnalyzeExplicitCastToOtherTypeUnwrapsNarrowedNullable - НАЙДЕННОЕ И
+// ИСПРАВЛЕННОЕ ограничение (docs/ROADMAP.md, Шаг 41/44): "(Целое) а" (а -
+// ?Строка, уже сужена "!= Ничто") - каст сразу В ДРУГОЙ тип, не просто
+// разворот "?Строка" в "Строка" (тот уже работал безусловно, см.
+// TestAnalyzeExplicitCastUnwrapsNullable выше, даже БЕЗ сужения - рантайм-
+// паника на "Ничто"). Раньше analyzeCastExpr не звал maybeUnwrapNarrowed
+// вовсе - "to" (Целое) не совпадал с внутренним типом "from" (Строка)
+// буквально, allowedCasts не знает про "?Строка" - "нельзя привести
+// ?Строка к Целое".
+func TestAnalyzeExplicitCastToOtherTypeUnwrapsNarrowedNullable(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция главная {
+    переменная а: ?Строка = Ничто
+    а = "42"
+    если а != Ничто {
+        вывести (Целое) а
+    }
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
+// TestAnalyzeNullableNarrowedAfterEarlyReturnOnEqualNichto - НАЙДЕННОЕ И
+// ИСПРАВЛЕННОЕ ограничение (docs/ROADMAP.md, Шаг 41/44): "если а == Ничто {
+// вернуть }" (ранний выход, БЕЗ явного "иначе") должно доказывать
+// непустоту "а" для ОСТАЛЬНОГО тела функции, ровно как доказало бы "если а
+// == Ничто {...} иначе {...использовать а...}" - Then расходится
+// (blockDiverges), значит единственный путь ДОСТИЧЬ кода после "если" -
+// тот, где условие было ложно.
+func TestAnalyzeNullableNarrowedAfterEarlyReturnOnEqualNichto(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция главная {
+    переменная а: ?Целое = Ничто
+    а = 5
+    если а == Ничто {
+        вернуть
+    }
+    вывести а + 1
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
+// TestAnalyzeNullableNotNarrowedAfterNonDivergingIf - контрольный тест: без
+// гарантированного расхождения ("вывести", не "вернуть"/"выбросить" внутри
+// Then) сужение по-прежнему НЕ применяется дальше по коду - код после
+// "если" достижим и ветвью, где "а" остался Ничто.
+func TestAnalyzeNullableNotNarrowedAfterNonDivergingIf(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция главная {
+    переменная а: ?Целое = Ничто
+    а = 5
+    если а == Ничто {
+        вывести 0
+    }
+    вывести а + 1
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "?Целое") {
+		t.Fatalf("ожидалась ошибка использования ?Целое без сужения, получено: %v", err)
+	}
+}
+
+// TestAnalyzeSerializeJSONUnwrapsNarrowedNullable - НАЙДЕННОЕ И
+// ИСПРАВЛЕННОЕ ограничение (docs/ROADMAP.md, Шаг 41/44): "сериализовать
+// JSON x" (x - ?Точка, уже сужена "!= Ничто") раньше не разворачивала
+// nullable-обёртку сама (structCompatible не принимает "?Тип" вовсе), хотя
+// употребление того же значения любым другим способом уже разворачивало
+// его.
+func TestAnalyzeSerializeJSONUnwrapsNarrowedNullable(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+сущность Точка {
+    имеет:
+        x: Целое
+}
+функция главная {
+    переменная т: ?Точка = Ничто
+    т = новая Точка()
+    если т != Ничто {
+        вывести сериализовать JSON т
+    }
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
 func TestAnalyzeNullableListElementRejected(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 функция главная {

@@ -126,3 +126,26 @@ func TestParseBuildArgsCodeAndPathConflictFails(t *testing.T) {
 		t.Fatal("ожидалась ошибка - -c и путь одновременно")
 	}
 }
+
+// TestRunBinaryPassesEnv - "окружение:" из .rechproj (project.File.
+// Окружение) должно реально дойти до процесса - env добавляется ПОВЕРХ
+// os.Environ() самого "rech", значит переопределяет одноимённую переменную,
+// уже заданную снаружи.
+func TestRunBinaryPassesEnv(t *testing.T) {
+	dir := t.TempDir()
+	scriptPath := filepath.Join(dir, "echo_env.sh")
+	writeTestFile(t, scriptPath, "#!/bin/sh\necho \"$RECH_TEST_VAR\"\n")
+	if err := os.Chmod(scriptPath, 0o755); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+
+	t.Setenv("RECH_TEST_VAR", "снаружи")
+	out := captureStdout(t, func() {
+		if err := runBinary(scriptPath, map[string]string{"RECH_TEST_VAR": "из_манифеста"}); err != nil {
+			t.Fatalf("runBinary: %v", err)
+		}
+	})
+	if strings.TrimSpace(out) != "из_манифеста" {
+		t.Fatalf("получено %q, ожидалось значение из .rechproj, переопределяющее внешнее окружение", out)
+	}
+}

@@ -157,6 +157,56 @@ func TestLoadDependencyDuplicateRejected(t *testing.T) {
 	}
 }
 
+func TestLoadEnvironment(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := `проект:
+  имя: тест
+
+файлы:
+  главный: а.rech
+
+окружение:
+  RECH_HTTP_PORT: 9090
+  ОТЛАДКА: истина
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	pf, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(pf.Окружение) != 2 {
+		t.Fatalf("ожидалось 2 переменные окружения, получено %+v", pf.Окружение)
+	}
+	if got := pf.Окружение["RECH_HTTP_PORT"]; got != "9090" {
+		t.Fatalf("RECH_HTTP_PORT = %q, ожидалось \"9090\"", got)
+	}
+	if got := pf.Окружение["ОТЛАДКА"]; got != "истина" {
+		t.Fatalf("ОТЛАДКА = %q, ожидалось \"истина\"", got)
+	}
+}
+
+func TestLoadEnvironmentDuplicateRejected(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := `проект:
+  имя: тест
+файлы:
+  главный: а.rech
+окружение:
+  ПОРТ: 8080
+  ПОРТ: 9090
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatalf("ожидалась ошибка на дубль переменной окружения \"ПОРТ\"")
+	}
+}
+
 func TestLoadUnknownTypeRejected(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "тест.rechproj")

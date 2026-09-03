@@ -96,6 +96,14 @@ func analyzeSerializeExpr(sc *ctx, e *ast.SerializeExpr) (ir.Expr, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Доказанная непустота (established, "если а != Ничто {...}") -
+	// НАЙДЕННОЕ И ИСПРАВЛЕННОЕ ограничение (docs/ROADMAP.md, Шаг 41/44):
+	// "сериализовать JSON x" внутри такой ветки раньше не снимала обёртку
+	// "?T" сама (structCompatible не принимает nullable-тип вовсе), хотя
+	// употребление значения ЛЮБЫМ другим способом (аргумент/присваивание/
+	// арифметика) уже разворачивало её - тот же принцип, что и у
+	// maybeUnwrapNarrowed везде.
+	value = maybeUnwrapNarrowed(sc, value)
 	t := ir.TypeOf(value)
 	if err := structCompatible(sc.entities, t, nil, e.Format); err != nil {
 		return nil, fmt.Errorf("строка %d: \"сериализовать %s\" для %s: %w", e.Line, e.Format, t, err)

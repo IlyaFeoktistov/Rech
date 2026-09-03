@@ -129,6 +129,7 @@ func main() {
 	var extraLibs []string
 	var projectDeps map[string]string
 	var projectDepScopes map[string]map[string]string
+	var runEnv map[string]string
 	if !hasCode {
 		projPath := srcPath
 		if projPath == "" {
@@ -159,6 +160,7 @@ func main() {
 				isLib = pf.IsLibrary()
 			}
 			outDir, projName = pf.OutputDir(), pf.Имя
+			runEnv = pf.Окружение
 			// Библиотеки для линковки (-l<имя>) - только из файла проекта:
 			// "внешняя функция" в .rech-коде не привязана к конкретной
 			// библиотеке (см. package doc project.File.Библиотеки), значит без
@@ -250,7 +252,7 @@ func main() {
 				os.Exit(1)
 			}
 		}
-		if err := runBinary(binPath); err != nil {
+		if err := runBinary(binPath, runEnv); err != nil {
 			fmt.Fprintln(os.Stderr, "ошибка выполнения:", err)
 			os.Exit(1)
 		}
@@ -356,7 +358,19 @@ func runTests(path string) bool {
 	return len(failed) == 0
 }
 
-func runBinary(binPath string) error {
+// runBinary запускает только что собранный binPath - env (project.File.
+// Окружение, пусто у программ без файла проекта/без секции "окружение:")
+// добавляется ПОВЕРХ os.Environ(), не заменяет его: пользователь может
+// переопределить значение из манифеста, задав ту же переменную в
+// окружении самого "rech run" ("ПЕРЕМЕННАЯ=другое rech run" всё ещё
+// побеждает - os.Environ() читается ПОСЛЕ добавления пар из env,
+// поэтому... на самом деле нет: exec.Cmd.Env берёт ПОСЛЕДНЕЕ вхождение
+// каждого имени, значит порядок здесь ("окружение:" ПОСЛЕ os.Environ()")
+// как раз даёт манифесту приоритет НАД внешним окружением - осознанный
+// выбор: значение в самом манифесте проекта - явное намерение автора
+// программы, оно не должно молча теряться из-за случайно одноимённой
+// переменной в окружении того, кто её запустил).
+func runBinary(binPath string, env map[string]string) error {
 	abs, err := filepath.Abs(binPath)
 	if err != nil {
 		return err
@@ -366,5 +380,11 @@ func runBinary(binPath string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
+	if len(env) > 0 {
+		cmd.Env = os.Environ()
+		for k, v := range env {
+			cmd.Env = append(cmd.Env, k+"="+v)
+		}
+	}
 	return cmd.Run()
 }

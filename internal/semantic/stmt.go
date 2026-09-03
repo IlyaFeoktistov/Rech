@@ -31,6 +31,34 @@ func endsWithReturnValue(body []ir.Stmt) bool {
 	}
 }
 
+// blockDiverges - true, если body гарантированно не проваливается дальше
+// (любой путь исполнения оканчивается "вернуть"/"выбросить", а не просто
+// "вернуть <значение>", как у endsWithReturnValue выше - "вернуть" без
+// значения тоже расходится). Используется ТОЛЬКО для сужения "?T"
+// (established, IfStmt ниже) - "если а == Ничто { <расходится> }" БЕЗ
+// явного "иначе" должно доказывать непустоту "а" для остального кода
+// ПОСЛЕ "если", ровно как доказало бы "если а == Ничто {...} иначе
+// {...использовать а...}" (docs/ROADMAP.md, Шаг 41/44, НАЙДЕННОЕ И
+// ИСПРАВЛЕННОЕ ограничение). Как и endsWithReturnValue - узкий анализ
+// последней инструкции блока (и рекурсивно её веток), не полный CFG.
+func blockDiverges(body []ir.Stmt) bool {
+	if len(body) == 0 {
+		return false
+	}
+	switch last := body[len(body)-1].(type) {
+	case *ir.ReturnStmt:
+		return true
+	case *ir.ThrowStmt:
+		return true
+	case *ir.TryStmt:
+		return blockDiverges(last.Body) && blockDiverges(last.CatchBody)
+	case *ir.IfStmt:
+		return last.Else != nil && blockDiverges(last.Then) && blockDiverges(last.Else)
+	default:
+		return false
+	}
+}
+
 // analyzeBlock анализирует список инструкций внутри уже открытой области
 // видимости - вызывающий код сам решает, нужно ли sc.push()/sc.pop()
 // вокруг вызова (тело функции - нет, тело если/пока/для - да).
@@ -197,7 +225,19 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		// прошла состояние X дальше по коду только если прошла его НА ОБОИХ
 		// путях выполнения (intersectEstablished) - ветки анализируются от
 		// одного и того же снапшота (preIf), не одна поверх результата
-		// другой, иначе Else "видел" бы эффект Then.
+		// другой, иначе Else "видел" бы эффект Then. ИСКЛЮЧЕНИЕ - ветка,
+		// которая гарантированно расходится (blockDiverges, "вернуть"/
+		// "выбросить" - код после "если" физически не может быть достигнут
+		// ЭТИМ путём): established после "если" наследуется ЦЕЛИКОМ от
+		// противоположной ветки, без пересечения - иначе она "забывала" бы
+		// собственное сужение. Это же правило распространяется на
+		// НЕЯВНУЮ пустую "иначе" (s.Else == nil) - "если а == Ничто {
+		// вернуть }" без явного "иначе" доказывает непустоту "а" дальше по
+		// коду ТЕМ ЖЕ путём, что и "если а == Ничто {...} иначе {...
+		// использовать а...}" (docs/ROADMAP.md, Шаг 41/44, НАЙДЕННОЕ И
+		// ИСПРАВЛЕННОЕ ограничение) - narrowing для "иначе" вычисляется
+		// всегда, даже когда самого тела "иначе" в исходнике нет.
+		//
 		// Сужение nullable-типа (nonNullState, internal/semantic/nullable.go)
 		// тем же established-механизмом, что и обычный typestate: "если а !=
 		// Ничто {...}" доказывает непустоту а внутри Then, "если а == Ничто
@@ -215,27 +255,38 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			markNonNull(sc, narrowedName)
 		}
 		then, err := analyzeBlock(sc, s.Then)
+		thenDiverges := blockDiverges(then)
 		sc.pop()
 		if err != nil {
 			return nil, err
 		}
 		postThen := snapshotEstablished(sc.established)
 		sc.established = preIf
+
 		var elseBody []ir.Stmt
-		postElse := preIf
+		sc.push()
+		if isNullCheck && !nc.IsNot && narrowedName != "" {
+			markNonNull(sc, narrowedName)
+		}
 		if s.Else != nil {
-			sc.push()
-			if isNullCheck && !nc.IsNot && narrowedName != "" {
-				markNonNull(sc, narrowedName)
-			}
 			elseBody, err = analyzeBlock(sc, s.Else)
-			sc.pop()
 			if err != nil {
+				sc.pop()
 				return nil, err
 			}
-			postElse = snapshotEstablished(sc.established)
 		}
-		sc.established = intersectEstablished(postThen, postElse)
+		elseDiverges := s.Else != nil && blockDiverges(elseBody)
+		postElse := snapshotEstablished(sc.established)
+		sc.pop()
+
+		switch {
+		case thenDiverges && !elseDiverges:
+			sc.established = postElse
+		case elseDiverges && !thenDiverges:
+			sc.established = postThen
+		default:
+			sc.established = intersectEstablished(postThen, postElse)
+		}
 		return &ir.IfStmt{Cond: cond, Then: then, Else: elseBody, Line: s.Line}, nil
 
 	case *ast.WhileStmt:

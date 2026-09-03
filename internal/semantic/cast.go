@@ -156,6 +156,17 @@ func analyzeCastExpr(sc *ctx, e *ast.CastExpr) (ir.Expr, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Доказанная непустота (established, "если а != Ничто {...}")
+	// разворачивает nullable ДО решения from/to - без этого "(Целое)
+	// из_окружения" (из_окружения: ?Строка, уже сужена) не находила пути:
+	// цель (Целое) не совпадает с внутренним типом (Строка) буквально, а
+	// allowedCasts ниже не знает про "?Строка" вовсе - НАЙДЕННОЕ И
+	// ИСПРАВЛЕННОЕ ограничение (docs/ROADMAP.md, Шаг 41/44). Не
+	// сужена - maybeUnwrapNarrowed возвращает value как есть, ветка
+	// "from.Kind == ir.KindNullable" ниже отрабатывает по-прежнему (каст в
+	// ИМЕННО внутренний тип - единственный путь развернуть nullable БЕЗ
+	// доказанной непустоты, с рантайм-паникой на "Ничто").
+	value = maybeUnwrapNarrowed(sc, value)
 	from := ir.TypeOf(value)
 	if from == to {
 		return value, nil
