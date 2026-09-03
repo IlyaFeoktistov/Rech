@@ -118,6 +118,19 @@ func TestLexerCharLiteral(t *testing.T) {
 	}
 }
 
+func TestLexerCarriageReturnEscape(t *testing.T) {
+	toks, err := New(`"a\rb" '\r'`).Tokenize()
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if toks[0].Type != STRING || toks[0].Value != "a\rb" {
+		t.Fatalf("ожидался STRING %q, получено %s %q", "a\rb", toks[0].Type, toks[0].Value)
+	}
+	if toks[1].Type != CHAR || toks[1].Value != "\r" {
+		t.Fatalf("ожидался CHAR %q, получено %s %q", "\r", toks[1].Type, toks[1].Value)
+	}
+}
+
 func TestLexerCharLiteralRejectsEmptyAndMultiChar(t *testing.T) {
 	if _, err := New(`''`).Tokenize(); err == nil {
 		t.Fatal("ожидалась ошибка на пустом символьном литерале")

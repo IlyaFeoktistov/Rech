@@ -80,6 +80,8 @@ func escapeCString(s string) string {
 			sb.WriteString(`\n`)
 		case '\t':
 			sb.WriteString(`\t`)
+		case '\r':
+			sb.WriteString(`\r`)
 		default:
 			sb.WriteRune(r)
 		}

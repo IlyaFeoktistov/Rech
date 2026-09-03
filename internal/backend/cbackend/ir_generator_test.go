@@ -1006,6 +1006,32 @@ func TestGenerateFromIREntityWithGenericFieldOrdering(t *testing.T) {
 // получить C-typedef самой сигнатуры (rech_C_...) РАНЬШЕ typedef коллекции -
 // иначе C-структура коллекции ссылается на ещё не объявленный тип
 // (см. package doc ir_generator.go, genericsCodeAfterCallables).
+// TestGenerateFromIRStringLiteralEscapesCarriageReturn - строковый литерал
+// со значением "\r" (уже разобранным лексером в настоящий байт CR, см.
+// internal/lexer) должен попасть в C-исходник как escape-последовательность
+// "\r", а не как сырой байт 0x0D - сырой CR внутри C-строкового литерала
+// обрывает строку и ломает компиляцию сгенерированного .c ("missing
+// terminating \" character") - найдено при добавлении "\r" как
+// escape-последовательности в сам лексер Rech (escapeCString не знала о
+// '\r', хотя знала про '\n'/'\t').
+func TestGenerateFromIRStringLiteralEscapesCarriageReturn(t *testing.T) {
+	prog := &ir.Program{Functions: []*ir.Function{
+		{Name: "главная", Body: []ir.Stmt{
+			&ir.PrintStmt{Value: &ir.StringLiteral{Value: "a\r\nb"}},
+		}},
+	}}
+	out, err := GenerateFromIR(prog)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if strings.ContainsRune(out, '\r') {
+		t.Fatalf("сырой байт CR попал в C-исходник, должен быть экранирован как \\r:\n%s", out)
+	}
+	if !strings.Contains(out, `"a\r\nb"`) {
+		t.Fatalf("ожидалась экранированная строка \"a\\r\\nb\", получено:\n%s", out)
+	}
+}
+
 // TestGenerateFromIRFunctionWithDBParamOrdersDBStructFirst - функция,
 // принимающая параметр типа "БД" (ir.TypeDB, "rech_db_t *" в C), должна
 // получить свой ПРОТОТИП только после typedef самой "rech_db_t" -

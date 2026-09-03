@@ -372,6 +372,8 @@ func (l *Lexer) readString(line, col int) (Token, error) {
 				sb = append(sb, '\n')
 			case 't':
 				sb = append(sb, '\t')
+			case 'r':
+				sb = append(sb, '\r')
 			case '"':
 				sb = append(sb, '"')
 			case '\\':
@@ -412,6 +414,8 @@ func (l *Lexer) readChar(line, col int) (Token, error) {
 			value = '\n'
 		case 't':
 			value = '\t'
+		case 'r':
+			value = '\r'
 		case '\'':
 			value = '\''
 		case '\\':
