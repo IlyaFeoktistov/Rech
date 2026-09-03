@@ -56,6 +56,38 @@ func TestGenerateFromIRHTTPServerBuiltinCalls(t *testing.T) {
 	}
 }
 
+// TestGenerateFromIRHTTPServerDecodesPathSegment - НАЙДЕННЫЙ В ROADMAP
+// (шаг 41) пробел: "принять_http" обязан percent-декодировать сегмент пути
+// (rech_path_url_decode), а не только query-строку (rech_qp_url_decode,
+// отдельная функция - у сегмента пути нет "+"-как-пробел).
+func TestGenerateFromIRHTTPServerDecodesPathSegment(t *testing.T) {
+	prog := &ir.Program{
+		Entities: []*ir.Entity{
+			{Name: "Запрос", Fields: []ir.Field{
+				{Name: "метод", Type: ir.TypeString}, {Name: "адрес", Type: ir.TypeString},
+				{Name: "порт", Type: ir.TypeInt}, {Name: "путь", Type: ir.TypeString},
+				{Name: "заголовки", Type: ir.TypeString}, {Name: "тело", Type: ir.TypeString},
+			}},
+			{Name: "Ответ", Fields: []ir.Field{
+				{Name: "код", Type: ir.TypeInt}, {Name: "заголовки", Type: ir.TypeString}, {Name: "тело", Type: ir.TypeString},
+			}},
+		},
+		Functions: []*ir.Function{{Name: "главная", Body: []ir.Stmt{
+			&ir.VarDecl{Name: "с", Value: &ir.CallExpr{Callee: "принять_http", Args: []ir.Expr{&ir.IntLiteral{Value: 0}}, Type: ir.EntityType("Запрос"), HasReturn: true}},
+		}}},
+	}
+	out, err := GenerateFromIR(prog)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "static char *rech_path_url_decode(") {
+		t.Fatalf("ожидалось определение rech_path_url_decode, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "rech_path_url_decode(raw_path, seg_len)") {
+		t.Fatalf("ожидался вызов rech_path_url_decode при разборе пути, получено:\n%s", out)
+	}
+}
+
 func TestGenerateFromIRHTTPClientAndServerShareRechDup(t *testing.T) {
 	prog := &ir.Program{
 		Entities: []*ir.Entity{
@@ -101,12 +133,21 @@ func TestGenerateFromIRQueryParamsBuiltinCall(t *testing.T) {
 	}
 	for _, want := range []string{
 		"rech_query_params(",
-		"static " + mangleType("Словарь<Строка, Строка>") + " rech_query_params(const char *path)",
+		// Указатель, не значение - НАЙДЕННЫЙ И ИСПРАВЛЕННЫЙ баг: раньше
+		// rech_query_params возвращал Словарь по значению, а вызывающий код
+		// (VarDecl выше, "rech_T_... * v_п_INIT = rech_query_params(...)")
+		// ждёт указатель - несовпадение давало "incompatible types" у
+		// настоящего cc (generic-коллекции ссылочные ВЕЗДЕ в cbackend, см.
+		// entityIsRef/genericCtorCCode).
+		"static " + mangleType("Словарь<Строка, Строка>") + " *rech_query_params(const char *path)",
 		"static char *rech_qp_url_decode(",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("ожидалось %q в выводе, получено:\n%s", want, out)
 		}
+	}
+	if !strings.Contains(out, "* v_p_INIT = rech_query_params(") {
+		t.Fatalf("вызывающий код должен присваивать указатель, получено:\n%s", out)
 	}
 }
 

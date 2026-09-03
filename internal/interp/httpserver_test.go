@@ -93,6 +93,75 @@ func TestRunHTTPServerBuiltins(t *testing.T) {
 	}
 }
 
+// TestRunHTTPServerDecodesPercentEncodedPath - НАЙДЕННЫЙ В ROADMAP (шаг 41)
+// пробел: настоящие HTTP-клиенты (curl, браузеры) percent-encode
+// нелатинские байты в ПУТИ (RFC 3986) сами - маршрут "/задачи" никогда не
+// совпал бы с тем, что реально пришло по проводу
+// ("/%D0%B7%D0%B0%D0%B4%D0%B0%D1%87%D0%B8"), если "принять_http" не
+// декодирует сегмент пути. Query-строка после "?" декодируется отдельно
+// (параметры_пути) - "запрос.путь" сохраняет её как есть, тем же принципом,
+// что описан в маршрутизатор.rech.
+func TestRunHTTPServerDecodesPercentEncodedPath(t *testing.T) {
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+	port := probe.Addr().(*net.TCPAddr).Port
+	probe.Close()
+
+	clientDone := make(chan error, 1)
+	go func() {
+		var conn net.Conn
+		var dialErr error
+		for range 200 {
+			conn, dialErr = net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+			if dialErr == nil {
+				break
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		if dialErr != nil {
+			clientDone <- fmt.Errorf("net.Dial: %w", dialErr)
+			return
+		}
+		defer conn.Close()
+		// "/задачи?имя=привет" - путь percent-encoded (кириллица в самом
+		// пути, не в query), query-строка - как реальный curl её оставил бы.
+		req := "GET /%D0%B7%D0%B0%D0%B4%D0%B0%D1%87%D0%B8?%D0%B8%D0%BC%D1%8F=%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82 HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n"
+		if _, err := io.WriteString(conn, req); err != nil {
+			clientDone <- fmt.Errorf("отправка запроса: %w", err)
+			return
+		}
+		io.ReadAll(conn)
+		clientDone <- nil
+	}()
+
+	got := runSrc(t, fmt.Sprintf(`
+функция главная
+{
+    переменная слушатель = сетевой_узел("tcp", "", %d)
+    переменная соединение = принять(слушатель)
+    переменная запрос = принять_http(соединение)
+    вывести запрос.путь
+    переменная параметры = параметры_пути(запрос.путь)
+    вывести параметры.получить("имя")
+
+    переменная ответ = новый Ответ(200, "", "")
+    отправить_http_ответ(соединение, ответ)
+    закрыть_сокет(соединение)
+    закрыть_сокет(слушатель)
+}
+`, port))
+
+	if err := <-clientDone; err != nil {
+		t.Fatal(err)
+	}
+	want := "/задачи?%D0%B8%D0%BC%D1%8F=%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82\nпривет\n"
+	if got != want {
+		t.Fatalf("получено %q, хотели %q", got, want)
+	}
+}
+
 func TestRunQueryParamsBuiltin(t *testing.T) {
 	got := runSrc(t, `
 функция главная

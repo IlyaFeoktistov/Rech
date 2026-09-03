@@ -38,6 +38,41 @@ var httpServerHelpers = fmt.Sprintf(`static long long rech_http_content_length(c
     return 0;
 }
 
+// rech_path_hex_digit/rech_path_url_decode - процент-декодирование СЕГМЕНТА
+// пути (до "?", если есть) - настоящие HTTP-клиенты (curl, браузеры) сами
+// percent-encode нелатинские байты в пути (RFC 3986), в отличие от
+// query-строки "+" здесь НЕ означает пробел (это не
+// application/x-www-form-urlencoded) - поэтому отдельная пара функций, не
+// переиспользование rech_qp_url_decode ниже (queryParamsHelper) - тот
+// специфичен для query-строки и не всегда даже эмитируется (только если
+// программа вызвала "параметры_пути" хоть раз), а декодирование пути нужно
+// ВСЕГДА, как только используется "принять_http".
+static int rech_path_hex_digit(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+static char *rech_path_url_decode(const char *s, size_t len) {
+    char *out = malloc(len + 1);
+    size_t o = 0;
+    for (size_t i = 0; i < len; i++) {
+        if (s[i] == '%%' && i + 2 < len) {
+            int hi = rech_path_hex_digit(s[i + 1]);
+            int lo = rech_path_hex_digit(s[i + 2]);
+            if (hi >= 0 && lo >= 0) {
+                out[o++] = (char)((hi << 4) | lo);
+                i += 2;
+                continue;
+            }
+        }
+        out[o++] = s[i];
+    }
+    out[o] = '\0';
+    return out;
+}
+
 static char *rech_recv_http_request(rech_socket_t s) {
     size_t cap = 4096, len = 0;
     char *buf = malloc(cap);
@@ -98,10 +133,29 @@ static %[7]s rech_http_accept_request(rech_socket_t s) {
         char *sp2 = strchr(sp1 + 1, ' ');
         if (sp2 && sp2 < line_end) {
             size_t path_len = (size_t)(sp2 - (sp1 + 1));
-            char *path = malloc(path_len + 1);
-            memcpy(path, sp1 + 1, path_len);
-            path[path_len] = '\0';
-            req.%[2]s = path;
+            char *raw_path = malloc(path_len + 1);
+            memcpy(raw_path, sp1 + 1, path_len);
+            raw_path[path_len] = '\0';
+            // Декодируется только СЕГМЕНТ пути (до "?") - query-строка
+            // остаётся как есть, её отдельно декодирует rech_query_params
+            // (rech_qp_url_decode) по своим правилам ("+" == пробел, чего у
+            // сегмента пути нет).
+            char *q = strchr(raw_path, '?');
+            size_t seg_len = q ? (size_t)(q - raw_path) : path_len;
+            char *decoded_seg = rech_path_url_decode(raw_path, seg_len);
+            if (q) {
+                size_t decoded_len = strlen(decoded_seg);
+                size_t suffix_len = strlen(q);
+                char *combined = malloc(decoded_len + suffix_len + 1);
+                memcpy(combined, decoded_seg, decoded_len);
+                memcpy(combined + decoded_len, q, suffix_len + 1);
+                free(decoded_seg);
+                free(raw_path);
+                req.%[2]s = combined;
+            } else {
+                free(raw_path);
+                req.%[2]s = decoded_seg;
+            }
         }
     }
 
@@ -153,6 +207,20 @@ const queryParamsDictType = "Словарь<Строка, Строка>"
 // декодированием (rech_qp_url_decode - тот же алгоритм, что
 // internal/interp/httpserver.go, urlDecode, должны оставаться
 // согласованными).
+//
+// **Найденный и исправленный баг**: "rech_query_params" возвращал
+// Словарь<Строка, Строка> ПО ЗНАЧЕНИЮ (`out = {0}; ...; return out;`), а
+// ЛЮБОЙ вызывающий код (VarDecl/присваивание) ждёт указатель -
+// generic-коллекции ссылочные ВЕЗДЕ в cbackend (entityIsRef/
+// genericCtorCCode, collections_ccode.go). Это единственное исключение,
+// собранное вручную, а не общим genericCtorCCode - несовпадение давало
+// "incompatible types when initializing type ... * using type ..." у
+// настоящего cc при ЛЮБОМ вызове "параметры_пути", воспроизводится и без
+// рефлексии в программе (в отличие от того, как это было первоначально
+// описано в docs/ROADMAP.md - Шаг 41 связал баг именно с рефлексией,
+// вероятно, по конкретному примеру, где он был впервые замечен, а не по
+// действительной причине). Исправлено - GC_MALLOC вместо стековой
+// структуры, возврат указателя.
 var queryParamsHelper = fmt.Sprintf(`static int rech_qp_hex_digit(char c) {
     if (c >= '0' && c <= '9') return c - '0';
     if (c >= 'a' && c <= 'f') return c - 'a' + 10;
@@ -183,8 +251,14 @@ static char *rech_qp_url_decode(const char *s, long long len) {
     return out;
 }
 
-static %[1]s rech_query_params(const char *path) {
-    %[1]s out = {0};
+static %[1]s *rech_query_params(const char *path) {
+    // Указатель, не структура по значению - Список/Стопка/Очередь/Словарь
+    // ссылочные ВЕЗДЕ в cbackend (см. entityIsRef/genericCtorCCode,
+    // collections_ccode.go) - вызывающий код (VarDecl/присваивание,
+    // ir_generator.go.cType) уже ожидает "%[1]s *", возврат по значению
+    // здесь был бы единственным исключением и давал бы
+    // "incompatible types" у настоящего cc.
+    %[1]s *out = GC_MALLOC(sizeof(%[1]s));
     const char *q = strchr(path, '?');
     if (!q) {
         return out;
@@ -205,7 +279,7 @@ static %[1]s rech_query_params(const char *path) {
         long long val_len = eq ? (long long)(p - eq - 1) : 0;
         char *value = rech_qp_url_decode(val_start, val_len);
         if (key[0]) {
-            %[2]s(&out, key, value);
+            %[2]s(out, key, value);
         }
         if (*p == '&') {
             p++;

@@ -71,6 +71,39 @@ func urlDecode(s string) string {
 	return sb.String()
 }
 
+// urlDecodePath - процент-декодирование СЕГМЕНТА пути (не query-строки) -
+// настоящие HTTP-клиенты (curl, браузеры) сами percent-encode нелатинские
+// байты в пути (RFC 3986). В отличие от urlDecode (query-строка), "+" здесь
+// НЕ означает пробел - путь не application/x-www-form-urlencoded.
+func urlDecodePath(s string) string {
+	var sb strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '%' && i+2 < len(s) {
+			hi, hiOK := hexDigit(s[i+1])
+			lo, loOK := hexDigit(s[i+2])
+			if hiOK && loOK {
+				sb.WriteByte(byte(hi<<4 | lo))
+				i += 2
+				continue
+			}
+		}
+		sb.WriteByte(s[i])
+	}
+	return sb.String()
+}
+
+// decodeHTTPPath - декодирует только СЕГМЕНТ пути rawPath (до "?", если
+// есть) - query-строка после "?" остаётся как есть, её отдельно декодирует
+// queryParams (urlDecode) по своим правилам.
+func decodeHTTPPath(rawPath string) string {
+	seg, query, hasQuery := strings.Cut(rawPath, "?")
+	seg = urlDecodePath(seg)
+	if hasQuery {
+		return seg + "?" + query
+	}
+	return seg
+}
+
 func hexDigit(c byte) (int, bool) {
 	switch {
 	case c >= '0' && c <= '9':
@@ -170,7 +203,7 @@ func (in *Interp) acceptHTTPRequest(conn net.Conn) Value {
 	if sp1 >= 0 && lineEnd >= 0 && sp1 < lineEnd {
 		method = string(raw[:sp1])
 		if sp2 := bytes.IndexByte(raw[sp1+1:], ' '); sp2 >= 0 && sp1+1+sp2 < lineEnd {
-			path = string(raw[sp1+1 : sp1+1+sp2])
+			path = decodeHTTPPath(string(raw[sp1+1 : sp1+1+sp2]))
 		}
 	}
 	hdrStart := 0
