@@ -447,6 +447,10 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 			// (doc уже прочитан и отбрасывается).
 			continue
 		}
+		vis, err := p.parseModuleVisibility()
+		if err != nil {
+			return nil, err
+		}
 		switch p.cur().Type {
 		case lexer.KwFunction:
 			fn, err := p.parseFunction()
@@ -454,6 +458,7 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 				return nil, err
 			}
 			fn.Doc = doc
+			fn.Visibility = vis
 			if fn.Name == entryPointName {
 				explicitMain = fn
 			}
@@ -464,6 +469,7 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 				return nil, err
 			}
 			ent.Doc = doc
+			ent.Visibility = vis
 			prog.Entities = append(prog.Entities, ent)
 		case lexer.KwExport:
 			fn, ent, err := p.parseExportedDecl()
@@ -472,9 +478,11 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 			}
 			if fn != nil {
 				fn.Doc = doc
+				fn.Visibility = vis
 				prog.Functions = append(prog.Functions, fn)
 			} else {
 				ent.Doc = doc
+				ent.Visibility = vis
 				prog.Entities = append(prog.Entities, ent)
 			}
 		case lexer.KwUse:

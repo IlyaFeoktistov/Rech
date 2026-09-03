@@ -120,6 +120,31 @@ func declaredNames(prog *ast.Program) map[string]bool {
 	return names
 }
 
+// moduleVisibility - то же множество имён, что и declaredNames, но с
+// видимостью каждого (ast.FunctionDecl.Visibility/ast.EntityDecl.
+// Visibility - необязательный "приватный"/"публичный" перед объявлением,
+// docs/SPEC.md, "Импорты") - используется ТОЛЬКО для проверки
+// "использовать" (в отличие от declaredNames, которая нужна и для проверки
+// коллизии ЛОКАЛЬНЫХ имён, где видимость не имеет значения - см. её вызов
+// в load ниже, declared). Внешние функции/сущности не поддерживают
+// модификатор видимости - всегда Public.
+func moduleVisibility(prog *ast.Program) map[string]ast.Visibility {
+	vis := map[string]ast.Visibility{}
+	for _, fn := range prog.Functions {
+		vis[fn.Name] = fn.Visibility
+	}
+	for _, ent := range prog.Entities {
+		vis[ent.Name] = ent.Visibility
+	}
+	for _, ext := range prog.ExternFuncs {
+		vis[ext.Alias] = ast.Public
+	}
+	for _, ext := range prog.ExternEntities {
+		vis[ext.Alias] = ast.Public
+	}
+	return vis
+}
+
 // localTypeNames - declaredNames плюс производные типы состояний
 // (StateDecl.TypeName) и интерфейсы (InterfaceDecl.Name) - используется
 // для разрешения ссылок на тип внутри самого файла, который их объявил
@@ -245,10 +270,14 @@ func (l *loader) load(path string, stack []string, deps map[string]string) (*Mod
 		if err != nil {
 			return nil, err
 		}
-		targetDeclared := declaredNames(target.AST)
+		targetVisibility := moduleVisibility(target.AST)
 		for _, un := range use.Names {
-			if !targetDeclared[un.Name] {
+			vis, exists := targetVisibility[un.Name]
+			if !exists {
 				return nil, fmt.Errorf("строка %d: файл %q не объявляет %q", un.Line, use.Path, un.Name)
+			}
+			if vis == ast.Private {
+				return nil, fmt.Errorf("строка %d: %q в файле %q приватное - недоступно для \"использовать\" (объявлено с модификатором \"приватный\"/\"приватная\")", un.Line, un.Name, use.Path)
 			}
 			if declared[un.Alias] {
 				return nil, fmt.Errorf("строка %d: имя %q уже объявлено в этом файле - используйте \"как\" для переименования при импорте", un.Line, un.Alias)

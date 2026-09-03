@@ -90,6 +90,56 @@ func TestLoadMissingImportedName(t *testing.T) {
 	}
 }
 
+// TestLoadRejectsImportOfPrivateFunction - "приватная функция" не видна для
+// "использовать" из другого файла (docs/SPEC.md, "Импорты") - отдельная,
+// более точная ошибка, чем "не объявлено" (имя объявлено, но приватно).
+func TestLoadRejectsImportOfPrivateFunction(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "утилиты.rech", "приватная функция помощник(): Целое\n{\n    вернуть 1\n}\n")
+	entry := writeFile(t, dir, "главный.rech", "использовать помощник из \"утилиты\"\n\nфункция главная\n{\n    вывести помощник()\n}\n")
+
+	_, err := Load(entry, testFrontend{})
+	if err == nil {
+		t.Fatal("ожидалась ошибка - \"помощник\" приватная")
+	}
+	if !strings.Contains(err.Error(), "приватное") {
+		t.Fatalf("неожиданный текст ошибки: %v", err)
+	}
+}
+
+// TestLoadRejectsImportOfPrivateEntity - то же самое для "приватная
+// сущность"/"приватный класс"/"приватная структура".
+func TestLoadRejectsImportOfPrivateEntity(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "утилиты.rech", "приватная сущность Внутренний\n{\n    имеет:\n        x: Целое\n}\n")
+	entry := writeFile(t, dir, "главный.rech", "использовать Внутренний из \"утилиты\"\n\nфункция главная\n{\n    вывести 1\n}\n")
+
+	_, err := Load(entry, testFrontend{})
+	if err == nil {
+		t.Fatal("ожидалась ошибка - \"Внутренний\" приватная")
+	}
+	if !strings.Contains(err.Error(), "приватное") {
+		t.Fatalf("неожиданный текст ошибки: %v", err)
+	}
+}
+
+// TestLoadAllowsLocalUseOfPrivateFunction - приватность действует только
+// на "использовать" ИЗ ДРУГОГО файла - вызов внутри собственного файла не
+// ограничен вообще.
+func TestLoadAllowsLocalUseOfPrivateFunction(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "утилиты.rech", "приватная функция помощник(): Целое\n{\n    вернуть 100\n}\nфункция удвоить(x: Целое): Целое\n{\n    вернуть x * 2 + помощник() - помощник()\n}\n")
+	entry := writeFile(t, dir, "главный.rech", "использовать удвоить из \"утилиты\"\n\nфункция главная\n{\n    вывести удвоить(21)\n}\n")
+
+	prog, err := Load(entry, testFrontend{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, err := prog.Link(); err != nil {
+		t.Fatalf("Link: %v", err)
+	}
+}
+
 func TestLoadDetectsCycle(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "а.rech", "использовать б из \"б\"\nфункция а() { вывести 1 }\n")
