@@ -61,6 +61,12 @@ var All = []Func{
 	{Name: "случайное", Params: nil, ReturnKind: KindFloat, HasReturn: true},
 	{Name: "случайное_целое", Params: []Kind{KindInt, KindInt}, ReturnKind: KindInt, HasReturn: true},
 
+	// Строки - индексация/длина/поиск по КОДОВЫМ ТОЧКАМ Unicode, не байтам
+	// (тем же принципом, что и "Символ" - см. string.go в обоих backend'ах).
+	{Name: "длина_строки", Params: []Kind{KindString}, ReturnKind: KindInt, HasReturn: true},
+	{Name: "подстрока", Params: []Kind{KindString, KindInt, KindInt}, ReturnKind: KindString, HasReturn: true},
+	{Name: "позиция_в_строке", Params: []Kind{KindString, KindString}, ReturnKind: KindInt, HasReturn: true},
+
 	// Ввод консоли (обёртки над <stdio.h> в C, os.Stdin в интерпретаторе).
 	{Name: "прочитать_строку", Params: nil, ReturnKind: KindString, HasReturn: true},
 	{Name: "прочитать_целое", Params: nil, ReturnKind: KindInt, HasReturn: true},

@@ -670,7 +670,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		sb.WriteString("#include <gc.h>\n")
 	}
 	hasStructTargets := len(prog.ParseTargets) > 0 || len(prog.SerializeTargets) > 0 || len(prog.XMLParseTargets) > 0 || len(prog.XMLSerializeTargets) > 0
-	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || hasStructTargets || prog.UsesReflection {
+	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || hasStructTargets || prog.UsesReflection {
 		sb.WriteString("#include <string.h>\n")
 	}
 	if ctx.usesRandom {
@@ -678,7 +678,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// rand_s (см. randomHelpers, random.go) в MSVCRT/UCRT.
 		sb.WriteString("#ifdef _WIN32\n#define _CRT_RAND_S\n#endif\n")
 	}
-	if ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesQueryParams || ctx.usesCookies || ctx.usesRandom || hasStructTargets {
+	if ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesQueryParams || ctx.usesCookies || ctx.usesRandom || ctx.usesStringOps || hasStructTargets {
 		sb.WriteString("#include <stdlib.h>\n")
 	}
 	if ctx.usesMath {
@@ -834,6 +834,9 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// Не зависит от typedefs вообще (только примитивы) - здесь же просто
 	// для единообразия с остальными builtin-хелперами шага 8.
 	appendCodeIf(&sb, ctx.usesRandom, randomHelpers)
+	// Не зависит от typedefs - только примитивы (const char *) - после
+	// panicHelper выше (rech_substring зовёт rech_panic).
+	appendCodeIf(&sb, ctx.usesStringOps, stringOpsHelpers)
 	// После typedefs (rech_T_opcii_kuki/rech_T_n_stroka уже объявлены) и
 	// после strConcatHelper выше (rech_cookie_string зовёт rech_str_concat).
 	appendCodeIf(&sb, ctx.usesCookies, cookieHelpers())

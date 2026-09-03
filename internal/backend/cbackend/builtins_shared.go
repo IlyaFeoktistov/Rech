@@ -32,6 +32,11 @@ type builtinFlags struct {
 	// стойкий источник нужен в первую очередь для токенов сессий (см.
 	// examples/проекты/http_сервер).
 	usesRandom bool
+	// usesStringOps - нужны ли rech_string_length/rech_substring/
+	// rech_string_find (встроенные функции "длина_строки"/"подстрока"/
+	// "позиция_в_строке", string_ops.go) - индексация по code point'ам
+	// Unicode, не байтам.
+	usesStringOps bool
 	// usesConsoleInput - нужны ли rech_read_line/rech_read_int/
 	// rech_read_float (встроенные функции шага 8: прочитать_строку,
 	// прочитать_целое, прочитать_число) - все три хелпера эмитятся вместе,
@@ -202,6 +207,16 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 	case "параметры_пути":
 		flags.usesQueryParams = true
 		return fmt.Sprintf("rech_query_params(%s)", args[0]), true
+	case "длина_строки":
+		flags.usesStringOps = true
+		return fmt.Sprintf("rech_string_length(%s)", args[0]), true
+	case "подстрока":
+		flags.usesStringOps = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_substring(%s, %s, %s)", args[0], args[1], args[2]), true
+	case "позиция_в_строке":
+		flags.usesStringOps = true
+		return fmt.Sprintf("rech_string_find(%s, %s)", args[0], args[1]), true
 	case "случайное":
 		flags.usesRandom = true
 		return "rech_random()", true
