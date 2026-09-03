@@ -108,6 +108,12 @@ func (in *Interp) evalExpr(e ir.Expr, env *Env, cc *callCtx) (Value, error) {
 	case *ir.IsExpr:
 		return in.evalIsExpr(e, env, cc)
 
+	case *ir.StateCheckExpr:
+		return in.evalStateCheckExpr(e, env, cc)
+
+	case *ir.HasStateExpr:
+		return in.evalHasStateExpr(e, env, cc)
+
 	case *ir.LaunchExpr:
 		return in.evalLaunchExpr(e, env, cc)
 

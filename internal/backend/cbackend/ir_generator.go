@@ -140,6 +140,17 @@ type irGenCtx struct {
 	// сам блок mutexRuntimeCode.
 	usesMutex bool
 
+	// usesStateFlags - хотя бы одна сущность программы объявляет
+	// "состояние:" (ir.Entity.HasStateFlags - уже включает потомков без
+	// собственного "состояние:", см. package doc) - гейтит "#include
+	// <stddef.h>" (offsetof) и rech_require_state (internal/backend/
+	// cbackend/typestate.go). Вычисляется сразу из prog.Entities
+	// (generateSource), а не по факту встреченного StateCheckExpr во время
+	// генерации тела - структурное поле "state_flags" в C-структуре нужно
+	// уже ради самого BecomeStmt (пишет в него), даже если в итоге ни один
+	// вызов не потребовал рантайм-проверки.
+	usesStateFlags bool
+
 	// usesStaticInit - хотя бы одно статическое поле сущности/структуры
 	// программы объявлено со значением по умолчанию ("=") - гейтит вызов
 	// rech_init_statics() из main() (см. internal/backend/cbackend/
@@ -287,10 +298,14 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		pointerInner[p.Name] = p.Inner
 	}
 	usesGC := false
+	usesStateFlags := false
 	for _, ent := range prog.Entities {
 		entities[ent.Name] = ent
 		if !ent.IsStruct {
 			usesGC = true
+		}
+		if ent.HasStateFlags {
+			usesStateFlags = true
 		}
 	}
 	for _, t := range prog.ReflectTargets {
@@ -324,6 +339,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		pointerInner:         pointerInner,
 		externCNames:         externCNames,
 		usesGC:               usesGC,
+		usesStateFlags:       usesStateFlags,
 		libMode:              libMode,
 		interfaces:           interfaces,
 		dispatchParticipants: participants,
@@ -347,6 +363,17 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	}
 	if ent, ok := entities[mutexEntityName]; ok && ent.IsMutex {
 		ctx.usesMutex = true
+	}
+	if ctx.usesStateFlags {
+		// rech_require_state (typestate.go) бросает через rech_throw -
+		// сущность со "состояние:" почти всегда участвует и в
+		// попытаться/поймать где-то рядом, но даже если нет - рантайм
+		// исключений всё равно должен быть объявлен ДО первого возможного
+		// вызова rech_require_state, а не обнаруживаться по факту (как
+		// usesExceptions обычно обнаруживается) - решаем безусловно здесь,
+		// а не пытаемся отследить каждое место, где реально понадобится
+		// StateCheckExpr.
+		ctx.usesExceptions = true
 	}
 
 	var typedefs strings.Builder
@@ -572,6 +599,9 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	sb.WriteString("#include <stdio.h>\n")
 	sb.WriteString("#include <stdbool.h>\n")
 	sb.WriteString("#include <stdint.h>\n")
+	if ctx.usesStateFlags {
+		sb.WriteString("#include <stddef.h>\n")
+	}
 	// windows.h/shellapi.h - rech_init_console/rech_init_args нужны
 	// безусловно, файловый ввод-вывод - за MultiByteToWideChar.
 	// WIN32_LEAN_AND_MEAN/winsock2.h - нужны при usesSockets. ДО "#include
@@ -769,6 +799,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// для обоих форматов, эмитится один раз.
 	appendCodeIf(&sb, len(prog.ParseTargets) > 0 || len(prog.XMLParseTargets) > 0, structParseThrowHelperCode())
 	appendCodeIf(&sb, ctx.usesIntDiv || ctx.usesUintDiv, divZeroThrowHelperCode())
+	appendCodeIf(&sb, ctx.usesStateFlags, requireStateHelperCode())
 
 	err = resolveRuntimeCode(
 		&sb,
@@ -879,7 +910,16 @@ func generateIREntityStruct(ctx *irGenCtx, ent *ir.Entity) string {
 		// определённым для чтения (см. package doc vtable.go).
 		s.Field("const "+vtableType+" *", "vt")
 	}
-	if len(ent.Fields) == 0 && !participates {
+	if ent.HasStateFlags {
+		// "state_flags" - позиционно инвариантна той же логике, что и "vt"
+		// выше: потомок сущности, объявляющей "состояние:", несёт это поле
+		// даже без своего "состояние:" (см. package doc ir.Entity.
+		// HasStateFlags) - указатель на потомка используется как указатель
+		// на предка в рантайм-проверке (internal/backend/cbackend/
+		// typestate.go, offsetof(<предок>, state_flags)).
+		s.Field("uint64_t", "state_flags")
+	}
+	if len(ent.Fields) == 0 && !participates && !ent.HasStateFlags {
 		s.Field("char", "_rech_empty")
 	}
 	for _, f := range ent.Fields {
@@ -1253,6 +1293,18 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 		fmt.Fprintf(sb, "%s}\n", ind)
 		return nil
 
+	case *ir.BlockStmt:
+		// Тот же приём, что и у GerundStmt выше - "{"/"}" только ради
+		// собственной C-области видимости.
+		fmt.Fprintf(sb, "%s{\n", ind)
+		for _, st := range s.Body {
+			if err := generateIRStmt(sb, ctx, st, depth+1); err != nil {
+				return err
+			}
+		}
+		fmt.Fprintf(sb, "%s}\n", ind)
+		return nil
+
 	case *ir.WhileStmt:
 		cond, _, err := generateIRExpr(ctx, s.Cond)
 		if err != nil {
@@ -1327,9 +1379,25 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 		return nil
 
 	case *ir.BecomeStmt:
-		// Шаг 4.1, упрощённая версия: состояние уже проверено семантическим
-		// анализом как объявленное - typestate чисто компилятивный на этом
-		// шаге, "становится" не эмитит C-код, как и в AST-пути.
+		// Состояние уже проверено семантическим анализом как объявленное у
+		// сущности получателя - здесь только устанавливает бит в
+		// рантайм-хранилище ("state_flags", см. package doc
+		// ir.Entity.HasStateFlags) - читает его StateCheckExpr там, где
+		// established не смог доказать переход на этапе компиляции.
+		recvCode, _, err := generateIRExpr(ctx, s.Receiver)
+		if err != nil {
+			return err
+		}
+		entName := ir.TypeOf(s.Receiver).Entity
+		ent, ok := ctx.entities[entName]
+		if !ok {
+			return fmt.Errorf("генерация C из IR: сущность %q (\"становится\") не найдена", entName)
+		}
+		bit, ok := ent.StateBit(s.State)
+		if !ok {
+			return fmt.Errorf("генерация C из IR: у сущности %q нет состояния %q", entName, s.State)
+		}
+		fmt.Fprintf(sb, "%s%s->state_flags |= 1ULL << %d;\n", ind, recvCode, bit)
 		return nil
 
 	case *ir.ParentCallStmt:
@@ -1549,6 +1617,12 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 
 	case *ir.IsExpr:
 		return generateIRIsExpr(ctx, e)
+
+	case *ir.StateCheckExpr:
+		return generateIRStateCheckExpr(ctx, e)
+
+	case *ir.HasStateExpr:
+		return generateIRHasStateExpr(ctx, e)
 
 	case *ir.LaunchExpr:
 		return generateIRLaunchExpr(ctx, e)

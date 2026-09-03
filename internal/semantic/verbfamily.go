@@ -77,6 +77,11 @@ func collectBecomeStates(body []ast.Stmt, states map[string]string, out map[stri
 			collectBecomeStates(s.CatchBody, states, out)
 		case *ast.GerundStmt:
 			collectBecomeStates(s.Body, states, out)
+		case *ast.SwitchStmt:
+			for _, c := range s.Cases {
+				collectBecomeStates(c.Body, states, out)
+			}
+			collectBecomeStates(s.Default, states, out)
 		}
 	}
 }

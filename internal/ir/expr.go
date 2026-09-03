@@ -211,6 +211,10 @@ func TypeOf(e Expr) Type {
 		return TypeString
 	case *IsExpr:
 		return TypeBool
+	case *StateCheckExpr:
+		return TypeOf(e.Value)
+	case *HasStateExpr:
+		return TypeBool
 	case *LaunchExpr:
 		return TaskType(e.Callee)
 	case *AwaitExpr:

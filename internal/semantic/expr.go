@@ -567,11 +567,21 @@ func callHasReturn(e ir.Expr) bool {
 
 // checkCallArgs анализирует и проверяет аргументы вызова (обычной функции
 // или метода) против сигнатуры sig - количество, тип каждого по позиции, и
-// (для параметра, объявленного производным типом состояния) доказанность
-// перехода на месте вызова (flow-sensitive typestate). Общая для
+// (для параметра, объявленного производным типом состояния) переход в
+// требуемое состояние (flow-sensitive typestate). Общая для
 // analyzeCallExpr/analyzeMethodCallExpr, которые отличаются только тем, как
 // называть вызываемое в тексте ошибки: callee (для "%s ожидает
 // аргументов...") и argLabel (для "аргумент N <argLabel> должен быть...").
+//
+// Переход, доказанный established на месте вызова, компилируется как
+// обычно, без каких-либо накладных расходов. Недоказанный - НЕ ошибка
+// компиляции: аргумент оборачивается в ir.StateCheckExpr, откладывающий
+// саму проверку до рантайма (rech_require_state в cbackend, эквивалент в
+// interp) - при реальном несовпадении бросает перехватываемое
+// "Исключение", а не роняет сборку программы, которая на самом деле могла
+// бы быть верной (established - консервативное над-приближение: не
+// доказано - не значит "точно неверно", просто компилятор не проследил всю
+// историю значения, например, через непрозрачный вызов чужой функции).
 func checkCallArgs(sc *ctx, args []ast.Expr, sig funcSig, line int, callee, argLabel string) ([]ir.Expr, error) {
 	if len(args) != len(sig.Params) {
 		return nil, fmt.Errorf("строка %d: %s ожидает аргументов: %d, передано: %d", line, callee, len(sig.Params), len(args))
@@ -588,7 +598,7 @@ func checkCallArgs(sc *ctx, args []ast.Expr, sig funcSig, line int, callee, argL
 		if i < len(sig.ParamStates) && sig.ParamStates[i] != "" {
 			required := sig.ParamStates[i]
 			if !establishedStatesOf(sc, arg)[required] {
-				return nil, fmt.Errorf("строка %d: аргумент %d %s требует значение, уже прошедшее переход в состояние %q - для этого выражения такой гарантии нет", line, i+1, argLabel, required)
+				arg = &ir.StateCheckExpr{Value: arg, Entity: sig.Params[i].Entity, State: required, Line: line}
 			}
 		}
 		out[i] = arg

@@ -61,6 +61,9 @@ func (a *Analyzer) applyInheritance(entities map[string]entitySig, methods map[s
 			ConstDocs:         append(append([]string{}, baseSig.ConstDocs...), ownSig.ConstDocs...),
 			ConstVisibility:   append(append([]ast.Visibility{}, baseSig.ConstVisibility...), ownSig.ConstVisibility...),
 			States:            ownSig.States,
+			StateNames:        ownSig.StateNames,
+			StateBitOffset:    baseSig.StateBitOffset + len(baseSig.StateNames),
+			HasStateFlags:     baseSig.HasStateFlags || len(ownSig.StateNames) > 0,
 			IsStruct:          ownSig.IsStruct,
 			BaseName:          ent.BaseName,
 			OwnInterfaces:     ent.Interfaces,
@@ -79,7 +82,6 @@ func (a *Analyzer) applyInheritance(entities map[string]entitySig, methods map[s
 			StaticFieldVisibility:   ownSig.StaticFieldVisibility,
 			StaticFieldDefaultExprs: ownSig.StaticFieldDefaultExprs,
 		}
-
 		baseMethods := methods[ent.BaseName]
 		flatMethods = make(map[string]funcSig, len(baseMethods)+len(ownMethods))
 		for name, sig := range baseMethods {
@@ -111,6 +113,9 @@ func (a *Analyzer) applyInheritance(entities map[string]entitySig, methods map[s
 		if err := checkImplements(a.interfaces, ent.Name, flatMethods, ifaceName, ent.Line); err != nil {
 			return entitySig{}, nil, err
 		}
+	}
+	if total := flat.StateBitOffset + len(flat.StateNames); total > 64 {
+		return entitySig{}, nil, fmt.Errorf("строка %d: сущность %q: суммарно %d состояний по цепочке наследования - рантайм-хранилище состояний вмещает не больше 64", ent.Line, ent.Name, total)
 	}
 	return flat, flatMethods, nil
 }

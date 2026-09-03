@@ -195,6 +195,18 @@ func substStmt(s ast.Stmt, subst map[string]string) ast.Stmt {
 		}
 	case *ast.GerundStmt:
 		return &ast.GerundStmt{Callee: s.Callee, Args: substExprs(s.Args, subst), Body: substStmts(s.Body, subst), Line: s.Line}
+	case *ast.SwitchStmt:
+		cases := make([]ast.SwitchCase, len(s.Cases))
+		for i, c := range s.Cases {
+			// Values - substExpr, как и везде: голое имя типа-параметра (T),
+			// использованное как значение "когда" (а не как обычная
+			// переменная), этим не подставляется - substExpr не подставляет
+			// *ast.Identifier вообще (та же граница, что и у остального
+			// substStmt/substExpr - подстановка типов действует только в
+			// строковых полях-именах типов, docs выше).
+			cases[i] = ast.SwitchCase{Values: substExprs(c.Values, subst), Body: substStmts(c.Body, subst), Line: c.Line}
+		}
+		return &ast.SwitchStmt{Subject: substExpr(s.Subject, subst), Cases: cases, Default: substStmts(s.Default, subst), Line: s.Line}
 	default:
 		return s
 	}
@@ -598,6 +610,21 @@ func (inst *instantiator) scanStmt(s ast.Stmt) error {
 			}
 		}
 		return inst.scanStmts(s.Body)
+	case *ast.SwitchStmt:
+		if err := inst.scanExpr(s.Subject); err != nil {
+			return err
+		}
+		for _, c := range s.Cases {
+			for _, v := range c.Values {
+				if err := inst.scanExpr(v); err != nil {
+					return err
+				}
+			}
+			if err := inst.scanStmts(c.Body); err != nil {
+				return err
+			}
+		}
+		return inst.scanStmts(s.Default)
 	default:
 		return nil
 	}

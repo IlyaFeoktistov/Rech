@@ -145,9 +145,16 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 		return ctrl{}, nil
 
 	case *ir.BecomeStmt:
-		// Шаг 4.1, упрощённая версия: "становится" структурно проверено
-		// семантическим анализом и не несёт значения во время исполнения -
-		// как и в cbackend (не эмитит код), здесь просто ничего не делает.
+		// Переход уже структурно проверен семантическим анализом
+		// (объявленное состояние сущности-получателя) - здесь только
+		// отмечает его установленным в рантайм-хранилище (entityObj.states),
+		// которое читает StateCheckExpr там, где established не смог
+		// доказать переход на этапе компиляции.
+		recv, err := in.evalExpr(s.Receiver, env, cc)
+		if err != nil {
+			return ctrl{}, err
+		}
+		recv.Obj.setState(s.State)
 		return ctrl{}, nil
 
 	case *ir.AssertStmt:
@@ -177,6 +184,9 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 		// Новый Env - только чтобы "результат" (первый элемент Body, см.
 		// package doc ir.GerundStmt) не была видна снаружи этого блока, тем
 		// же принципом, что и у если/пока.
+		return in.execBlock(s.Body, newEnv(env), cc)
+
+	case *ir.BlockStmt:
 		return in.execBlock(s.Body, newEnv(env), cc)
 
 	case *ir.WhileStmt:

@@ -244,3 +244,17 @@ func TraceFrameLine(name string, line int) string {
 // рекурсия) случае вывод двух backend'ов может разойтись - задокументированное
 // исключение из правила "побайтовое совпадение".
 const TraceTruncated = "  ... (глубже стек не показан)"
+
+// StateNotEstablishedTemplate/StateNotEstablishedFormat - сообщение
+// перехватываемого "Исключение", брошенного рантайм-проверкой typestate
+// (internal/backend/cbackend/typestate.go, internal/interp/eval.go), когда
+// established на этапе компиляции не смог доказать переход значения в
+// требуемое состояние параметра, объявленного производным типом состояния
+// (docs/SPEC.md, "Состояния") - typeName/state известны уже на этапе
+// компиляции (тип параметра/имя состояния), поэтому cbackend встраивает
+// готовую строку как есть, не через snprintf времени исполнения.
+const StateNotEstablishedTemplate = "объект типа \"%s\" не находится в требуемом состоянии \"%s\""
+
+func StateNotEstablishedFormat(typeName, state string) string {
+	return fmt.Sprintf(StateNotEstablishedTemplate, typeName, state)
+}

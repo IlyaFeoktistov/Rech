@@ -316,6 +316,27 @@ func (r *rewriter) rewriteStmt(s ast.Stmt) error {
 			return err
 		}
 		return r.rewriteStmts(s.Body)
+	case *ast.SwitchStmt:
+		if err := r.rewriteExpr(s.Subject); err != nil {
+			return err
+		}
+		for _, c := range s.Cases {
+			// Значения ветки "когда" - как и везде в этом rewriter'е, голое
+			// имя (*ast.Identifier) не переписывается (см. case *ast.Identifier
+			// в rewriteExpr ниже) - для типа, объявленного тут же в файле,
+			// этого достаточно (resolveTypeName в internal/semantic ищет по
+			// тому же голому имени); импортированный тип, сопоставляемый по
+			// типу в "когда" (а не по значению), в этом срезе не
+			// квалифицируется - как и голые Identifier-значения нигде в этом
+			// rewriter'е не квалифицируются.
+			if err := r.rewriteExprs(c.Values); err != nil {
+				return err
+			}
+			if err := r.rewriteStmts(c.Body); err != nil {
+				return err
+			}
+		}
+		return r.rewriteStmts(s.Default)
 	default:
 		return fmt.Errorf("внутренняя ошибка: неизвестная инструкция %T", s)
 	}

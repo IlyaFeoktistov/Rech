@@ -188,6 +188,21 @@ func analyzeIsExpr(sc *ctx, e *ast.IsExpr) (ir.Expr, error) {
 	if vt.Kind != ir.KindEntity && vt.Kind != ir.KindInterface {
 		return nil, fmt.Errorf("строка %d: \"относится к\" применимо только к сущности/интерфейсу, получено %s", e.Line, vt)
 	}
+	// Target, зарегистрированный как производный тип состояния (sc.a.
+	// aliasState - "АвторизованныйПользователь" -> "авторизован"), - особый
+	// случай: не проверка типа (им бы он и резолвился через resolveTypeName -
+	// это ровно тот же синоним, что и в "параметр: АвторизованныйПользователь"),
+	// а запрос текущего, времени исполнения, состояния объекта -
+	// ir.HasStateExpr вместо ir.IsExpr, никогда не бросает (в отличие от
+	// ir.StateCheckExpr, которым компилятор САМ подстраховывает недоказанный
+	// на этапе компиляции переход, docs/SPEC.md, "Состояния").
+	if state, isStateAlias := sc.a.aliasState[e.Target]; isStateAlias {
+		owner := sc.aliases[e.Target]
+		if vt.Kind != ir.KindEntity || !entityIsOrExtends(sc.entities, vt.Entity, owner) {
+			return nil, fmt.Errorf("строка %d: \"относится к\" %q: %s не является %q (сущностью, объявляющей это состояние) или её наследником", e.Line, e.Target, vt, owner)
+		}
+		return &ir.HasStateExpr{Value: value, Entity: owner, State: state}, nil
+	}
 	target, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, e.Target)
 	if err != nil {
 		return nil, fmt.Errorf("строка %d: \"относится к\": %w", e.Line, err)

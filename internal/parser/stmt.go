@@ -77,6 +77,8 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 		return p.parseConstDecl()
 	case lexer.KwIf:
 		return p.parseIfStmt()
+	case lexer.KwSwitch:
+		return p.parseSwitchStmt()
 	case lexer.KwWhile:
 		return p.parseWhileStmt()
 	case lexer.KwFor:

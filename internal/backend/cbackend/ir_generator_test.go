@@ -269,10 +269,17 @@ func TestGenerateFromIRStructFieldsConstructorMethodsAndThis(t *testing.T) {
 	}
 }
 
-func TestGenerateFromIRBecomeStmtEmitsNoCode(t *testing.T) {
+// TestGenerateFromIRBecomeStmtSetsStateFlagsBit - "становится" устанавливает
+// бит СОБСТВЕННОГО состояния сущности в скрытом рантайм-поле "state_flags"
+// (StateBit - индекс в StateNames + StateBitOffset, здесь оба 0) - читает
+// его ir.StateCheckExpr там, где established не смог доказать переход на
+// этапе компиляции (internal/backend/cbackend/typestate.go).
+func TestGenerateFromIRBecomeStmtSetsStateFlagsBit(t *testing.T) {
 	entity := &ir.Entity{
-		Name:   "Пользователь",
-		Fields: []ir.Field{{Name: "имя", Type: ir.TypeString}},
+		Name:          "Пользователь",
+		Fields:        []ir.Field{{Name: "имя", Type: ir.TypeString}},
+		StateNames:    []string{"авторизован"},
+		HasStateFlags: true,
 		Methods: []*ir.Method{
 			{Name: "авторизовать", Body: []ir.Stmt{
 				&ir.BecomeStmt{Receiver: &ir.ThisExpr{Entity: "Пользователь"}, State: "авторизован"},
@@ -283,8 +290,11 @@ func TestGenerateFromIRBecomeStmtEmitsNoCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, "int rech_M_polzovatel_avtorizovat(rech_T_polzovatel *this_) {\n    rech_trace_push(\"Пользователь.авторизовать\");\n    rech_trace_pop();\n    return 0;\n}") {
-		t.Fatalf("ожидалось пустое тело метода (\"становится\" не эмитит код), получено:\n%s", out)
+	if !strings.Contains(out, "this_->state_flags |= 1ULL << 0;") {
+		t.Fatalf("ожидалась установка бита состояния, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "uint64_t state_flags;") {
+		t.Fatalf("ожидалось скрытое поле \"state_flags\" в C-структуре, получено:\n%s", out)
 	}
 }
 

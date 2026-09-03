@@ -115,6 +115,8 @@ const (
 	KwType        // тип (тип <Имя> - дескриптор типа без экземпляра, аналог typeof)
 	KwNull        // Ничто (отсутствие значения у nullable-типа "?Тип")
 	KwAbstract    // абстрактный / абстрактная / абстрактное / абстрактные (перед "сущность"/"класс")
+	KwSwitch      // выбрать (множественный выбор по значению/типу - "выбрать <выражение> { когда ... иначе ... }")
+	KwWhen        // когда (ветка внутри "выбрать")
 
 	QUESTION         // ? (префикс nullable-типа: "?Тип")
 	QUESTIONQUESTION // ?? (значение слева, если оно не Ничто, иначе - справа)
@@ -209,6 +211,8 @@ var keywords = map[string]TokenType{
 	"абстрактная":    KwAbstract,
 	"абстрактное":    KwAbstract,
 	"абстрактные":    KwAbstract,
+	"выбрать":        KwSwitch,
+	"когда":          KwWhen,
 }
 
 // Token - одна лексема с позицией в исходном файле (для сообщений об ошибках).
@@ -427,6 +431,10 @@ func (t TokenType) String() string {
 		return "Ничто"
 	case KwAbstract:
 		return "абстрактный"
+	case KwSwitch:
+		return "выбрать"
+	case KwWhen:
+		return "когда"
 	default:
 		return "UNKNOWN"
 	}

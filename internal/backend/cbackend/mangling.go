@@ -116,6 +116,10 @@ func checkBlockManglingIn(scope map[string]string, body []ir.Stmt) error {
 			if err := checkBlockMangling(s.Body); err != nil {
 				return err
 			}
+		case *ir.BlockStmt:
+			if err := checkBlockMangling(s.Body); err != nil {
+				return err
+			}
 		case *ir.ForStmt:
 			loopScope := map[string]string{}
 			if err := declareMangledVar(loopScope, s.Var); err != nil {

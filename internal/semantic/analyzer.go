@@ -298,6 +298,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 			sig.States = map[string]string{}
 			for _, st := range ent.States {
 				sig.States[st.BecomeForm] = st.Name
+				sig.StateNames = append(sig.StateNames, st.Name)
 				if _, exists := entities[st.TypeName]; exists {
 					return fmt.Errorf("сущность %q: производный тип состояния %q совпадает с именем уже объявленной сущности", ent.Name, st.TypeName)
 				}
@@ -307,6 +308,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 				aliases[st.TypeName] = ent.Name
 				aliasState[st.TypeName] = st.Name
 			}
+			sig.HasStateFlags = true
 		}
 		sig.IsStruct = ent.IsStruct
 		sig.IsAbstract = ent.IsAbstract
@@ -643,7 +645,11 @@ func (a *Analyzer) analyzeEntity(ent *ast.EntityDecl) (*ir.Entity, error) {
 		// веткой (sig.IsStruct).
 		ctor = &ir.Method{}
 	}
-	return &ir.Entity{Name: ent.Name, IsStruct: ent.IsStruct, IsAbstract: ent.IsAbstract, BaseName: ent.BaseName, Interfaces: ent.Interfaces, Constants: constants, Fields: fields, StaticFields: staticFields, Methods: irMethods, Ctor: ctor, Doc: ent.Doc, Exported: ent.Exported}, nil
+	return &ir.Entity{
+		Name: ent.Name, IsStruct: ent.IsStruct, IsAbstract: ent.IsAbstract, BaseName: ent.BaseName, Interfaces: ent.Interfaces,
+		Constants: constants, Fields: fields, StaticFields: staticFields, Methods: irMethods, Ctor: ctor, Doc: ent.Doc, Exported: ent.Exported,
+		StateNames: sig.StateNames, StateBitOffset: sig.StateBitOffset, HasStateFlags: sig.HasStateFlags,
+	}, nil
 }
 
 // analyzeConstructor анализирует явное тело конструктора ent.Ctor - как

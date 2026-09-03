@@ -78,6 +78,19 @@ type entityObj struct {
 	// только о том, чтобы интерпретатор сам не падал жёстче, чем упал бы
 	// эквивалентный C.
 	fieldsMu sync.RWMutex
+
+	// states - установленные состояния typestate (BecomeStmt) - краткая
+	// форма имени (та же, что established на этапе компиляции) -> true.
+	// Рантайм-эквивалент "state_flags" в cbackend (там - битовая маска ради
+	// компактного C-представления, здесь - обычная map, компактность не
+	// нужна): читается StateCheckExpr (когда established не смог доказать
+	// переход на этапе компиляции), пишется BecomeStmt. Отсутствие записи -
+	// то же самое, что false (состояние не установлено) - обычный zero
+	// value карты, отдельной инициализации не требует. statesMu - та же
+	// защита от гонки Go-рантайма, что и у fields (fieldsMu выше), отдельный
+	// мьютекс - состояния и поля меняются независимо друг от друга.
+	states   map[string]bool
+	statesMu sync.RWMutex
 }
 
 // getField/setField/hasField - единственные места, где entityObj.fields
@@ -99,6 +112,23 @@ func (o *entityObj) setField(name string, v Value) {
 	o.fieldsMu.Lock()
 	defer o.fieldsMu.Unlock()
 	o.fields[name] = v
+}
+
+// hasState/setState - единственные места, где entityObj.states
+// читается/пишется - см. package doc statesMu выше.
+func (o *entityObj) hasState(name string) bool {
+	o.statesMu.RLock()
+	defer o.statesMu.RUnlock()
+	return o.states[name]
+}
+
+func (o *entityObj) setState(name string) {
+	o.statesMu.Lock()
+	defer o.statesMu.Unlock()
+	if o.states == nil {
+		o.states = map[string]bool{}
+	}
+	o.states[name] = true
 }
 
 // collection - буфер встроенной generic-коллекции (Список/Стопка/Очередь/

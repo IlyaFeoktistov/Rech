@@ -3,14 +3,19 @@ package semantic
 import (
 	"strings"
 	"testing"
+
+	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
 // TestAnalyzeVerbFamilyRevokesStateOnCall - "выйти", объявленный
-// противоположностью "войти", снимает доказанное состояние "вошедший" -
-// повторное использование производного типа состояния после "выйти()" -
-// ошибка компиляции.
+// противоположностью "войти", снимает ДОКАЗАННОЕ состояние "вошедший" -
+// established больше не содержит его после "выйти()", поэтому повторное
+// использование производного типа состояния компилируется (established -
+// консервативное над-приближение, не "доказанное отсутствие", см. package
+// doc checkCallArgs), но со вставленной рантайм-проверкой (ir.
+// StateCheckExpr), а не как обычный аргумент напрямую.
 func TestAnalyzeVerbFamilyRevokesStateOnCall(t *testing.T) {
-	_, err := AnalyzeSource(t, `
+	prog := parseProgram(t, `
 сущность Пользователь
 {
     состояние: вошедший
@@ -46,8 +51,15 @@ func TestAnalyzeVerbFamilyRevokesStateOnCall(t *testing.T) {
     вывести пользователь.представиться(пользователь)
 }
 `)
-	if err == nil || !strings.Contains(err.Error(), "уже прошедшее переход в состояние") {
-		t.Fatalf("ожидалась ошибка о непройденном состоянии после \"выйти()\", получено: %v", err)
+	fn := findFunc(prog, "главная")
+	printStmt := fn.Body[len(fn.Body)-1].(*ir.PrintStmt)
+	call := printStmt.Value.(*ir.MethodCallExpr)
+	check, ok := call.Args[0].(*ir.StateCheckExpr)
+	if !ok {
+		t.Fatalf("ожидался StateCheckExpr для аргумента после \"выйти()\", получено %T", call.Args[0])
+	}
+	if check.State != "вошедший" {
+		t.Fatalf("ожидалась проверка состояния \"вошедший\", получено %q", check.State)
 	}
 }
 

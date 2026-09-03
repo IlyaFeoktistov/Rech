@@ -245,6 +245,28 @@ type Entity struct {
 	Doc string
 	// Exported - см. ast.EntityDecl.Exported.
 	Exported bool
+
+	// StateNames/StateBitOffset/HasStateFlags - см. package doc
+	// internal/semantic.entitySig (те же поля, скопированы без изменений):
+	// раскладка рантайм-хранилища typestate ("state_flags") - нужна там,
+	// где established на этапе компиляции не может доказать переход
+	// (StateCheckExpr вместо ошибки компиляции).
+	StateNames     []string
+	StateBitOffset int
+	HasStateFlags  bool
+}
+
+// StateBit возвращает абсолютный номер бита СОБСТВЕННОГО состояния этой
+// сущности name (объявленного её же "состояние:", не унаследованного - как
+// и StateNames) в общем "state_flags" - false, если у этой сущности нет
+// состояния с таким именем.
+func (e *Entity) StateBit(name string) (uint, bool) {
+	for i, n := range e.StateNames {
+		if n == name {
+			return uint(e.StateBitOffset + i), true
+		}
+	}
+	return 0, false
 }
 
 // Constant - одно константное поле сущности
