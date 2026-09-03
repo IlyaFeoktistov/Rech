@@ -79,3 +79,36 @@ func TestGenerateFromIRHasStateExprReadsFlagDirectly(t *testing.T) {
 		t.Fatalf("ожидалось прямое чтение бита состояния, получено:\n%s", out)
 	}
 }
+
+// TestGenerateFromIRMethodCallRevokesStatesClearsFlagAtRuntime -
+// ir.MethodCallExpr.RevokesStates оборачивает получателя вызовом
+// rech_revoke_states ДО собственно вызова метода - см. package doc
+// wrapRevokeStates (снятие бита должно случиться раньше "становится"
+// внутри тела самого метода, если оно там есть).
+func TestGenerateFromIRMethodCallRevokesStatesClearsFlagAtRuntime(t *testing.T) {
+	polzovatel := &ir.Entity{
+		Name:          "Пользователь",
+		Fields:        []ir.Field{{Name: "имя", Type: ir.TypeString}},
+		StateNames:    []string{"вошедший"},
+		HasStateFlags: true,
+		Methods:       []*ir.Method{{Name: "выйти"}},
+	}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.ExprStmt{MethodCall: &ir.MethodCallExpr{
+			Receiver:      &ir.Identifier{Name: "п", Type: ir.EntityType("Пользователь")},
+			Entity:        "Пользователь",
+			Method:        "выйти",
+			RevokesStates: []string{"вошедший"},
+		}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Entities: []*ir.Entity{polzovatel}, Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "static void *rech_revoke_states(void *obj, size_t offset, uint64_t bits) {") {
+		t.Fatalf("ожидался рантайм-хелпер rech_revoke_states, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "rech_M_polzovatel_vyjti((rech_T_polzovatel *)rech_revoke_states((void *)((v_p)), offsetof(rech_T_polzovatel, state_flags), 1ULL));") {
+		t.Fatalf("ожидался вызов метода с получателем, обёрнутым в rech_revoke_states, получено:\n%s", out)
+	}
+}

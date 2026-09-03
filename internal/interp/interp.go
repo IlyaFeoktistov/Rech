@@ -131,6 +131,12 @@ func (o *entityObj) setState(name string) {
 	o.states[name] = true
 }
 
+func (o *entityObj) clearState(name string) {
+	o.statesMu.Lock()
+	defer o.statesMu.Unlock()
+	delete(o.states, name)
+}
+
 // collection - буфер встроенной generic-коллекции (Список/Стопка/Очередь/
 // Словарь). template определяет, какое из двух полей ниже используется -
 // "Словарь" (pairs) или любой из трёх списочных шаблонов (elems); нужен и

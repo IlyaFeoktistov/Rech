@@ -800,6 +800,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	appendCodeIf(&sb, len(prog.ParseTargets) > 0 || len(prog.XMLParseTargets) > 0, structParseThrowHelperCode())
 	appendCodeIf(&sb, ctx.usesIntDiv || ctx.usesUintDiv, divZeroThrowHelperCode())
 	appendCodeIf(&sb, ctx.usesStateFlags, requireStateHelperCode())
+	appendCodeIf(&sb, ctx.usesStateFlags, revokeStatesHelperCode())
 
 	err = resolveRuntimeCode(
 		&sb,
@@ -1971,6 +1972,13 @@ func generateIRMethodCallExpr(ctx *irGenCtx, e *ir.MethodCallExpr) (string, valu
 	receiverCode, receiverPtr, err := generateIRAddressableExpr(ctx, e.Receiver)
 	if err != nil {
 		return "", typeUnknown, err
+	}
+	if len(e.RevokesStates) > 0 {
+		wrapped, err := wrapRevokeStates(ctx, e.Entity, e.RevokesStates, receiverPtr)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		receiverPtr = wrapped
 	}
 	argCodes := make([]string, len(e.Args)+1)
 	argCodes[0] = receiverPtr

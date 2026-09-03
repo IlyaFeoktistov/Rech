@@ -61,6 +61,14 @@ func TestAnalyzeVerbFamilyRevokesStateOnCall(t *testing.T) {
 	if check.State != "вошедший" {
 		t.Fatalf("ожидалась проверка состояния \"вошедший\", получено %q", check.State)
 	}
+
+	// "пользователь.выйти()" сам несёт RevokesStates - backend'у нужно
+	// СНЯТЬ бит в рантайме, не только established на этапе компиляции (см.
+	// package doc ir.MethodCallExpr.RevokesStates).
+	exitStmt := fn.Body[2].(*ir.ExprStmt)
+	if len(exitStmt.MethodCall.RevokesStates) != 1 || exitStmt.MethodCall.RevokesStates[0] != "вошедший" {
+		t.Fatalf("ожидался RevokesStates=[\"вошедший\"] у вызова \"выйти()\", получено %+v", exitStmt.MethodCall.RevokesStates)
+	}
 }
 
 // TestAnalyzeVerbFamilyAllowsUseBeforeOppositeCalled - до вызова "выйти()"

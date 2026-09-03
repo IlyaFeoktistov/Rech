@@ -87,3 +87,43 @@ func generateIRHasStateExpr(ctx *irGenCtx, e *ir.HasStateExpr) (string, valueTyp
 	}
 	return fmt.Sprintf("((((%s *)(%s))->state_flags & (1ULL << %d)) != 0)", mangleType(e.Entity), code, bit), typeBool, nil
 }
+
+const revokeStatesFunc = "rech_revoke_states"
+
+// revokeStatesHelperCode - см. wrapRevokeStates. Возвращает obj без
+// изменений (тот же приём, что и rech_require_state выше) - подставляется
+// прямо на место получателя вызова метода-"противоположности".
+func revokeStatesHelperCode() string {
+	return fmt.Sprintf(`static void *%s(void *obj, size_t offset, uint64_t bits) {
+    uint64_t *flags = (uint64_t *)((char *)obj + offset);
+    *flags &= ~bits;
+    return obj;
+}
+
+`, revokeStatesFunc)
+}
+
+// wrapRevokeStates оборачивает уже готовый, вычисленный РОВНО один раз
+// C-код указателя на получателя (receiverPtr - см. generateIRMethodCallExpr,
+// generateIRAddressableExpr) вызовом rech_revoke_states, подставляемым
+// прямо на место получателя в аргументах вызова метода - снятие бита
+// происходит ДО тела метода (сам вызов метода ещё не начал исполняться),
+// поэтому "становится" внутри тела метода-"противоположности" (если есть)
+// выполняется позже и потому побеждает - см. package doc
+// ir.MethodCallExpr.RevokesStates.
+func wrapRevokeStates(ctx *irGenCtx, entity string, states []string, receiverPtr string) (string, error) {
+	ent, ok := ctx.entities[entity]
+	if !ok {
+		return "", fmt.Errorf("генерация C из IR: сущность %q (\"противоположность\") не найдена", entity)
+	}
+	var mask uint64
+	for _, st := range states {
+		bit, ok := ent.StateBit(st)
+		if !ok {
+			return "", fmt.Errorf("генерация C из IR: у сущности %q нет состояния %q", entity, st)
+		}
+		mask |= 1 << bit
+	}
+	return fmt.Sprintf("(%s *)%s((void *)(%s), offsetof(%s, state_flags), %dULL)",
+		mangleType(entity), revokeStatesFunc, receiverPtr, mangleType(entity), mask), nil
+}

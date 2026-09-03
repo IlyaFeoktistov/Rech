@@ -465,7 +465,17 @@ func analyzeMethodCallExpr(sc *ctx, e *ast.MethodCallExpr) (*ir.MethodCallExpr, 
 			sc.thisEstablished = next
 		}
 	}
-	return &ir.MethodCallExpr{Receiver: receiver, Entity: typ.Entity, Method: e.Method, Args: args, Type: sig.ReturnType, HasReturn: sig.HasReturn}, nil
+	// RevokesStates переносится и в сам IR (не только в established) -
+	// рантайм-хранилище ("state_flags") должно СНЯТЬ бит при реальном
+	// вызове метода-противоположности, даже если в его собственном теле нет
+	// ни одного "становится" (см. package doc ir.MethodCallExpr.
+	// RevokesStates) - иначе рантайм-проверка (StateCheckExpr/HasStateExpr)
+	// после такого вызова читала бы устаревший, всё ещё установленный бит.
+	var revokes []string
+	for st := range sig.RevokesStates {
+		revokes = append(revokes, st)
+	}
+	return &ir.MethodCallExpr{Receiver: receiver, Entity: typ.Entity, Method: e.Method, Args: args, Type: sig.ReturnType, HasReturn: sig.HasReturn, RevokesStates: revokes}, nil
 }
 
 // analyzeCallExpr - общий разбор вызова функции для ExprStmt (результат

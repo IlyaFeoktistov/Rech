@@ -135,6 +135,17 @@ type MethodCallExpr struct {
 	Args      []Expr
 	Type      Type
 	HasReturn bool
+	// RevokesStates - краткие формы состояний Entity, которые этот вызов
+	// СНИМАЕТ у Receiver'а в рантайме - метод, объявленный тегом
+	// `` `противоположность:<другойМетод>` `` (internal/semantic/
+	// verbfamily.go), не обязан содержать "становится" сам, поэтому это не
+	// покрыто обычным BecomeStmt (который только УСТАНАВЛИВАЕТ бит).
+	// established на этапе компиляции снимает те же состояния (см. package
+	// doc analyzeMethodCallExpr) - здесь дублируется явно для рантайма, а
+	// не выводится заново из сигнатуры backend'ом (сигнатуры методов -
+	// внутреннее устройство internal/semantic, backend'у знать о них не
+	// нужно). nil - у вызова нет эффекта отмены состояния.
+	RevokesStates []string
 }
 
 func (*MethodCallExpr) expr() {}

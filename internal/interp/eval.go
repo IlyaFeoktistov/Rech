@@ -502,6 +502,13 @@ func (in *Interp) evalMethodCallExpr(e *ir.MethodCallExpr, env *Env, cc *callCtx
 	if m == nil {
 		return Value{}, fmt.Errorf("у сущности %q нет метода %q", recv.Obj.typeName, e.Method)
 	}
+	// RevokesStates - см. package doc ir.MethodCallExpr.RevokesStates - ДО
+	// вызова тела метода, чтобы собственное "становится" метода-
+	// "противоположности" (если есть) выполнилось позже и победило (тот же
+	// порядок, что и в cbackend, wrapRevokeStates).
+	for _, st := range e.RevokesStates {
+		recv.Obj.clearState(st)
+	}
 	args := make([]Value, len(e.Args))
 	for i, a := range e.Args {
 		v, err := in.evalExpr(a, env, cc)
