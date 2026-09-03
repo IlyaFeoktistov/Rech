@@ -1372,6 +1372,37 @@ func TestAnalyzeBitwiseOperators(t *testing.T) {
 	}
 }
 
+func TestAnalyzeModuloOnInt(t *testing.T) {
+	irProg := parseProgram(t, `
+функция главная
+{
+    переменная а = 17 % 5
+}
+`)
+	main := irProg.Functions[0]
+	decl := main.Body[0].(*ir.VarDecl)
+	if got := ir.TypeOf(decl.Value); got != ir.TypeInt {
+		t.Fatalf("ожидался тип Целое, получено %s", got)
+	}
+}
+
+func TestAnalyzeModuloOnFloat(t *testing.T) {
+	irProg := parseProgram(t, `
+функция главная
+{
+    переменная а = 7.5 % 2.0
+    переменная б = (Дробное) 7.5 % (Дробное) 2.0
+}
+`)
+	main := irProg.Functions[0]
+	if got := ir.TypeOf(main.Body[0].(*ir.VarDecl).Value); got != ir.TypeFloat {
+		t.Fatalf("Действительное %% Действительное: ожидался тип Действительное, получено %s", got)
+	}
+	if got := ir.TypeOf(main.Body[1].(*ir.VarDecl).Value); got != ir.TypeFloat32 {
+		t.Fatalf("Дробное %% Дробное: ожидался тип Дробное, получено %s", got)
+	}
+}
+
 func TestAnalyzeBitwiseOnFloatFails(t *testing.T) {
 	toks, err := lexer.New(`
 функция главная

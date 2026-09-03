@@ -34,8 +34,17 @@ func staticReceiverEntity(sc *ctx, receiver ast.Expr, line int) (string, entityS
 	return ident.Name, sig, nil
 }
 
-// analyzeStaticFieldAccess - "Тип::поле" как значение (чтение).
+// analyzeStaticFieldAccess - "Тип::поле" как значение (чтение). "Тип" -
+// имя объявленной сущности/структуры (обычный случай, staticReceiverEntity
+// ниже) ИЛИ один из числовых примитивов ("Целое8::МАКСИМУМ" и т. п., см.
+// type_constants.go) - у второго нет записи в sc.entities вовсе, поэтому
+// проверяется первым.
 func analyzeStaticFieldAccess(sc *ctx, e *ast.FieldAccess) (ir.Expr, error) {
+	if ident, ok := e.Receiver.(*ast.Identifier); ok {
+		if expr, found, err := primitiveTypeConstant(ident.Name, e.Field, e.Line); found {
+			return expr, err
+		}
+	}
 	entityName, sig, err := staticReceiverEntity(sc, e.Receiver, e.Line)
 	if err != nil {
 		return nil, err
@@ -80,6 +89,11 @@ func analyzeStaticMethodCallExpr(sc *ctx, e *ast.MethodCallExpr) (*ir.StaticMeth
 
 // analyzeStaticFieldAssign - "Тип::поле = значение".
 func analyzeStaticFieldAssign(sc *ctx, s *ast.FieldAssign) (*ir.StaticFieldAssign, error) {
+	if ident, ok := s.Receiver.(*ast.Identifier); ok {
+		if _, ok := primitiveTypes[ident.Name]; ok {
+			return nil, fmt.Errorf("строка %d: %q - константа типа %q, ей нельзя присвоить заново", s.Line, s.Field, ident.Name)
+		}
+	}
 	entityName, sig, err := staticReceiverEntity(sc, s.Receiver, s.Line)
 	if err != nil {
 		return nil, err

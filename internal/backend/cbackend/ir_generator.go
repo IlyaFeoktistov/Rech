@@ -36,14 +36,21 @@ type irGenCtx struct {
 	// generic-коллекции учтены отдельно через usesGenerics/prog.Generics в
 	// GenerateFromIR, не через этот флаг).
 	builtinFlags
-	// usesIntDiv - нужен ли rech_int_div (см. generateIRArithmetic).
-	usesIntDiv bool
-	// usesUintDiv - нужен ли rech_uint_div (см. generateIRArithmetic) -
-	// то же самое, что usesIntDiv, но для беззнаковых Натуральное/8/16/32/64:
-	// деление без знака - другая C-операция (не просто другая ширина),
-	// нельзя пропустить через rech_int_div без риска интерпретировать
-	// большое Натуральное64 (> INT64_MAX) как знаковое отрицательное.
-	usesUintDiv bool
+	// intDivMod/uintDivMod - какая именно комбинация (ширина × "/" или "%")
+	// целочисленного деления реально понадобилась программе (см.
+	// generateIRArithmetic) - по одному биту на комбинацию, не общий флаг на
+	// всё семейство: rech_int_divN/rech_int_modN - НАСТОЯЩИЙ C-тип своей
+	// ширины (int8_t/int16_t/int32_t/long long), не общий "widen до 64 бит и
+	// усечь обратно" - неиспользуемая static-функция другой ширины/операции
+	// была бы предупреждением (потенциально ошибкой при -Werror) у
+	// настоящего cc, значит эмитировать нужно ТОЧНО использованные
+	// комбинации. intDivMod - для Целое/Целое8/16/32/64 (Целое и Целое64
+	// делят один и тот же 64-битный хелпер, div64/mod64 - оба на "long long",
+	// это один и тот же C-тип по значению); uintDivMod - для Натуральное/
+	// Натуральное8/16/32/64 (Натуральное и Натуральное64 аналогично делят
+	// uint64-хелпер).
+	intDivMod  intDivModUsage
+	uintDivMod intDivModUsage
 	// usesShow - нужны ли функции показа (rech_show_...) - генерируются
 	// только если "показать" реально встретилось в программе.
 	usesShow bool
@@ -812,8 +819,8 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	appendCodeIf(&sb, ctx.usesArgs, argFuncHelper)
 	appendCodeIf(&sb, ctx.usesCast, castHelpers)
 
-	if ctx.usesIntDiv || ctx.usesUintDiv {
-		// Прототип - ДО intDivHelper/uintDivHelper ниже (они уже вызывают
+	if ctx.intDivMod.any() || ctx.uintDivMod.any() {
+		// Прототип - ДО текста хелперов ниже (они уже вызывают
 		// rech_divzero_throw): определение (divZeroThrowHelperCode) эмитится
 		// сильно позже, вместе с structParseThrowHelperCode (нужны и
 		// rech_throw, и прототип rech_new_<ОшибкаДеленияНаНоль> из
@@ -821,8 +828,8 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// неявный вызов необъявленной функции (ошибка в C99+).
 		sb.WriteString("static void rech_divzero_throw(const char *msg);\n")
 	}
-	appendCodeIf(&sb, ctx.usesIntDiv, intDivHelper)
-	appendCodeIf(&sb, ctx.usesUintDiv, uintDivHelper)
+	sb.WriteString(intDivModHelperCode(ctx.intDivMod, true))
+	sb.WriteString(intDivModHelperCode(ctx.uintDivMod, false))
 	appendCodeIf(&sb, ctx.usesConsoleInput, readHelpers)
 	appendCodeIf(&sb, ctx.usesFileIO, fileHelpers)
 	appendCodeIf(&sb, ctx.usesSockets, socketHelpers)
@@ -970,7 +977,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// rech_struct_throw/rech_throw (exceptionRuntimeCode выше) - общий
 	// для обоих форматов, эмитится один раз.
 	appendCodeIf(&sb, len(prog.ParseTargets) > 0 || len(prog.XMLParseTargets) > 0, structParseThrowHelperCode())
-	appendCodeIf(&sb, ctx.usesIntDiv || ctx.usesUintDiv, divZeroThrowHelperCode())
+	appendCodeIf(&sb, ctx.intDivMod.any() || ctx.uintDivMod.any(), divZeroThrowHelperCode())
 	appendCodeIf(&sb, ctx.usesStateFlags, requireStateHelperCode())
 	appendCodeIf(&sb, ctx.usesStateFlags, revokeStatesHelperCode())
 
@@ -2001,7 +2008,7 @@ func generateIRBinaryExpr(ctx *irGenCtx, e *ir.BinaryExpr) (string, valueType, e
 		}
 		return generateIRArithmetic(ctx, e.Op, lc, lt, rc, rt)
 
-	case "-", "*", "/":
+	case "-", "*", "/", "%":
 		return generateIRArithmetic(ctx, e.Op, lc, lt, rc, rt)
 
 	case "==", "!=":
@@ -2033,7 +2040,7 @@ func generateIRBinaryExpr(ctx *irGenCtx, e *ir.BinaryExpr) (string, valueType, e
 	}
 }
 
-// generateIRArithmetic - "+" (нестроковый)/"-"/"*"/"/": приведение
+// generateIRArithmetic - "+" (нестроковый)/"-"/"*"/"/"/"%": приведение
 // операнда к double при смешении Целое/Число - та же промоция, что и в
 // generateIRArithmetic.
 func generateIRArithmetic(ctx *irGenCtx, op string, lc string, lt ir.Type, rc string, rt ir.Type) (string, valueType, error) {
@@ -2049,17 +2056,23 @@ func generateIRArithmetic(ctx *irGenCtx, op string, lc string, lt ir.Type, rc st
 	// беззнаковых, чтобы не интерпретировать Натуральное64 > INT64_MAX как
 	// отрицательное значение через rech_int_div.
 	if lt == rt {
-		if _, signed, ok := lt.Kind.IntWidthSigned(); ok && lt.Kind != ir.KindInt {
+		if bits, signed, ok := lt.Kind.IntWidthSigned(); ok && lt.Kind != ir.KindInt {
 			vt := fromIRType(lt)
 			cType := vt.cType(ctx)
-			if op == "/" {
+			if op == "/" || op == "%" {
 				ctx.usesExceptions = true
+				isMod := op == "%"
+				fn := intDivModFuncName(signed, isMod, bits)
 				if signed {
-					ctx.usesIntDiv = true
-					return fmt.Sprintf("((%s)rech_int_div((long long)%s, (long long)%s))", cType, lc, rc), vt, nil
+					ctx.intDivMod.mark(isMod, bits)
+				} else {
+					ctx.uintDivMod.mark(isMod, bits)
 				}
-				ctx.usesUintDiv = true
-				return fmt.Sprintf("((%s)rech_uint_div((uint64_t)%s, (uint64_t)%s))", cType, lc, rc), vt, nil
+				// Хелпер сам возвращает НАСТОЯЩИЙ C-тип своей ширины
+				// (int8_t/.../uint64_t) - никакого внешнего "((cType)...)"
+				// не нужно, в отличие от +/-/* ниже, где C сам продвигает
+				// операнды до int и результат приходится усекать вручную.
+				return fmt.Sprintf("%s(%s, %s)", fn, lc, rc), vt, nil
 			}
 			return fmt.Sprintf("((%s)(%s %s %s))", cType, lc, op, rc), vt, nil
 		}
@@ -2071,14 +2084,115 @@ func generateIRArithmetic(ctx *irGenCtx, op string, lc string, lt ir.Type, rc st
 		if rt == ir.TypeInt {
 			rc = fmt.Sprintf("((double)%s)", rc)
 		}
+		// Дробное (float) - слабее Действительное (double) в numericRanks -
+		// C сам продвигает float до double при смешении, явный каст не
+		// нужен (в отличие от Целое выше, которому явный "(double)" нужен
+		// всегда - у него нет "родного" плавающего представления).
+		if op == "%" {
+			ctx.usesMath = true
+			return fmt.Sprintf("fmod(%s, %s)", lc, rc), typeFloat, nil
+		}
 		return fmt.Sprintf("(%s %s %s)", lc, op, rc), typeFloat, nil
 	}
-	if op == "/" {
+	if lt == ir.TypeFloat32 || rt == ir.TypeFloat32 {
+		// Целое смешанное с Дробное - C сам продвигает int до float при
+		// обычной арифметике; "%" на float/double в C не определён вовсе -
+		// нужен явный fmodf, не оператор.
+		if op == "%" {
+			ctx.usesMath = true
+			return fmt.Sprintf("fmodf(%s, %s)", lc, rc), typeFloat32, nil
+		}
+		return fmt.Sprintf("(%s %s %s)", lc, op, rc), typeFloat32, nil
+	}
+	if op == "/" || op == "%" {
 		ctx.usesExceptions = true
-		ctx.usesIntDiv = true
-		return fmt.Sprintf("rech_int_div(%s, %s)", lc, rc), typeInt, nil
+		isMod := op == "%"
+		// Обычное 64-битное "Целое" делит хелпер с "Целое64" (см. package
+		// doc irGenCtx.intDivMod) - оба реально 64 бита в C, разница только
+		// в спеллинге cType ("long long" против "int64_t").
+		ctx.intDivMod.mark(isMod, 64)
+		return fmt.Sprintf("%s(%s, %s)", intDivModFuncName(true, isMod, 64), lc, rc), typeInt, nil
 	}
 	return fmt.Sprintf("(%s %s %s)", lc, op, rc), typeInt, nil
+}
+
+// intDivModUsage - какие ширины/операции целочисленного деления/остатка
+// реально понадобились программе (generateIRArithmetic) - по одному биту на
+// комбинацию (ширина × "/" или "%"), не общий флаг на всё семейство: каждый
+// rech_int_div<N>/rech_int_mod<N> - НАСТОЯЩИЙ C-тип своей ширины
+// (int8_t/int16_t/int32_t/int64_t), не общий "продвинуть до 64 бит и усечь
+// обратно" (в отличие от более раннего среза) - неиспользуемая static-
+// функция другой ширины/операции была бы предупреждением (потенциально
+// ошибкой при -Werror) у настоящего cc, значит эмитировать нужно только то,
+// что реально вызвано. Обычное 64-битное "Целое" и "Целое64" (аналогично
+// "Натуральное"/"Натуральное64") делят один и тот же 64-битный хелпер - оба
+// реально 64 бита в C.
+type intDivModUsage struct {
+	div8, div16, div32, div64 bool
+	mod8, mod16, mod32, mod64 bool
+}
+
+func (u *intDivModUsage) mark(isMod bool, bits int) {
+	switch {
+	case !isMod && bits == 8:
+		u.div8 = true
+	case !isMod && bits == 16:
+		u.div16 = true
+	case !isMod && bits == 32:
+		u.div32 = true
+	case !isMod && bits == 64:
+		u.div64 = true
+	case isMod && bits == 8:
+		u.mod8 = true
+	case isMod && bits == 16:
+		u.mod16 = true
+	case isMod && bits == 32:
+		u.mod32 = true
+	case isMod && bits == 64:
+		u.mod64 = true
+	}
+}
+
+func (u intDivModUsage) wants(isMod bool, bits int) bool {
+	switch {
+	case !isMod && bits == 8:
+		return u.div8
+	case !isMod && bits == 16:
+		return u.div16
+	case !isMod && bits == 32:
+		return u.div32
+	case !isMod && bits == 64:
+		return u.div64
+	case isMod && bits == 8:
+		return u.mod8
+	case isMod && bits == 16:
+		return u.mod16
+	case isMod && bits == 32:
+		return u.mod32
+	case isMod && bits == 64:
+		return u.mod64
+	}
+	return false
+}
+
+func (u intDivModUsage) any() bool {
+	return u.div8 || u.div16 || u.div32 || u.div64 || u.mod8 || u.mod16 || u.mod32 || u.mod64
+}
+
+// intDivModFuncName - единая точка сборки имени rech_int_div<N>/
+// rech_int_mod<N>/rech_uint_div<N>/rech_uint_mod<N>, чтобы вызывающий код
+// (generateIRArithmetic) и генератор текста хелпера (builtins_shared.go,
+// intDivModHelperCode) не могли разойтись в написании.
+func intDivModFuncName(signed bool, isMod bool, bits int) string {
+	sign := "int"
+	if !signed {
+		sign = "uint"
+	}
+	kind := "div"
+	if isMod {
+		kind = "mod"
+	}
+	return fmt.Sprintf("rech_%s_%s%d", sign, kind, bits)
 }
 
 // generateIRNewExpr генерирует "новый Тип(...)" - e.Args уже позиционны по

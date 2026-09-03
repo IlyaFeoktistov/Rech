@@ -314,10 +314,11 @@ func (p *Parser) parseConstDecl() (*ast.ConstDecl, error) {
 // присваиванием и бинарной арифметикой (в т.ч. "+" для Строка -
 // конкатенация, поэтому "+=" работает и для строк без отдельного случая).
 var compoundAssignOps = map[lexer.TokenType]string{
-	lexer.PLUS_ASSIGN:  "+",
-	lexer.MINUS_ASSIGN: "-",
-	lexer.STAR_ASSIGN:  "*",
-	lexer.SLASH_ASSIGN: "/",
+	lexer.PLUS_ASSIGN:    "+",
+	lexer.MINUS_ASSIGN:   "-",
+	lexer.STAR_ASSIGN:    "*",
+	lexer.SLASH_ASSIGN:   "/",
+	lexer.PERCENT_ASSIGN: "%",
 }
 
 func isCompoundAssignTok(t lexer.TokenType) bool {

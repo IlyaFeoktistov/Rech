@@ -57,7 +57,7 @@ func fixedWidthToFloat(k ir.TypeKind, raw int64) float64 {
 	return float64(raw)
 }
 
-// fixedWidthArithmetic - "+"/"-"/"*"/"/" между двумя значениями ОДНОГО И
+// fixedWidthArithmetic - "+"/"-"/"*"/"/"/"%" между двумя значениями ОДНОГО И
 // ТОГО ЖЕ Целое8/16/32/64 / Натуральное/8/16/32/64 (internal/semantic уже
 // гарантировал l.Type == r.Type, analyzeArithmetic - строго один и тот же
 // тип, без неявной промоции). "/" беззнаковых - через uint64(...), как и
@@ -80,6 +80,14 @@ func fixedWidthArithmetic(op string, l, r Value) (Value, error) {
 			return Value{Type: l.Type, I: wrapFixedWidth(k, int64(uint64(l.I)/uint64(r.I)))}, nil
 		}
 		return Value{Type: l.Type, I: wrapFixedWidth(k, l.I/r.I)}, nil
+	case "%":
+		if r.I == 0 {
+			return Value{}, newSystemException(divByZeroExceptionEntity, rtmsg.DivisionByZero)
+		}
+		if isUnsignedFixedWidth(k) {
+			return Value{Type: l.Type, I: wrapFixedWidth(k, int64(uint64(l.I)%uint64(r.I)))}, nil
+		}
+		return Value{Type: l.Type, I: wrapFixedWidth(k, l.I%r.I)}, nil
 	}
 	return Value{}, nil
 }

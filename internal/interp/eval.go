@@ -263,7 +263,7 @@ func (in *Interp) evalBinary(e *ir.BinaryExpr, env *Env, cc *callCtx) (Value, er
 			return stringValue(l.S + r.S), nil
 		}
 		return arithmetic(e.Op, l, r)
-	case "-", "*", "/":
+	case "-", "*", "/", "%":
 		return arithmetic(e.Op, l, r)
 	case "==":
 		return boolValue(valuesEqual(l, r)), nil
@@ -286,7 +286,7 @@ func (in *Interp) evalBinary(e *ir.BinaryExpr, env *Env, cc *callCtx) (Value, er
 	}
 }
 
-// arithmetic - "+" (нестроковый)/"-"/"*"/"/": та же трёхуровневая промоция
+// arithmetic - "+" (нестроковый)/"-"/"*"/"/"/"%": та же трёхуровневая промоция
 // Целое -> Дробное -> Действительное при смешении, что и в
 // cbackend.generateIRArithmetic - более широкий из двух операндов
 // определяет и тип результата, и точность вычисления (float32Value
@@ -304,6 +304,8 @@ func arithmetic(op string, l, r Value) (Value, error) {
 			return floatValue(lf * rf), nil
 		case "/":
 			return floatValue(lf / rf), nil
+		case "%":
+			return floatValue(math.Mod(lf, rf)), nil
 		}
 	}
 	if l.Type == ir.TypeFloat32 || r.Type == ir.TypeFloat32 {
@@ -317,6 +319,8 @@ func arithmetic(op string, l, r Value) (Value, error) {
 			return float32Value(lf * rf), nil
 		case "/":
 			return float32Value(lf / rf), nil
+		case "%":
+			return float32Value(math.Mod(lf, rf)), nil
 		}
 	}
 	if l.Type == r.Type && isFixedWidthInt(l.Type.Kind) {
@@ -334,6 +338,11 @@ func arithmetic(op string, l, r Value) (Value, error) {
 			return Value{}, newSystemException(divByZeroExceptionEntity, rtmsg.DivisionByZero)
 		}
 		return intValue(l.I / r.I), nil
+	case "%":
+		if r.I == 0 {
+			return Value{}, newSystemException(divByZeroExceptionEntity, rtmsg.DivisionByZero)
+		}
+		return intValue(l.I % r.I), nil
 	}
 	return Value{}, nil
 }

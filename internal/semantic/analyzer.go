@@ -960,9 +960,10 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 			Name: divByZeroExceptionEntity, BaseName: systemExceptionEntity,
 			Fields: systemExceptionFields(),
 			// Ctor - тот же принцип, что и у "ОшибкаРазбора" выше -
-			// internal/backend/cbackend/builtins_shared.go (rech_int_div/
-			// rech_uint_div) вызывает mangleCtor(divByZeroExceptionEntity) с
-			// одним аргументом (сообщением) напрямую.
+			// internal/backend/cbackend/builtins_shared.go
+			// (rech_int_div<N>/rech_uint_div<N>/...mod<N>, через
+			// rech_divzero_throw) вызывает mangleCtor(divByZeroExceptionEntity)
+			// с одним аргументом (сообщением) напрямую.
 			Ctor: systemExceptionCtor(),
 		})
 	}

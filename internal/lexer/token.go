@@ -31,25 +31,27 @@ const (
 	DBLCOLON  // :: (доступ к статическому члену - Тип::имя)
 	DOT       // .
 
-	ASSIGN // =
-	PLUS   // +
-	MINUS  // -
-	STAR   // *
-	SLASH  // /
-	EQ     // ==
-	NEQ    // !=
-	LT     // <
-	GT     // >
-	LE     // <=
-	GE     // >=
+	ASSIGN  // =
+	PLUS    // +
+	MINUS   // -
+	STAR    // *
+	SLASH   // /
+	PERCENT // % (остаток от деления, только Целое)
+	EQ      // ==
+	NEQ     // !=
+	LT      // <
+	GT      // >
+	LE      // <=
+	GE      // >=
 
 	INCR // ++
 	DECR // --
 
-	PLUS_ASSIGN  // += (а = а + б)
-	MINUS_ASSIGN // -= (а = а - б)
-	STAR_ASSIGN  // *= (а = а * б)
-	SLASH_ASSIGN // /= (а = а / б)
+	PLUS_ASSIGN    // += (а = а + б)
+	MINUS_ASSIGN   // -= (а = а - б)
+	STAR_ASSIGN    // *= (а = а * б)
+	SLASH_ASSIGN   // /= (а = а / б)
+	PERCENT_ASSIGN // %= (а = а % б)
 
 	BITAND // &  (побитовое И, только Целое)
 	BITOR  // |  (побитовое ИЛИ, только Целое)
@@ -269,6 +271,8 @@ func (t TokenType) String() string {
 		return "*"
 	case SLASH:
 		return "/"
+	case PERCENT:
+		return "%"
 	case EQ:
 		return "=="
 	case NEQ:
@@ -293,6 +297,8 @@ func (t TokenType) String() string {
 		return "*="
 	case SLASH_ASSIGN:
 		return "/="
+	case PERCENT_ASSIGN:
+		return "%="
 	case QUESTION:
 		return "?"
 	case QUESTIONQUESTION:

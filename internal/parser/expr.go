@@ -187,7 +187,7 @@ func (p *Parser) parseAdditive() (ast.Expr, error) {
 	return p.parseLeftAssoc(p.parseMultiplicative, additiveOps)
 }
 
-var multiplicativeOps = map[lexer.TokenType]string{lexer.STAR: "*", lexer.SLASH: "/"}
+var multiplicativeOps = map[lexer.TokenType]string{lexer.STAR: "*", lexer.SLASH: "/", lexer.PERCENT: "%"}
 
 func (p *Parser) parseMultiplicative() (ast.Expr, error) {
 	return p.parseLeftAssoc(p.parseUnary, multiplicativeOps)

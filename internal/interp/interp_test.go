@@ -633,6 +633,62 @@ func TestRunIntDivisionByZeroReturnsErrorNotCrash(t *testing.T) {
 	}
 }
 
+func TestRunModuloComputesRemainder(t *testing.T) {
+	got := runSrc(t, `
+функция главная
+{
+    вывести 17 % 5
+    вывести -7 % 3
+}
+`)
+	if got != "2\n-1\n" {
+		t.Fatalf("получили %q", got)
+	}
+}
+
+func TestRunFloatModuloComputesRemainder(t *testing.T) {
+	got := runSrc(t, `
+функция главная
+{
+    вывести 7.5 % 2.0
+    вывести -7.5 % 2.0
+}
+`)
+	if got != "1.5\n-1.5\n" {
+		t.Fatalf("получили %q", got)
+	}
+}
+
+func TestRunIntModuloByZeroReturnsErrorNotCrash(t *testing.T) {
+	toks, err := lexer.New(`
+функция главная
+{
+    вывести "до"
+    переменная а = 1 % 0
+    вывести а
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	irProg, err := semantic.Analyze(prog)
+	if err != nil {
+		t.Fatalf("семантический анализ: %v", err)
+	}
+	var buf bytes.Buffer
+	err = Run(irProg, &buf, strings.NewReader(""))
+	if err == nil || !strings.Contains(err.Error(), "деление на ноль") {
+		t.Fatalf("ожидалась ошибка про деление на ноль, получено: %v", err)
+	}
+	if buf.String() != "до\n" {
+		t.Fatalf("получили вывод %q", buf.String())
+	}
+}
+
 func TestRunNullableCastOnNichtoPanics(t *testing.T) {
 	toks, err := lexer.New(`
 функция главная

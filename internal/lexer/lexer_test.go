@@ -72,6 +72,7 @@ func TestLexerCompoundAssignTokens(t *testing.T) {
 		"-=": MINUS_ASSIGN,
 		"*=": STAR_ASSIGN,
 		"/=": SLASH_ASSIGN,
+		"%=": PERCENT_ASSIGN,
 		"?":  QUESTION,
 		"??": QUESTIONQUESTION,
 		"?=": NULL_ASSIGN,
@@ -81,6 +82,13 @@ func TestLexerCompoundAssignTokens(t *testing.T) {
 		if len(types) != 2 || types[0] != want { // + EOF
 			t.Fatalf("%q: ожидался токен %v, получено %v", src, want, types)
 		}
+	}
+}
+
+func TestLexerPercentToken(t *testing.T) {
+	types := tokenTypes(t, "а % б")
+	if len(types) != 4 || types[1] != PERCENT {
+		t.Fatalf("одиночный \"%%\" должен остаться PERCENT: %v", types)
 	}
 }
 

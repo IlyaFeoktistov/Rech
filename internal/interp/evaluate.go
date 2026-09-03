@@ -207,7 +207,7 @@ func (in *Interp) evalAstBinary(e *ast.BinaryExpr, env *Env, this *entityObj) (V
 			return stringValue(l.S + r.S), nil
 		}
 		return arithmetic(e.Op, l, r)
-	case "-", "*", "/":
+	case "-", "*", "/", "%":
 		return arithmetic(e.Op, l, r)
 	case "==":
 		return boolValue(valuesEqual(l, r)), nil

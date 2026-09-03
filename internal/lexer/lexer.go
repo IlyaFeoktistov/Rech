@@ -145,6 +145,13 @@ func (l *Lexer) next() (Token, error) {
 			return Token{Type: STAR_ASSIGN, Value: "*=", Line: line, Col: col}, nil
 		}
 		return Token{Type: STAR, Value: "*", Line: line, Col: col}, nil
+	case r == '%':
+		l.advance()
+		if l.peek() == '=' {
+			l.advance()
+			return Token{Type: PERCENT_ASSIGN, Value: "%=", Line: line, Col: col}, nil
+		}
+		return Token{Type: PERCENT, Value: "%", Line: line, Col: col}, nil
 	case r == '/' && l.peekAt(1) == '*':
 		return l.readDocComment(line, col)
 	case r == '/':

@@ -1,8 +1,11 @@
 package cbackend
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
 
-import "github.com/IlyaFeoktistov/Rech/internal/rtmsg"
+	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
+)
 
 // builtinFlags - какие runtime-хелперы понадобились из-за вызова встроенных
 // функций (internal/builtins, шаг 8) - единственная таблица диспетчеризации
@@ -414,31 +417,112 @@ var panicHelper = fmt.Sprintf(`static void rech_panic(const char *msg) {
 }
 `, rtmsg.PanicPrefix)
 
-// intDivHelper - целочисленное "/" с проверкой делителя на ноль (без него
-// это UB в C - обычно SIGFPE, платформенно-зависимое поведение, а не
-// понятная ошибка) - выбрасывает перехватываемое "ОшибкаДеленияНаНоль"
-// через rech_divzero_throw (см. divZeroThrowHelperCode, json_extract.go),
-// не rech_panic - usesExceptions ставится вместе с usesIntDiv/usesUintDiv,
-// см. вызывающий код (generateIRArithmetic).
-var intDivHelper = fmt.Sprintf(`static long long rech_int_div(long long a, long long b) {
-    if (b == 0) {
-        rech_divzero_throw("%s");
-    }
-    return a / b;
+// intWidthHelperSpec - C-тип и (для знаковых) минимальное представимое
+// значение конкретной ширины rech_int_div<N>/rech_int_mod<N>/
+// rech_uint_div<N>/rech_uint_mod<N> (см. intDivModHelperCode). min пустой у
+// беззнаковых - у них нет случая переполнения при делении вовсе (см. ниже).
+type intWidthHelperSpec struct {
+	bits  int
+	cType string
+	min   string
 }
-`, rtmsg.DivisionByZero)
 
-// uintDivHelper - то же самое, что intDivHelper, но для беззнаковых
-// Натуральное/8/16/32/64 - через uint64_t, не long long: значение
-// Натуральное64 выше INT64_MAX интерпретировалось бы rech_int_div как
-// отрицательное (см. её package doc и generateIRArithmetic).
-var uintDivHelper = fmt.Sprintf(`static uint64_t rech_uint_div(uint64_t a, uint64_t b) {
+var signedDivModWidths = []intWidthHelperSpec{
+	{8, "int8_t", "INT8_MIN"},
+	{16, "int16_t", "INT16_MIN"},
+	{32, "int32_t", "INT32_MIN"},
+	{64, "int64_t", "INT64_MIN"},
+}
+
+var unsignedDivModWidths = []intWidthHelperSpec{
+	{8, "uint8_t", ""},
+	{16, "uint16_t", ""},
+	{32, "uint32_t", ""},
+	{64, "uint64_t", ""},
+}
+
+// intDivModHelperCode строит текст ТОЛЬКО реально использованных (см. u,
+// ir_generator.go.intDivModUsage) rech_int_div<N>/rech_int_mod<N>
+// (signed=true) или rech_uint_div<N>/rech_uint_mod<N> (signed=false) -
+// настоящий C-тип своей ширины на входе/выходе (int8_t/.../uint64_t), не
+// общий "продвинуть до 64 бит и усечь обратно". Оба - с проверкой делителя
+// на ноль (без него UB в C - обычно SIGFPE, а не понятная ошибка) -
+// выбрасывают перехватываемое "ОшибкаДеленияНаНоль" через
+// rech_divzero_throw (divZeroThrowHelperCode, json_extract.go), не
+// rech_panic.
+//
+// Знаковое деление/остаток дополнительно проверяет "a == MIN && b == -1" -
+// единственный случай, где ЗНАКОВОЕ деление целочисленного типа - тоже UB в
+// C (частное не умещается в тип, даже если делитель не 0 - на x86 та же
+// инструкция idiv может упасть по SIGFPE, хотя остаток от такого деления
+// математически всегда 0 и прекрасно умещается). Явная проверка возвращает
+// тот же результат, что естественным путём даёт two's-complement
+// переполнение (и то же, что уже делает interp - см.
+// internal/interp/widthints.go.wrapFixedWidth): деление - само MIN,
+// остаток - 0. У беззнаковых такого случая нет вовсе - деление/остаток без
+// знака никогда не переполняет.
+func intDivModHelperCode(u intDivModUsage, signed bool) string {
+	widths := unsignedDivModWidths
+	prefix := "uint"
+	if signed {
+		widths = signedDivModWidths
+		prefix = "int"
+	}
+	var sb strings.Builder
+	for _, w := range widths {
+		if u.wants(false, w.bits) {
+			sb.WriteString(intDivHelperText(prefix, w))
+		}
+		if u.wants(true, w.bits) {
+			sb.WriteString(intModHelperText(prefix, w))
+		}
+	}
+	return sb.String()
+}
+
+func intDivHelperText(prefix string, w intWidthHelperSpec) string {
+	if w.min == "" {
+		return fmt.Sprintf(`static %[1]s rech_%[2]s_div%[3]d(%[1]s a, %[1]s b) {
     if (b == 0) {
-        rech_divzero_throw("%s");
+        rech_divzero_throw("%[4]s");
     }
     return a / b;
 }
-`, rtmsg.DivisionByZero)
+`, w.cType, prefix, w.bits, rtmsg.DivisionByZero)
+	}
+	return fmt.Sprintf(`static %[1]s rech_%[2]s_div%[3]d(%[1]s a, %[1]s b) {
+    if (b == 0) {
+        rech_divzero_throw("%[4]s");
+    }
+    if (a == %[5]s && b == -1) {
+        return %[5]s;
+    }
+    return a / b;
+}
+`, w.cType, prefix, w.bits, rtmsg.DivisionByZero, w.min)
+}
+
+func intModHelperText(prefix string, w intWidthHelperSpec) string {
+	if w.min == "" {
+		return fmt.Sprintf(`static %[1]s rech_%[2]s_mod%[3]d(%[1]s a, %[1]s b) {
+    if (b == 0) {
+        rech_divzero_throw("%[4]s");
+    }
+    return a %% b;
+}
+`, w.cType, prefix, w.bits, rtmsg.DivisionByZero)
+	}
+	return fmt.Sprintf(`static %[1]s rech_%[2]s_mod%[3]d(%[1]s a, %[1]s b) {
+    if (b == 0) {
+        rech_divzero_throw("%[4]s");
+    }
+    if (a == %[5]s && b == -1) {
+        return 0;
+    }
+    return a %% b;
+}
+`, w.cType, prefix, w.bits, rtmsg.DivisionByZero, w.min)
+}
 
 // readHelpers - прочитать_строку/прочитать_целое/прочитать_число (шаг 8, без
 // FFI - стандартный ввод есть у любой программы). rech_read_line

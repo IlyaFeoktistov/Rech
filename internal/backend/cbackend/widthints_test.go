@@ -31,8 +31,8 @@ func TestGenerateFromIRFixedWidthArithmeticTruncatesAtExpressionLevel(t *testing
 }
 
 // TestGenerateFromIRUnsignedFixedWidthDivisionUsesUintHelper - Натуральное64
-// / Натуральное64 - через rech_uint_div (uint64_t), не rech_int_div
-// (long long) - последний интерпретировал бы значение выше INT64_MAX как
+// / Натуральное64 - через rech_uint_div64 (uint64_t), не rech_int_div64
+// (знаковый) - последний интерпретировал бы значение выше INT64_MAX как
 // отрицательное.
 func TestGenerateFromIRUnsignedFixedWidthDivisionUsesUintHelper(t *testing.T) {
 	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
@@ -47,17 +47,17 @@ func TestGenerateFromIRUnsignedFixedWidthDivisionUsesUintHelper(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, "rech_uint_div((uint64_t)") {
-		t.Fatalf("ожидался вызов rech_uint_div, получено:\n%s", out)
+	if !strings.Contains(out, "rech_uint_div64(") {
+		t.Fatalf("ожидался вызов rech_uint_div64, получено:\n%s", out)
 	}
-	if !strings.Contains(out, "static uint64_t rech_uint_div(") {
-		t.Fatalf("ожидалось определение rech_uint_div, получено:\n%s", out)
+	if !strings.Contains(out, "static uint64_t rech_uint_div64(") {
+		t.Fatalf("ожидалось определение rech_uint_div64, получено:\n%s", out)
 	}
 }
 
 // TestGenerateFromIRSignedFixedWidthDivisionUsesIntHelper - Целое32/Целое32
-// - переиспользует существующий rech_int_div (как и обычное Целое), не
-// заводит отдельный хелпер под каждую знаковую ширину.
+// - собственный узкий хелпер rech_int_div32 (настоящий int32_t на входе/
+// выходе, не общий 64-битный, см. package doc ir_generator.go.intDivModUsage).
 func TestGenerateFromIRSignedFixedWidthDivisionUsesIntHelper(t *testing.T) {
 	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
 		&ir.PrintStmt{Value: &ir.BinaryExpr{
@@ -71,11 +71,47 @@ func TestGenerateFromIRSignedFixedWidthDivisionUsesIntHelper(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, "rech_int_div((long long)") {
-		t.Fatalf("ожидался вызов rech_int_div, получено:\n%s", out)
+	if !strings.Contains(out, "rech_int_div32(") {
+		t.Fatalf("ожидался вызов rech_int_div32, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "static int32_t rech_int_div32(") {
+		t.Fatalf("ожидалось определение rech_int_div32, получено:\n%s", out)
 	}
 	if strings.Contains(out, "rech_uint_div") {
 		t.Fatalf("знаковое деление не должно использовать rech_uint_div: %s", out)
+	}
+}
+
+// TestGenerateFromIRFixedWidthDivModGuardsMinOverMinusOne - Целое8/Целое8 -
+// хелпер rech_int_div8/rech_int_mod8 обязан явно проверить "a == INT8_MIN
+// && b == -1": в C само это деление (даже НЕ на ноль) - undefined behavior
+// (частное не умещается в int8_t), так что без проверки настоящий cc был бы
+// вправе упасть по SIGFPE вместо two's-complement переполнения (см. package
+// doc intDivModHelperCode, builtins_shared.go).
+func TestGenerateFromIRFixedWidthDivModGuardsMinOverMinusOne(t *testing.T) {
+	body := func(op string) []ir.Stmt {
+		return []ir.Stmt{
+			&ir.PrintStmt{Value: &ir.BinaryExpr{
+				Op:    op,
+				Left:  &ir.CastExpr{Value: &ir.IntLiteral{Value: -128}, To: ir.TypeInt8},
+				Right: &ir.CastExpr{Value: &ir.IntLiteral{Value: -1}, To: ir.TypeInt8},
+				Type:  ir.TypeInt8,
+			}},
+		}
+	}
+	div, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{{Name: "главная", Body: body("/")}}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(div, "if (a == INT8_MIN && b == -1) {\n        return INT8_MIN;\n    }") {
+		t.Fatalf("ожидалась проверка INT8_MIN/-1 в rech_int_div8, получено:\n%s", div)
+	}
+	mod, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{{Name: "главная", Body: body("%")}}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(mod, "if (a == INT8_MIN && b == -1) {\n        return 0;\n    }") {
+		t.Fatalf("ожидалась проверка INT8_MIN/-1 в rech_int_mod8, получено:\n%s", mod)
 	}
 }
 

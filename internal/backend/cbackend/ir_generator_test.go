@@ -306,11 +306,92 @@ func TestGenerateFromIRIntDivisionUsesCheckedHelper(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, "rech_int_div(7LL, 2LL)") {
-		t.Fatalf("ожидался вызов rech_int_div, получено:\n%s", out)
+	if !strings.Contains(out, "rech_int_div64(7LL, 2LL)") {
+		t.Fatalf("ожидался вызов rech_int_div64, получено:\n%s", out)
 	}
-	if !strings.Contains(out, "static long long rech_int_div(") {
-		t.Fatalf("ожидалось определение rech_int_div, получено:\n%s", out)
+	if !strings.Contains(out, "static int64_t rech_int_div64(") {
+		t.Fatalf("ожидалось определение rech_int_div64, получено:\n%s", out)
+	}
+}
+
+// TestGenerateFromIRFloat32ArithmeticTracksFloat32Type -
+// НАЙДЕННЫЙ РЕАЛЬНЫЙ БАГ: "Дробное + Дробное" (оба операнда float, ни один
+// не Действительное/Целое) раньше проваливался мимо и generateIRArithmetic
+// float-ветки (та проверяла только ir.TypeFloat == double), и падал в
+// int-ветку в самом низу - C-выражение "(a + b)" само по себе вычислялось
+// верно (C сам умеет float+float), но valueType результата ошибочно
+// возвращался typeInt, из-за чего "вывести" печатало результат через
+// "%lld"/(long long), обрезая дробную часть (7.5+2.0 печаталось как "9",
+// не "9.5"). Для "/"/"%" эта же дыра приводила к куда худшему - оба
+// операнда Дробное ошибочно шли в rech_int_div64, порождая невалидный C.
+func TestGenerateFromIRFloat32ArithmeticTracksFloat32Type(t *testing.T) {
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.PrintStmt{Value: &ir.BinaryExpr{
+			Op:    "+",
+			Left:  &ir.CastExpr{Value: &ir.FloatLiteral{Value: 7.5}, To: ir.TypeFloat32},
+			Right: &ir.CastExpr{Value: &ir.FloatLiteral{Value: 2}, To: ir.TypeFloat32},
+			Type:  ir.TypeFloat32,
+		}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, `printf("%g\n",`) {
+		t.Fatalf("ожидался printf с %%g (Дробное), получено:\n%s", out)
+	}
+	if strings.Contains(out, "(long long)") {
+		t.Fatalf("Дробное + Дробное не должно печататься как Целое: %s", out)
+	}
+}
+
+func TestGenerateFromIRFloatModuloUsesFmod(t *testing.T) {
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.PrintStmt{Value: &ir.BinaryExpr{Op: "%", Left: &ir.FloatLiteral{Value: 7.5}, Right: &ir.FloatLiteral{Value: 2}, Type: ir.TypeFloat}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "fmod(7.5, 2.0)") {
+		t.Fatalf("ожидался вызов fmod, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "#include <math.h>") {
+		t.Fatalf("ожидался #include <math.h>, получено:\n%s", out)
+	}
+}
+
+func TestGenerateFromIRFloat32ModuloUsesFmodf(t *testing.T) {
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.PrintStmt{Value: &ir.BinaryExpr{
+			Op:    "%",
+			Left:  &ir.CastExpr{Value: &ir.FloatLiteral{Value: 7.5}, To: ir.TypeFloat32},
+			Right: &ir.CastExpr{Value: &ir.FloatLiteral{Value: 2}, To: ir.TypeFloat32},
+			Type:  ir.TypeFloat32,
+		}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "fmodf(") {
+		t.Fatalf("ожидался вызов fmodf, получено:\n%s", out)
+	}
+}
+
+func TestGenerateFromIRIntModuloUsesCheckedHelper(t *testing.T) {
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.PrintStmt{Value: &ir.BinaryExpr{Op: "%", Left: &ir.IntLiteral{Value: 7}, Right: &ir.IntLiteral{Value: 2}, Type: ir.TypeInt}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "rech_int_mod64(7LL, 2LL)") {
+		t.Fatalf("ожидался вызов rech_int_mod64, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "static int64_t rech_int_mod64(") {
+		t.Fatalf("ожидалось определение rech_int_mod64, получено:\n%s", out)
 	}
 }
 
@@ -330,7 +411,7 @@ func TestGenerateFromIRFloatDivisionDoesNotUseCheckedHelper(t *testing.T) {
 		t.Fatalf("ожидался обычный оператор \"/\", получено:\n%s", out)
 	}
 	if strings.Contains(out, "rech_int_div") {
-		t.Fatalf("rech_int_div не должен генерироваться для деления Число: %s", out)
+		t.Fatalf("rech_int_div64 не должен генерироваться для деления Число: %s", out)
 	}
 }
 
