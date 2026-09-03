@@ -76,6 +76,13 @@ type irGenCtx struct {
 	// Rech-функциям (exportAttr).
 	libMode  bool
 	entities map[string]*ir.Entity
+	// generics - имена generic-инстанциаций (Список<T>/Стопка<T>/
+	// Очередь<T>/Словарь<К, В>) из prog.Generics - entityIsRef обращается
+	// сюда для ЛЮБОГО имени, не найденного в entities (значит это либо
+	// generic-инстанциация, либо опечатка/баг компилятора выше по
+	// конвейеру, которая уже должна была быть отловлена семантикой) - см.
+	// package doc entityIsRef.
+	generics map[string]bool
 	// nullableInner - каноническое имя "?Тип" (ir.Type.Entity) -> его
 	// внутренний Тип, из prog.Nullables - нужен там, где по значению уже
 	// известного KindNullable ir.Type требуется добраться до внутреннего
@@ -243,14 +250,23 @@ func (ctx *irGenCtx) receiverIsPointer(receiver ir.Expr) bool {
 
 // entityIsRef - true, если name - объявленная "сущность"/"класс" (ссылочная
 // семантика по умолчанию - сущность как указатель, GC_MALLOC), а не
-// "структура" (по значению). "Не найдено в ctx.entities" - generic-
-// инстанциация (Список<T> и т. п., они регистрируются отдельно, в
-// prog.Generics, не в prog.Entities) - продолжает существующее представление
-// "по значению" (обёртка-структура с полем-указателем на буфер), как и до
-// появления "структура"/ссылочной сущности.
+// "структура" (по значению), ИЛИ generic-инстанциация (Список<T>/
+// Стопка<T>/Очередь<T>/Словарь<К, В>, ctx.generics - они регистрируются
+// отдельно, в prog.Generics, не в prog.Entities). Generic-коллекции - тоже
+// ссылочные (тем же принципом, что и обычные сущности) - раньше были
+// представлены "по значению" (сама обёртка-структура копировалась при
+// передаче аргументом/присваивании, хотя её ВНУТРЕННИЙ буфер-указатель
+// оставался общим) - это расходилось с interp (Go-карта/срез внутри
+// значения - тот же объект при копировании) и приводило к молчаливой
+// потере мутаций после того, как копия проходила через resize
+// (генерация нового буфера видна только в ТОЙ копии, где он произошёл) -
+// найдено и задокументировано в docs/ROADMAP.md (Шаг 28) при написании
+// examples/проекты/http_сервер, исправлено здесь.
 func (ctx *irGenCtx) entityIsRef(name string) bool {
-	ent, ok := ctx.entities[name]
-	return ok && !ent.IsStruct
+	if ent, ok := ctx.entities[name]; ok {
+		return !ent.IsStruct
+	}
+	return ctx.generics[name]
 }
 
 // GenerateFromIR возвращает исходник на C, соответствующий программе prog -
@@ -323,6 +339,13 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// программе хоть одна ссылочная сущность.
 		usesGC = true
 	}
+	if len(prog.Generics) > 0 {
+		// Список/Стопка/Очередь/Словарь - ссылочные (см. entityIsRef),
+		// конструктор ("новый Список<T>()") выделяет память через
+		// GC_MALLOC (genericCtorCCode) - независимо от того, есть ли в
+		// программе хоть одна пользовательская ссылочная сущность.
+		usesGC = true
+	}
 	externCNames := map[string]string{}
 	for _, ext := range prog.ExternFuncs {
 		externCNames[ext.Alias] = ext.CName
@@ -333,8 +356,13 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	}
 	participants, slots := computeDispatch(prog)
 	excTypeIDs, excTypeNames, excIsaTable := buildIsaTable(prog, participants)
+	generics := make(map[string]bool, len(prog.Generics))
+	for _, g := range prog.Generics {
+		generics[g.Name] = true
+	}
 	ctx := &irGenCtx{
 		entities:             entities,
+		generics:             generics,
 		nullableInner:        nullableInner,
 		pointerInner:         pointerInner,
 		externCNames:         externCNames,
@@ -466,9 +494,21 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 			dest = &genericsCodeAfterCallables
 		}
 		elemC := fromIRType(g.ElemType).cType(ctx)
+		// rech_new_<...> - конструктор "новый Список<T>()" и т. п.
+		// (generateIRNewExpr, ctx.entityIsRef теперь true и для
+		// generic-инстанциаций - см. её package doc) - СРАЗУ после
+		// typedef/методов самой коллекции (тот же dest, что и у
+		// genericsCode/genericsCodeAfterCallables вообще - конструктору
+		// нужен уже готовый typedef для sizeof()), но ДО NeedsListLiteral
+		// ниже - у "Список" listLiteralCCode сама вызывает этот
+		// конструктор внутри своего тела (см. её package doc), значит
+		// должна идти строго после него в тексте (C - без forward-
+		// declaration в пределах одного dest, функция должна быть уже
+		// объявлена/определена к месту вызова).
 		switch g.Template {
 		case "Список":
 			dest.WriteString(listCollectionCCode(g.Name, elemC))
+			dest.WriteString(genericCtorCCode(g.Name))
 			if g.NeedsSafeIndex {
 				indexSafeGetCode.WriteString(listIndexSafeGetCCode(g.Name, mangleType("?"+g.ElemType.String())))
 			}
@@ -477,8 +517,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 			}
 		case "Стопка":
 			dest.WriteString(stackCollectionCCode(g.Name, elemC))
+			dest.WriteString(genericCtorCCode(g.Name))
 		case "Очередь":
 			dest.WriteString(queueCollectionCCode(g.Name, elemC))
+			dest.WriteString(genericCtorCCode(g.Name))
 		case "Словарь":
 			keyC := fromIRType(g.KeyType).cType(ctx)
 			isStringKey := g.KeyType.Kind == ir.KindString
@@ -486,6 +528,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 				ctx.usesDictString = true
 			}
 			dest.WriteString(dictCollectionCCode(g.Name, keyC, elemC, isStringKey))
+			dest.WriteString(genericCtorCCode(g.Name))
 			if g.NeedsSafeIndex {
 				indexSafeGetCode.WriteString(dictIndexSafeGetCCode(g.Name, keyC, mangleType("?"+g.ElemType.String())))
 			}
@@ -625,11 +668,19 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// "Символ" молча тянула за собой чужой конфликтующий системный
 	// заголовок в любой программе с "внешняя функция").
 	if ctx.usesShow {
-		for _, ent := range prog.Entities {
-			showFuncs.WriteString(generateIREntityShowFunc(ctx, ent))
-		}
+		// Generics - ПЕРЕД сущностями: сущность может нести generic-
+		// коллекцию ПОЛЕМ ("участники: Список<Строка>") и её функция
+		// показа зовёт rech_show_<коллекция> - обратная зависимость
+		// невозможна (элемент встроенной коллекции - только примитив или
+		// другая встроенная коллекция, не пользовательская сущность, см.
+		// internal/semantic.resolveGenericTypeName), поэтому строгий
+		// порядок "все generics -> все сущности" достаточен без
+		// топологической сортировки.
 		for _, g := range prog.Generics {
 			showFuncs.WriteString(generateIRGenericShowFunc(ctx, g))
+		}
+		for _, ent := range prog.Entities {
+			showFuncs.WriteString(generateIREntityShowFunc(ctx, ent))
 		}
 	}
 
@@ -1561,8 +1612,8 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 		}
 		varC := mangleVar(s.Var)
 		idxC := "rech_fe_i_" + varC
-		fmt.Fprintf(sb, "%sfor (long long %s = 0; %s < %s.len; %s++) {\n", ind, idxC, idxC, collCode, idxC)
-		fmt.Fprintf(sb, "%s%s %s = %s.data[%s];\n", indent(depth+1), fromIRType(s.ElemType).cType(ctx), varC, collCode, idxC)
+		fmt.Fprintf(sb, "%sfor (long long %s = 0; %s < %s->len; %s++) {\n", ind, idxC, idxC, collCode, idxC)
+		fmt.Fprintf(sb, "%s%s %s = %s->data[%s];\n", indent(depth+1), fromIRType(s.ElemType).cType(ctx), varC, collCode, idxC)
 		for _, st := range s.Body {
 			if err := generateIRStmt(sb, ctx, st, depth+1); err != nil {
 				return err

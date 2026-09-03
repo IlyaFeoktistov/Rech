@@ -478,14 +478,66 @@ func TestGenerateFromIRListGenericAndForEach(t *testing.T) {
 	if !strings.Contains(out, "} rech_T_spisok_of_celoe;") {
 		t.Fatalf("ожидался typedef struct для Список<Целое>, получено:\n%s", out)
 	}
-	if !strings.Contains(out, "rech_M_spisok_of_celoe_dobavit(&(v_chisla), 5LL);") {
+	if !strings.Contains(out, "rech_M_spisok_of_celoe_dobavit((v_chisla), 5LL);") {
 		t.Fatalf("ожидался вызов добавить, получено:\n%s", out)
 	}
-	if !strings.Contains(out, "for (long long rech_fe_i_v_x = 0; rech_fe_i_v_x < v_chisla.len; rech_fe_i_v_x++) {") {
+	if !strings.Contains(out, "for (long long rech_fe_i_v_x = 0; rech_fe_i_v_x < v_chisla->len; rech_fe_i_v_x++) {") {
 		t.Fatalf("ожидался цикл по данным Списка, получено:\n%s", out)
 	}
-	if !strings.Contains(out, "long long v_x = v_chisla.data[rech_fe_i_v_x];") {
+	if !strings.Contains(out, "long long v_x = v_chisla->data[rech_fe_i_v_x];") {
 		t.Fatalf("ожидалось присваивание элемента переменной цикла, получено:\n%s", out)
+	}
+}
+
+// TestGenerateFromIRGenericCollectionIsReferenceTypeNotValueType - главная
+// находка Шага 28 (docs/ROADMAP.md): Список/Словарь/Стопка/Очередь раньше
+// были представлены В C ПО ЗНАЧЕНИЮ (копия структуры-обёртки при передаче
+// параметром/присваивании, хотя внутренний буфер-указатель оставался общим
+// - после resize видна только та копия, где он произошёл) - расходилось с
+// interp (Go-карта/срез - тот же объект при копировании). Функция,
+// принимающая "Словарь<Строка, Строка>" параметром, должна получать
+// ПОЛНОЦЕННЫЙ УКАЗАТЕЛЬ (entityIsRef), не структуру по значению - иначе
+// мутация внутри функции невидима вызывающей стороне после resize.
+func TestGenerateFromIRGenericCollectionIsReferenceTypeNotValueType(t *testing.T) {
+	dictType := "Словарь<Строка, Строка>"
+	fn := &ir.Function{
+		Name:   "вставить_в",
+		Params: []ir.Param{{Name: "д", Type: ir.EntityType(dictType)}},
+		Body: []ir.Stmt{
+			&ir.ExprStmt{MethodCall: &ir.MethodCallExpr{
+				Receiver: &ir.Identifier{Name: "д", Type: ir.EntityType(dictType)},
+				Entity:   dictType, Method: "установить",
+				Args: []ir.Expr{&ir.StringLiteral{Value: "а"}, &ir.StringLiteral{Value: "1"}},
+			}},
+		},
+	}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "д", Value: &ir.NewExpr{Entity: dictType}},
+		&ir.ExprStmt{Call: &ir.CallExpr{Callee: "вставить_в", Args: []ir.Expr{&ir.Identifier{Name: "д", Type: ir.EntityType(dictType)}}}},
+	}}
+	prog := &ir.Program{
+		Functions: []*ir.Function{fn, main},
+		Generics: []ir.GenericInstantiation{
+			{Name: dictType, Template: "Словарь", KeyType: ir.TypeString, ElemType: ir.TypeString},
+		},
+	}
+	out, err := GenerateFromIR(prog)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	structName := mangleType(dictType)
+	// Параметр функции - указатель, не значение структуры.
+	if !strings.Contains(out, "rech_vstavit_v("+structName+" * v_d)") {
+		t.Fatalf("ожидался указательный параметр %s *, получено:\n%s", structName, out)
+	}
+	// Конструктор возвращает указатель, переменная в "главная" - тоже указатель.
+	if !strings.Contains(out, structName+" * v_d_INIT = "+mangleCtor(dictType)+"();") {
+		t.Fatalf("ожидался указательный конструктор, получено:\n%s", out)
+	}
+	// Аргумент вызова - сама переменная (указатель), без "&" - её уже
+	// незачем адресовать, она и так указатель.
+	if !strings.Contains(out, "rech_vstavit_v(v_d);") {
+		t.Fatalf("ожидался вызов без \"&\" (значение уже указатель), получено:\n%s", out)
 	}
 }
 
@@ -886,14 +938,47 @@ func TestGenerateFromIRShowStmtList(t *testing.T) {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 	for _, want := range []string{
-		"static void rech_show_spisok_of_celoe(rech_T_spisok_of_celoe v) {",
+		"static void rech_show_spisok_of_celoe(rech_T_spisok_of_celoe *v) {",
 		`printf("Список<Целое> [");`,
-		"for (long long i = 0; i < v.len; i++) {",
-		`printf("%lld (Целое)", v.data[i]);`,
+		"for (long long i = 0; i < v->len; i++) {",
+		`printf("%lld (Целое)", v->data[i]);`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("ожидалось %q в выводе, получено:\n%s", want, out)
 		}
+	}
+}
+
+// TestGenerateFromIRShowEntityWithGenericFieldOrdersGenericShowFuncFirst -
+// сущность с полем-generic-коллекцией ("участники: Список<Строка>") -
+// её функция показа зовёт rech_show_<коллекция> - раньше показ-функции
+// сущностей эмитировались ВСЕ перед показ-функциями generic-коллекций
+// безусловно (порядок в исходном тексте не совпадал с порядком реальной
+// зависимости), из-за чего C не компилировался ("implicit declaration"
+// -> "conflicting types", т. к. сама реализация уже static) - найдено при
+// проверке Шага 28 (Список/Словарь как ссылка) на сущности с полем-
+// коллекцией.
+func TestGenerateFromIRShowEntityWithGenericFieldOrdersGenericShowFuncFirst(t *testing.T) {
+	ent := &ir.Entity{Name: "Группа", Fields: []ir.Field{
+		{Name: "участники", Type: ir.EntityType("Список<Строка>")},
+	}}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "г", Value: &ir.NewExpr{Entity: "Группа"}},
+		&ir.ShowStmt{Value: &ir.Identifier{Name: "г", Type: ir.EntityType("Группа")}},
+	}}
+	prog := &ir.Program{
+		Entities:  []*ir.Entity{ent},
+		Functions: []*ir.Function{main},
+		Generics:  []ir.GenericInstantiation{{Name: "Список<Строка>", Template: "Список", ElemType: ir.TypeString}},
+	}
+	out, err := GenerateFromIR(prog)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	genericShowIdx := strings.Index(out, "static void rech_show_spisok_of_stroka(")
+	entityShowIdx := strings.Index(out, "static void rech_show_gruppa(")
+	if genericShowIdx == -1 || entityShowIdx == -1 || genericShowIdx > entityShowIdx {
+		t.Fatalf("функция показа generic-коллекции должна идти раньше функции показа сущности, несущей её полем, получено:\n%s", out)
 	}
 }
 

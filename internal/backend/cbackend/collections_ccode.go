@@ -350,3 +350,23 @@ static bool %[15]s(%[2]s *this_) {
 
 	return sb.String()
 }
+
+// genericCtorCCode строит C-текст конструктора "новый Список<T>()"/
+// "новый Словарь<К, В>()" и т. п. - GC_MALLOC зануляет память сам
+// (см. gcAllocStmts, тот же принцип, что и у обычных ссылочных сущностей) -
+// zero-значение (cap/count/used/slots-указатель на NULL) уже и есть
+// пустая коллекция, отдельно заполнять поля не нужно. Generic-инстанциации
+// стали ссылочными (ctx.entityIsRef) вместе с этим конструктором - раньше
+// "новый Список<T>()" был C-литералом структуры по значению
+// ("(Тип){0}"), теперь - настоящий указатель, тем же представлением, что
+// и у обычных сущностей, и тем же, что использует interp (Go-карта/срез
+// внутри значения - объект, не копия).
+func genericCtorCCode(name string) string {
+	structName := mangleType(name)
+	ctor := mangleCtor(name)
+	return fmt.Sprintf(`static %[1]s *%[2]s(void) {
+    return GC_MALLOC(sizeof(%[1]s));
+}
+
+`, structName, ctor)
+}

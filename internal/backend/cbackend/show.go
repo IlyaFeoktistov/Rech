@@ -97,11 +97,11 @@ func generateIRGenericShowFunc(ctx *irGenCtx, g ir.GenericInstantiation) string 
 		return generateIRDictShowFunc(ctx, g)
 	}
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "static void %s(%s v) {\n", showFuncName(g.Name), mangleType(g.Name))
+	fmt.Fprintf(&sb, "static void %s(%s *v) {\n", showFuncName(g.Name), mangleType(g.Name))
 	fmt.Fprintf(&sb, "    printf(\"%s [\");\n", escapeCString(g.Name))
-	sb.WriteString("    for (long long i = 0; i < v.len; i++) {\n")
+	sb.WriteString("    for (long long i = 0; i < v->len; i++) {\n")
 	sb.WriteString("        if (i > 0) printf(\", \");\n")
-	fmt.Fprintf(&sb, "        %s;\n", generateIRShowExpr(ctx, g.ElemType, "v.data[i]"))
+	fmt.Fprintf(&sb, "        %s;\n", generateIRShowExpr(ctx, g.ElemType, "v->data[i]"))
 	sb.WriteString("    }\n")
 	sb.WriteString("    printf(\"]\");\n")
 	sb.WriteString("}\n\n")
@@ -112,16 +112,16 @@ func generateIRGenericShowFunc(ctx *irGenCtx, g ir.GenericInstantiation) string 
 // см. package doc там.
 func generateIRDictShowFunc(ctx *irGenCtx, g ir.GenericInstantiation) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "static void %s(%s v) {\n", showFuncName(g.Name), mangleType(g.Name))
+	fmt.Fprintf(&sb, "static void %s(%s *v) {\n", showFuncName(g.Name), mangleType(g.Name))
 	fmt.Fprintf(&sb, "    printf(\"%s {\");\n", escapeCString(g.Name))
 	sb.WriteString("    bool rech_show_first = true;\n")
-	sb.WriteString("    for (long long i = 0; i < v.cap; i++) {\n")
-	sb.WriteString("        if (v.slots[i].state != 1) continue;\n")
+	sb.WriteString("    for (long long i = 0; i < v->cap; i++) {\n")
+	sb.WriteString("        if (v->slots[i].state != 1) continue;\n")
 	sb.WriteString("        if (!rech_show_first) printf(\", \");\n")
 	sb.WriteString("        rech_show_first = false;\n")
-	fmt.Fprintf(&sb, "        %s;\n", generateIRShowExpr(ctx, g.KeyType, "v.slots[i].key"))
+	fmt.Fprintf(&sb, "        %s;\n", generateIRShowExpr(ctx, g.KeyType, "v->slots[i].key"))
 	sb.WriteString("        printf(\": \");\n")
-	fmt.Fprintf(&sb, "        %s;\n", generateIRShowExpr(ctx, g.ElemType, "v.slots[i].value"))
+	fmt.Fprintf(&sb, "        %s;\n", generateIRShowExpr(ctx, g.ElemType, "v->slots[i].value"))
 	sb.WriteString("    }\n")
 	sb.WriteString("    printf(\"}\");\n")
 	sb.WriteString("}\n\n")

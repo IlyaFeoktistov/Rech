@@ -14,17 +14,18 @@ import "fmt"
 func listLiteralCCode(name, elemC string) string {
 	structName := mangleType(name)
 	fn := structName + "_from_literal"
-	return fmt.Sprintf(`static %[1]s %[2]s(long long n, %[3]s *values) {
+	ctor := mangleCtor(name)
+	return fmt.Sprintf(`static %[1]s *%[2]s(long long n, %[3]s *values) {
     %[3]s *data = n > 0 ? malloc(sizeof(%[3]s) * (size_t)n) : NULL;
     for (long long i = 0; i < n; i++) {
         data[i] = values[i];
     }
-    %[1]s r;
-    r.data = data;
-    r.len = n;
-    r.cap = n;
+    %[1]s *r = %[4]s();
+    r->data = data;
+    r->len = n;
+    r->cap = n;
     return r;
 }
 
-`, structName, fn, elemC)
+`, structName, fn, elemC, ctor)
 }

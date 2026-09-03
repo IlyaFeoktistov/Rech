@@ -148,17 +148,18 @@ func xmlPrimitiveExtractorCode(name string, t ir.Type) string {
 // тега не проверяется (см. package doc).
 func (g *xmlExtractorGen) xmlListExtractorCode(gi ir.GenericInstantiation) string {
 	listC := mangleType(gi.Name)
+	ctor := mangleCtor(gi.Name)
 	addFn := mangleMethod(gi.Name, "добавить")
 	elemExtractor := xmlExtractorNameFor(gi.ElemType)
-	return fmt.Sprintf(`static %[1]s %[2]s(rech_xn v) {
-    %[1]s out = {0};
+	return fmt.Sprintf(`static %[1]s *%[2]s(rech_xn v) {
+    %[1]s *out = %[5]s();
     for (long long i = 0; i < v.child_count; i++) {
-        %[3]s(&out, %[4]s(v.children[i]));
+        %[3]s(out, %[4]s(v.children[i]));
     }
     return out;
 }
 
-`, listC, mangleXMLExtractor(gi.Name), addFn, elemExtractor)
+`, listC, mangleXMLExtractor(gi.Name), addFn, elemExtractor, ctor)
 }
 
 func (g *xmlExtractorGen) xmlEntityExtractorCode(ent *ir.Entity) string {
@@ -177,8 +178,8 @@ func (g *xmlExtractorGen) xmlEntityExtractorCode(ent *ir.Entity) string {
 		if gi, ok := g.generics[f.Type.Entity]; f.Type.Kind == ir.KindEntity && ok && gi.Template == "Список" {
 			addFn := mangleMethod(gi.Name, "добавить")
 			elemExtractor := xmlExtractorNameFor(gi.ElemType)
-			fmt.Fprintf(&decls, "    %s f%d = {0};\n", fieldC, i)
-			fmt.Fprintf(&decls, "    for (long long j = 0; j < %s; j++) { %s(&f%d, %s(%s[j])); }\n",
+			fmt.Fprintf(&decls, "    %s f%d = %s();\n", fieldC, i, mangleCtor(gi.Name))
+			fmt.Fprintf(&decls, "    for (long long j = 0; j < %s; j++) { %s(f%d, %s(%s[j])); }\n",
 				countVar, addFn, i, elemExtractor, matchesVar)
 			args[i] = fmt.Sprintf("f%d", i)
 			continue

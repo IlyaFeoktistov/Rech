@@ -198,19 +198,20 @@ func jsonPrimitiveExtractorCode(name string, t ir.Type) string {
 
 func (g *jsonExtractorGen) jsonListExtractorCode(gi ir.GenericInstantiation) string {
 	listC := mangleType(gi.Name)
+	ctor := mangleCtor(gi.Name)
 	addFn := mangleMethod(gi.Name, "добавить")
 	elemExtractor := jsonExtractorNameFor(gi.ElemType)
 	mismatch := fmt.Sprintf("rech_struct_throw(\"%s\");", escapeCString(rtmsg.JSONValueMismatch))
-	return fmt.Sprintf(`static %[1]s %[2]s(rech_jv v) {
+	return fmt.Sprintf(`static %[1]s *%[2]s(rech_jv v) {
     if (v.kind != RECH_JV_ARR) { %[3]s }
-    %[1]s out = {0};
+    %[1]s *out = %[6]s();
     for (long long i = 0; i < v.count; i++) {
-        %[4]s(&out, %[5]s(v.items[i]));
+        %[4]s(out, %[5]s(v.items[i]));
     }
     return out;
 }
 
-`, listC, mangleJSONExtractor(gi.Name), mismatch, addFn, elemExtractor)
+`, listC, mangleJSONExtractor(gi.Name), mismatch, addFn, elemExtractor, ctor)
 }
 
 func (g *jsonExtractorGen) jsonEntityExtractorCode(ent *ir.Entity) string {

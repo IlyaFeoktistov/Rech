@@ -224,33 +224,33 @@ func reflectAnyListCType() string { return mangleType(reflectAnyListType) }
 // метода известно только в рантайме), вызывают через уже найденный
 // указатель (invoke/ctor).
 func reflectDispatchHelpersCode() string {
-	return fmt.Sprintf(`static rech_any_t rech_reflect_invoke(rech_any_t self, const char *name, %[1]s args) {
+	return fmt.Sprintf(`static rech_any_t rech_reflect_invoke(rech_any_t self, const char *name, %[1]s *args) {
     const rech_method_meta_t *m = rech_method_by_name(self.type, name);
     if (!m) {
         char msg[256];
         snprintf(msg, sizeof(msg), "%[2]s", name, self.type->name);
         rech_panic(msg);
     }
-    if (m->param_count != (int)args.len) {
+    if (m->param_count != (int)args->len) {
         char msg[256];
-        snprintf(msg, sizeof(msg), "%[3]s", name, m->param_count, (int)args.len);
+        snprintf(msg, sizeof(msg), "%[3]s", name, m->param_count, (int)args->len);
         rech_panic(msg);
     }
-    return m->invoke(self.v.ptr, args.data, (int)args.len);
+    return m->invoke(self.v.ptr, args->data, (int)args->len);
 }
 
-static rech_any_t rech_reflect_create(const rech_type_meta_t *t, %[1]s args) {
+static rech_any_t rech_reflect_create(const rech_type_meta_t *t, %[1]s *args) {
     if (!t->ctor) {
         char msg[256];
         snprintf(msg, sizeof(msg), "%[2]s", "создать", t->name);
         rech_panic(msg);
     }
-    if (t->ctor_param_count != (int)args.len) {
+    if (t->ctor_param_count != (int)args->len) {
         char msg[256];
-        snprintf(msg, sizeof(msg), "%[3]s", "создать", t->ctor_param_count, (int)args.len);
+        snprintf(msg, sizeof(msg), "%[3]s", "создать", t->ctor_param_count, (int)args->len);
         rech_panic(msg);
     }
-    return t->ctor(args.data, (int)args.len);
+    return t->ctor(args->data, (int)args->len);
 }
 `, reflectAnyListCType(), escapeCString(rtmsg.ReflectMethodNotFoundTemplate), escapeCString(rtmsg.ReflectArgCountMismatchTemplate))
 }

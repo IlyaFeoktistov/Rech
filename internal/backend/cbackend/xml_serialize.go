@@ -70,8 +70,8 @@ func xmlToStringWrapperCode(ctx *irGenCtx, generics map[string]ir.GenericInstant
     rech_xml_sb_putc(&sb, '<');
     rech_xml_sb_puts(&sb, "%[3]s");
     rech_xml_sb_putc(&sb, '>');
-    for (long long i = 0; i < v.len; i++) {
-        %[4]s(v.data[i], "%[5]s", &sb);
+    for (long long i = 0; i < v->len; i++) {
+        %[4]s(v->data[i], "%[5]s", &sb);
     }
     rech_xml_sb_puts(&sb, "</");
     rech_xml_sb_puts(&sb, "%[3]s");
@@ -204,12 +204,12 @@ func xmlPrimitiveSerializerCode(name string, t ir.Type) string {
 func (g *xmlSerializerGen) xmlListSerializerCode(gi ir.GenericInstantiation) string {
 	listC := mangleType(gi.Name)
 	elemSerializer := xmlSerializerNameFor(gi.ElemType)
-	return fmt.Sprintf(`static void %[1]s(%[2]s v, const char *tag, rech_xml_sb *sb) {
+	return fmt.Sprintf(`static void %[1]s(%[2]s *v, const char *tag, rech_xml_sb *sb) {
     rech_xml_sb_putc(sb, '<');
     rech_xml_sb_puts(sb, tag);
     rech_xml_sb_putc(sb, '>');
-    for (long long i = 0; i < v.len; i++) {
-        %[3]s(v.data[i], "%[4]s", sb);
+    for (long long i = 0; i < v->len; i++) {
+        %[3]s(v->data[i], "%[4]s", sb);
     }
     rech_xml_sb_puts(sb, "</");
     rech_xml_sb_puts(sb, tag);
@@ -231,8 +231,8 @@ func (g *xmlSerializerGen) xmlEntitySerializerCode(ent *ir.Entity) string {
 		fieldTag := escapeCString(f.Name)
 		if gi, ok := g.generics[f.Type.Entity]; f.Type.Kind == ir.KindEntity && ok && gi.Template == "Список" {
 			elemSerializer := xmlSerializerNameFor(gi.ElemType)
-			fmt.Fprintf(&body, "    for (long long i = 0; i < %s%s.len; i++) {\n", access, mangleField(f.Name))
-			fmt.Fprintf(&body, "        %s(%s%s.data[i], \"%s\", sb);\n", elemSerializer, access, mangleField(f.Name), fieldTag)
+			fmt.Fprintf(&body, "    for (long long i = 0; i < %s%s->len; i++) {\n", access, mangleField(f.Name))
+			fmt.Fprintf(&body, "        %s(%s%s->data[i], \"%s\", sb);\n", elemSerializer, access, mangleField(f.Name), fieldTag)
 			body.WriteString("    }\n")
 			continue
 		}

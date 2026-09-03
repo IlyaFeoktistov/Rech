@@ -35,6 +35,33 @@ func TestRunDictSetGetContainsRemove(t *testing.T) {
 	}
 }
 
+// TestRunDictPassedToFunctionMutatesCallersCopy - спецификационный тест
+// (не регрессионный для interp - здесь ссылочная семантика уже была верна,
+// баг был в cbackend, docs/ROADMAP.md Шаг 28) - фиксирует КОНТРАКТ: Словарь,
+// переданный обычным параметром функции, - ссылка на тот же объект, мутация
+// внутри функции видна вызывающей стороне после возврата (как Список,
+// Стопка, Очередь - все встроенные generic-коллекции).
+func TestRunDictPassedToFunctionMutatesCallersCopy(t *testing.T) {
+	got := runSrc(t, `
+функция вставить_в(д: Словарь<Строка, Строка>)
+{
+    д.установить("а", "1")
+}
+
+функция главная
+{
+    переменная д = новый Словарь<Строка, Строка>()
+    вставить_в(д)
+    вывести д.содержит("а")
+    вывести д.длина()
+}
+`)
+	want := "истина\n1\n"
+	if got != want {
+		t.Fatalf("получили %q, хотели %q", got, want)
+	}
+}
+
 func TestRunDictGetMissingKeyPanics(t *testing.T) {
 	toks, err := lexer.New(`
 функция главная

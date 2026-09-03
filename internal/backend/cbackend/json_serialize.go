@@ -176,13 +176,13 @@ func jsonPrimitiveSerializerCode(name string, t ir.Type) string {
 func (g *jsonSerializerGen) jsonListSerializerCode(gi ir.GenericInstantiation) string {
 	listC := mangleType(gi.Name)
 	elemSerializer := jsonSerializerNameFor(gi.ElemType)
-	return fmt.Sprintf(`static void %[1]s(%[2]s v, rech_json_sb *sb) {
+	return fmt.Sprintf(`static void %[1]s(%[2]s *v, rech_json_sb *sb) {
     rech_json_sb_putc(sb, '[');
-    for (long long i = 0; i < v.len; i++) {
+    for (long long i = 0; i < v->len; i++) {
         if (i > 0) {
             rech_json_sb_putc(sb, ',');
         }
-        %[3]s(v.data[i], sb);
+        %[3]s(v->data[i], sb);
     }
     rech_json_sb_putc(sb, ']');
 }

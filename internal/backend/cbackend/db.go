@@ -314,7 +314,7 @@ static void rech_db_close(rech_db_t *db) {
 // порядку следования - см. package doc про экранирование. paramsListC -
 // C-тип "Список<Значение>" (уже эмитирован genericsCode).
 func dbSubstituteCode(paramsListC string) string {
-	return fmt.Sprintf(`static char *rech_db_substitute(const char *sql, %[1]s params) {
+	return fmt.Sprintf(`static char *rech_db_substitute(const char *sql, %[1]s *params) {
     rech_db_sb sb;
     rech_db_sb_init(&sb);
     long long pi = 0;
@@ -323,10 +323,10 @@ func dbSubstituteCode(paramsListC string) string {
             rech_db_sb_putc(&sb, *p);
             continue;
         }
-        if (pi >= params.len) {
+        if (pi >= params->len) {
             rech_panic("%[2]s");
         }
-        rech_any_t v = params.data[pi++];
+        rech_any_t v = params->data[pi++];
         if (v.type == &%[3]s) {
             char buf[32];
             snprintf(buf, sizeof buf, "%%lld", v.v.i);
@@ -372,9 +372,9 @@ func dbSubstituteCode(paramsListC string) string {
 // нужны настоящие типы колонок). Числовые константы - публичный,
 // стабильный C ABI SQLite (sqlite3.h): SQLITE_ROW=100, SQLITE_DONE=101,
 // SQLITE_INTEGER=1, SQLITE_FLOAT=2, SQLITE_NULL=5.
-func sqliteQueryExecCode(resultListC, dictC, dictSet, listAdd string) string {
-	return fmt.Sprintf(`static %[1]s rech_db_sqlite_query(rech_db_t *db, const char *sql) {
-    %[1]s out = {0};
+func sqliteQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCtor string) string {
+	return fmt.Sprintf(`static %[1]s *rech_db_sqlite_query(rech_db_t *db, const char *sql) {
+    %[1]s *out = %[11]s();
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db->sqlite, sql, -1, &stmt, NULL) != 0) {
         rech_db_panicf("%[5]s", sql);
@@ -382,7 +382,7 @@ func sqliteQueryExecCode(resultListC, dictC, dictSet, listAdd string) string {
     int ncols = sqlite3_column_count(stmt);
     int rc;
     while ((rc = sqlite3_step(stmt)) == 100) {
-        %[2]s row = {0};
+        %[2]s *row = %[12]s();
         for (int i = 0; i < ncols; i++) {
             const char *colname = rech_db_dup_str(sqlite3_column_name(stmt, i));
             rech_any_t v;
@@ -396,9 +396,9 @@ func sqliteQueryExecCode(resultListC, dictC, dictSet, listAdd string) string {
             } else {
                 v = (rech_any_t){.type = &%[9]s, .v.s = rech_db_dup_str((const char *)sqlite3_column_text(stmt, i))};
             }
-            %[3]s(&row, colname, v);
+            %[3]s(row, colname, v);
         }
-        %[4]s(&out, row);
+        %[4]s(out, row);
     }
     if (rc != 101) {
         sqlite3_finalize(stmt);
@@ -418,7 +418,7 @@ static long long rech_db_sqlite_exec(rech_db_t *db, const char *sql) {
 
 `, resultListC, dictC, dictSet, listAdd, escapeCString(rtmsg.DBQueryFailedTemplate),
 		reflectMetaVarFor(ir.TypeInt), reflectMetaVarFor(ir.TypeFloat), reflectMetaVarFor(ir.TypeNullValue), reflectMetaVarFor(ir.TypeString),
-		escapeCString(rtmsg.DBExecFailedTemplate))
+		escapeCString(rtmsg.DBExecFailedTemplate), resultCtor, dictCtor)
 }
 
 // pgQueryExecCode - PostgreSQL всегда отдаёт значения текстом в простом
@@ -427,9 +427,9 @@ static long long rech_db_sqlite_exec(rech_db_t *db, const char *sql) {
 // PostgreSQL: int2/int4/int8=21/23/20, float4/float8/numeric=700/701/1700,
 // bool=16). PGRES_COMMAND_OK=1/PGRES_TUPLES_OK=2 - тоже часть публичного,
 // стабильного ABI (enum ExecStatusType, libpq-fe.h).
-func pgQueryExecCode(resultListC, dictC, dictSet, listAdd string) string {
-	return fmt.Sprintf(`static %[1]s rech_db_pg_query(rech_db_t *db, const char *sql) {
-    %[1]s out = {0};
+func pgQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCtor string) string {
+	return fmt.Sprintf(`static %[1]s *rech_db_pg_query(rech_db_t *db, const char *sql) {
+    %[1]s *out = %[12]s();
     PGresult *res = PQexec(db->pg, sql);
     int status = PQresultStatus(res);
     if (status != 1 && status != 2) {
@@ -439,7 +439,7 @@ func pgQueryExecCode(resultListC, dictC, dictSet, listAdd string) string {
     int nrows = PQntuples(res);
     int ncols = PQnfields(res);
     for (int r = 0; r < nrows; r++) {
-        %[2]s row = {0};
+        %[2]s *row = %[13]s();
         for (int c = 0; c < ncols; c++) {
             const char *colname = rech_db_dup_str(PQfname(res, c));
             rech_any_t v;
@@ -458,9 +458,9 @@ func pgQueryExecCode(resultListC, dictC, dictSet, listAdd string) string {
                     v = (rech_any_t){.type = &%[9]s, .v.s = rech_db_dup_str(text)};
                 }
             }
-            %[3]s(&row, colname, v);
+            %[3]s(row, colname, v);
         }
-        %[4]s(&out, row);
+        %[4]s(out, row);
     }
     PQclear(res);
     return out;
@@ -480,7 +480,8 @@ static long long rech_db_pg_exec(rech_db_t *db, const char *sql) {
 
 `, resultListC, dictC, dictSet, listAdd, escapeCString(rtmsg.DBQueryFailedTemplate),
 		reflectMetaVarFor(ir.TypeInt), reflectMetaVarFor(ir.TypeFloat), reflectMetaVarFor(ir.TypeNullValue),
-		reflectMetaVarFor(ir.TypeString), reflectMetaVarFor(ir.TypeBool), escapeCString(rtmsg.DBExecFailedTemplate))
+		reflectMetaVarFor(ir.TypeString), reflectMetaVarFor(ir.TypeBool), escapeCString(rtmsg.DBExecFailedTemplate),
+		resultCtor, dictCtor)
 }
 
 // mysqlQueryExecCode - libmysqlclient без подготовленных выражений
@@ -491,9 +492,9 @@ static long long rech_db_pg_exec(rech_db_t *db, const char *sql) {
 // enum_field_types, field_types.h: TINY=1/SHORT=2/LONG=3/LONGLONG=8/
 // INT24=9/YEAR=13 - целые; DECIMAL=0/FLOAT=4/DOUBLE=5/NEWDECIMAL=246 -
 // дробные; всё остальное - текст).
-func mysqlQueryExecCode(resultListC, dictC, dictSet, listAdd string) string {
-	return fmt.Sprintf(`static %[1]s rech_db_mysql_query(rech_db_t *db, const char *sql) {
-    %[1]s out = {0};
+func mysqlQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCtor string) string {
+	return fmt.Sprintf(`static %[1]s *rech_db_mysql_query(rech_db_t *db, const char *sql) {
+    %[1]s *out = %[11]s();
     if (mysql_real_query(db->mysql, sql, (unsigned long)strlen(sql)) != 0) {
         rech_db_panicf("%[5]s", sql);
     }
@@ -511,7 +512,7 @@ func mysqlQueryExecCode(resultListC, dictC, dictSet, listAdd string) string {
     }
     rech_mysql_row_t row_data;
     while ((row_data = mysql_fetch_row(res)) != NULL) {
-        %[2]s row = {0};
+        %[2]s *row = %[12]s();
         for (unsigned int i = 0; i < ncols; i++) {
             rech_any_t v;
             if (row_data[i] == NULL) {
@@ -526,9 +527,9 @@ func mysqlQueryExecCode(resultListC, dictC, dictSet, listAdd string) string {
                     v = (rech_any_t){.type = &%[9]s, .v.s = rech_db_dup_str(row_data[i])};
                 }
             }
-            %[3]s(&row, colnames[i], v);
+            %[3]s(row, colnames[i], v);
         }
-        %[4]s(&out, row);
+        %[4]s(out, row);
     }
     mysql_free_result(res);
     return out;
@@ -543,13 +544,13 @@ static long long rech_db_mysql_exec(rech_db_t *db, const char *sql) {
 
 `, resultListC, dictC, dictSet, listAdd, escapeCString(rtmsg.DBQueryFailedTemplate),
 		reflectMetaVarFor(ir.TypeInt), reflectMetaVarFor(ir.TypeFloat), reflectMetaVarFor(ir.TypeNullValue), reflectMetaVarFor(ir.TypeString),
-		escapeCString(rtmsg.DBExecFailedTemplate))
+		escapeCString(rtmsg.DBExecFailedTemplate), resultCtor, dictCtor)
 }
 
 // dbDispatchCode - "запросить"/"выполнить": подставляет параметры один раз
 // (rech_db_substitute), дальше выбор конкретной СУБД по db->kind.
 func dbDispatchCode(resultListC, paramsListC string) string {
-	return fmt.Sprintf(`static %[1]s rech_db_query(rech_db_t *db, const char *sql, %[2]s params) {
+	return fmt.Sprintf(`static %[1]s *rech_db_query(rech_db_t *db, const char *sql, %[2]s *params) {
     char *final_sql = rech_db_substitute(sql, params);
     switch (db->kind) {
     case RECH_DB_SQLITE:
@@ -561,7 +562,7 @@ func dbDispatchCode(resultListC, paramsListC string) string {
     }
 }
 
-static long long rech_db_exec(rech_db_t *db, const char *sql, %[2]s params) {
+static long long rech_db_exec(rech_db_t *db, const char *sql, %[2]s *params) {
     char *final_sql = rech_db_substitute(sql, params);
     switch (db->kind) {
     case RECH_DB_SQLITE:
@@ -584,7 +585,9 @@ static long long rech_db_exec(rech_db_t *db, const char *sql, %[2]s params) {
 func dbRuntimeCode() string {
 	paramsListC := reflectAnyListCType()
 	resultListC := mangleType(dbResultType)
+	resultCtor := mangleCtor(dbResultType)
 	dictC := mangleType(dbRowType)
+	dictCtor := mangleCtor(dbRowType)
 	dictSet := mangleMethod(dbRowType, "установить")
 	listAdd := mangleMethod(dbResultType, "добавить")
 
@@ -596,9 +599,9 @@ func dbRuntimeCode() string {
 	sb.WriteString(dbHelperFuncs)
 	sb.WriteString(dbConnectCode)
 	sb.WriteString(dbSubstituteCode(paramsListC))
-	sb.WriteString(sqliteQueryExecCode(resultListC, dictC, dictSet, listAdd))
-	sb.WriteString(pgQueryExecCode(resultListC, dictC, dictSet, listAdd))
-	sb.WriteString(mysqlQueryExecCode(resultListC, dictC, dictSet, listAdd))
+	sb.WriteString(sqliteQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCtor))
+	sb.WriteString(pgQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCtor))
+	sb.WriteString(mysqlQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCtor))
 	sb.WriteString(dbDispatchCode(resultListC, paramsListC))
 	return sb.String()
 }
