@@ -343,3 +343,93 @@ func TestLinkImportsExternEntityPreservingCNameButRenamingAlias(t *testing.T) {
 		t.Fatalf("тип параметра внешней функции в главном файле должен резолвиться на мангл-имя внешней сущности %q, получено: %q", extEnt.Alias, merged.ExternFuncs[0].Params[0].Type)
 	}
 }
+
+// TestLinkResolvesEntityInsideGenericTypeArgument - регрессионный тест:
+// resolveTypeRef раньше пропускал ЛЮБОЕ имя типа с "<" целиком нерезолвленным
+// (аргумент внутри "Список<T>" мог быть только примитивом, пока
+// internal/semantic не научился принимать сущность элементом коллекции,
+// см. docs/ROADMAP.md, "Шаг 39") - у сущности-элемента ИЗ НЕ-entry модуля
+// (mangledName переименовывает её) ссылка "Список<Товар>" оставалась бы
+// "Список<Товар>" (старое, ДО переименования имя), а не "Список<Утилиты_Товар>" -
+// cbackend/semantic не нашли бы такой тип в слинкованной программе.
+func TestLinkResolvesEntityInsideGenericTypeArgument(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "утилиты.rech", `приватная сущность Товар
+{
+    имеет:
+        имя: Строка
+}
+
+функция получить_список(): Список<Товар>
+{
+    вернуть новый Список<Товар>()
+}
+`)
+	entry := writeFile(t, dir, "главный.rech", "использовать получить_список из \"утилиты\"\n\nфункция главная\n{\n    переменная сп = получить_список()\n}\n")
+
+	prog, err := Load(entry, testFrontend{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	merged, err := prog.Link()
+	if err != nil {
+		t.Fatalf("Link: %v", err)
+	}
+	var fn *ast.FunctionDecl
+	for _, f := range merged.Functions {
+		if f.Name == "Утилиты_получить_список" {
+			fn = f
+		}
+	}
+	if fn == nil {
+		t.Fatalf("не нашлось \"Утилиты_получить_список\" среди слинкованных функций")
+	}
+	if fn.ReturnType != "Список<Утилиты_Товар>" {
+		t.Fatalf("ожидался тип результата \"Список<Утилиты_Товар>\" (сущность-элемент переименована), получено %q", fn.ReturnType)
+	}
+	newExpr, ok := fn.Body[0].(*ast.ReturnStmt).Value.(*ast.NewExpr)
+	if !ok || newExpr.Type != "Список<Утилиты_Товар>" {
+		t.Fatalf("ожидался \"новый Список<Утилиты_Товар>()\" в теле, получено %#v", fn.Body[0])
+	}
+}
+
+// TestLinkResolvesEntityInsideDictValueArgument - то же самое, что
+// TestLinkResolvesEntityInsideGenericTypeArgument выше, но для "Словарь<К,
+// В>" (два аргумента типа, splitTopLevelTypeArgs должна верно разделить их
+// по запятой верхнего уровня, не спутав с запятой внутри вложенного "<...>").
+func TestLinkResolvesEntityInsideDictValueArgument(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "утилиты.rech", `приватная сущность Товар
+{
+    имеет:
+        имя: Строка
+}
+
+функция получить_словарь(): Словарь<Строка, Товар>
+{
+    вернуть новый Словарь<Строка, Товар>()
+}
+`)
+	entry := writeFile(t, dir, "главный.rech", "использовать получить_словарь из \"утилиты\"\n\nфункция главная\n{\n    переменная сл = получить_словарь()\n}\n")
+
+	prog, err := Load(entry, testFrontend{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	merged, err := prog.Link()
+	if err != nil {
+		t.Fatalf("Link: %v", err)
+	}
+	var fn *ast.FunctionDecl
+	for _, f := range merged.Functions {
+		if f.Name == "Утилиты_получить_словарь" {
+			fn = f
+		}
+	}
+	if fn == nil {
+		t.Fatalf("не нашлось \"Утилиты_получить_словарь\" среди слинкованных функций")
+	}
+	if fn.ReturnType != "Словарь<Строка, Утилиты_Товар>" {
+		t.Fatalf("ожидался тип результата \"Словарь<Строка, Утилиты_Товар>\", получено %q", fn.ReturnType)
+	}
+}
