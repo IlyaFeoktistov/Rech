@@ -1006,6 +1006,40 @@ func TestGenerateFromIREntityWithGenericFieldOrdering(t *testing.T) {
 // получить C-typedef самой сигнатуры (rech_C_...) РАНЬШЕ typedef коллекции -
 // иначе C-структура коллекции ссылается на ещё не объявленный тип
 // (см. package doc ir_generator.go, genericsCodeAfterCallables).
+// TestGenerateFromIRFunctionWithDBParamOrdersDBStructFirst - функция,
+// принимающая параметр типа "БД" (ir.TypeDB, "rech_db_t *" в C), должна
+// получить свой ПРОТОТИП только после typedef самой "rech_db_t" -
+// dbRuntimeCode() (единственное место, где этот typedef определяется)
+// раньше эмитировалась ПОСЛЕ блока прототипов функций, из-за чего прототип
+// любой функции с параметром/возвратом типа "БД" не компилировался
+// ("unknown type name 'rech_db_t'") - тот же класс typedef-ordering бага,
+// что и у Callable-в-generic-коллекции выше, найдено при написании
+// examples/проекты/http_сервер (middleware/обработчики, принимающие "БД"
+// аргументом).
+func TestGenerateFromIRFunctionWithDBParamOrdersDBStructFirst(t *testing.T) {
+	prog := &ir.Program{
+		UsesDB: true,
+		Functions: []*ir.Function{
+			{Name: "закрыть", Params: []ir.Param{{Name: "бд", Type: ir.TypeDB}}},
+			{Name: "главная", Body: []ir.Stmt{
+				&ir.VarDecl{Name: "бд", Value: &ir.CallExpr{Callee: "подключиться_к_бд", Args: []ir.Expr{&ir.StringLiteral{Value: "sqlite::memory:"}}, Type: ir.TypeDB, HasReturn: true}},
+			}},
+		},
+	}
+	out, err := GenerateFromIR(prog)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	structDefPos := strings.Index(out, "} rech_db_t;")
+	protoPos := strings.Index(out, "rech_zakryt(rech_db_t")
+	if structDefPos < 0 || protoPos < 0 {
+		t.Fatalf("не найдены и typedef, и прототип функции с параметром \"БД\" в выводе:\n%s", out)
+	}
+	if structDefPos > protoPos {
+		t.Fatalf("typedef \"rech_db_t\" должен идти раньше прототипа функции, использующей его, получено:\n%s", out)
+	}
+}
+
 func TestGenerateFromIRCollectionHoldingCallableOrdersCallableTypedefFirst(t *testing.T) {
 	result := ir.TypeInt
 	sig := ir.CallableSig{Name: ir.CallableType([]ir.Type{ir.TypeInt}, &result).Entity, Params: []ir.Type{ir.TypeInt}, Result: &result}

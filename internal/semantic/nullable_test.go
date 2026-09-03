@@ -73,6 +73,32 @@ func TestAnalyzeNullableNarrowingInElseBranch(t *testing.T) {
 	}
 }
 
+// TestAnalyzeNullableNarrowingAppliesToCallValueExpr - вызов ЗНАЧЕНИЯ типа
+// "Вызываемый" (не обычной функции по имени) должен разворачивать доказанно
+// непустой nullable-аргумент так же, как обычный вызов (checkCallArgs) -
+// раньше analyzeCallValueExpr использовал analyzeExpr напрямую вместо
+// coerceExpr и терял narrowing (isAssignable отклонял ?Строка на месте
+// Строка), хотя тот же аргумент у обычного вызова функции по имени уже
+// разворачивался - найдено при написании examples/проекты/http_сервер
+// (middleware, вызывающее параметр "следующий" с уже проверенным на Ничто
+// именем пользователя).
+func TestAnalyzeNullableNarrowingAppliesToCallValueExpr(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция главная {
+    переменная ф: Вызываемый(Строка): Целое = &длина
+    переменная а: ?Строка = Ничто
+    а = "привет"
+    если а != Ничто {
+        вывести ф(а)
+    }
+}
+функция длина(текст: Строка): Целое { вернуть 0 }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
 func TestAnalyzeNullCheckOnNonNullableRejected(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 функция главная {

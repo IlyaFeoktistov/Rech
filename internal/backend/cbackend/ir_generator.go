@@ -376,12 +376,38 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		ctx.usesExceptions = true
 	}
 
-	var typedefs strings.Builder
+	// callableCollections - имена generic-инстанциаций (Список<T>/Словарь<К,
+	// В>), чей элемент/ключ - "Вызываемый" по значению - те же, что попадают
+	// в genericsCodeAfterCallables ниже. Нужны уже здесь, чтобы решить, в
+	// какую из двух групп typedefs/typedefsAfterCallables попадёт сущность,
+	// несущая такую коллекцию полем по значению (см. их package doc).
+	callableCollections := map[string]bool{}
+	for _, g := range prog.Generics {
+		if g.ElemType.Kind == ir.KindCallable || g.KeyType.Kind == ir.KindCallable {
+			callableCollections[g.Name] = true
+		}
+	}
+
+	// typedefs/typedefsAfterCallables - C-структуры сущностей программы.
+	// Разделены по тому же принципу, что и genericsCode/
+	// genericsCodeAfterCallables ниже: сущность, несущая ПОЛЕМ ПО ЗНАЧЕНИЮ
+	// коллекцию с "Вызываемый"-элементом (callableCollections выше) или сам
+	// "Вызываемый" напрямую, нуждается в уже объявленных callableTypedefs/
+	// genericsCodeAfterCallables - обычная сущность (подавляющее
+	// большинство) по-прежнему объявляется РАНЬШЕ них, как и раньше.
+	var typedefs, typedefsAfterCallables strings.Builder
 	if ctx.usesVtable {
 		typedefs.WriteString(vtableTypedefs(len(slots)))
 	}
 	for _, ent := range prog.Entities {
-		typedefs.WriteString(generateIREntityStruct(ctx, ent))
+		dest := &typedefs
+		for _, f := range ent.Fields {
+			if f.Type.Kind == ir.KindCallable || callableCollections[f.Type.Entity] {
+				dest = &typedefsAfterCallables
+				break
+			}
+		}
+		dest.WriteString(generateIREntityStruct(ctx, ent))
 	}
 
 	// vtables - статические таблицы диспетчеризации участвующих сущностей
@@ -780,6 +806,8 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	appendCodeIf(&sb, callableTypedefs.Len() > 0, callableTypedefs.String())
 	// После callableTypedefs - см. её package doc выше (genericsCode).
 	appendCodeIf(&sb, genericsCodeAfterCallables.Len() > 0, genericsCodeAfterCallables.String())
+	// После genericsCodeAfterCallables - см. её package doc выше (typedefs).
+	appendCodeIf(&sb, typedefsAfterCallables.Len() > 0, typedefsAfterCallables.String())
 	appendCodeIf(&sb, ctx.usesShow && showFuncs.Len() > 0, showFuncs.String())
 	// rech_dup - общий для HTTP-клиента и HTTP-сервера, эмитится один
 	// раз перед обоими (см. rechDupHelper).
@@ -801,6 +829,21 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// После typedefs (rech_T_opcii_kuki/rech_T_n_stroka уже объявлены) и
 	// после strConcatHelper выше (rech_cookie_string зовёт rech_str_concat).
 	appendCodeIf(&sb, ctx.usesCookies, cookieHelpers())
+	// До protos ниже - прототипы функций, принимающих/возвращающих БД
+	// (rech_db_t*), ссылаются на typedef "struct rech_db" отсюда
+	// (dbRuntimeCode); раньше эмитировалась ПОСЛЕ protos (см. её место
+	// вызова ниже, было единственным, дальше по файлу) - тот же класс
+	// typedef-ordering бага, что и у Callable-в-generic-коллекции
+	// (genericsCodeAfterCallables/typedefsAfterCallables выше), просто на
+	// БД вместо Вызываемый: forward-декларация функции с параметром/
+	// возвратом типа "БД" не компилировалась ("unknown type name
+	// 'rech_db_t'"), пока dbRuntimeCode шла после protos. Зависит только
+	// от genericsCode (typedef Список<Значение> и т. п.) и
+	// primitiveReflectDescriptors выше - оба уже эмитированы к этому
+	// месту, ни от чего из блока между старым и новым местом (cookieHelpers/
+	// queryParamsHelper/datetimeHelpers/httpHelpers и т. п.) не зависит -
+	// см. package doc dbRuntimeCode (internal/backend/cbackend/db.go).
+	appendCodeIf(&sb, prog.UsesDB, dbRuntimeCode())
 	appendCodeIf(&sb, protos.Len() > 0, protos.String())
 
 	// vtables (ссылается на &rech_M_... - нужны protos выше) и ctors
@@ -861,14 +904,6 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		}
 		sb.WriteString(reflectCode)
 	}
-
-	// После genericsCode (Список<Значение>/Список<Словарь<Строка,
-	// Значение>>/Словарь<Строка, Значение> уже эмитированы там - см.
-	// internal/semantic/db.go, dbResultType) и после primitiveReflectDescriptors
-	// (rech_db_substitute сравнивает .type с &rech_type_meta_Целое и т.
-	// п. - эмитируются безусловно вместе с rech_any_t, prog.UsesDB
-	// всегда влечёт prog.UsesReflection).
-	appendCodeIf(&sb, prog.UsesDB, dbRuntimeCode())
 
 	// taskCode - обёртки "запустить"/"дождаться" (internal/backend/cbackend/
 	// concurrency.go) - ссылаются на &rech_<имя> обёрнутых функций (нужны

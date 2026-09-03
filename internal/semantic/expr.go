@@ -531,7 +531,12 @@ func analyzeCallExpr(sc *ctx, e *ast.CallExpr) (ir.Expr, error) {
 // если естественный вызов расширится на .поле и т. п.). Сигнатура value
 // (Params/Result) берётся из Program.Callables по каноническому имени
 // (value.Type.Entity) - a.resolveCallableSig, та же функция, что и
-// registerCallable, дважды не резолвит по-разному.
+// registerCallable, дважды не резолвит по-разному. Аргументы проходят
+// coerceExpr/invalidateEstablishedForOpaqueArg - те же, что и checkCallArgs
+// (обычный вызов по имени) - иначе доказанно непустой nullable-аргумент
+// (см. maybeUnwrapNarrowed) не разворачивался бы при вызове ЗНАЧЕНИЯ типа
+// "Вызываемый" (например, параметра "следующий" у middleware), хотя тот же
+// аргумент у вызова обычной функции уже разворачивается.
 func analyzeCallValueExpr(sc *ctx, value ir.Expr, e *ast.CallExpr) (*ir.CallValueExpr, error) {
 	typ := ir.TypeOf(value)
 	sig, err := sc.a.resolveCallableSig(typ.Entity)
@@ -543,13 +548,14 @@ func analyzeCallValueExpr(sc *ctx, value ir.Expr, e *ast.CallExpr) (*ir.CallValu
 	}
 	args := make([]ir.Expr, len(e.Args))
 	for i, a := range e.Args {
-		arg, err := analyzeExpr(sc, a)
+		arg, err := coerceExpr(sc, a, sig.Params[i])
 		if err != nil {
 			return nil, err
 		}
 		if t := ir.TypeOf(arg); !isAssignable(sc.entities, sc.interfaces, t, sig.Params[i]) {
 			return nil, fmt.Errorf("строка %d: аргумент %d вызова %s должен быть типа %s, получен %s", e.Line, i+1, typ, sig.Params[i], t)
 		}
+		invalidateEstablishedForOpaqueArg(sc, arg)
 		args[i] = arg
 	}
 	resultType := ir.TypeUnknown
