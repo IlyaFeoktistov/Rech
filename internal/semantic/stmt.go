@@ -7,12 +7,28 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
+// endsWithReturnValue - true, если body гарантированно заканчивается
+// "вернуть <значение>": либо это сама последняя инструкция, либо
+// последняя инструкция - "попытаться {...} поймать (...) {...}", У КОТОРОГО
+// заканчивается возвратом значения И тело попытки, И тело обработчика (obe
+// ветки покрывают все пути исполнения - других способов try/catch
+// завершиться, кроме исключения ВНУТРИ catch, здесь нет). Не анализ всех
+// путей исполнения программы в общем виде (если/иначе не разворачивается) -
+// узкое расширение именно под try/catch, единственную конструкцию, для
+// которой раньше приходилось городить накопление в переменную ради этой
+// проверки.
 func endsWithReturnValue(body []ir.Stmt) bool {
 	if len(body) == 0 {
 		return false
 	}
-	last, ok := body[len(body)-1].(*ir.ReturnStmt)
-	return ok && last.Value != nil
+	switch last := body[len(body)-1].(type) {
+	case *ir.ReturnStmt:
+		return last.Value != nil
+	case *ir.TryStmt:
+		return endsWithReturnValue(last.Body) && endsWithReturnValue(last.CatchBody)
+	default:
+		return false
+	}
 }
 
 // analyzeBlock анализирует список инструкций внутри уже открытой области

@@ -764,6 +764,58 @@ func TestAnalyzeMissingFinalReturnFails(t *testing.T) {
 	}
 }
 
+// TestAnalyzeTryCatchBothReturningCountsAsFinalReturn - функция, тело
+// которой заканчивается "попытаться {...вернуть...} поймать (...)
+// {...вернуть...}" с возвратом значения В ОБЕИХ ветках, должна проходить
+// проверку "должна заканчиваться вернуть <значение>" - раньше
+// endsWithReturnValue смотрел только на буквально последнюю инструкцию
+// (сам ReturnStmt), try/catch последней инструкцией не считался вовсе,
+// даже когда обе ветки реально возвращают значение - обходили через
+// накопление в переменную (examples/проекты/http_сервер).
+func TestAnalyzeTryCatchBothReturningCountsAsFinalReturn(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция х(): Целое
+{
+    попытаться
+    {
+        вернуть 1
+    }
+    поймать (иск: Исключение)
+    {
+        вернуть 0
+    }
+}
+функция главная { вывести х() }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
+// TestAnalyzeTryCatchOnlyOneBranchReturningStillFails - симметричная
+// проверка: если только ОДНА из веток try/catch возвращает значение,
+// ошибка "должна заканчиваться" остаётся (не путь исполнения гарантирует
+// значение, значит проверка обязана сработать).
+func TestAnalyzeTryCatchOnlyOneBranchReturningStillFails(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция х(): Целое
+{
+    попытаться
+    {
+        вернуть 1
+    }
+    поймать (иск: Исключение)
+    {
+        вывести "без возврата"
+    }
+}
+функция главная { вывести х() }
+`)
+	if err == nil || !strings.Contains(err.Error(), "должна заканчиваться") {
+		t.Fatalf("ожидалась ошибка про отсутствие \"вернуть <значение>\" в конце, получено: %v", err)
+	}
+}
+
 func TestAnalyzeEntityFieldsConstructorAndFieldAccess(t *testing.T) {
 	irProg := parseProgram(t, `
 сущность Пользователь

@@ -440,9 +440,3 @@ func isFFIType(entities map[string]entitySig, t ir.Type) bool {
 	}
 	return false
 }
-
-// endsWithReturnValue - true, если последняя инструкция тела (верхнего
-// уровня, не внутри вложенных если/пока/для) - "вернуть <значение>". Как и
-// в AST-пути (cbackend.endsWithReturnValue) - простая синтаксическая
-// проверка, не flow-sensitive анализ всех путей выполнения (это шаг 5,
-// когда появится сам flow-sensitive слой - см. docs/ROADMAP.md).
