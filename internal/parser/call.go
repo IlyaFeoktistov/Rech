@@ -128,15 +128,17 @@ func newKeywordFor(gender morph.Gender, number morph.Number) string {
 }
 
 // checkNewKeywordAgreement проверяет, что фактически написанная форма
-// конструктора (kw.Value) согласуется по роду/числу с typeName - только
-// если morph.NounAgreement вообще смогла определить род/число (permissive
-// fallback: слово, которое Фаза A и словарь OpenCorpora не classify, не
-// блокирует компиляцию - подходит любая форма). typeName для
-// generic-инстанциации ("Список<Целое>") - согласование по имени шаблона
-// (до "<"), у самого аргумента типа рода нет значения здесь.
+// конструктора (kw.Value) согласуется по роду/числу с typeName -
+// morph.CompoundNounAgreement (составные имена вида "ОпцииКуки" -
+// согласование по первому слову) - только если она вообще смогла
+// определить род/число (permissive fallback: слово, которое Фаза A и
+// словарь OpenCorpora не classify, не блокирует компиляцию - подходит
+// любая форма). typeName для generic-инстанциации ("Список<Целое>") -
+// согласование по имени шаблона (до "<"), у самого аргумента типа рода нет
+// значения здесь.
 func (p *Parser) checkNewKeywordAgreement(kw lexer.Token, typeName string) error {
 	base, _, _ := strings.Cut(typeName, "<")
-	gender, number, ok := morph.NounAgreement(base)
+	gender, number, ok := morph.CompoundNounAgreement(base)
 	if !ok {
 		return nil
 	}

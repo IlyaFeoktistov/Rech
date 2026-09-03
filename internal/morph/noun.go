@@ -180,6 +180,19 @@ func ClassifyByEnding(nomSg string) (DeclensionClass, bool) {
 		return ClassSecondHard, true
 	case strings.HasSuffix(nomSg, "ь"), strings.HasSuffix(nomSg, "й"), strings.HasSuffix(nomSg, "е"):
 		return 0, false
+	case strings.HasSuffix(nomSg, "ы"), strings.HasSuffix(nomSg, "и"):
+		// "-ы"/"-и" - обычные окончания множественного числа
+		// (маршрут -> маршруты, сессия -> сессии), не именительного падежа
+		// единственного числа ни одного класса склонения - default ниже
+		// рассчитан именно на "согласная" (см. doc выше), НЕ "что угодно
+		// не подошедшее выше", поэтому здесь тоже нужен явный отказ, а не
+		// ошибочное падение в ClassFirstHard (тот класс - твёрдая согласная
+		// основа, "-ы"/"-и" у него не бывает в единственном числе вовсе).
+		// Число (обычно множественное) для этого случая решает
+		// NounAgreement (hasPluralEnding), не этот классификатор - он
+		// целиком про класс склонения ЕДИНСТВЕННОГО числа, тут только
+		// отказ от угадывания класса.
+		return 0, false
 	default:
 		return ClassFirstHard, true
 	}

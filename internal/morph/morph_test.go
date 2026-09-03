@@ -130,7 +130,9 @@ func TestClassifyByEnding(t *testing.T) {
 		{"окно", ClassNeuterHard, true},
 		{"пользователь", 0, false}, // "-ь" неоднозначно - только через exceptions/Explicit
 		{"пароль", 0, false},
-		{"случай", 0, false}, // "-й" - вне Фазы A
+		{"случай", 0, false},   // "-й" - вне Фазы A
+		{"маршруты", 0, false}, // "-ы" - множественное число, не им.п. ед.ч. ни одного класса
+		{"опции", 0, false},    // "-и" - тоже, см. hasPluralEnding в NounAgreement
 	}
 	for _, tc := range cases {
 		class, ok := ClassifyByEnding(tc.word)
@@ -141,6 +143,61 @@ func TestClassifyByEnding(t *testing.T) {
 		if ok && class != tc.wantClass {
 			t.Errorf("ClassifyByEnding(%q) class = %v, want %v", tc.word, class, tc.wantClass)
 		}
+	}
+}
+
+// TestNounAgreementDetectsPluralEnding - слово, реально написанное во
+// множественном числе ("маршруты" - буквально множественное от "маршрут"),
+// должно давать Number=Plural - раньше ClassifyByEnding по умолчанию читал
+// ЛЮБОЕ неопознанное окончание как согласную основу мужского рода
+// единственного числа (ClassFirstHard), включая "-ы"/"-и", которые в
+// именительном падеже единственного числа не встречаются ни у одного
+// класса Фазы A - найдено при проверке поля "маршруты: Словарь<...>" в
+// examples/проекты/http_сервер/маршрутизатор.rech (компилятор требовал
+// "приватный маршруты" вместо грамматически верного "приватные маршруты").
+func TestNounAgreementDetectsPluralEnding(t *testing.T) {
+	cases := []struct {
+		word       string
+		wantNumber Number
+		wantOK     bool
+	}{
+		{"маршруты", Plural, true},
+		{"сессии", Plural, true},
+		{"документ", Singular, true},
+	}
+	for _, tc := range cases {
+		_, number, ok := NounAgreement(tc.word)
+		if ok != tc.wantOK {
+			t.Errorf("NounAgreement(%q) ok = %v, want %v", tc.word, ok, tc.wantOK)
+			continue
+		}
+		if ok && number != tc.wantNumber {
+			t.Errorf("NounAgreement(%q) number = %v, want %v", tc.word, number, tc.wantNumber)
+		}
+	}
+}
+
+// TestCompoundNounAgreementUsesFirstWord - составное имя сущности вида
+// "ОпцииКуки"/"ОтветЛогина" должно согласовываться по ПЕРВОМУ слову
+// (главному существительному - "Опции чего? Куки", "Ответ чего? Логина"),
+// не по всему слитному имени как одному слову - раньше "ОпцииКуки"
+// целиком не распознавалось как множественное ("новый", а не "новые"), а
+// "ОтветЛогина" ошибочно читалось как женский род (хвост "Логина" похож
+// на родительный падеж) вместо мужского рода настоящей головы "Ответ".
+func TestCompoundNounAgreementUsesFirstWord(t *testing.T) {
+	gender, number, ok := CompoundNounAgreement("ОпцииКуки")
+	if !ok || number != Plural {
+		t.Fatalf("CompoundNounAgreement(%q) = (%v, %v, %v), хотел (_, Plural, true)", "ОпцииКуки", gender, number, ok)
+	}
+	gender, number, ok = CompoundNounAgreement("ОтветЛогина")
+	if !ok || gender != Masculine || number != Singular {
+		t.Fatalf("CompoundNounAgreement(%q) = (%v, %v, %v), хотел (Masculine, Singular, true)", "ОтветЛогина", gender, number, ok)
+	}
+	// Однословное имя - CompoundNounAgreement не должен вести себя иначе,
+	// чем обычный NounAgreement.
+	gender, number, ok = CompoundNounAgreement("Маршрутизатор")
+	if !ok || gender != Masculine || number != Singular {
+		t.Fatalf("CompoundNounAgreement(%q) = (%v, %v, %v), хотел (Masculine, Singular, true)", "Маршрутизатор", gender, number, ok)
 	}
 }
 

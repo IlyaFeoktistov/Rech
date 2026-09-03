@@ -55,6 +55,48 @@ func lookupGenderViaGomorphy(nomSg string) (Gender, bool) {
 	return 0, false
 }
 
+// lookupGenderNumberViaGomorphy - как lookupGenderViaGomorphy, но вместе с
+// родом достаёт из тега и число ("sing"/"plur") - нужно NounAgreement,
+// чтобы распознавать слова, реально НАПИСАННЫЕ во множественном числе
+// (например, "маршруты" - тег "NOUN,inan,masc plur,nomn"), а не только
+// курируемый список pluraleTantum. Та же оговорка про синкретизм, что и у
+// lookupGenderViaGomorphy (package doc выше) - тег несёт ОДНУ "лучшую"
+// трактовку gomorphy, омонимичная форма (например, "опции" - им. падеж
+// мн.ч. "опция" ИЛИ род. падеж ед.ч. той же "опция") может выбрать не ту -
+// осознанная деградация, не хуже сегодняшнего полного отсутствия
+// определения числа вне pluraleTantum.
+func lookupGenderNumberViaGomorphy(nomSg string) (Gender, Number, bool) {
+	if sharedGomorphy == nil {
+		return 0, 0, false
+	}
+	tag := sharedGomorphy.Tag(nomSg)
+	if tag == "" || !strings.HasPrefix(tag, "NOUN") {
+		return 0, 0, false
+	}
+	var gender Gender
+	foundGender := false
+	plural := false
+	for _, tok := range tagFields(tag) {
+		switch tok {
+		case "masc":
+			gender, foundGender = Masculine, true
+		case "femn":
+			gender, foundGender = Feminine, true
+		case "neut":
+			gender, foundGender = Neuter, true
+		case "plur":
+			plural = true
+		}
+	}
+	if plural {
+		return 0, Plural, true
+	}
+	if !foundGender {
+		return 0, 0, false
+	}
+	return gender, Singular, true
+}
+
 // lookupAnimacyViaGomorphy - тот же узкий источник и то же ограничение, что
 // и у lookupGenderViaGomorphy (только один маркер из тега gomorphy, не
 // полный разбор) - для одушевлённости (anim/inan), не рода. Даёт AnimacyOf

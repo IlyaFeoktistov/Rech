@@ -1,6 +1,9 @@
 package morph
 
-import "strings"
+import (
+	"strings"
+	"unicode"
+)
 
 // nounGenderExceptions - слова, для которых ClassifyByEnding не может
 // определить класс склонения однозначно (в Фазе A - в первую очередь слова
@@ -274,14 +277,31 @@ var pluraleTantum = map[string]bool{
 	"права": true,
 }
 
+// hasPluralEnding - true для слов, оканчивающихся на "-ы"/"-и" - обычные
+// окончания именительного падежа МНОЖЕСТВЕННОГО числа (маршрут ->
+// маршрутЫ, сессия -> сессиИ, пользователь -> пользователИ - твёрдая/
+// мягкая основы соответственно, см. classTable в noun.go, поле nom[1]) -
+// ни одно слово Фазы A не оканчивается на них в именительном падеже
+// ЕДИНСТВЕННОГО числа (см. ClassifyByEnding). Не 100% надёжно - редкие
+// несклоняемые заимствования на "-и" в единственном числе (например,
+// "такси") ошибочно читались бы как множественное число - осознанный
+// компромисс: в практике этого языка (русские идентификаторы) такое
+// случается заметно реже, чем обратная ошибка (слово, реально
+// множественное, требовало "новый"/"приватный" вместо "новые"/"приватные" -
+// см. docs/ROADMAP.md).
+func hasPluralEnding(lower string) bool {
+	return strings.HasSuffix(lower, "ы") || strings.HasSuffix(lower, "и")
+}
+
 // NounAgreement возвращает род и число, нужные для согласования слов вроде
 // "новый"/"новая"/"новое"/"новые" (docs/GRAMMAR.md, конструктор) с
-// существительным nomSg. Число - Plural только для существительных из
-// pluraleTantum - для них род не определяется (согласование в
-// множественном числе от рода не зависит). ok == false - определить не
-// удалось (слово вне Фазы A - "-й"/голое "-е" без исключения - и не
-// нашлось в словаре OpenCorpora через gomorphy) - вызывающий код не должен
-// в этом случае требовать согласования вовсе, а не угадывать форму.
+// существительным nomSg. Число - Plural для существительных из
+// pluraleTantum ИЛИ с окончанием hasPluralEnding - в обоих случаях род не
+// определяется (согласование в множественном числе от рода не зависит).
+// ok == false - определить не удалось (слово вне Фазы A - "-й"/голое "-е"
+// без исключения - и не нашлось в словаре OpenCorpora через gomorphy) -
+// вызывающий код не должен в этом случае требовать согласования вовсе, а
+// не угадывать форму.
 //
 // Источники рода - те же и в том же порядке, что и у Dictionary.RegisterNoun
 // (nounFullExceptions -> nounGenderExceptions -> ClassifyByEnding ->
@@ -300,13 +320,55 @@ func NounAgreement(nomSg string) (gender Gender, number Number, ok bool) {
 	if exc, found := nounGenderExceptions[lower]; found {
 		return exc.Gender, Singular, true
 	}
+	if hasPluralEnding(lower) {
+		return 0, Plural, true
+	}
 	if class, found := ClassifyByEnding(lower); found {
 		return GenderOf(class), Singular, true
 	}
-	if gender, found := lookupGenderViaGomorphy(lower); found {
-		return gender, Singular, true
+	if gender, number, found := lookupGenderNumberViaGomorphy(lower); found {
+		return gender, number, true
 	}
 	return 0, 0, false
+}
+
+// splitPascalWords разбивает составное имя вида "ОпцииКуки"/"ОтветЛогина"
+// на слова по границам заглавных букв ("Опции","Куки" / "Ответ","Логина") -
+// имя, которое остаётся одним словом ("Маршрутизатор"), возвращает срез из
+// одного элемента.
+func splitPascalWords(name string) []string {
+	runes := []rune(name)
+	var words []string
+	start := 0
+	for i := 1; i < len(runes); i++ {
+		if unicode.IsUpper(runes[i]) && !unicode.IsUpper(runes[i-1]) {
+			words = append(words, string(runes[start:i]))
+			start = i
+		}
+	}
+	words = append(words, string(runes[start:]))
+	return words
+}
+
+// CompoundNounAgreement - как NounAgreement, но для составных имён сущностей
+// ("ОпцииКуки", "ОтветЛогина") пробует определить род/число ПЕРВОГО слова
+// (splitPascalWords) прежде, чем всё слитное имя целиком. В русских
+// составных именах такого вида ("Опции[чего?] Куки", "Ответ[чего?] Логина")
+// согласование определяет ПЕРВОЕ слово (главное существительное) - второе в
+// родительном падеже, окончание которого сбивает классификатор при разборе
+// слитного имени как одного слова (например, "ответлогина" ошибочно читался
+// как оканчивающийся на "-а" - женский род). Если первое слово не
+// распознано как существительное (например, оно прилагательное -
+// "УспешныйОтвет", где "успешный" ADJF, а не NOUN) - откат на разбор
+// имени целиком, тем же permissive fallback, что и раньше.
+func CompoundNounAgreement(name string) (gender Gender, number Number, ok bool) {
+	words := splitPascalWords(name)
+	if len(words) > 1 {
+		if gender, number, ok := NounAgreement(words[0]); ok {
+			return gender, number, ok
+		}
+	}
+	return NounAgreement(name)
 }
 
 // SystemVerbs - курируемый словарь глаголов стандартной библиотеки. Формы

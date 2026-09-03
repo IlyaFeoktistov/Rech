@@ -25,7 +25,7 @@ func (p *Parser) parseStatesSection(entityName string) ([]ast.StateDecl, error) 
 		return nil, fmt.Errorf("строка %d: после \"состояние:\" ожидалось хотя бы одно название состояния", label.Line)
 	}
 
-	gender, number, ok := morph.NounAgreement(entityName)
+	gender, number, ok := morph.CompoundNounAgreement(entityName)
 	if !ok {
 		return nil, fmt.Errorf("строка %d: не удалось определить род сущности %q (окончание не классифицируется, слова нет в словаре OpenCorpora) - без рода нельзя вывести имя производного типа состояния",
 			label.Line, entityName)
@@ -444,7 +444,7 @@ func staticKeywordFor(gender morph.Gender, number morph.Number) string {
 // checkStaticAgreement - как checkVisibilityAgreement, но для модификатора
 // "статический" перед именем поля.
 func checkStaticAgreement(kw lexer.Token, fieldName string) error {
-	gender, number, ok := morph.NounAgreement(fieldName)
+	gender, number, ok := morph.CompoundNounAgreement(fieldName)
 	if !ok {
 		return nil
 	}
@@ -509,7 +509,7 @@ func visibilityKeywordFor(vis ast.Visibility, gender morph.Gender, number morph.
 // если morph.NounAgreement не смогла определить род/число имени поля,
 // подходит любая форма.
 func checkVisibilityAgreement(kw lexer.Token, vis ast.Visibility, fieldName string) error {
-	gender, number, ok := morph.NounAgreement(fieldName)
+	gender, number, ok := morph.CompoundNounAgreement(fieldName)
 	if !ok {
 		return nil
 	}
