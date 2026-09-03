@@ -20,6 +20,7 @@ import (
 	pqdrv "github.com/lib/pq"
 	_ "modernc.org/sqlite"
 
+	"github.com/IlyaFeoktistov/Rech/internal/dbscheme"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
@@ -57,12 +58,12 @@ func dbConnect(connStr string) Value {
 // ("пользователь:пароль@tcp(хост:порт)/база"), потому что этот драйвер (в
 // отличие от lib/pq) URL-формат не принимает.
 func dbDriverAndDSN(connStr string) (driver, dsn string, ok bool) {
-	switch {
-	case strings.HasPrefix(connStr, "sqlite:"):
-		return "sqlite", strings.TrimPrefix(connStr, "sqlite:"), true
-	case strings.HasPrefix(connStr, "postgres://"), strings.HasPrefix(connStr, "postgresql://"):
+	switch dbscheme.Detect(connStr) {
+	case dbscheme.SQLite:
+		return "sqlite", strings.TrimPrefix(connStr, dbscheme.SQLitePrefix), true
+	case dbscheme.Postgres:
 		return "postgres", connStr, true
-	case strings.HasPrefix(connStr, "mysql://"):
+	case dbscheme.MySQL:
 		dsn, ok := mysqlDSNFromURL(connStr)
 		return "mysql", dsn, ok
 	default:

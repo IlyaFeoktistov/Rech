@@ -9,6 +9,7 @@ import (
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/builtins"
+	"github.com/IlyaFeoktistov/Rech/internal/dbscheme"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
@@ -109,6 +110,8 @@ type Analyzer struct {
 
 	// usesDB - см. package doc ir.Program.UsesDB.
 	usesDB bool
+	// dbBackends - см. package doc ir.Program.DBBackends.
+	dbBackends dbscheme.Set
 
 	// indexedCollections - имена generic-инстанциаций (Список<T>/
 	// Словарь<К, В>), встретившихся хоть раз как получатель безопасной
@@ -181,6 +184,18 @@ func (a *Analyzer) markUsesReflection() { a.usesReflection = true }
 
 // markUsesDB взводит usesDB - см. package doc ir.Program.UsesDB.
 func (a *Analyzer) markUsesDB() { a.usesDB = true }
+
+// markDBConnString взводит dbBackends по literal-аргументу
+// "подключиться_к_бд(...)" - lit == nil, если аргумент НЕ строковый
+// литерал (переменная/выражение) - см. package doc ir.Program.DBBackends/
+// dbscheme.Set.
+func (a *Analyzer) markDBConnString(lit *ast.StringLiteral) {
+	if lit == nil {
+		a.dbBackends.Dynamic = true
+		return
+	}
+	a.dbBackends.Mark(lit.Value)
+}
 
 // collectEntities - предварительный проход: поля, сигнатуры методов и
 // производные типы состояний (aliases - "АвторизованныйПользователь" ->
@@ -446,6 +461,7 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 	registerHTTPServerFuncs(funcs)
 	registerDateTimeFuncs(a.entities, funcs)
 	registerCookieFuncs(a.entities, funcs)
+	registerEnvFuncs(a.entities, funcs)
 	registerDBFuncs(funcs)
 	registerNetworkFuncs(a.entities, funcs)
 	for _, fn := range prog.Functions {
@@ -975,6 +991,7 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	out.ReflectTargets = a.reflectTargets.order
 	out.UsesReflection = a.usesReflection
 	out.UsesDB = a.usesDB
+	out.DBBackends = a.dbBackends
 	out.DBRowTargets = a.dbRowTargets.order
 
 	if err := a.collectCallables(out); err != nil {

@@ -3,7 +3,7 @@ package cbackend
 import "fmt"
 
 // datetimeHelpers - "время"/"время_как_дата"/"дата_как_время"/
-// "дата_в_строку" - см. package doc internal/interp/datetime.go для
+// "дату_в_строку" - см. package doc internal/interp/datetime.go для
 // полного обоснования алгоритма (Ховард Хиннант, чистая целочисленная
 // арифметика вместо gmtime_r/timegm/gmtime_s/_mkgmtime - их доступность и
 // точное поведение расходится между POSIX/MinGW/musl, собственная

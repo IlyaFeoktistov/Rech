@@ -96,7 +96,7 @@ func dateToTime(d Value) int64 {
 	return days*86400 + f["час"].I*3600 + f["минута"].I*60 + f["секунда"].I
 }
 
-// dateToString - "дата_в_строку" - "ГГГГ-ММ-ДД ЧЧ:ММ:СС", тот же формат,
+// dateToString - "дату_в_строку" - "ГГГГ-ММ-ДД ЧЧ:ММ:СС", тот же формат,
 // что и cbackend (rech_date_to_string).
 func dateToString(d Value) string {
 	f := d.Obj.fields

@@ -520,6 +520,10 @@ func analyzeCallExpr(sc *ctx, e *ast.CallExpr) (ir.Expr, error) {
 			if err := registerDBTypesOnCall(sc); err != nil {
 				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
 			}
+			if callee == "подключиться_к_бд" && len(e.Args) == 1 {
+				lit, _ := e.Args[0].(*ast.StringLiteral)
+				sc.a.markDBConnString(lit)
+			}
 		}
 		args, err := checkCallArgs(sc, e.Args, sig, e.Line, fmt.Sprintf("функция %q", callee), fmt.Sprintf("вызова %q", callee))
 		if err != nil {

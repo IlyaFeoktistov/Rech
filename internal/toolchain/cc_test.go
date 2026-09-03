@@ -81,46 +81,105 @@ func TestCompileCLinksGCOnlyWhenSourceUsesIt(t *testing.T) {
 	}
 }
 
+// TestCompileCLinksDBLibrariesOnlyWhenSourceUsesThem - internal/dbscheme.Set
+// (docs/ROADMAP.md, "toolchain линкует -lsqlite3 -lpq -lmysqlclient
+// безусловно") - каждая из трёх библиотек линкуется НЕЗАВИСИМО от двух
+// других, по маркеру функции подключения именно ЭТОЙ библиотеки
+// ("sqlite3_open("/"PQconnectdb("/"mysql_init(" - см. commonLinkFlags), не
+// по общему "rech_db_connect(" (та эмитируется для любой программы с БД,
+// независимо от того, какая конкретно СУБД внутри неё скомпилирована,
+// internal/backend/cbackend/db.go, dbRuntimeCode).
+// TestMissingLibHint - missingLibHint (cc.go) разбирает вывод линковщика
+// трёх разных тулчейнов (GNU ld на Linux, ld64 на macOS, link.exe/MSVC на
+// Windows - см. package doc) на предмет "не хватает клиентской библиотеки
+// БД" и даёт подсказку по установке для соответствующей платформы -
+// проверяется тем же runtime.GOOS, на котором реально гоняется тест (тот
+// же принцип, что и installHintFor).
+func TestMissingLibHint(t *testing.T) {
+	cases := []struct {
+		name   string
+		output string
+		want   string
+	}{
+		{"gnu-ld-sqlite", "/usr/bin/ld: cannot find -lsqlite3: No such file or directory", "sqlite3"},
+		{"macos-ld64-pq", "ld: library not found for -lpq", "pq"},
+		{"msvc-mysql", "LINK : fatal error LNK1181: cannot open input file 'mysqlclient.lib'", "mysqlclient"},
+		{"unrelated-error", "undefined reference to `main'", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			hint := missingLibHint(tc.output)
+			if tc.want == "" {
+				if hint != "" {
+					t.Fatalf("не ожидалась подсказка для %q, получено: %q", tc.output, hint)
+				}
+				return
+			}
+			if !strings.Contains(hint, tc.want) {
+				t.Fatalf("ожидалось упоминание %q в подсказке, получено: %q", tc.want, hint)
+			}
+			if !strings.Contains(hint, installHintFor(tc.want)) {
+				t.Fatalf("ожидалась команда установки %q в подсказке, получено: %q", installHintFor(tc.want), hint)
+			}
+		})
+	}
+}
+
 func TestCompileCLinksDBLibrariesOnlyWhenSourceUsesThem(t *testing.T) {
 	script := fakeCC(t)
 	t.Setenv("CC", script)
 
 	dir := t.TempDir()
-	withDB := filepath.Join(dir, "with_db.c")
-	if err := os.WriteFile(withDB, []byte("static void *rech_db_connect(const char *c) { return 0; }\nint main(void){return 0;}\n"), 0o644); err != nil {
-		t.Fatalf("запись исходника: %v", err)
-	}
-	withoutDB := filepath.Join(dir, "without_db.c")
-	if err := os.WriteFile(withoutDB, []byte("int main(void){return 0;}\n"), 0o644); err != nil {
-		t.Fatalf("запись исходника: %v", err)
-	}
-
 	cc := &CC{}
-	binWith := filepath.Join(dir, "bin_with")
-	if err := cc.CompileC(withDB, binWith, nil); err != nil {
-		t.Fatalf("CompileC: %v", err)
-	}
-	argsWith, err := os.ReadFile(script + ".args")
-	if err != nil {
-		t.Fatalf("чтение записанных аргументов: %v", err)
-	}
-	for _, lib := range []string{"-lsqlite3", "-lpq", "-lmysqlclient"} {
-		if !strings.Contains(string(argsWith), lib) {
-			t.Fatalf("ожидался флаг %s для файла с rech_db_connect(, аргументы: %q", lib, argsWith)
+	compileAndReadArgs := func(name, src string) string {
+		path := filepath.Join(dir, name+".c")
+		if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+			t.Fatalf("запись исходника: %v", err)
 		}
+		if err := cc.CompileC(path, filepath.Join(dir, "bin_"+name), nil); err != nil {
+			t.Fatalf("CompileC: %v", err)
+		}
+		args, err := os.ReadFile(script + ".args")
+		if err != nil {
+			t.Fatalf("чтение записанных аргументов: %v", err)
+		}
+		return string(args)
 	}
 
-	binWithout := filepath.Join(dir, "bin_without")
-	if err := cc.CompileC(withoutDB, binWithout, nil); err != nil {
-		t.Fatalf("CompileC: %v", err)
+	cases := []struct {
+		name string
+		src  string
+		want []string
+		dont []string
+	}{
+		{
+			name: "sqlite_only",
+			src:  "static void *rech_db_connect(const char *c) { sqlite3_open(c, 0); return 0; }\nint main(void){return 0;}\n",
+			want: []string{"-lsqlite3"},
+			dont: []string{"-lpq", "-lmysqlclient"},
+		},
+		{
+			name: "all_three",
+			src:  "static void *rech_db_connect(const char *c) { sqlite3_open(c, 0); PQconnectdb(c); mysql_init(0); return 0; }\nint main(void){return 0;}\n",
+			want: []string{"-lsqlite3", "-lpq", "-lmysqlclient"},
+		},
+		{
+			name: "without_db",
+			src:  "int main(void){return 0;}\n",
+			dont: []string{"-lsqlite3", "-lpq", "-lmysqlclient"},
+		},
 	}
-	argsWithout, err := os.ReadFile(script + ".args")
-	if err != nil {
-		t.Fatalf("чтение записанных аргументов: %v", err)
-	}
-	for _, lib := range []string{"-lsqlite3", "-lpq", "-lmysqlclient"} {
-		if strings.Contains(string(argsWithout), lib) {
-			t.Fatalf("не ожидался флаг %s без rech_db_connect( (сломает сборку без установленных клиентских библиотек БД), аргументы: %q", lib, argsWithout)
+	for _, tc := range cases {
+		args := compileAndReadArgs(tc.name, tc.src)
+		for _, lib := range tc.want {
+			if !strings.Contains(args, lib) {
+				t.Fatalf("%s: ожидался флаг %s, аргументы: %q", tc.name, lib, args)
+			}
+		}
+		for _, lib := range tc.dont {
+			if strings.Contains(args, lib) {
+				t.Fatalf("%s: не ожидался флаг %s, аргументы: %q", tc.name, lib, args)
+			}
 		}
 	}
 }

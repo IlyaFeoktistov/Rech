@@ -158,6 +158,24 @@ var All = []Func{
 	// "ДатаВремя", не примитив - зарегистрирована отдельно, см.
 	// ReservedEntityNames/ReservedFuncNames и internal/semantic/datetime.go).
 	{Name: "время", Params: nil, ReturnKind: KindInt, HasReturn: true},
+
+	// Криптографические примитивы (docs/ROADMAP.md, "Нет крипто-хеш-
+	// функции" - пароли в examples/проекты/http_сервер сравнивались как
+	// есть). "хеш_sha256"/"подпись_hmac_sha256" возвращают HEX-строку (64
+	// символа), не сырые байты дайджеста - Rech "Строка" в cbackend это
+	// "const char*" без отдельно хранимой длины, а сырой 32-байтовый
+	// дайджест может содержать 0x00 внутри и потерять хвост. "подпись_
+	// hmac_sha256(данные, ключ)" - тот же примитив (HMAC-SHA256), которым
+	// подписан JWT (алгоритм HS256) - основа для собственных сессионных
+	// токенов вместо случайной строки без подписи.
+	// "закодировать_base64url"/"декодировать_base64url" - RFC 4648 §5, БЕЗ
+	// "="-паддинга (тот же алфавит, что у частей JWT) - только для текста
+	// без встроенных нулевых байт (JSON заголовка/тела токена), той же
+	// оговоркой, что и у самого HEX-выбора выше.
+	{Name: "хеш_sha256", Params: []Kind{KindString}, ReturnKind: KindString, HasReturn: true},
+	{Name: "подпись_hmac_sha256", Params: []Kind{KindString, KindString}, ReturnKind: KindString, HasReturn: true},
+	{Name: "закодировать_base64url", Params: []Kind{KindString}, ReturnKind: KindString, HasReturn: true},
+	{Name: "декодировать_base64url", Params: []Kind{KindString}, ReturnKind: KindString, HasReturn: true},
 }
 
 // ByName ищет встроенную функцию по имени.
@@ -184,7 +202,7 @@ var ReservedFuncNames = map[string]bool{
 	"запрос":               true,
 	"время_как_дата":       true,
 	"дата_как_время":       true,
-	"дата_в_строку":        true,
+	"дату_в_строку":        true,
 	"принять_http":         true,
 	"отправить_http_ответ": true,
 	"параметры_пути":       true,
@@ -194,6 +212,7 @@ var ReservedFuncNames = map[string]bool{
 	"закрыть_бд":           true,
 	"значение_куки":        true,
 	"строка_куки":          true,
+	"получить_переменную_окружения":   true,
 	"получить_от":          true,
 	"отправить_в":          true,
 }

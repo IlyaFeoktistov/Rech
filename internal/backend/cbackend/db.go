@@ -33,6 +33,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/IlyaFeoktistov/Rech/internal/dbscheme"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
@@ -46,13 +47,24 @@ const (
 	dbResultType = "Список<Словарь<Строка, Значение>>"
 )
 
-// dbOpaqueTypedefs - неполные (opaque) объявления типов трёх клиентских
-// библиотек - см. package doc.
-const dbOpaqueTypedefs = `typedef struct sqlite3 sqlite3;
+// sqliteOpaqueTypedefs/pgOpaqueTypedefs/mysqlOpaqueTypedefs - неполные
+// (opaque) объявления типов трёх клиентских библиотек - см. package doc.
+// Три отдельные константы, не одна - каждая эмитируется (dbRuntimeCode)
+// только когда internal/dbscheme.Set реально требует эту конкретную СУБД,
+// иначе программа, использующая только SQLite, не должна нести (и уж тем
+// более линковать) ничего, упоминающего PostgreSQL/MySQL - docs/ROADMAP.md,
+// "toolchain линкует -lsqlite3 -lpq -lmysqlclient безусловно".
+const sqliteOpaqueTypedefs = `typedef struct sqlite3 sqlite3;
 typedef struct sqlite3_stmt sqlite3_stmt;
-typedef struct pg_conn PGconn;
+
+`
+
+const pgOpaqueTypedefs = `typedef struct pg_conn PGconn;
 typedef struct pg_result PGresult;
-typedef struct MYSQL MYSQL;
+
+`
+
+const mysqlOpaqueTypedefs = `typedef struct MYSQL MYSQL;
 typedef struct MYSQL_RES MYSQL_RES;
 typedef char **rech_mysql_row_t;
 
@@ -91,14 +103,17 @@ const rechMySQLFieldStruct = `typedef struct {
 
 `
 
-// dbExternDecls - прототипы функций трёх библиотек, реально используемых
-// этим рантаймом - подмножество настоящих заголовков (sqlite3.h,
-// libpq-fe.h, mysql.h), byte-в-byte по сигнатуре (типы параметров/
-// результата), достаточное для честной линковки с настоящими .so (см.
-// package doc). Числовые константы (SQLITE_ROW и т. п.) - часть
-// публичного, стабильного C ABI каждой библиотеки, определены прямо в
-// коде-потребителе (sqliteQueryCode и т. д.), не здесь.
-const dbExternDecls = `extern int sqlite3_open(const char *filename, sqlite3 **db);
+// sqliteExternDecls/pgExternDecls/mysqlExternDecls - прототипы функций
+// трёх библиотек, реально используемых этим рантаймом - подмножество
+// настоящих заголовков (sqlite3.h, libpq-fe.h, mysql.h), byte-в-byte по
+// сигнатуре (типы параметров/результата), достаточное для честной линковки
+// с настоящими .so (см. package doc). Числовые константы (SQLITE_ROW и
+// т. п.) - часть публичного, стабильного C ABI каждой библиотеки,
+// определены прямо в коде-потребителе (sqliteQueryExecCode и т. д.), не
+// здесь. Три отдельные константы (не одна) - той же причиной, что и у
+// *OpaqueTypedefs выше: каждая эмитируется, только когда её СУБД реально
+// нужна (internal/dbscheme.Set).
+const sqliteExternDecls = `extern int sqlite3_open(const char *filename, sqlite3 **db);
 extern int sqlite3_close(sqlite3 *db);
 extern int sqlite3_exec(sqlite3 *db, const char *sql, int (*cb)(void *, int, char **, char **), void *arg, char **errmsg);
 extern int sqlite3_prepare_v2(sqlite3 *db, const char *sql, int nbyte, sqlite3_stmt **stmt, const char **tail);
@@ -112,7 +127,9 @@ extern double sqlite3_column_double(sqlite3_stmt *stmt, int col);
 extern const unsigned char *sqlite3_column_text(sqlite3_stmt *stmt, int col);
 extern int sqlite3_changes(sqlite3 *db);
 
-extern PGconn *PQconnectdb(const char *conninfo);
+`
+
+const pgExternDecls = `extern PGconn *PQconnectdb(const char *conninfo);
 extern int PQstatus(const PGconn *conn);
 extern void PQfinish(PGconn *conn);
 extern PGresult *PQexec(PGconn *conn, const char *query);
@@ -126,7 +143,9 @@ extern void PQclear(PGresult *res);
 extern unsigned int PQftype(const PGresult *res, int field_num);
 extern char *PQcmdTuples(PGresult *res);
 
-extern MYSQL *mysql_init(MYSQL *mysql);
+`
+
+const mysqlExternDecls = `extern MYSQL *mysql_init(MYSQL *mysql);
 extern MYSQL *mysql_real_connect(MYSQL *mysql, const char *host, const char *user, const char *passwd, const char *db, unsigned int port, const char *unix_socket, unsigned long clientflag);
 extern void mysql_close(MYSQL *sock);
 extern int mysql_real_query(MYSQL *mysql, const char *q, unsigned long length);
@@ -139,31 +158,40 @@ extern unsigned long long mysql_affected_rows(MYSQL *mysql);
 
 `
 
-// rechDBKindEnum/rechDBStruct - дескриптор соединения "БД" (ir.KindDB) -
-// один и тот же C-тип для всех трёх СУБД, kind решает, какое из трёх
-// полей handle валидно (ровно одно) - решается один раз, в
-// "подключиться_к_бд", дальше каждая функция просто читает db->kind.
+// rechDBStruct - дескриптор соединения "БД" (ir.KindDB) - один и тот же
+// C-тип для всех трёх СУБД, kind решает, какое из трёх полей handle
+// валидно (ровно одно) - решается один раз, в "подключиться_к_бд", дальше
+// каждая функция просто читает db->kind. Поля - "void *", НЕ типизированные
+// "sqlite3 *"/"PGconn *"/"MYSQL *" - этот typedef эмитируется БЕЗУСЛОВНО и
+// РАНЬШЕ (dbHandleTypedefCode, до genericsCode/typedefs - см. её package
+// doc) для ЛЮБОЙ программы, использующей "БД" (в том числе как поле
+// сущности), а opaque-типы трёх библиотек эмитируются условно и ПОЗЖЕ,
+// только для реально нужных СУБД (см. dbRuntimeCode/internal/dbscheme) - на
+// этом, более раннем месте они бы ещё не существовали. "void *" не требует
+// приведения типа ни при записи (rech_db_connect), ни при чтении
+// (rech_db_sqlite_query и т. п. - тот код возникает уже ПОСЛЕ нужных
+// opaque-типов, там "db->sqlite" неявно конвертируется в "sqlite3 *" тем же
+// правилом C, что и для любого другого "void *").
 const rechDBStruct = `typedef enum { RECH_DB_SQLITE, RECH_DB_PG, RECH_DB_MYSQL } rech_db_kind;
 
 typedef struct rech_db {
     rech_db_kind kind;
-    sqlite3 *sqlite;
-    PGconn *pg;
-    MYSQL *mysql;
+    void *sqlite;
+    void *pg;
+    void *mysql;
 } rech_db_t;
 
 `
 
-// dbHelperFuncs - вспомогательные функции, не завязанные на конкретную
-// СУБД: rech_db_dup_str (копия текстового значения в GC-память - буфер,
-// который вернула библиотека, живёт только до PQclear/mysql_free_result/
-// sqlite3_finalize, а результат "запросить" должен пережить их), растущий
-// буфер rech_db_sb (собственный, не переиспользует rech_json_sb - тот
-// эмитится только вместе с JSON, здесь не гарантирован) для
-// rech_db_substitute, и разбор "mysql://" (единственная из трёх схем без
-// готового URL-парсера в своей библиотеке - PostgreSQL принимает URL
-// в PQconnectdb как есть, SQLite и так просто путь к файлу).
-var dbHelperFuncs = fmt.Sprintf(`static void rech_db_panicf(const char *tmpl, const char *arg) {
+// dbCommonHelperFuncs - вспомогательные функции, не завязанные на
+// конкретную СУБД: rech_db_dup_str (копия текстового значения в
+// GC-память - буфер, который вернула библиотека, живёт только до
+// PQclear/mysql_free_result/sqlite3_finalize, а результат "запросить"
+// должен пережить их) и растущий буфер rech_db_sb (собственный, не
+// переиспользует rech_json_sb - тот эмитится только вместе с JSON, здесь не
+// гарантирован) для rech_db_substitute - эмитируются безусловно, для ЛЮБОЙ
+// СУБД (в отличие от dbMySQLURLHelperFuncs ниже - тот нужен только MySQL).
+var dbCommonHelperFuncs = `static void rech_db_panicf(const char *tmpl, const char *arg) {
     char msg[1024];
     snprintf(msg, sizeof msg, tmpl, arg);
     rech_panic(msg);
@@ -207,7 +235,13 @@ static void rech_db_sb_puts(rech_db_sb *sb, const char *s) {
     sb->len += n;
 }
 
-static char *rech_db_url_part(const char *start, long long len) {
+`
+
+// dbMySQLURLHelperFuncs - разбор "mysql://" (единственная из трёх схем без
+// готового URL-парсера в своей библиотеке - PostgreSQL принимает URL в
+// PQconnectdb как есть, SQLite и так просто путь к файлу) - эмитируется
+// только когда MySQL реально нужен (internal/dbscheme.Set).
+var dbMySQLURLHelperFuncs = fmt.Sprintf(`static char *rech_db_url_part(const char *start, long long len) {
     char *out = GC_MALLOC((size_t)len + 1);
     memcpy(out, start, (size_t)len);
     out[len] = '\0';
@@ -259,55 +293,78 @@ static void rech_db_parse_mysql_url(const char *conn, char **user, char **pass, 
 
 `, escapeCString(rtmsg.DBConnectFailed))
 
-// dbConnectCode - "подключиться_к_бд(Строка): БД" - выбор СУБД по префиксу
-// строки подключения ("sqlite:"/"postgres://"/"postgresql://"/"mysql://").
-var dbConnectCode = fmt.Sprintf(`static rech_db_t *rech_db_connect(const char *conn) {
-    rech_db_t *db = GC_MALLOC(sizeof(rech_db_t));
-    if (strncmp(conn, "sqlite:", 7) == 0) {
+// dbConnectCloseCode строит "rech_db_connect"/"rech_db_close" - выбор СУБД
+// по префиксу строки подключения ("sqlite:"/"postgres://"/"postgresql://"/
+// "mysql://") - только для СУБД, реально нужных backends (internal/
+// dbscheme.Set): ветка, которую backends не требует, здесь не эмитируется
+// вовсе (не просто "мертва по данным", а физически отсутствует в
+// сгенерированном C) - иначе тело "rech_db_connect" безусловно ссылалось бы
+// на символ пропущенной библиотеки (PQconnectdb/mysql_init и т. п.), и
+// программа не слинковалась бы без неё, даже если эта ветка никогда не
+// выполняется (docs/ROADMAP.md, "проблема не в отсутствующем флаге
+// линковщика, а в безусловной ссылке на символ в самом сгенерированном
+// коде"). "&db->sqlite" - явный "(sqlite3 **)" (единственное место с явным
+// приведением из всего рантайма БД) - "void **" не конвертируется в
+// "T **" неявно, в отличие от одиночного "void *" (см. package doc
+// rechDBStruct).
+func dbConnectCloseCode(backends dbscheme.Set) string {
+	var sb strings.Builder
+	sb.WriteString("static rech_db_t *rech_db_connect(const char *conn) {\n")
+	sb.WriteString("    rech_db_t *db = GC_MALLOC(sizeof(rech_db_t));\n")
+	if backends.NeedsSQLite() {
+		fmt.Fprintf(&sb, `    if (strncmp(conn, "%[1]s", %[2]d) == 0) {
         db->kind = RECH_DB_SQLITE;
-        if (sqlite3_open(conn + 7, &db->sqlite) != 0) {
-            rech_panic("%[1]s");
+        if (sqlite3_open(conn + %[2]d, (sqlite3 **)&db->sqlite) != 0) {
+            rech_panic("%[3]s");
         }
         return db;
     }
-    if (strncmp(conn, "postgres://", 11) == 0 || strncmp(conn, "postgresql://", 13) == 0) {
+`, dbscheme.SQLitePrefix, len(dbscheme.SQLitePrefix), escapeCString(rtmsg.DBConnectFailed))
+	}
+	if backends.NeedsPostgres() {
+		fmt.Fprintf(&sb, `    if (strncmp(conn, "%[1]s", %[2]d) == 0 || strncmp(conn, "%[3]s", %[4]d) == 0) {
         db->kind = RECH_DB_PG;
         db->pg = PQconnectdb(conn);
         if (PQstatus(db->pg) != 0) {
-            rech_panic("%[1]s");
+            rech_panic("%[5]s");
         }
         return db;
     }
-    if (strncmp(conn, "mysql://", 8) == 0) {
+`, dbscheme.PostgresPrefix, len(dbscheme.PostgresPrefix), dbscheme.PostgresAltPrefix, len(dbscheme.PostgresAltPrefix), escapeCString(rtmsg.DBConnectFailed))
+	}
+	if backends.NeedsMySQL() {
+		fmt.Fprintf(&sb, `    if (strncmp(conn, "%[1]s", %[2]d) == 0) {
         db->kind = RECH_DB_MYSQL;
         char *user, *pass, *host, *dbname;
         int port;
         rech_db_parse_mysql_url(conn, &user, &pass, &host, &port, &dbname);
         db->mysql = mysql_init(NULL);
         if (!mysql_real_connect(db->mysql, host, user, pass, dbname, port ? (unsigned int)port : 3306, NULL, 0)) {
-            rech_panic("%[1]s");
+            rech_panic("%[3]s");
         }
         return db;
     }
-    rech_panic("%[2]s");
+`, dbscheme.MySQLPrefix, len(dbscheme.MySQLPrefix), escapeCString(rtmsg.DBConnectFailed))
+	}
+	fmt.Fprintf(&sb, `    rech_panic("%s");
     return NULL;
 }
 
-static void rech_db_close(rech_db_t *db) {
-    switch (db->kind) {
-    case RECH_DB_SQLITE:
-        sqlite3_close(db->sqlite);
-        break;
-    case RECH_DB_PG:
-        PQfinish(db->pg);
-        break;
-    default:
-        mysql_close(db->mysql);
-        break;
-    }
-}
+`, escapeCString(rtmsg.DBUnsupportedScheme))
 
-`, escapeCString(rtmsg.DBConnectFailed), escapeCString(rtmsg.DBUnsupportedScheme))
+	sb.WriteString("static void rech_db_close(rech_db_t *db) {\n    switch (db->kind) {\n")
+	if backends.NeedsSQLite() {
+		sb.WriteString("    case RECH_DB_SQLITE:\n        sqlite3_close(db->sqlite);\n        break;\n")
+	}
+	if backends.NeedsPostgres() {
+		sb.WriteString("    case RECH_DB_PG:\n        PQfinish(db->pg);\n        break;\n")
+	}
+	if backends.NeedsMySQL() {
+		sb.WriteString("    case RECH_DB_MYSQL:\n        mysql_close(db->mysql);\n        break;\n")
+	}
+	fmt.Fprintf(&sb, "    default:\n        rech_panic(\"%s\");\n        break;\n    }\n}\n\n", escapeCString(rtmsg.DBUnreachableKind))
+	return sb.String()
+}
 
 // dbSubstituteCode строит rech_db_substitute(sql, параметры) - переписывает
 // "?" (единый плейсхолдер Rech) в литералы SQL прямо по тексту запроса, по
@@ -548,41 +605,50 @@ static long long rech_db_mysql_exec(rech_db_t *db, const char *sql) {
 }
 
 // dbDispatchCode - "запросить"/"выполнить": подставляет параметры один раз
-// (rech_db_substitute), дальше выбор конкретной СУБД по db->kind.
-func dbDispatchCode(resultListC, paramsListC string) string {
-	return fmt.Sprintf(`static %[1]s *rech_db_query(rech_db_t *db, const char *sql, %[2]s *params) {
-    char *final_sql = rech_db_substitute(sql, params);
-    switch (db->kind) {
-    case RECH_DB_SQLITE:
-        return rech_db_sqlite_query(db, final_sql);
-    case RECH_DB_PG:
-        return rech_db_pg_query(db, final_sql);
-    default:
-        return rech_db_mysql_query(db, final_sql);
-    }
-}
+// (rech_db_substitute), дальше выбор конкретной СУБД по db->kind - только
+// среди backends (см. package doc dbConnectCloseCode - тот же принцип: не
+// ссылаться на rech_db_<опущенная СУБД>_query/exec вообще).
+func dbDispatchCode(backends dbscheme.Set, resultListC, paramsListC string) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "static %[1]s *rech_db_query(rech_db_t *db, const char *sql, %[2]s *params) {\n    char *final_sql = rech_db_substitute(sql, params);\n    switch (db->kind) {\n",
+		resultListC, paramsListC)
+	if backends.NeedsSQLite() {
+		sb.WriteString("    case RECH_DB_SQLITE:\n        return rech_db_sqlite_query(db, final_sql);\n")
+	}
+	if backends.NeedsPostgres() {
+		sb.WriteString("    case RECH_DB_PG:\n        return rech_db_pg_query(db, final_sql);\n")
+	}
+	if backends.NeedsMySQL() {
+		sb.WriteString("    case RECH_DB_MYSQL:\n        return rech_db_mysql_query(db, final_sql);\n")
+	}
+	fmt.Fprintf(&sb, "    default:\n        rech_panic(\"%s\");\n        return NULL;\n    }\n}\n\n", escapeCString(rtmsg.DBUnreachableKind))
 
-static long long rech_db_exec(rech_db_t *db, const char *sql, %[2]s *params) {
-    char *final_sql = rech_db_substitute(sql, params);
-    switch (db->kind) {
-    case RECH_DB_SQLITE:
-        return rech_db_sqlite_exec(db, final_sql);
-    case RECH_DB_PG:
-        return rech_db_pg_exec(db, final_sql);
-    default:
-        return rech_db_mysql_exec(db, final_sql);
-    }
-}
-
-`, resultListC, paramsListC)
+	fmt.Fprintf(&sb, "static long long rech_db_exec(rech_db_t *db, const char *sql, %[1]s *params) {\n    char *final_sql = rech_db_substitute(sql, params);\n    switch (db->kind) {\n",
+		paramsListC)
+	if backends.NeedsSQLite() {
+		sb.WriteString("    case RECH_DB_SQLITE:\n        return rech_db_sqlite_exec(db, final_sql);\n")
+	}
+	if backends.NeedsPostgres() {
+		sb.WriteString("    case RECH_DB_PG:\n        return rech_db_pg_exec(db, final_sql);\n")
+	}
+	if backends.NeedsMySQL() {
+		sb.WriteString("    case RECH_DB_MYSQL:\n        return rech_db_mysql_exec(db, final_sql);\n")
+	}
+	fmt.Fprintf(&sb, "    default:\n        rech_panic(\"%s\");\n        return 0;\n    }\n}\n\n", escapeCString(rtmsg.DBUnreachableKind))
+	return sb.String()
 }
 
 // dbRuntimeCode собирает рантайм БД целиком - вызывается из generateSource,
 // только когда prog.UsesDB (см. package doc internal/ir, ir.Program.UsesDB).
-// paramsListC/resultListC/dictC - C-типы "Список<Значение>"/
-// "Список<Словарь<Строка, Значение>>"/"Словарь<Строка, Значение>",
-// уже эмитированные genericsCode раньше этого блока (см. место вызова).
-func dbRuntimeCode() string {
+// backends (internal/dbscheme.Set, prog.DBBackends) решает, КАКИЕ из трёх
+// СУБД реально эмитируются - opaque-типы/прототипы/query-exec код
+// пропущенной СУБД не попадают в сгенерированный C вообще (см. package doc
+// dbConnectCloseCode - иначе линковка требовала бы её клиентскую
+// библиотеку, даже когда она никогда не вызывается). paramsListC/
+// resultListC/dictC - C-типы "Список<Значение>"/"Список<Словарь<Строка,
+// Значение>>"/"Словарь<Строка, Значение>", уже эмитированные genericsCode
+// раньше этого блока (см. место вызова).
+func dbRuntimeCode(backends dbscheme.Set) string {
 	paramsListC := reflectAnyListCType()
 	resultListC := mangleType(dbResultType)
 	resultCtor := mangleCtor(dbResultType)
@@ -592,16 +658,51 @@ func dbRuntimeCode() string {
 	listAdd := mangleMethod(dbResultType, "добавить")
 
 	var sb strings.Builder
-	sb.WriteString(dbOpaqueTypedefs)
-	sb.WriteString(rechMySQLFieldStruct)
-	sb.WriteString(dbExternDecls)
-	sb.WriteString(rechDBStruct)
-	sb.WriteString(dbHelperFuncs)
-	sb.WriteString(dbConnectCode)
+	sb.WriteString(dbCommonHelperFuncs)
+	if backends.NeedsSQLite() {
+		sb.WriteString(sqliteOpaqueTypedefs)
+		sb.WriteString(sqliteExternDecls)
+	}
+	if backends.NeedsPostgres() {
+		sb.WriteString(pgOpaqueTypedefs)
+		sb.WriteString(pgExternDecls)
+	}
+	if backends.NeedsMySQL() {
+		sb.WriteString(mysqlOpaqueTypedefs)
+		sb.WriteString(rechMySQLFieldStruct)
+		sb.WriteString(mysqlExternDecls)
+		sb.WriteString(dbMySQLURLHelperFuncs)
+	}
+	sb.WriteString(dbConnectCloseCode(backends))
 	sb.WriteString(dbSubstituteCode(paramsListC))
-	sb.WriteString(sqliteQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCtor))
-	sb.WriteString(pgQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCtor))
-	sb.WriteString(mysqlQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCtor))
-	sb.WriteString(dbDispatchCode(resultListC, paramsListC))
+	if backends.NeedsSQLite() {
+		sb.WriteString(sqliteQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCtor))
+	}
+	if backends.NeedsPostgres() {
+		sb.WriteString(pgQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCtor))
+	}
+	if backends.NeedsMySQL() {
+		sb.WriteString(mysqlQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCtor))
+	}
+	sb.WriteString(dbDispatchCode(backends, resultListC, paramsListC))
 	return sb.String()
+}
+
+// dbHandleTypedefCode - только объявление самого типа-дескриптора "БД"
+// (сам "rech_db_t", без единого упоминания SQLite/PostgreSQL/MySQL - поля
+// "void *", см. package doc rechDBStruct) - вынесено ИЗ dbRuntimeCode и
+// эмитируется РАНЬШЕ (до genericsCode/typedefs, см. место вызова в
+// generateSource), потому что сущность теперь может нести поле типа "БД"
+// (см. examples/проекты/http_сервер/контейнер.rech) - её C-структуре
+// (typedefs) нужен уже видимый "rech_db_t", а раньше он появлялся только
+// внутри dbRuntimeCode, эмитированной ПОСЛЕ typedefs (unknown type name
+// "rech_db_t" при компиляции сгенерированного out.c). Остальная часть
+// рантайма (opaque-типы конкретных СУБД, запросы/подстановка параметров) -
+// по-прежнему в dbRuntimeCode, на своём прежнем месте: она зависит от
+// generic-типов (Список<Значение> и т. п.), которых на этом, более раннем
+// месте ещё нет, и УСЛОВНА по backends - в отличие от этого typedef'а,
+// нужного безусловно при UsesDB, независимо от того, какая конкретно СУБД
+// используется.
+func dbHandleTypedefCode() string {
+	return rechDBStruct
 }

@@ -22,7 +22,7 @@ var dateTimeFields = []ir.Field{
 }
 
 // registerDateTimeFuncs регистрирует сущность "ДатаВремя" и функции
-// "время_как_дата"/"дата_как_время"/"дата_в_строку" - тот же принцип, что
+// "время_как_дата"/"дата_как_время"/"дату_в_строку" - тот же принцип, что
 // и у "запрос" (HTTP-клиент): они принимают/возвращают сущность, не
 // примитив, значит не входят в internal/builtins.All (там только Kind
 // примитивов) и регистрируются отдельно в каждом из трёх потребителей
@@ -32,5 +32,5 @@ func registerDateTimeFuncs(entities map[string]entitySig, funcs map[string]funcS
 	registerHTTPEntity(entities, "ДатаВремя", dateTimeFields)
 	funcs["время_как_дата"] = funcSig{Params: []ir.Type{ir.TypeInt}, ReturnType: ir.EntityType("ДатаВремя"), HasReturn: true}
 	funcs["дата_как_время"] = funcSig{Params: []ir.Type{ir.EntityType("ДатаВремя")}, ReturnType: ir.TypeInt, HasReturn: true}
-	funcs["дата_в_строку"] = funcSig{Params: []ir.Type{ir.EntityType("ДатаВремя")}, ReturnType: ir.TypeString, HasReturn: true}
+	funcs["дату_в_строку"] = funcSig{Params: []ir.Type{ir.EntityType("ДатаВремя")}, ReturnType: ir.TypeString, HasReturn: true}
 }

@@ -92,6 +92,21 @@ var dbFuncNames = map[string]bool{
 func registerDBTypesOnCall(sc *ctx) error {
 	sc.a.markUsesReflection()
 	sc.a.markUsesDB()
-	_, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, dbResultType)
+	// dbResultType ("запросить") И listOfAnyType.Entity ("Список<Значение>",
+	// параметры "запросить"/"выполнить") - ОБА принудительно, для ЛЮБОЙ из
+	// четырёх функций БД (не только "запросить"/"выполнить") - cbackend
+	// эмитирует rech_db_substitute/rech_db_query/rech_db_exec (все три
+	// ссылаются на C-typedef ОБОИХ generic-типов) безусловно, как только
+	// UsesDB, независимо от того, какая конкретно из четырёх функций
+	// реально вызвана в программе (internal/backend/cbackend/db.go,
+	// dbRuntimeCode) - программа, вызвавшая только "подключиться_к_бд"/
+	// "закрыть_бд" (без единого "запросить"/"выполнить" и без буквального
+	// "новый Список<Значение>()" где-либо ещё), иначе не компилировалась бы
+	// ("unknown type name" на typedef, которого genericsCode не эмитировала
+	// вообще).
+	if _, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, dbResultType); err != nil {
+		return err
+	}
+	_, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, listOfAnyType.Entity)
 	return err
 }

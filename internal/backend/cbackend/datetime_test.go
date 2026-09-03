@@ -25,7 +25,7 @@ func TestGenerateFromIRDateTimeBuiltinCalls(t *testing.T) {
 				Type: ir.EntityType("ДатаВремя"), HasReturn: true,
 			}},
 			&ir.PrintStmt{Value: &ir.CallExpr{
-				Callee: "дата_в_строку", Args: []ir.Expr{&ir.Identifier{Name: "д", Type: ir.EntityType("ДатаВремя")}},
+				Callee: "дату_в_строку", Args: []ir.Expr{&ir.Identifier{Name: "д", Type: ir.EntityType("ДатаВремя")}},
 				Type: ir.TypeString, HasReturn: true,
 			}},
 			&ir.PrintStmt{Value: &ir.CallExpr{

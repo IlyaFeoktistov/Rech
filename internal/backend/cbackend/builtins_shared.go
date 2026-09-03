@@ -87,11 +87,20 @@ type builtinFlags struct {
 	usesQueryParams bool
 	// usesDateTime - нужны ли rech_time_now/rech_time_to_date/
 	// rech_date_to_time/rech_date_to_string (datetime.go) - встроенные
-	// функции "время"/"время_как_дата"/"дата_как_время"/"дата_в_строку".
+	// функции "время"/"время_как_дата"/"дата_как_время"/"дату_в_строку".
 	usesDateTime bool
 	// usesCookies - нужны ли rech_cookie_value/rech_cookie_string
 	// (cookies.go) - встроенные функции "значение_куки"/"строка_куки".
 	usesCookies bool
+	// usesEnv - нужен ли rech_getenv (env.go) - встроенная функция
+	// "получить_переменную_окружения".
+	usesEnv bool
+	// usesCrypto - нужны ли rech_sha256_hex/rech_hmac_sha256_hex/
+	// rech_base64url_encode/rech_base64url_decode (crypto.go) - встроенные
+	// функции "хеш_sha256"/"подпись_hmac_sha256"/"закодировать_base64url"/
+	// "декодировать_base64url" - не зависит от typedefs (только "const
+	// char *"), тем же принципом, что и usesStringOps/usesRandom.
+	usesCrypto bool
 }
 
 // builtinCallCode генерирует C-вызов встроенной функции (internal/builtins,
@@ -241,12 +250,15 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 	case "дата_как_время":
 		flags.usesDateTime = true
 		return fmt.Sprintf("rech_date_to_time(%s)", args[0]), true
-	case "дата_в_строку":
+	case "дату_в_строку":
 		flags.usesDateTime = true
 		return fmt.Sprintf("rech_date_to_string(%s)", args[0]), true
 	case "значение_куки":
 		flags.usesCookies = true
 		return fmt.Sprintf("rech_cookie_value((%s).%s, %s)", args[0], mangleField("заголовки"), args[1]), true
+	case "получить_переменную_окружения":
+		flags.usesEnv = true
+		return fmt.Sprintf("rech_getenv(%s)", args[0]), true
 	case "строка_куки":
 		flags.usesCookies = true
 		return fmt.Sprintf("rech_cookie_string(%s, %s, %s)", args[0], args[1], args[2]), true
@@ -281,6 +293,19 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 		// исключительно за <string.h>, здесь - за strstr.
 		flags.usesStrCmp = true
 		return fmt.Sprintf("(strstr(%s, %s) != NULL)", args[0], args[1]), true
+	case "хеш_sha256":
+		flags.usesCrypto = true
+		return fmt.Sprintf("rech_sha256_hex(%s)", args[0]), true
+	case "подпись_hmac_sha256":
+		flags.usesCrypto = true
+		return fmt.Sprintf("rech_hmac_sha256_hex(%s, %s)", args[0], args[1]), true
+	case "закодировать_base64url":
+		flags.usesCrypto = true
+		return fmt.Sprintf("rech_base64url_encode(%s)", args[0]), true
+	case "декодировать_base64url":
+		flags.usesCrypto = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_base64url_decode(%s)", args[0]), true
 	default:
 		return "", false
 	}

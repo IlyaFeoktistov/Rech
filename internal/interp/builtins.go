@@ -179,14 +179,24 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return intValue(randomInt(args[0].I, args[1].I)), true
 	case "время":
 		return intValue(nowUnix()), true
+	case "хеш_sha256":
+		return stringValue(sha256Hex(args[0].S)), true
+	case "подпись_hmac_sha256":
+		return stringValue(hmacSHA256Hex(args[0].S, args[1].S)), true
+	case "закодировать_base64url":
+		return stringValue(base64URLEncode(args[0].S)), true
+	case "декодировать_base64url":
+		return stringValue(base64URLDecode(args[0].S)), true
 	case "время_как_дата":
 		return timeToDate(args[0].I), true
 	case "дата_как_время":
 		return intValue(dateToTime(args[0])), true
-	case "дата_в_строку":
+	case "дату_в_строку":
 		return stringValue(dateToString(args[0])), true
 	case "значение_куки":
 		return cookieValue(args[0], args[1].S), true
+	case "получить_переменную_окружения":
+		return envValue(args[0].S), true
 	case "строка_куки":
 		return stringValue(cookieString(args[0].S, args[1].S, args[2])), true
 	case "подключиться_к_бд":

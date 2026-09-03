@@ -1,0 +1,135 @@
+package cbackend
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/IlyaFeoktistov/Rech/internal/lexer"
+	"github.com/IlyaFeoktistov/Rech/internal/parser"
+	"github.com/IlyaFeoktistov/Rech/internal/semantic"
+)
+
+// generateFromSrc - полный конвейер лексер -> парсер -> семантика ->
+// cbackend, тем же принципом, что и internal/interp.runSrc - нужен здесь,
+// потому что internal/dbscheme.Set (prog.DBBackends) заполняется ТОЛЬКО
+// семантическим анализом literal-аргумента "подключиться_к_бд(...)"
+// (internal/semantic/expr.go, markDBConnString) - ir.Program, построенный
+// вручную (как в остальных тестах этого пакета), не годится для этого
+// сценария.
+func generateFromSrc(t *testing.T, src string) string {
+	t.Helper()
+	toks, err := lexer.New(src).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	irProg, err := semantic.Analyze(prog)
+	if err != nil {
+		t.Fatalf("семантический анализ: %v", err)
+	}
+	out, err := GenerateFromIR(irProg)
+	if err != nil {
+		t.Fatalf("GenerateFromIR: %v", err)
+	}
+	return out
+}
+
+// TestGenerateFromIRDBOnlyEmitsUsedBackend - internal/dbscheme.Set
+// (docs/ROADMAP.md, "toolchain линкует -lsqlite3 -lpq -lmysqlclient
+// безусловно") - программа, подключающаяся ТОЛЬКО по literal-строке
+// "sqlite:..." не должна нести в сгенерированном C ни единого упоминания
+// PostgreSQL/MySQL (иначе линковка требовала бы их клиентские библиотеки
+// тоже, даже когда они не могут понадобиться - см. internal/toolchain,
+// commonLinkFlags).
+func TestGenerateFromIRDBOnlyEmitsUsedBackend(t *testing.T) {
+	out := generateFromSrc(t, `
+функция главная
+{
+    переменная бд = подключиться_к_бд("sqlite::memory:")
+    закрыть_бд(бд)
+}
+`)
+	if !strings.Contains(out, "sqlite3_open(") {
+		t.Fatalf("ожидался sqlite3_open( (SQLite используется), получено:\n%s", out)
+	}
+	// "RECH_DB_MYSQL"/"RECH_DB_PG" (значения enum "rech_db_kind") эмитируются
+	// БЕЗУСЛОВНО для любой программы с БД (db->kind сравнивается с ними
+	// независимо от того, какие СУБД реально скомпилированы, см. package
+	// doc dbConnectCloseCode) - не входят в проверку ниже, только настоящие
+	// функции/типы клиентских библиотек PostgreSQL/MySQL.
+	for _, absent := range []string{"PQconnectdb(", "mysql_init(", "PGconn", "typedef struct MYSQL "} {
+		if strings.Contains(out, absent) {
+			t.Fatalf("не ожидалось упоминание %q (только SQLite используется), получено:\n%s", absent, out)
+		}
+	}
+}
+
+// TestGenerateFromIRDBConnectCloseOnlyStillEmitsParamsListType - найденный
+// (не мой) баг: "rech_db_substitute"/"rech_db_query"/"rech_db_exec"
+// (db.go) безусловно эмитируются, как только UsesDB, и все ссылаются на
+// C-typedef "Список<Значение>" (параметры запроса) - но раньше он
+// принудительно регистрировался (registerDBTypesOnCall, internal/
+// semantic/db.go) только КАК ЧАСТЬ обработки любого из четырёх вызовов, но
+// без самого typedef'а: только dbResultType ("Список<Словарь<Строка,
+// Значение>>"), не listOfAnyType ("Список<Значение>" - параметры) - у
+// программы, вызвавшей только "подключиться_к_бд"/"закрыть_бд" (без
+// единого "запросить"/"выполнить" и без буквального "новый
+// Список<Значение>()"), генерировался код с необъявленным
+// "rech_T_spisok_of_znachenie" ("unknown type name" у настоящего cc).
+func TestGenerateFromIRDBConnectCloseOnlyStillEmitsParamsListType(t *testing.T) {
+	out := generateFromSrc(t, `
+функция главная
+{
+    переменная бд = подключиться_к_бд("sqlite::memory:")
+    закрыть_бд(бд)
+}
+`)
+	if !strings.Contains(out, "rech_T_spisok_of_znachenie") {
+		t.Fatalf("ожидался typedef параметров запроса (Список<Значение>) даже без \"запросить\"/\"выполнить\", получено:\n%s", out)
+	}
+}
+
+// TestGenerateFromIRDBDynamicConnStringEmitsAllBackends - строка
+// подключения НЕ литерал (параметр функции) - какая именно СУБД будет
+// выбрана, решится только в рантайме, поэтому internal/dbscheme.Set.Dynamic
+// взводится, и cbackend обязан эмитировать все три (безопасный откат к
+// прежнему безусловному поведению - см. package doc dbscheme.Set).
+func TestGenerateFromIRDBDynamicConnStringEmitsAllBackends(t *testing.T) {
+	out := generateFromSrc(t, `
+функция подключиться(строка_подключения: Строка): БД
+{
+    вернуть подключиться_к_бд(строка_подключения)
+}
+
+функция главная
+{
+    переменная бд = подключиться("sqlite::memory:")
+    закрыть_бд(бд)
+}
+`)
+	for _, want := range []string{"sqlite3_open(", "PQconnectdb(", "mysql_init("} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ожидалось упоминание %q (динамическая строка подключения - безопасный откат ко всем трём), получено:\n%s", want, out)
+		}
+	}
+}
+
+// TestGenerateFromIRWithoutDBOmitsAllBackends - программа без единого
+// использования БД не должна нести ничего из её рантайма вообще (тот же
+// принцип, что и у остальных builtin-флагов пакета).
+func TestGenerateFromIRWithoutDBOmitsAllBackends(t *testing.T) {
+	out := generateFromSrc(t, `
+функция главная
+{
+    вывести 1
+}
+`)
+	for _, absent := range []string{"sqlite3_open(", "PQconnectdb(", "mysql_init(", "rech_db_connect("} {
+		if strings.Contains(out, absent) {
+			t.Fatalf("не ожидалось упоминание %q (БД не используется), получено:\n%s", absent, out)
+		}
+	}
+}

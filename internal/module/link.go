@@ -29,9 +29,32 @@ func mangledName(m, entry *Module, name string) string {
 // для того, что m импортировал (Import.Alias - как оно написано в теле m -
 // -> mangledName настоящего Import.Name в модуле-источнике; переименование
 // при импорте, "как", - именно поэтому ключ здесь Alias, а не Name).
+//
+// НАЙДЕННЫЙ БАГ (исправлен здесь): имена интерфейсов m.AST.Interfaces
+// входят в localTypeNames(m.AST) наравне с функциями/сущностями, поэтому
+// раньше тоже проходили через mangledName - получали префикс Qualifier у
+// любого НЕ-entry модуля. Но Link() (см. merge ниже) сливает
+// merged.Interfaces БЕЗ переименования (тем же принципом, что и Enums/
+// Consts - "использовать" пока не умеет импортировать интерфейс по имени,
+// см. её комментарий) - несовпадение этих двух мест давало ссылку на
+// смангленное имя ("Файл_Интерфейс") там, где сам интерфейс на самом деле
+// остался под своим бare-именем, и cbackend падал "неизвестный тип" при
+// первом же использовании интерфейса как типа параметра/поля/результата
+// внутри НЕ-entry файла многофайловой программы (что скомпилировалось бы
+// без единого "использовать" вообще). Интерфейсы поэтому исключены из
+// mangledName здесь - разрешаются в СВОЁ СОБСТВЕННОЕ bare-имя, ровно как
+// они и оказываются в merged.Interfaces.
 func buildNames(m, entry *Module) map[string]string {
+	ifaceNames := make(map[string]bool, len(m.AST.Interfaces))
+	for _, iface := range m.AST.Interfaces {
+		ifaceNames[iface.Name] = true
+	}
 	names := map[string]string{}
 	for name := range localTypeNames(m.AST) {
+		if ifaceNames[name] {
+			names[name] = name
+			continue
+		}
 		names[name] = mangledName(m, entry, name)
 	}
 	for _, imp := range m.Imports {
@@ -79,6 +102,27 @@ func (p *Program) Link() (*ast.Program, error) {
 			r.typeParams = typeParamSet(ent.TypeParams)
 			if err := r.rewriteFields(ent.Fields); err != nil {
 				return nil, fmt.Errorf("%s: сущность %q: %w", m.Path, ent.Name, err)
+			}
+			// НАЙДЕННЫЙ БАГ (исправлен здесь): явный конструктор
+			// (EntityDecl.Ctor, internal/ast/constructor.go) не входил в
+			// этот цикл вообще - в отличие от обычных методов (см. ниже),
+			// его параметры и тело никогда не проходили rewriteParams/
+			// rewriteStmts. Тип параметра конструктора, ссылающийся на
+			// сущность из ДРУГОГО файла (например, "конструктор(бд: БД,
+			// логгер: ЛоггерИнтерфейс)" ... "конструктор(зависимость:
+			// Зависимость)", где "Зависимость" объявлена в другом файле),
+			// оставался несмангленным ("неизвестный тип" у cbackend) - тот
+			// же класс бага, что и у интерфейсов в НЕ-entry модуле (см.
+			// TestLinkResolvesInterfaceTypeInNonEntryModule), только для
+			// параметров конструктора, а не типа целиком.
+			if ent.Ctor != nil {
+				r.locals = nil
+				if err := r.rewriteParams(ent.Ctor.Params); err != nil {
+					return nil, fmt.Errorf("%s: сущность %q: конструктор: %w", m.Path, ent.Name, err)
+				}
+				if err := r.rewriteStmts(ent.Ctor.Body); err != nil {
+					return nil, fmt.Errorf("%s: сущность %q: конструктор: %w", m.Path, ent.Name, err)
+				}
 			}
 			for _, meth := range ent.Methods {
 				r.locals = nil

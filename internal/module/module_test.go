@@ -238,6 +238,116 @@ func TestLinkPreservesEnums(t *testing.T) {
 	}
 }
 
+// TestLinkResolvesInterfaceTypeInNonEntryModule - найденный баг: имя
+// интерфейса, объявленного в НЕ-entry файле, раньше резолвилось внутри
+// самого этого файла (ссылка на него как тип параметра/поля/результата) в
+// СМАНГЛЕННОЕ имя ("Файл_Интерфейс" - localTypeNames включает интерфейсы
+// наравне с функциями/сущностями, buildNames раньше манглила их все
+// одинаково), а слияние (Link) переносило сам интерфейс БЕЗ переименования
+// (тем же принципом, что и Enums) - несовпадение ломало любую ссылку на
+// интерфейс как тип внутри НЕ-entry файла ("неизвестный тип" у cbackend),
+// хотя тот же код компилировался бы без единого "использовать" вообще.
+func TestLinkResolvesInterfaceTypeInNonEntryModule(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "звук.rech", `интерфейс Звучащий
+{
+    издать_звук(): Строка
+}
+
+сущность Кошка реализует Звучащий
+{
+    издать_звук(): Строка
+    {
+        вернуть "мяу"
+    }
+}
+
+функция озвучить(х: Звучащий): Строка
+{
+    вернуть х.издать_звук()
+}
+`)
+	entry := writeFile(t, dir, "главный.rech", "использовать Кошка, озвучить из \"звук\"\n\nфункция главная\n{\n    вывести озвучить(новая Кошка())\n}\n")
+
+	prog, err := Load(entry, testFrontend{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	merged, err := prog.Link()
+	if err != nil {
+		t.Fatalf("Link: %v", err)
+	}
+	if len(merged.Interfaces) != 1 || merged.Interfaces[0].Name != "Звучащий" {
+		t.Fatalf("ожидался интерфейс %q в слинкованной программе, получено: %+v", "Звучащий", merged.Interfaces)
+	}
+	var found bool
+	for _, fn := range merged.Functions {
+		if fn.Name == "Звук_озвучить" {
+			found = true
+			if len(fn.Params) != 1 || fn.Params[0].Type != "Звучащий" {
+				t.Fatalf("ожидался параметр типа %q, получено: %+v", "Звучащий", fn.Params)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("не найдена смангленная функция \"Звук_озвучить\", получено: %+v", merged.Functions)
+	}
+}
+
+// TestLinkResolvesExplicitConstructorParamType - найденный баг: явный
+// конструктор сущности (EntityDecl.Ctor) не входил в цикл Link() вообще -
+// в отличие от обычных методов, его параметры/тело никогда не проходили
+// rewriteParams/rewriteStmts, поэтому тип параметра конструктора,
+// ссылающийся на сущность из ДРУГОГО файла, оставался несмангленным
+// ("неизвестный тип" у cbackend).
+func TestLinkResolvesExplicitConstructorParamType(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "внутренняя.rech", "сущность Внутренняя\n{\n    имеет:\n        значение: Целое\n}\n")
+	entry := writeFile(t, dir, "главный.rech", `использовать Внутренняя из "внутренняя"
+
+сущность Внешняя
+{
+    имеет:
+        приватный внутр: Внутренняя
+
+    конструктор(внутр: Внутренняя)
+    {
+        этот.внутр = внутр
+    }
+}
+
+функция главная
+{
+    вывести 1
+}
+`)
+
+	prog, err := Load(entry, testFrontend{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	merged, err := prog.Link()
+	if err != nil {
+		t.Fatalf("Link: %v", err)
+	}
+	var found bool
+	for _, ent := range merged.Entities {
+		if ent.Name != "Внешняя" {
+			continue
+		}
+		found = true
+		// "Внутренняя_Внутренняя" - смангленное имя ("внутренняя.rech" -
+		// НЕ-entry модуль, qualifier "Внутренняя" + "_" + имя сущности) -
+		// именно ЭТО раньше не происходило вообще (см. package doc теста).
+		if ent.Ctor == nil || len(ent.Ctor.Params) != 1 || ent.Ctor.Params[0].Type != "Внутренняя_Внутренняя" {
+			t.Fatalf("ожидался параметр конструктора типа %q, получено: %+v", "Внутренняя_Внутренняя", ent.Ctor)
+		}
+	}
+	if !found {
+		t.Fatalf("не найдена сущность \"Внешняя\", получено: %+v", merged.Entities)
+	}
+}
+
 func TestLinkNoCollisionBetweenUnrelatedFiles(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "один.rech", "функция взять(): Целое\n{\n    вернуть 1\n}\n")

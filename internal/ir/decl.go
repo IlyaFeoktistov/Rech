@@ -11,7 +11,10 @@
 // (semantic.Analyze -> cbackend.GenerateFromIR), не напрямую по AST.
 package ir
 
-import "github.com/IlyaFeoktistov/Rech/internal/structtag"
+import (
+	"github.com/IlyaFeoktistov/Rech/internal/dbscheme"
+	"github.com/IlyaFeoktistov/Rech/internal/structtag"
+)
 
 // Program - корень IR-дерева программы.
 type Program struct {
@@ -71,6 +74,16 @@ type Program struct {
 	// doc internal/backend/cbackend/db.go) и линковать ли клиентские
 	// библиотеки (-lsqlite3/-lpq/-lmysqlclient).
 	UsesDB bool
+	// DBBackends - какие конкретно СУБД (SQLite/PostgreSQL/MySQL) реально
+	// встречены среди literal-аргументов "подключиться_к_бд(...)" во всей
+	// программе (internal/dbscheme.Set) - backend'у это нужно, чтобы
+	// эмитировать (и линковать) рантайм только тех драйверов, которые
+	// действительно могут понадобиться, а не всех трёх безусловно (см.
+	// docs/ROADMAP.md - toolchain раньше линковал -lsqlite3/-lpq/
+	// -lmysqlclient безусловно при любом использовании БД). Dynamic (см.
+	// package doc dbscheme.Set) - безопасный откат к "все три", когда
+	// строка подключения хотя бы раз построена не литералом.
+	DBBackends dbscheme.Set
 	// DBRowTargets - сущности, встретившиеся хоть раз ЭЛЕМЕНТОМ цели
 	// "запросить(...) как Список<Тип>" (DBRowsAsExpr, internal/semantic/
 	// db_rows.go), без повторов - тем же принципом, что и ParseTargets:
