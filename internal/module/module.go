@@ -214,7 +214,13 @@ func LoadWithDeps(entryPath string, frontend Frontend, deps map[string]string) (
 // LoadWithDeps (rootDeps без транзитивной части).
 func LoadWithGraph(entryPath string, frontend Frontend, rootDeps map[string]string, scopes map[string]map[string]string) (*Program, error) {
 	l := &loader{frontend: frontend, loaded: map[string]*Module{}, inProgress: map[string]bool{}, scopes: scopes}
-	entry, err := l.load(filepath.Clean(entryPath), nil, rootDeps)
+	// root - каталог entry-файла (не самого .rechproj - module не знает про
+	// него вовсе, см. package doc resolveImportPath про "@") - точка отсчёта
+	// для "использовать ... из "@путь"" всей ОСНОВНОЙ программы. У файла
+	// ВНУТРИ зависимости - свой собственный root (её каталог, см. load
+	// ниже, crossedInto), не этот.
+	root := filepath.Dir(filepath.Clean(entryPath))
+	entry, err := l.load(filepath.Clean(entryPath), nil, rootDeps, root)
 	if err != nil {
 		return nil, err
 	}
@@ -233,7 +239,7 @@ type loader struct {
 	scopes map[string]map[string]string
 }
 
-func (l *loader) load(path string, stack []string, deps map[string]string) (*Module, error) {
+func (l *loader) load(path string, stack []string, deps map[string]string, root string) (*Module, error) {
 	if m, ok := l.loaded[path]; ok {
 		return m, nil
 	}
@@ -258,15 +264,21 @@ func (l *loader) load(path string, stack []string, deps map[string]string) (*Mod
 	declared := declaredNames(prog)
 
 	for _, use := range prog.Uses {
-		targetPath, crossedInto, err := resolveImportPath(filepath.Dir(path), use.Path, deps)
+		targetPath, crossedInto, err := resolveImportPath(filepath.Dir(path), root, use.Path, deps)
 		if err != nil {
 			return nil, fmt.Errorf("строка %d: %w", use.Line, err)
 		}
 		nextDeps := deps
+		nextRoot := root
 		if crossedInto != "" {
 			nextDeps = l.scopes[crossedInto]
+			// Файл ВНУТРИ зависимости резолвит СВОИ "@путь" от СВОЕГО же
+			// корня (каталога, куда она скачана), не от корня программы,
+			// которая её подключила - тем же принципом приватности, что и у
+			// nextDeps/scopes выше (package doc LoadWithGraph).
+			nextRoot = crossedInto
 		}
-		target, err := l.load(targetPath, append(append([]string{}, stack...), path), nextDeps)
+		target, err := l.load(targetPath, append(append([]string{}, stack...), path), nextDeps, nextRoot)
 		if err != nil {
 			return nil, err
 		}
@@ -298,35 +310,84 @@ func (l *loader) load(path string, stack []string, deps map[string]string) (*Mod
 }
 
 // resolveImportPath разрешает путь импорта ("утилиты/http/коды_ответов",
-// без расширения) в файловый путь. Каждый сегмент проверяется тем же
-// правилом, что и имя файла (ValidSegmentName) - строчные буквы/цифры/"_",
-// NFC - поэтому "." и ".." как сегменты уже отклонены самим алфавитом,
-// отдельно исключать их не нужно.
+// без расширения) в файловый путь. Каждый сегмент (кроме ведущих ".." -
+// см. ниже) проверяется тем же правилом, что и имя файла
+// (ValidSegmentName) - строчные буквы/цифры/"_", NFC.
 //
-// Если самый ПЕРВЫЙ сегмент совпадает с именем внешней зависимости из deps
-// (см. package doc LoadWithDeps) - путь разрешается ВНУТРИ каталога этой
-// зависимости, а не относительно baseDir ("использовать Клиент из
-// "клиент/файл"" - "клиент" здесь имя зависимости из .rechproj, "файл" -
-// путь внутри её скачанных исходников), и crossedInto возвращает этот
-// каталог (см. package doc LoadWithGraph - вызывающая сторона должна
-// продолжить резолюцию ВНУТРИ него уже по ЕГО собственной карте имён, не
-// по deps). Иначе - как раньше, относительно baseDir (каталог файла, где
-// написано "использовать"), crossedInto == "".
-func resolveImportPath(baseDir, importPath string, deps map[string]string) (path, crossedInto string, err error) {
+// **"@путь"** (абсолютный импорт от корня программы, аналог "baseUrl"/path
+// alias в TypeScript) - самый короткий способ дотянуться до файла в
+// СОСЕДНЕЙ подпапке (docs/ROADMAP.md, Шаг 41 - обычный относительный путь
+// без "@"/".." не может выйти из своей поддиректории вообще: файл в
+// "бд/файл.rech" в принципе не мог дотянуться до "токен/файл.rech"). "@"
+// отбрасывается, ОСТАТОК резолвится от projectRoot (не от baseDir) -
+// "@токен/токен" из ЛЮБОГО файла программы, на любой глубине, попадает в
+// один и тот же файл, не завися от того, где лежит сам импортирующий файл
+// (в отличие от ".." ниже - ЧИСЛО "../" пришлось бы менять при переносе
+// файла глубже/мельче по дереву). projectRoot - см. package doc
+// LoadWithGraph/load (каталог entry-файла ОСНОВНОЙ программы; у файла
+// внутри зависимости - каталог САМОЙ этой зависимости, не общий на всю
+// программу). "@" не смешивается с именем зависимости - зависимость
+// резолвится ТОЛЬКО обычным (не "@") путём, тем же принципом
+// "приватности" зависимости для объявившего её проекта, что и у
+// deps/scopes.
+//
+// **"../"** (один и более раз подряд, В НАЧАЛЕ пути) - обычная навигация
+// вверх по дереву каталогов ОТНОСИТЕЛЬНО baseDir, тем же смыслом, что и в
+// файловых путях большинства языков - каждый "../" поднимается на один
+// каталог выше, ПЕРЕД тем, как начнётся обычная (ValidSegmentName)
+// часть пути. ".."/"." как отдельные сегменты ГДЕ УГОДНО, КРОМЕ этого
+// ведущего префикса (например, "тест/../файл" - "запутывающий" путь,
+// не поднимающийся, а петляющий) по-прежнему отклонены самим алфавитом
+// ValidSegmentName - только ведущая последовательность "../.../" имеет
+// особый смысл.
+//
+// Если самый ПЕРВЫЙ сегмент ОБЫЧНОГО (без "@", без ведущих "..") пути
+// совпадает с именем внешней зависимости из deps (см. package doc
+// LoadWithDeps) - путь разрешается ВНУТРИ каталога этой зависимости, а не
+// относительно baseDir ("использовать Клиент из "клиент/файл"" - "клиент"
+// здесь имя зависимости из .rechproj, "файл" - путь внутри её скачанных
+// исходников), и crossedInto возвращает этот каталог (см. package doc
+// LoadWithGraph - вызывающая сторона должна продолжить резолюцию ВНУТРИ
+// него уже по ЕГО собственной карте имён, не по deps). Иначе - относительно
+// baseDir (каталог файла, где написано "использовать", после применения
+// ведущих ".." выше), crossedInto == "".
+func resolveImportPath(baseDir, projectRoot, importPath string, deps map[string]string) (path, crossedInto string, err error) {
+	if body, isAbsolute := strings.CutPrefix(importPath, "@"); isAbsolute {
+		segments := strings.Split(body, "/")
+		for _, seg := range segments {
+			if err := ValidSegmentName(seg); err != nil {
+				return "", "", fmt.Errorf("путь импорта %q: %w", importPath, err)
+			}
+		}
+		parts := append([]string{projectRoot}, segments...)
+		return filepath.Join(parts...) + ".rech", "", nil
+	}
+
 	segments := strings.Split(importPath, "/")
-	for _, seg := range segments {
+	root := baseDir
+	i := 0
+	for i < len(segments) && segments[i] == ".." {
+		root = filepath.Dir(root)
+		i++
+	}
+	rest := segments[i:]
+	if len(rest) == 0 {
+		return "", "", fmt.Errorf("путь импорта %q: после \"..\" ожидался путь к файлу", importPath)
+	}
+	for _, seg := range rest {
 		if err := ValidSegmentName(seg); err != nil {
 			return "", "", fmt.Errorf("путь импорта %q: %w", importPath, err)
 		}
 	}
-	root := baseDir
-	rest := segments
-	if depDir, ok := deps[segments[0]]; ok {
-		root = depDir
-		crossedInto = depDir
-		rest = segments[1:]
-		if len(rest) == 0 {
-			return "", "", fmt.Errorf("путь импорта %q: после имени зависимости %q ожидался путь к файлу внутри неё", importPath, segments[0])
+	if i == 0 {
+		if depDir, ok := deps[rest[0]]; ok {
+			depName := rest[0]
+			root = depDir
+			crossedInto = depDir
+			rest = rest[1:]
+			if len(rest) == 0 {
+				return "", "", fmt.Errorf("путь импорта %q: после имени зависимости %q ожидался путь к файлу внутри неё", importPath, depName)
+			}
 		}
 	}
 	parts := append([]string{root}, rest...)

@@ -72,7 +72,7 @@ func TestLoadWithGraphResolvesTransitiveDependencyScope(t *testing.T) {
 // существования файла на диске.
 func TestResolveImportPathPrefersDependencyOverLocalDir(t *testing.T) {
 	depDir := t.TempDir()
-	got, crossedInto, err := resolveImportPath("/базовый/каталог", "клиент/файл", map[string]string{"клиент": depDir})
+	got, crossedInto, err := resolveImportPath("/базовый/каталог", "/корень/программы", "клиент/файл", map[string]string{"клиент": depDir})
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
