@@ -592,6 +592,19 @@ func callHasReturn(e ir.Expr) bool {
 // бы быть верной (established - консервативное над-приближение: не
 // доказано - не значит "точно неверно", просто компилятор не проследил всю
 // историю значения, например, через непрозрачный вызов чужой функции).
+//
+// Симметрично: established для каждого аргумента-сущности/интерфейса,
+// переданного по ссылке ПРОСТЫМ именем (не получателем метода - там
+// established переносится/снимается ТОЧНО через GuaranteedThisStates/
+// RevokesStates, analyzeMethodCallExpr), инвалидируется ЦЕЛИКОМ сразу
+// после вызова (см. invalidateEstablishedForOpaqueArg) - опаque-функция
+// могла установить ЛЮБОЕ состояние объекта своим собственным
+// "становится"/вызовом метода-противоположности внутри своего тела,
+// компилятор не видит её тела здесь. Без этого established остался бы
+// (ошибочно) доказанным даже после вызова, который его на самом деле снял -
+// established может только РАСТИ через известные операции (становится,
+// пересечение если/иначе), но не может СОКРАЩАТЬСЯ от факта "передан кому-
+// то ещё", если явно не проверить это здесь.
 func checkCallArgs(sc *ctx, args []ast.Expr, sig funcSig, line int, callee, argLabel string) ([]ir.Expr, error) {
 	if len(args) != len(sig.Params) {
 		return nil, fmt.Errorf("строка %d: %s ожидает аргументов: %d, передано: %d", line, callee, len(sig.Params), len(args))
@@ -611,9 +624,31 @@ func checkCallArgs(sc *ctx, args []ast.Expr, sig funcSig, line int, callee, argL
 				arg = &ir.StateCheckExpr{Value: arg, Entity: sig.Params[i].Entity, State: required, Line: line}
 			}
 		}
+		invalidateEstablishedForOpaqueArg(sc, arg)
 		out[i] = arg
 	}
 	return out, nil
+}
+
+// invalidateEstablishedForOpaqueArg - см. package doc checkCallArgs. arg -
+// уже проанализированный аргумент (возможно, уже обёрнутый в
+// ir.StateCheckExpr самим checkCallArgs выше) - разворачивает такую
+// обёртку, чтобы найти исходное отслеживаемое выражение под ней.
+func invalidateEstablishedForOpaqueArg(sc *ctx, arg ir.Expr) {
+	value := arg
+	if check, ok := arg.(*ir.StateCheckExpr); ok {
+		value = check.Value
+	}
+	t := ir.TypeOf(value)
+	if t.Kind != ir.KindEntity && t.Kind != ir.KindInterface {
+		return
+	}
+	switch v := value.(type) {
+	case *ir.Identifier:
+		sc.setEstablished(v.Name, nil)
+	case *ir.ThisExpr:
+		sc.thisEstablished = nil
+	}
 }
 
 func analyzeUnaryExpr(sc *ctx, e *ast.UnaryExpr) (ir.Expr, error) {

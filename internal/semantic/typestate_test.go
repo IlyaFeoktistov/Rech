@@ -88,6 +88,67 @@ func TestCheckCallArgsUnprovenArgWrapsInStateCheck(t *testing.T) {
 	}
 }
 
+// TestCheckCallArgsInvalidatesEstablishedAfterOpaqueCall - сущность,
+// переданная ПРОСТЫМ именем в обычный параметр (по ссылке), теряет
+// established целиком после вызова - опаque-функция могла снять
+// established состояние своим собственным вызовом внутри тела (здесь -
+// метод-противоположность), established не может этого узнать, поэтому
+// консервативно инвалидируется целиком (см. package doc checkCallArgs,
+// invalidateEstablishedForOpaqueArg). Без этого повторное использование
+// того же значения после опаque-вызова ошибочно осталось бы "доказанным".
+func TestCheckCallArgsInvalidatesEstablishedAfterOpaqueCall(t *testing.T) {
+	prog := parseProgram(t, `
+сущность Пользователь
+{
+    состояние: вошедший
+
+    имеет:
+        имя: Строка
+
+    конструктор(имя: Строка)
+    {
+        этот.имя = имя
+    }
+
+    войти(): Пользователь
+    {
+        этот становится вошедшим
+        вернуть этот
+    }
+
+    выйти() `+"`противоположность:войти`"+`
+    {
+    }
+
+    представиться(п: ВошедшийПользователь): Строка
+    {
+        вернуть п.имя
+    }
+}
+функция обернуть_выход(п: Пользователь)
+{
+    п.выйти()
+}
+функция главная
+{
+    переменная аня = новый Пользователь("Аня")
+    аня = аня.войти()
+    обернуть_выход(аня)
+    вывести аня.представиться(аня)
+}
+`)
+	fn := findFunc(prog, "главная")
+	printStmt := fn.Body[3].(*ir.PrintStmt)
+	call := printStmt.Value.(*ir.MethodCallExpr)
+	check, ok := call.Args[0].(*ir.StateCheckExpr)
+	if !ok {
+		t.Fatalf("established должен был инвалидироваться вызовом \"обернуть_выход(аня)\" - ожидался ir.StateCheckExpr, получено %T", call.Args[0])
+	}
+	if check.State != "вошедший" {
+		t.Fatalf("ожидалась проверка состояния \"вошедший\", получено %q", check.State)
+	}
+}
+
 // TestAnalyzeIsExprStateAliasBuildsHasStateExpr - "относится к
 // <ПроизводныйТипСостояния>" - ir.HasStateExpr (запрос текущего состояния),
 // не ir.IsExpr (проверка типа) - Target зарегистрирован как alias
