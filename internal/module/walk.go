@@ -8,6 +8,34 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/builtins"
 )
 
+// callableTypeName - зарезервированное имя типа "функция как значение"
+// (internal/parser/callable.go, callableTypeName) - продублировано здесь
+// локальной константой, не импортом (internal/parser уже импортирует
+// internal/module, обратный импорт дал бы цикл), см. package doc
+// resolveTypeRef.
+const callableTypeName = "Вызываемый"
+
+// findMatchingAngleClose возвращает индекс ">", закрывающего "<" на позиции
+// openIdx в s, с учётом вложенных "<...>" (глубина, не первая попавшаяся
+// ">") - -1, если не найдена. Используется resolveTypeRef для канонической
+// строки типа "Вызываемый<...>Результат", где ">" после параметров - НЕ
+// обязательно последний символ строки (в отличие от "Шаблон<...>" ниже).
+func findMatchingAngleClose(s string, openIdx int) int {
+	depth := 0
+	for i := openIdx; i < len(s); i++ {
+		switch s[i] {
+		case '<':
+			depth++
+		case '>':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
 // builtinTypeBases - имена типов, встроенных в язык (не требуют ни
 // объявления, ни импорта): примитивы, "Файл"/"Сокет"/"БД" (непрозрачные
 // дескрипторы), "Запрос"/"Ответ" (HTTP-клиент,
@@ -86,6 +114,25 @@ func resolveBareName(name string, names map[string]string) (string, error) {
 // из другого файла с "как" должно стать "?Псевдоним", не остаться
 // нерезолвленным).
 //
+// "Вызываемый<Тип1, Тип2>Результат" (каноническая строка типа "функция как
+// значение", internal/parser/callable.go, callableTypeName - НЕ
+// импортируется отсюда: internal/parser уже импортирует internal/module,
+// импорт в обратную сторону дал бы цикл, поэтому имя продублировано
+// локальной строкой) - результат идёт СРАЗУ за закрывающей ">" БЕЗ
+// разделителя, значит форма НЕ подходит под общий случай "Шаблон<...>"
+// ниже (тот требует, чтобы typeName оканчивался на ">" ЦЕЛИКОМ - для
+// непустого Результата это не так). Раньше (см. историю этой функции)
+// из-за этого несовпадения строка возвращалась КАК ЕСТЬ безусловно - тип
+// пользовательской сущности внутри "Вызываемый(...)" не переименовывался
+// при связывании нескольких файлов, "неизвестный тип" у cbackend. Разбирается
+// отдельно, ДО общего случая "Шаблон<...>" ниже: находится ЗАКРЫВАЮЩАЯ
+// "<...>", соответствующая первой "<" (findMatchingAngleClose - учитывает
+// вложенные "<...>" у самих параметров/результата, как и
+// splitTopLevelTypeArgs ниже), всё после неё - Результат (резолвится тем же
+// resolveTypeRef, пусто - результата нет). Собственные параметры типа
+// "Вызываемый<T>(T): T" в каноническую строку не попадают вовсе
+// (parseCallableTypeName, package doc) - здесь их и не увидеть.
+//
 // "Шаблон<Аргумент[, Аргумент2]>" (Список/Стопка/Очередь/Словарь/
 // Указатель) - САМ Шаблон не резолвится (встроенное ключевое слово, не
 // объявляется/не импортируется), а каждый Аргумент - обычная ссылка на
@@ -94,31 +141,75 @@ func resolveBareName(name string, names map[string]string) (string, error) {
 // см. internal/semantic.resolveGenericTypeName - сущность-элемент из
 // НЕ-entry модуля обязана переименоваться точно так же, как и любая другая
 // ссылка на неё). Требует ровно распознанной формы "Шаблон<...>" ЦЕЛИКОМ
-// (typeName оканчивается на ">") - у "Вызываемый<Тип1, Тип2>Результат"
-// (каноническая строка типа "функция как значение", internal/parser/
-// callable.go) результат идёт СРАЗУ за закрывающей ">" без разделителя,
-// значит она обычно НЕ оканчивается на ">" - не подходит под этот случай и
-// намеренно остаётся БЕЗ резолюции (возвращается как есть, тем же
-// принципом, что и раньше) - у Callable-полей/параметров, ссылающихся на
-// сущность из другого модуля, кросс-модульное переименование по-прежнему
-// не работает (отдельный, не решаемый здесь пробел).
-func resolveTypeRef(typeName string, names map[string]string) (string, error) {
+// (typeName оканчивается на ">").
+// typeParams - имена параметров типа generic-сущности/функции, ЧЬЁ
+// объявление сейчас резолвится (rewriter.typeParams, typeParamSet) -
+// локальные заглушки ("T"), не ссылки на объявленный где-то тип, поэтому
+// возвращаются как есть, БЕЗ похода в names - вплоть до этого исправления
+// resolveTypeRef ЭТОГО НЕ ЗНАЛ вообще: только верхнеуровневая обёртка
+// rewriter.resolveType сверяла typeParams, и только для ЦЕЛОЙ строки типа
+// параметра/поля/результата ЦЕЛИКОМ - "T" сам по себе (тип результата)
+// проходил проверку, но "Список<T>" (тип параметра generic-функции вида
+// "первый<T>(список: Список<T>): T") не совпадал с "T" как целая строка,
+// проваливался в резолюцию Аргумента ниже уже БЕЗ typeParams (рекурсивные
+// вызовы были к этой же функции напрямую, в обход rewriter.resolveType) -
+// "T" внутри "Список<T>" считалось ссылкой на необъявленный тип. НАЙДЕННЫЙ
+// РЕАЛЬНЫЙ БАГ, не связанный с "Вызываемый(...)" выше: ЛЮБАЯ
+// generic-функция/сущность с контейнером собственного параметра типа
+// параметром/полем ломалась при прохождении через настоящий
+// module.Link() (даже в ОДНОМ файле без единого "использовать" -
+// compiler.Compile всегда вызывает Link()) - не поймано тестами раньше,
+// потому что internal/interp.TestRunAllExamplesMatchCompiledOutput
+// (`examples/обобщённые/коробка.rech`, ровно этот случай) гоняет
+// parser+semantic напрямую, минуя internal/module целиком.
+func resolveTypeRef(typeName string, names map[string]string, typeParams map[string]bool) (string, error) {
 	if typeName == "" {
 		return typeName, nil
 	}
+	if typeParams[typeName] {
+		return typeName, nil
+	}
 	if strings.HasPrefix(typeName, "?") {
-		inner, err := resolveTypeRef(typeName[len("?"):], names)
+		inner, err := resolveTypeRef(typeName[len("?"):], names, typeParams)
 		if err != nil {
 			return "", err
 		}
 		return "?" + inner, nil
+	}
+	if strings.HasPrefix(typeName, callableTypeName+"<") {
+		open := len(callableTypeName)
+		closeIdx := findMatchingAngleClose(typeName, open)
+		if closeIdx == -1 {
+			return typeName, nil
+		}
+		paramsText := typeName[open+1 : closeIdx]
+		var resolvedParams []string
+		if paramsText != "" {
+			for _, a := range splitTopLevelTypeArgs(paramsText) {
+				resolved, err := resolveTypeRef(strings.TrimSpace(a), names, typeParams)
+				if err != nil {
+					return "", err
+				}
+				resolvedParams = append(resolvedParams, resolved)
+			}
+		}
+		resultText := typeName[closeIdx+1:]
+		resolvedResult := ""
+		if resultText != "" {
+			resolved, err := resolveTypeRef(resultText, names, typeParams)
+			if err != nil {
+				return "", err
+			}
+			resolvedResult = resolved
+		}
+		return callableTypeName + "<" + strings.Join(resolvedParams, ", ") + ">" + resolvedResult, nil
 	}
 	if open := strings.Index(typeName, "<"); open != -1 && strings.HasSuffix(typeName, ">") {
 		template := typeName[:open]
 		args := splitTopLevelTypeArgs(typeName[open+1 : len(typeName)-1])
 		resolvedArgs := make([]string, len(args))
 		for i, a := range args {
-			resolved, err := resolveTypeRef(strings.TrimSpace(a), names)
+			resolved, err := resolveTypeRef(strings.TrimSpace(a), names, typeParams)
 			if err != nil {
 				return "", err
 			}
@@ -204,13 +295,10 @@ func typeParamSet(params []ast.GenericParam) map[string]bool {
 	return set
 }
 
-// resolveType - resolveTypeRef, но пропускающий типы, равные одному из
-// typeParams как есть (см. package doc rewriter).
+// resolveType - resolveTypeRef с уже известными r.names/r.typeParams (см.
+// package doc resolveTypeRef про typeParams).
 func (r *rewriter) resolveType(typeName string) (string, error) {
-	if r.typeParams[typeName] {
-		return typeName, nil
-	}
-	return resolveTypeRef(typeName, r.names)
+	return resolveTypeRef(typeName, r.names, r.typeParams)
 }
 
 func (r *rewriter) rewriteParams(params []ast.Param) error {
@@ -247,7 +335,11 @@ func (r *rewriter) rewriteReturnType(returnType string) (string, error) {
 func (r *rewriter) rewriteTypeParams(params []ast.GenericParam) error {
 	for i, p := range params {
 		for j, c := range p.Constraints {
-			resolved, err := resolveTypeRef(c, r.names)
+			// nil, не r.typeParams - вызывается ДО link.go выставляет
+			// r.typeParams для этого же generic-объявления (см. package doc
+			// rewriter), да и ограничение не может осмысленно ссылаться на
+			// сам объявляемый параметр типа.
+			resolved, err := resolveTypeRef(c, r.names, nil)
 			if err != nil {
 				return fmt.Errorf("параметр типа %q: %w", p.Name, err)
 			}
@@ -350,7 +442,7 @@ func (r *rewriter) rewriteStmt(s ast.Stmt) error {
 			return err
 		}
 		for i, t := range s.CatchTypes {
-			resolved, err := resolveTypeRef(t, r.names)
+			resolved, err := resolveTypeRef(t, r.names, r.typeParams)
 			if err != nil {
 				return fmt.Errorf("\"поймать(...)\": %w", err)
 			}
@@ -426,7 +518,7 @@ func (r *rewriter) rewriteExpr(e ast.Expr) error {
 			e.Callee = resolved
 		}
 		for i, t := range e.TypeArgs {
-			resolvedType, err := resolveTypeRef(t, r.names)
+			resolvedType, err := resolveTypeRef(t, r.names, r.typeParams)
 			if err != nil {
 				return fmt.Errorf("строка %d: аргумент типа: %w", e.Line, err)
 			}

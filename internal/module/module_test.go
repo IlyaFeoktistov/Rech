@@ -462,6 +462,108 @@ func TestLinkImportsExternEntityPreservingCNameButRenamingAlias(t *testing.T) {
 // (mangledName переименовывает её) ссылка "Список<Товар>" оставалась бы
 // "Список<Товар>" (старое, ДО переименования имя), а не "Список<Утилиты_Товар>" -
 // cbackend/semantic не нашли бы такой тип в слинкованной программе.
+// TestLinkResolvesEntityInsideCallableTypeArgument - регрессионный тест
+// (docs/ROADMAP.md, Шаг 41/43): resolveTypeRef раньше возвращал ЛЮБУЮ
+// каноническую строку типа "Вызываемый<...>Результат" НЕИЗМЕНЁННОЙ - форма
+// не оканчивается на ">" целиком (Результат идёт сразу за закрывающей ">"
+// без разделителя), значит не подходила под общий случай "Шаблон<...>".
+// Сущность-элемент из НЕ-entry модуля (переименовывается по mangledName)
+// оставалась под старым, нерезолвленным именем и внутри параметра, и внутри
+// результата - "неизвестный тип" у cbackend.
+func TestLinkResolvesEntityInsideCallableTypeArgument(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "утилиты.rech", `приватная сущность Товар
+{
+    имеет:
+        имя: Строка
+}
+
+функция применить(колбэк: Вызываемый(Товар): Товар, товар: Товар): Товар
+{
+    вернуть колбэк(товар)
+}
+`)
+	entry := writeFile(t, dir, "главный.rech", "использовать применить из \"утилиты\"\n\nфункция главная\n{\n}\n")
+
+	prog, err := Load(entry, testFrontend{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	merged, err := prog.Link()
+	if err != nil {
+		t.Fatalf("Link: %v", err)
+	}
+	var fn *ast.FunctionDecl
+	for _, f := range merged.Functions {
+		if f.Name == "Утилиты_применить" {
+			fn = f
+		}
+	}
+	if fn == nil {
+		t.Fatalf("не нашлось \"Утилиты_применить\" среди слинкованных функций")
+	}
+	want := "Вызываемый<Утилиты_Товар>Утилиты_Товар"
+	if fn.Params[0].Type != want {
+		t.Fatalf("ожидался тип параметра %q (сущность-элемент переименована и в параметре, и в результате), получено %q", want, fn.Params[0].Type)
+	}
+	if fn.ReturnType != "Утилиты_Товар" {
+		t.Fatalf("ожидался тип результата \"Утилиты_Товар\", получено %q", fn.ReturnType)
+	}
+}
+
+// TestLinkResolvesGenericFunctionOwnTypeParamInsideContainer -
+// НАЙДЕННЫЙ РЕАЛЬНЫЙ БАГ (обнаружен по ходу работы над Шагом 43, не связан
+// с "Вызываемый(...)"): "функция первый<T>(список: Список<T>): T" -
+// собственный параметр типа T generic-функции, использованный ВНУТРИ
+// контейнера ("Список<T>", не сам по себе) - resolveTypeRef рекурсивно
+// резолвил Аргумент "T" НАПРЯМУЮ (в обход rewriter.resolveType, единственное
+// место, которое сверялось с typeParams), считая его ссылкой на
+// необъявленный тип - падало ДАЖЕ В ОДНОМ ФАЙЛЕ БЕЗ ЕДИНОГО
+// "использовать" (module.Link() вызывается всегда, compiler.Compile),
+// включая существующий example examples/обобщённые/коробка.rech - не
+// поймано раньше, потому что internal/interp.
+// TestRunAllExamplesMatchCompiledOutput гоняет parser+semantic напрямую,
+// минуя internal/module.
+func TestLinkResolvesGenericFunctionOwnTypeParamInsideContainer(t *testing.T) {
+	dir := t.TempDir()
+	entry := writeFile(t, dir, "главный.rech", `функция первый<T>(список: Список<T>): T
+{
+    вернуть список.получить(0)
+}
+
+функция главная
+{
+    переменная сп = новый Список<Целое>()
+    сп.добавить(5)
+    вывести первый<Целое>(сп)
+}
+`)
+
+	prog, err := Load(entry, testFrontend{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	merged, err := prog.Link()
+	if err != nil {
+		t.Fatalf("Link: %v", err)
+	}
+	var fn *ast.FunctionDecl
+	for _, f := range merged.Functions {
+		if f.Name == "первый" {
+			fn = f
+		}
+	}
+	if fn == nil {
+		t.Fatalf("не нашлось \"первый\" среди слинкованных функций")
+	}
+	if fn.Params[0].Type != "Список<T>" {
+		t.Fatalf("ожидался тип параметра \"Список<T>\" (T - собственный параметр типа, не ссылка), получено %q", fn.Params[0].Type)
+	}
+	if fn.ReturnType != "T" {
+		t.Fatalf("ожидался тип результата \"T\", получено %q", fn.ReturnType)
+	}
+}
+
 func TestLinkResolvesEntityInsideGenericTypeArgument(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "утилиты.rech", `приватная сущность Товар
