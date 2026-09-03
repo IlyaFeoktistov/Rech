@@ -1029,7 +1029,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// После protos/ctors - геттеры/сеттеры/инвокеры полей и методов
 		// вызывают уже сгенерированные C-функции полей/методов/rech_new_<Тип>
 		// (см. package doc reflect.go).
-		reflectCode, err := reflectRuntimeCode(ctx, prog.ReflectTargets)
+		reflectCode, err := reflectRuntimeCode(ctx, prog.ReflectTargets, prog.Generics)
 		if err != nil {
 			return "", err
 		}

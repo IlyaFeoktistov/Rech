@@ -549,6 +549,12 @@ func effectiveReflectMethods(entities map[string]*ir.Entity, typeName string) []
 type reflectGen struct {
 	ctx       *irGenCtx
 	generated map[string]bool
+	// generics - имя инстанциации ("Список<Целое>"/"Словарь<Строка,
+	// Значение>") -> её описание (ElemType/KeyType) - НЕ то же самое, что
+	// ctx.generics (тот - только map[string]bool, "существует ли вообще",
+	// без ElemType/KeyType, которые нужны здесь для рекурсивного
+	// ensure(ElemType)/ensure(KeyType), см. package doc ensure).
+	generics map[string]ir.GenericInstantiation
 	// thunksGenerated - методы-обёртки (methodInvokerCode) по ключу
 	// "owner.method", ОТДЕЛЬНО от generated (который по сущности целиком) -
 	// unchanged-унаследованный метод именуется по owner (базовой сущности,
@@ -561,10 +567,15 @@ type reflectGen struct {
 }
 
 // reflectRuntimeCode - точка входа: primitiveReflectDescriptors уже
-// эмитятся раньше (см. generateSource) - эта функция генерирует только
-// код на сущности/структуры.
-func reflectRuntimeCode(ctx *irGenCtx, targets []ir.Type) (string, error) {
-	g := &reflectGen{ctx: ctx, generated: map[string]bool{}, thunksGenerated: map[string]bool{}}
+// эмитятся раньше (см. generateSource) - эта функция генерирует код на
+// сущности/структуры и (см. ensure) на встреченные внутри них generic-
+// коллекции (Список/Стопка/Очередь/Словарь).
+func reflectRuntimeCode(ctx *irGenCtx, targets []ir.Type, generics []ir.GenericInstantiation) (string, error) {
+	genericsByName := make(map[string]ir.GenericInstantiation, len(generics))
+	for _, gi := range generics {
+		genericsByName[gi.Name] = gi
+	}
+	g := &reflectGen{ctx: ctx, generated: map[string]bool{}, generics: genericsByName, thunksGenerated: map[string]bool{}}
 	for _, t := range targets {
 		if err := g.ensure(t); err != nil {
 			return "", err
@@ -578,6 +589,18 @@ func reflectRuntimeCode(ctx *irGenCtx, targets []ir.Type) (string, error) {
 // всего, что t использует (тип поля, тип параметра/результата метода,
 // тип параметра/результата конструктора) ПЕРЕД собственным дескриптором
 // t - иначе таблицы t ссылались бы на ещё не объявленный &дескриптор.
+//
+// **Найденный и исправленный баг**: t.Kind == ir.KindEntity ЗАОДНО и у
+// встроенной generic-коллекции ("Список<Целое>"/"Словарь<Строка,
+// Значение>" - см. package doc ir.GenericInstantiation, у неё нет
+// собственного ir.Entity-узла) - раньше это безусловно шло в
+// g.ctx.entities[t.Entity], которого для generic-коллекции нет вовсе -
+// "рефлексия по неизвестному типу", как только сущность-цель рефлексии
+// несла поле такого типа (docs/ROADMAP.md, Шаг 41). Исправлено -
+// генериками ensureGeneric ниже, отдельной, более простой веткой (у
+// коллекции нет ни полей, ни методов, ни конструктора в смысле рефлексии -
+// только элемент/ключ, которые сами могут быть сущностями и тоже требуют
+// ensure).
 func (g *reflectGen) ensure(t ir.Type) error {
 	if t.Kind != ir.KindEntity {
 		return nil
@@ -586,6 +609,10 @@ func (g *reflectGen) ensure(t ir.Type) error {
 		return nil
 	}
 	g.generated[t.Entity] = true
+
+	if gi, isGeneric := g.generics[t.Entity]; isGeneric {
+		return g.ensureGeneric(t, gi)
+	}
 
 	ent, ok := g.ctx.entities[t.Entity]
 	if !ok {
@@ -641,6 +668,30 @@ func (g *reflectGen) ensure(t ir.Type) error {
 	}
 	g.code.WriteString(g.ctorInvokerCode(ent))
 	g.code.WriteString(g.typeDescriptorCode(ent, ems))
+	return nil
+}
+
+// ensureGeneric - см. package doc ensure: дескриптор generic-коллекции gi -
+// НЕТ полей/методов/конструктора в смысле рефлексии (нечего перечислить -
+// реализация не видна в Rech, ir.GenericInstantiation package doc), только
+// имя - тем же тривиальным форматом, что и у примитивов
+// (primitiveReflectDescriptors, "{...}", NULL/0 везде, кроме имени).
+// ElemType (и KeyType у Словарь) - рекурсивно ensure(), как обычное поле:
+// "Список<Пользователь>" сам не рефлектируется как сущность-с-полями, но
+// "Пользователь" внутри него - вполне может встретиться отдельно (например,
+// через ".получить(i)" где-то ещё в программе) и обязан иметь свой
+// дескриптор к этому моменту.
+func (g *reflectGen) ensureGeneric(t ir.Type, gi ir.GenericInstantiation) error {
+	if err := g.ensure(gi.ElemType); err != nil {
+		return err
+	}
+	if gi.Template == "Словарь" {
+		if err := g.ensure(gi.KeyType); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintf(&g.code, "static const rech_type_meta_t %s = {\"%s\", NULL, 0, NULL, 0, NULL, 0};\n",
+		reflectMetaVarFor(t), escapeCString(t.Entity))
 	return nil
 }
 

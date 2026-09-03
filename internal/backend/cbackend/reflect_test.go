@@ -148,6 +148,40 @@ func TestGenerateFromIREntityReflectTargetGeneratesAccessorsAndDescriptor(t *tes
 	}
 }
 
+// TestGenerateFromIREntityFieldOfGenericCollectionReflects - НАЙДЕННЫЙ И
+// ИСПРАВЛЕННЫЙ баг (docs/ROADMAP.md, Шаг 41/47): сущность с полем типа
+// встроенной generic-коллекции ("Словарь<Строка, Значение>") среди
+// ReflectTargets раньше падала "рефлексия по неизвестному типу" -
+// reflectGen.ensure не отличал generic-коллекцию (нет записи в
+// ctx.entities) от обычной сущности.
+func TestGenerateFromIREntityFieldOfGenericCollectionReflects(t *testing.T) {
+	dictType := "Словарь<Строка, Значение>"
+	entity := &ir.Entity{
+		Name:   "Хранилище",
+		Fields: []ir.Field{{Name: "данные", Type: ir.EntityType(dictType)}},
+	}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "х", Value: &ir.NewExpr{Entity: "Хранилище"}},
+		&ir.VarDecl{Name: "б", Value: &ir.CastExpr{Value: &ir.Identifier{Name: "х", Type: ir.EntityType("Хранилище")}, To: ir.TypeAny}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{
+		Entities:       []*ir.Entity{entity},
+		Functions:      []*ir.Function{main},
+		UsesReflection: true,
+		ReflectTargets: []ir.Type{ir.EntityType("Хранилище")},
+		Generics:       []ir.GenericInstantiation{{Name: dictType, Template: "Словарь", KeyType: ir.TypeString, ElemType: ir.TypeAny}},
+	})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, `static const rech_type_meta_t `+reflectMetaName(dictType)+` = {"`+dictType+`", NULL, 0, NULL, 0, NULL, 0};`) {
+		t.Fatalf("ожидался тривиальный дескриптор Словарь<Строка, Значение>, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "static rech_any_t rech_reflect_get_hranilische_dannye(void *self) {") {
+		t.Fatalf("ожидался геттер поля \"данные\", получено:\n%s", out)
+	}
+}
+
 // TestGenerateFromIRReflectTypedefsBeforeGenerics - rech_any_t обязан быть
 // объявлен раньше genericsCode (Список<Значение> ссылается на него как на
 // свой C-тип элемента) - иначе "unknown type name".
