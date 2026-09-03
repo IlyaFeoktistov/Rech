@@ -999,3 +999,34 @@ func TestGenerateFromIREntityWithGenericFieldOrdering(t *testing.T) {
 		t.Fatalf("typedef Список<Строка> должен идти раньше typedef Корзина, получено:\n%s", out)
 	}
 }
+
+// TestGenerateFromIRCollectionHoldingCallableOrdersCallableTypedefFirst -
+// коллекция, несущая "Вызываемый" элементом ПО ЗНАЧЕНИЮ ("Список<Вызываемый
+// (Целое): Целое>" - например, таблица маршрутов HTTP-сервера), должна
+// получить C-typedef самой сигнатуры (rech_C_...) РАНЬШЕ typedef коллекции -
+// иначе C-структура коллекции ссылается на ещё не объявленный тип
+// (см. package doc ir_generator.go, genericsCodeAfterCallables).
+func TestGenerateFromIRCollectionHoldingCallableOrdersCallableTypedefFirst(t *testing.T) {
+	result := ir.TypeInt
+	sig := ir.CallableSig{Name: ir.CallableType([]ir.Type{ir.TypeInt}, &result).Entity, Params: []ir.Type{ir.TypeInt}, Result: &result}
+	elemType := ir.CallableType([]ir.Type{ir.TypeInt}, &result)
+	prog := &ir.Program{
+		Callables: []ir.CallableSig{sig},
+		Generics:  []ir.GenericInstantiation{{Name: "Список<Вызываемый(Целое)Целое>", Template: "Список", ElemType: elemType}},
+		Functions: []*ir.Function{{Name: "главная", Body: []ir.Stmt{
+			&ir.VarDecl{Name: "м", Value: &ir.NewExpr{Entity: "Список<Вызываемый(Целое)Целое>"}},
+		}}},
+	}
+	out, err := GenerateFromIR(prog)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	callableDefPos := strings.Index(out, "} "+mangleCallableType(sig.Name)+";")
+	listDefPos := strings.Index(out, "} "+mangleType("Список<Вызываемый(Целое)Целое>")+";")
+	if callableDefPos < 0 || listDefPos < 0 {
+		t.Fatalf("не найдены оба typedef в выводе:\n%s", out)
+	}
+	if callableDefPos > listDefPos {
+		t.Fatalf("typedef \"Вызываемый\" должен идти раньше typedef коллекции, получено:\n%s", out)
+	}
+}

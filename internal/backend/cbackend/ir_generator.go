@@ -423,30 +423,43 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// dictCollectionCCode (растущий массив/хеш-таблица) - IR не хранит
 	// собственных сигнатур методов для них, MethodCallExpr уже несёт всё
 	// нужное для вызова, эта функция только про C-текст самого типа.
-	var genericsCode, indexSafeGetCode strings.Builder
+	//
+	// genericsCodeAfterCallables - ОТДЕЛЬНАЯ группа для коллекций, чей
+	// элемент/ключ - "Вызываемый" (например, "Список<Вызываемый(Запрос):
+	// Ответ>" - таблица маршрутов): C-структура сигнатуры (rech_C_...)
+	// несёт функцию/параметры ПО ЗНАЧЕНИЮ, значит должна быть уже объявлена
+	// раньше typedef такой коллекции - обратный порядок относительно
+	// обычных genericsCode выше (примитив/сущность как элемент не заставляют
+	// коллекцию ждать ничего, кроме себя самой) - эмитится позже,
+	// после callableTypedefs (см. её появление в sb ниже).
+	var genericsCode, genericsCodeAfterCallables, indexSafeGetCode strings.Builder
 	usesGenerics := len(prog.Generics) > 0
 	for _, g := range prog.Generics {
+		dest := &genericsCode
+		if g.ElemType.Kind == ir.KindCallable || g.KeyType.Kind == ir.KindCallable {
+			dest = &genericsCodeAfterCallables
+		}
 		elemC := fromIRType(g.ElemType).cType(ctx)
 		switch g.Template {
 		case "Список":
-			genericsCode.WriteString(listCollectionCCode(g.Name, elemC))
+			dest.WriteString(listCollectionCCode(g.Name, elemC))
 			if g.NeedsSafeIndex {
 				indexSafeGetCode.WriteString(listIndexSafeGetCCode(g.Name, mangleType("?"+g.ElemType.String())))
 			}
 			if g.NeedsListLiteral {
-				genericsCode.WriteString(listLiteralCCode(g.Name, elemC))
+				dest.WriteString(listLiteralCCode(g.Name, elemC))
 			}
 		case "Стопка":
-			genericsCode.WriteString(stackCollectionCCode(g.Name, elemC))
+			dest.WriteString(stackCollectionCCode(g.Name, elemC))
 		case "Очередь":
-			genericsCode.WriteString(queueCollectionCCode(g.Name, elemC))
+			dest.WriteString(queueCollectionCCode(g.Name, elemC))
 		case "Словарь":
 			keyC := fromIRType(g.KeyType).cType(ctx)
 			isStringKey := g.KeyType.Kind == ir.KindString
 			if isStringKey {
 				ctx.usesDictString = true
 			}
-			genericsCode.WriteString(dictCollectionCCode(g.Name, keyC, elemC, isStringKey))
+			dest.WriteString(dictCollectionCCode(g.Name, keyC, elemC, isStringKey))
 			if g.NeedsSafeIndex {
 				indexSafeGetCode.WriteString(dictIndexSafeGetCCode(g.Name, keyC, mangleType("?"+g.ElemType.String())))
 			}
@@ -719,7 +732,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// (типа rech_T_spisok_of_stroka) обязан быть уже объявлен раньше
 	// typedef самой сущности - обратная зависимость невозможна
 	// (элементы встроенных коллекций - только примитивы, коллекция не
-	// может нести сущность как элемент).
+	// может нести сущность как элемент). Коллекции, несущие "Вызываемый" по
+	// значению (genericsCodeAfterCallables ниже) - отдельная группа, им
+	// нужен ОБРАТНЫЙ порядок (callableTypedefs, а через него - и typedefs,
+	// раньше их самих - см. её package doc).
 	appendCodeIf(&sb, genericsCode.Len() > 0, genericsCode.String())
 
 	// После genericsCode (внутренний тип "?Тип" может сам быть Список/
@@ -762,6 +778,8 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// оба уже должны быть объявлены (см. exceptions.go).
 	appendCodeIf(&sb, ctx.usesExceptions, exceptionRuntimeCode(ctx))
 	appendCodeIf(&sb, callableTypedefs.Len() > 0, callableTypedefs.String())
+	// После callableTypedefs - см. её package doc выше (genericsCode).
+	appendCodeIf(&sb, genericsCodeAfterCallables.Len() > 0, genericsCodeAfterCallables.String())
 	appendCodeIf(&sb, ctx.usesShow && showFuncs.Len() > 0, showFuncs.String())
 	// rech_dup - общий для HTTP-клиента и HTTP-сервера, эмитится один
 	// раз перед обоими (см. rechDupHelper).
