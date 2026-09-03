@@ -64,6 +64,12 @@ type builtinFlags struct {
 	// ветвящийся helper (BSD-сокеты против Winsock), плюс -lws2_32 на
 	// Windows (internal/toolchain). Подразумевает usesPanic.
 	usesSockets bool
+	// usesUDPDatagram - нужны ли rech_recv_from/rech_send_to (встроенные
+	// функции "получить_от"/"отправить_в", udp.go) - recvfrom/sendto над
+	// udp-узлом, полученным "сетевой_узел" БЕЗ хоста - подразумевает
+	// usesSockets (те же заголовки/rech_socket_t) и rechDupHelper
+	// (rech_recv_from копирует адрес отправителя через rech_dup).
+	usesUDPDatagram bool
 	// usesHTTP - нужен ли rech_http_request/rech_recv_until_close/rech_dup
 	// (встроенная функция шага 9: "запрос", HTTP-клиент типа curl) - строит
 	// HTTP/1.1-запрос и парсит ответ поверх уже существующих rech_connect_tcp/
@@ -162,22 +168,14 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 		flags.usesFileIO = true
 		flags.usesPanic = true
 		return fmt.Sprintf("rech_append_file(%s, %s)", args[0], args[1]), true
-	case "слушать_tcp":
+	case "сетевой_узел":
 		flags.usesSockets = true
 		flags.usesPanic = true
-		return fmt.Sprintf("rech_listen_tcp(%s)", args[0]), true
+		return fmt.Sprintf("rech_network_node(%s, %s, %s)", args[0], args[1], args[2]), true
 	case "принять":
 		flags.usesSockets = true
 		flags.usesPanic = true
 		return fmt.Sprintf("rech_accept(%s)", args[0]), true
-	case "подключиться_tcp":
-		flags.usesSockets = true
-		flags.usesPanic = true
-		return fmt.Sprintf("rech_connect_tcp(%s, %s)", args[0], args[1]), true
-	case "подключиться_udp":
-		flags.usesSockets = true
-		flags.usesPanic = true
-		return fmt.Sprintf("rech_connect_udp(%s, %s)", args[0], args[1]), true
 	case "отправить":
 		flags.usesSockets = true
 		flags.usesPanic = true
@@ -186,6 +184,16 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 		flags.usesSockets = true
 		flags.usesPanic = true
 		return fmt.Sprintf("rech_recv(%s, %s)", args[0], args[1]), true
+	case "получить_от":
+		flags.usesSockets = true
+		flags.usesUDPDatagram = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_recv_from(%s, %s)", args[0], args[1]), true
+	case "отправить_в":
+		flags.usesSockets = true
+		flags.usesUDPDatagram = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_send_to(%s, %s, %s, %s)", args[0], args[1], args[2], args[3]), true
 	case "закрыть_сокет":
 		flags.usesSockets = true
 		return fmt.Sprintf("rech_close_socket(%s)", args[0]), true
@@ -641,16 +649,18 @@ static void rech_append_file(const char *path, const char *content) {
 }
 `, rtmsg.ReadInvalidMax, rtmsg.ReadIOFailed, rtmsg.WriteIOFailed)
 
-// socketHelpers - сетевые примитивы (шаг 8): TCP-сервер (rech_listen_tcp +
-// rech_accept), TCP/UDP-клиент (rech_connect_tcp/rech_connect_udp - для UDP
-// через connect() на datagram-сокете, что фиксирует адрес получателя и
-// позволяет дальше использовать один и тот же send/recv, что и у TCP, без
-// отдельных sendto/recvfrom), rech_send/rech_recv/rech_close_socket.
-// rech_socket_t - int на POSIX, SOCKET на Windows (оба - непрозрачные
-// дескрипторы, как rech_file_t выше, только другого системного API).
-// Известное текущее ограничение (см. package doc internal/builtins.All) -
-// только клиентский UDP (connect), не полноценный UDP-сервер, отвечающий
-// произвольным отправителям (recvfrom/sendto без connect).
+// socketHelpers - сетевые примитивы: TCP-сервер (rech_listen_tcp +
+// rech_accept), UDP-сервер (rech_listen_udp - bind без connect/listen,
+// дальше recvfrom/sendto - см. udpDatagramHelpers), TCP/UDP-клиент
+// (rech_connect_tcp/rech_connect_udp - для UDP через connect() на
+// datagram-сокете, что фиксирует адрес получателя и позволяет дальше
+// использовать один и тот же send/recv, что и у TCP), rech_send/rech_recv/
+// rech_close_socket. rech_network_node - единая точка входа
+// ("сетевой_узел(режим, хост, порт)"): host[0] == '\0' решает "слушать"
+// вместо "подключиться", mode строкой ("tcp"/"udp") - какой из четырёх
+// вариантов. rech_socket_t - int на POSIX, SOCKET на Windows (оба -
+// непрозрачные дескрипторы, как rech_file_t выше, только другого
+// системного API).
 var socketHelpers = fmt.Sprintf(`#ifdef _WIN32
 typedef SOCKET rech_socket_t;
 #define RECH_INVALID_SOCKET INVALID_SOCKET
@@ -676,6 +686,29 @@ static rech_socket_t rech_listen_tcp(long long port) {
     }
     if (listen(s, 16) != 0) {
         rech_panic("%[3]s");
+    }
+    return s;
+}
+
+// rech_listen_udp - bind БЕЗ listen()/connect() (UDP не различает
+// "клиент"/"сервер" на уровне протокола, у datagram-сокета нет
+// соединения вообще) - готовит сокет для recvfrom/sendto с адресом
+// ПРОИЗВОЛЬНОГО отправителя (см. udpDatagramHelpers) вместо
+// rech_connect_udp ниже, который фиксирует ОДНОГО адресата через connect().
+static rech_socket_t rech_listen_udp(long long port) {
+    rech_socket_t s = socket(AF_INET, SOCK_DGRAM, 0);
+    if (s == RECH_INVALID_SOCKET) {
+        rech_panic("%[1]s");
+    }
+    int yes = 1;
+    setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (const char *)&yes, sizeof(yes));
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = htons((unsigned short)port);
+    if (bind(s, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+        rech_panic("%[2]s");
     }
     return s;
 }
@@ -719,6 +752,24 @@ static rech_socket_t rech_connect_udp(const char *host, long long port) {
     return rech_connect(host, port, SOCK_DGRAM);
 }
 
+// rech_network_node - "сетевой_узел(режим, хост, порт)" - единая точка
+// входа вместо отдельных rech_listen_tcp/rech_connect_tcp/rech_connect_udp/
+// rech_listen_udp выше: host[0] == '\0' решает "слушать" (bind, для tcp -
+// ещё и listen), непустой host - "подключиться" (connect). mode строкой -
+// неизвестный режим (не "tcp"/"udp") - паника в рантайме, не ошибка
+// компиляции (строковый параметр решается только здесь).
+static rech_socket_t rech_network_node(const char *mode, const char *host, long long port) {
+    bool listening = host[0] == '\0';
+    if (strcmp(mode, "tcp") == 0) {
+        return listening ? rech_listen_tcp(port) : rech_connect_tcp(host, port);
+    }
+    if (strcmp(mode, "udp") == 0) {
+        return listening ? rech_listen_udp(port) : rech_connect_udp(host, port);
+    }
+    rech_panic("%[11]s");
+    return RECH_INVALID_SOCKET;
+}
+
 static void rech_send(rech_socket_t s, const char *data) {
     size_t len = strlen(data);
     size_t sent = 0;
@@ -754,7 +805,7 @@ static void rech_close_socket(rech_socket_t s) {
 }
 `, rtmsg.SocketCreateFailed, rtmsg.SocketBindFailed, rtmsg.SocketListenFailed, rtmsg.SocketAcceptFailed,
 	rtmsg.SocketResolveFailed, rtmsg.SocketConnectCreate, rtmsg.SocketConnectFailed, rtmsg.SocketSendFailed,
-	rtmsg.SocketRecvInvalidMax, rtmsg.SocketRecvFailed)
+	rtmsg.SocketRecvInvalidMax, rtmsg.SocketRecvFailed, rtmsg.SocketUnknownMode)
 
 // httpHelpers - "запрос" (шаг 9, HTTP-клиент типа curl): строит HTTP/1.1-
 // запрос и парсит ответ поверх уже существующих rech_connect_tcp/rech_send/

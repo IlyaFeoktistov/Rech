@@ -130,20 +130,25 @@ var All = []Func{
 	// образец где-то внутри строки.
 	{Name: "содержит", Params: []Kind{KindString, KindString}, ReturnKind: KindBool, HasReturn: true},
 
-	// Сетевые примитивы (шаг 8) - байты через TCP/UDP, не HTTP (шаг 9).
-	// "слушать_tcp"/"принять" - серверная сторона (bind+listen, затем один
-	// "принять" на каждое входящее соединение - блокирующий, как обычный
-	// accept). "подключиться_tcp"/"подключиться_udp" - клиентская сторона
-	// (в т.ч. для UDP - через connect() на datagram-сокете, что фиксирует
-	// адрес получателя и позволяет использовать те же "отправить"/
-	// "получить", что и у TCP, без отдельных функций sendto/recvfrom).
-	// Известное текущее ограничение: UDP-сервер, отвечающий произвольным
-	// отправителям (recvfrom/sendto без connect) - не реализован в этом
-	// срезе, только UDP-клиент с фиксированным адресатом.
-	{Name: "слушать_tcp", Params: []Kind{KindInt}, ReturnKind: KindSocket, HasReturn: true},
+	// Сетевые примитивы (шаг 8, единый узел - docs/ROADMAP.md) - байты
+	// через TCP/UDP, не HTTP (шаг 9). Одна "сетевой_узел(режим, хост,
+	// порт)" вместо трёх отдельных функций (были "слушать_tcp"/
+	// "подключиться_tcp"/"подключиться_udp") - хост == "" решает "слушать"
+	// (bind+listen для tcp, bind для udp), непустой хост - "подключиться"
+	// (connect). Режим - "tcp"/"udp"; неизвестный режим - паника в
+	// рантайме (строковый параметр решается только там, не на этапе
+	// компиляции, тот же компромисс, что и у остальных "режим строкой" API
+	// языка, например БД). "принять" - только для tcp-узла, полученного
+	// БЕЗ хоста (слушающего) - один "принять" на каждое входящее
+	// соединение, блокирующий, как обычный accept, возвращает НОВЫЙ Сокет
+	// для этого клиента. "отправить"/"получить" - подключённый сокет
+	// (клиентский tcp/udp или результат "принять") - байты без адреса,
+	// собеседник уже зафиксирован самим соединением; для udp-узла БЕЗ
+	// хоста (слушающего, отвечающего произвольным отправителям) - вместо
+	// них "получить_от"/"отправить_в" (recvfrom/sendto с явным адресом,
+	// см. internal/semantic - registerNetworkFuncs).
+	{Name: "сетевой_узел", Params: []Kind{KindString, KindString, KindInt}, ReturnKind: KindSocket, HasReturn: true},
 	{Name: "принять", Params: []Kind{KindSocket}, ReturnKind: KindSocket, HasReturn: true},
-	{Name: "подключиться_tcp", Params: []Kind{KindString, KindInt}, ReturnKind: KindSocket, HasReturn: true},
-	{Name: "подключиться_udp", Params: []Kind{KindString, KindInt}, ReturnKind: KindSocket, HasReturn: true},
 	{Name: "отправить", Params: []Kind{KindSocket, KindString}, HasReturn: false},
 	{Name: "получить", Params: []Kind{KindSocket, KindInt}, ReturnKind: KindString, HasReturn: true},
 	{Name: "закрыть_сокет", Params: []Kind{KindSocket}, HasReturn: false},
@@ -189,6 +194,8 @@ var ReservedFuncNames = map[string]bool{
 	"закрыть_бд":           true,
 	"значение_куки":        true,
 	"строка_куки":          true,
+	"получить_от":          true,
+	"отправить_в":          true,
 }
 
 // ReservedEntityNames - зарезервированные имена сущностей (Запрос/Ответ,
@@ -196,12 +203,13 @@ var ReservedFuncNames = map[string]bool{
 // при первом использовании (см. internal/semantic.resolveTypeName), нельзя
 // объявить свою сущность с этим именем.
 var ReservedEntityNames = map[string]bool{
-	"Запрос":     true,
-	"Ответ":      true,
-	"Вызываемый": true,
-	"ДатаВремя":  true,
-	"Блокировка": true,
-	"ОпцииКуки":  true,
+	"Запрос":      true,
+	"Ответ":       true,
+	"Вызываемый":  true,
+	"ДатаВремя":   true,
+	"Блокировка":  true,
+	"ОпцииКуки":   true,
+	"Дейтаграмма": true,
 }
 
 // IsReservedName - true для обычной встроенной функции (All) или для имени

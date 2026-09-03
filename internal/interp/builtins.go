@@ -114,12 +114,8 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return Value{}, true
 	case "содержит":
 		return boolValue(strings.Contains(args[0].S, args[1].S)), true
-	case "слушать_tcp":
-		l, err := net.Listen("tcp", fmt.Sprintf(":%d", args[0].I))
-		if err != nil {
-			panicRuntime("%s", rtmsg.SocketBindFailed)
-		}
-		return listenerValue(l), true
+	case "сетевой_узел":
+		return in.networkNode(args[0].S, args[1].S, args[2].I), true
 	case "принять":
 		if args[0].Listener == nil {
 			panicRuntime("%s", rtmsg.SocketWrongKind)
@@ -129,18 +125,11 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 			panicRuntime("%s", rtmsg.SocketAcceptFailed)
 		}
 		return connValue(c), true
-	case "подключиться_tcp":
-		c, err := net.Dial("tcp", net.JoinHostPort(args[0].S, strconv.FormatInt(args[1].I, 10)))
-		if err != nil {
-			panicRuntime("%s", rtmsg.SocketConnectFailed)
-		}
-		return connValue(c), true
-	case "подключиться_udp":
-		c, err := net.Dial("udp", net.JoinHostPort(args[0].S, strconv.FormatInt(args[1].I, 10)))
-		if err != nil {
-			panicRuntime("%s", rtmsg.SocketConnectFailed)
-		}
-		return connValue(c), true
+	case "получить_от":
+		return in.recvFrom(args[0], args[1].I), true
+	case "отправить_в":
+		in.sendTo(args[0], args[1].S, args[2].S, args[3].I)
+		return Value{}, true
 	case "отправить":
 		if args[0].Conn == nil {
 			panicRuntime("%s", rtmsg.SocketWrongKind)
@@ -215,6 +204,8 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 			args[0].Conn.Close()
 		case args[0].Listener != nil:
 			args[0].Listener.Close()
+		case args[0].PacketConn != nil:
+			args[0].PacketConn.Close()
 		default:
 			panicRuntime("%s", rtmsg.SocketWrongKind)
 		}

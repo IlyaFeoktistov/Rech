@@ -691,7 +691,7 @@ func TestGenerateFromIRFileForEach(t *testing.T) {
 
 func TestGenerateFromIRSocketBuiltinCalls(t *testing.T) {
 	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
-		&ir.VarDecl{Name: "слушатель", Value: &ir.CallExpr{Callee: "слушать_tcp", Args: []ir.Expr{&ir.IntLiteral{Value: 8080}}, Type: ir.TypeSocket, HasReturn: true}},
+		&ir.VarDecl{Name: "слушатель", Value: &ir.CallExpr{Callee: "сетевой_узел", Args: []ir.Expr{&ir.StringLiteral{Value: "tcp"}, &ir.StringLiteral{Value: ""}, &ir.IntLiteral{Value: 8080}}, Type: ir.TypeSocket, HasReturn: true}},
 		&ir.ExprStmt{Call: &ir.CallExpr{Callee: "отправить", Args: []ir.Expr{&ir.Identifier{Name: "слушатель", Type: ir.TypeSocket}, &ir.StringLiteral{Value: "привет"}}}},
 	}}
 	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
@@ -699,7 +699,7 @@ func TestGenerateFromIRSocketBuiltinCalls(t *testing.T) {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 	for _, want := range []string{
-		"rech_listen_tcp(8080LL)",
+		`rech_network_node("tcp", "", 8080LL)`,
 		`rech_send(v_slushatel, "привет")`,
 	} {
 		if !strings.Contains(out, want) {

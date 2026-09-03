@@ -213,21 +213,22 @@ func TestRunWholeFileBuiltins(t *testing.T) {
 	}
 }
 
-// TestRunSocketTCPServerRoundTrip - слушать_tcp/принять/получить/отправить/
-// закрыть_сокет через настоящий loopback-сокет ОС: серверная сторона -
-// Rech-программа через интерпретатор (в отдельной goroutine, т.к. "принять"
-// блокирует до входящего соединения - никакой конкурентности в самом
-// Rech, синхронизация целиком на уровне настоящего сокета ОС, не языка),
-// клиентская - обычный net.Dial (проверяет протокол снаружи, не только то,
-// что интерпретатор сам с собой согласен). Ретраи подключения - слушать_tcp
-// может ещё не успеть отработать в goroutine к моменту первой попытки
-// net.Dial (обычная гонка старта сервера, не специфична для Rech).
+// TestRunSocketTCPServerRoundTrip - сетевой_узел("tcp", "", порт)/принять/
+// получить/отправить/закрыть_сокет через настоящий loopback-сокет ОС:
+// серверная сторона - Rech-программа через интерпретатор (в отдельной
+// goroutine, т.к. "принять" блокирует до входящего соединения - никакой
+// конкурентности в самом Rech, синхронизация целиком на уровне настоящего
+// сокета ОС, не языка), клиентская - обычный net.Dial (проверяет протокол
+// снаружи, не только то, что интерпретатор сам с собой согласен). Ретраи
+// подключения - "сетевой_узел" может ещё не успеть отработать в goroutine
+// к моменту первой попытки net.Dial (обычная гонка старта сервера, не
+// специфична для Rech).
 func TestRunSocketTCPServerRoundTrip(t *testing.T) {
 	port := 18099
 	src := fmt.Sprintf(`
 функция главная
 {
-    переменная слушатель = слушать_tcp(%d)
+    переменная слушатель = сетевой_узел("tcp", "", %d)
     переменная соединение = принять(слушатель)
     переменная сообщение = получить(соединение, 1024)
     отправить(соединение, "эхо: " + сообщение)
@@ -291,11 +292,89 @@ func TestRunSocketTCPServerRoundTrip(t *testing.T) {
 	}
 }
 
-// TestRunSocketClientConnects - подключиться_tcp/подключиться_udp с
-// клиентской стороны (сервер - обычный Go net, не Rech) - дополняет
+// TestRunUDPServerRoundTrip - "сетевой_узел("udp", "", порт)"/получить_от/
+// отправить_в через настоящий loopback-сокет ОС - симметрично
+// TestRunSocketTCPServerRoundTrip выше, но для полноценного UDP-сервера
+// (recvfrom/sendto с адресом ПРОИЗВОЛЬНОГО отправителя, не connect() на
+// фиксированный адресат, как у udp-клиента).
+func TestRunUDPServerRoundTrip(t *testing.T) {
+	port := 18098
+	src := fmt.Sprintf(`
+функция главная
+{
+    переменная узел = сетевой_узел("udp", "", %d)
+    переменная д = получить_от(узел, 1024)
+    отправить_в(узел, "эхо: " + д.данные, д.адрес, д.порт)
+    закрыть_сокет(узел)
+}
+`, port)
+	errCh := make(chan error, 1)
+	go func() {
+		toks, err := lexer.New(src).Tokenize()
+		if err != nil {
+			errCh <- err
+			return
+		}
+		prog, err := parser.New(toks).ParseProgram()
+		if err != nil {
+			errCh <- err
+			return
+		}
+		irProg, err := semantic.Analyze(prog)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		errCh <- Run(irProg, &bytes.Buffer{}, strings.NewReader(""))
+	}()
+
+	// В отличие от TCP выше, "net.Dial(\"udp\", ...)" не проверяет
+	// достижимость (UDP без соединения - Dial только создаёт локальный
+	// сокет, ассоциированный с адресом) - ретраить нужно сам обмен
+	// (запись+чтение), не сам Dial: пока сервер (goroutine) ещё не успел
+	// добежать до "сетевой_узел", loopback отвечает ICMP port-unreachable,
+	// всплывающим как ошибка на Read (connection refused), не на Write.
+	conn, err := net.Dial("udp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		t.Fatalf("net.Dial: %v", err)
+	}
+	defer conn.Close()
+
+	var n int
+	buf := make([]byte, 1024)
+	for range 100 {
+		if _, err = conn.Write([]byte("привет")); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		conn.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
+		n, err = conn.Read(buf)
+		if err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got, want := string(buf[:n]), "эхо: привет"; got != want {
+		t.Fatalf("получено %q, хотели %q", got, want)
+	}
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("сервер завершился с ошибкой: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("сервер не завершился за отведённое время")
+	}
+}
+
+// TestRunSocketClientConnects - "сетевой_узел" с непустым хостом (tcp и
+// udp) с клиентской стороны (сервер - обычный Go net, не Rech) - дополняет
 // TestRunSocketTCPServerRoundTrip выше (там Rech - сервер, Go - клиент;
-// здесь наоборот), чтобы обе клиентские функции были проверены реальным
-// сокетом, а не только слушать_tcp/принять.
+// здесь наоборот), чтобы обе клиентские ветки были проверены реальным
+// сокетом, а не только серверная (host == "").
 func TestRunSocketClientConnects(t *testing.T) {
 	tcpLn, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -332,12 +411,12 @@ func TestRunSocketClientConnects(t *testing.T) {
 	got := runSrc(t, fmt.Sprintf(`
 функция главная
 {
-    переменная tcp = подключиться_tcp("127.0.0.1", %d)
+    переменная tcp = сетевой_узел("tcp", "127.0.0.1", %d)
     отправить(tcp, "а")
     вывести получить(tcp, 64)
     закрыть_сокет(tcp)
 
-    переменная udp = подключиться_udp("127.0.0.1", %d)
+    переменная udp = сетевой_узел("udp", "127.0.0.1", %d)
     отправить(udp, "б")
     вывести получить(udp, 64)
     закрыть_сокет(udp)

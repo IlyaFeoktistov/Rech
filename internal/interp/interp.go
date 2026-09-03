@@ -168,18 +168,22 @@ type Value struct {
 	Obj  *entityObj // непусто только при Type.Kind == ir.KindEntity
 	File *os.File   // непусто только при Type.Kind == ir.KindFile
 
-	// Listener/Conn - непрозрачный дескриптор сетевого сокета (шаг 8,
-	// сетевые примитивы), Type.Kind == ir.KindSocket - ровно одно из двух
-	// непусто: Listener - результат "слушать_tcp" (только "принять" имеет
-	// смысл), Conn - результат "принять"/"подключиться_tcp"/
-	// "подключиться_udp" (только "отправить"/"получить"/"закрыть_сокет").
-	// На уровне Rech-типа оба - один и тот же "Сокет" (компилятор не
-	// различает слушающий/подключённый сокет статически, как и cbackend не
-	// различает их на уровне rech_socket_t) - вызов не той операции здесь,
-	// в отличие от cbackend (где это ловит сама ОС кодом ошибки), ловится
-	// явной проверкой (см. evalBuiltinCall, rtmsg.SocketWrongKind).
-	Listener net.Listener
-	Conn     net.Conn
+	// Listener/Conn/PacketConn - непрозрачный дескриптор сетевого сокета
+	// (сетевые примитивы), Type.Kind == ir.KindSocket - ровно одно из трёх
+	// непусто: Listener - результат "сетевой_узел("tcp", "", порт)" (только
+	// "принять" имеет смысл), Conn - результат "принять"/"сетевой_узел"
+	// с непустым хостом (клиентский tcp/udp, только "отправить"/
+	// "получить"/"закрыть_сокет"), PacketConn - результат
+	// "сетевой_узел("udp", "", порт)" (udp-сервер без connect, только
+	// "получить_от"/"отправить_в"/"закрыть_сокет"). На уровне Rech-типа
+	// все три - один и тот же "Сокет" (компилятор не различает вид сокета
+	// статически, как и cbackend не различает их на уровне rech_socket_t) -
+	// вызов не той операции здесь, в отличие от cbackend (где это ловит
+	// сама ОС кодом ошибки), ловится явной проверкой (см. evalBuiltinCall,
+	// rtmsg.SocketWrongKind).
+	Listener   net.Listener
+	Conn       net.Conn
+	PacketConn net.PacketConn
 
 	// Task - непусто только при Type.Kind == ir.KindTask (шаг 15,
 	// "запустить"/"дождаться") - см. internal/interp/concurrency.go.
@@ -241,8 +245,9 @@ func byteValue(v int64) Value { return Value{Type: ir.TypeByte, I: v & 0xFF} }
 // вместо того чтобы хранить полную точность float64 под именем "Дробное".
 func float32Value(v float64) Value { return Value{Type: ir.TypeFloat32, F: float64(float32(v))} }
 
-func listenerValue(l net.Listener) Value { return Value{Type: ir.TypeSocket, Listener: l} }
-func connValue(c net.Conn) Value         { return Value{Type: ir.TypeSocket, Conn: c} }
+func listenerValue(l net.Listener) Value      { return Value{Type: ir.TypeSocket, Listener: l} }
+func connValue(c net.Conn) Value              { return Value{Type: ir.TypeSocket, Conn: c} }
+func packetConnValue(pc net.PacketConn) Value { return Value{Type: ir.TypeSocket, PacketConn: pc} }
 
 // zeroValue - нулевое значение типа t, нужно только явному конструктору
 // сущности (evalNewExprWithCtor) - объект заводится с нулевыми полями ДО

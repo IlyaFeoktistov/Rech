@@ -865,15 +865,20 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// После genericsCodeAfterCallables - см. её package doc выше (typedefs).
 	appendCodeIf(&sb, typedefsAfterCallables.Len() > 0, typedefsAfterCallables.String())
 	appendCodeIf(&sb, ctx.usesShow && showFuncs.Len() > 0, showFuncs.String())
-	// rech_dup - общий для HTTP-клиента и HTTP-сервера, эмитится один
-	// раз перед обоими (см. rechDupHelper).
-	appendCodeIf(&sb, ctx.usesHTTP || ctx.usesHTTPServer, rechDupHelper)
+	// rech_dup - общий для HTTP-клиента/сервера и получить_от (адрес
+	// отправителя UDP-датаграммы копируется через rech_dup) - эмитится
+	// один раз перед всеми тремя (см. rechDupHelper).
+	appendCodeIf(&sb, ctx.usesHTTP || ctx.usesHTTPServer || ctx.usesUDPDatagram, rechDupHelper)
 
 	// После typedefs - rech_http_request принимает/возвращает Запрос/
 	// Ответ по значению, их typedef должен быть уже виден.
 	appendCodeIf(&sb, ctx.usesHTTP, httpHelpers)
 	// После typedefs, тем же принципом, что и usesHTTP выше.
 	appendCodeIf(&sb, ctx.usesHTTPServer, httpServerHelpers)
+	// После typedefs и rechDupHelper выше - rech_recv_from возвращает
+	// "Дейтаграмма" по значению (её typedef уже должен быть виден) и
+	// зовёт rech_dup для адреса отправителя.
+	appendCodeIf(&sb, ctx.usesUDPDatagram, udpDatagramHelpers())
 	// После genericsCode выше - rech_query_params использует typedef/
 	// метод "установить" Словарь<Строка, Строка>, уже эмитированные там
 	// (queryParamsDictType зарегистрирован в prog.Generics принудительно,
