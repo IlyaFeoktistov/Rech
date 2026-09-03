@@ -673,7 +673,12 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || hasStructTargets || prog.UsesReflection {
 		sb.WriteString("#include <string.h>\n")
 	}
-	if ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesQueryParams || ctx.usesCookies || hasStructTargets {
+	if ctx.usesRandom {
+		// _CRT_RAND_S должен быть определён ДО <stdlib.h> - объявляет
+		// rand_s (см. randomHelpers, random.go) в MSVCRT/UCRT.
+		sb.WriteString("#ifdef _WIN32\n#define _CRT_RAND_S\n#endif\n")
+	}
+	if ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesQueryParams || ctx.usesCookies || ctx.usesRandom || hasStructTargets {
 		sb.WriteString("#include <stdlib.h>\n")
 	}
 	if ctx.usesMath {
@@ -826,6 +831,9 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// После typedefs - rech_time_to_date/rech_date_to_time/
 	// rech_date_to_string принимают/возвращают ДатаВремя по значению.
 	appendCodeIf(&sb, ctx.usesDateTime, datetimeHelpers)
+	// Не зависит от typedefs вообще (только примитивы) - здесь же просто
+	// для единообразия с остальными builtin-хелперами шага 8.
+	appendCodeIf(&sb, ctx.usesRandom, randomHelpers)
 	// После typedefs (rech_T_opcii_kuki/rech_T_n_stroka уже объявлены) и
 	// после strConcatHelper выше (rech_cookie_string зовёт rech_str_concat).
 	appendCodeIf(&sb, ctx.usesCookies, cookieHelpers())

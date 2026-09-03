@@ -25,6 +25,13 @@ type builtinFlags struct {
 	// usesMath - нужен ли <math.h> (встроенные функции шага 8: корень,
 	// степень, округлить, потолок, пол, модуль).
 	usesMath bool
+	// usesRandom - нужны ли rech_random/rech_random_int (встроенные функции
+	// "случайное"/"случайное_целое", random.go) - arc4random/
+	// arc4random_uniform из <stdlib.h> (glibc >= 2.36, BSD/macOS - без
+	// ручного rand()/srand()), не math/rand-аналог: криптографически
+	// стойкий источник нужен в первую очередь для токенов сессий (см.
+	// examples/проекты/http_сервер).
+	usesRandom bool
 	// usesConsoleInput - нужны ли rech_read_line/rech_read_int/
 	// rech_read_float (встроенные функции шага 8: прочитать_строку,
 	// прочитать_целое, прочитать_число) - все три хелпера эмитятся вместе,
@@ -195,6 +202,13 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 	case "параметры_пути":
 		flags.usesQueryParams = true
 		return fmt.Sprintf("rech_query_params(%s)", args[0]), true
+	case "случайное":
+		flags.usesRandom = true
+		return "rech_random()", true
+	case "случайное_целое":
+		flags.usesRandom = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_random_int(%s, %s)", args[0], args[1]), true
 	case "время":
 		flags.usesDateTime = true
 		return "rech_time_now()", true

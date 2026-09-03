@@ -258,3 +258,9 @@ const StateNotEstablishedTemplate = "объект типа \"%s\" не нахо�
 func StateNotEstablishedFormat(typeName, state string) string {
 	return fmt.Sprintf(StateNotEstablishedTemplate, typeName, state)
 }
+
+// RandomIntInvalidRange - "случайное_целое(мин, макс)" с мин > макс -
+// пустой диапазон, аварийное завершение (тем же принципом, что и
+// ReadInvalidMax - ошибка программиста, не ожидаемый исключительный
+// случай).
+const RandomIntInvalidRange = "случайное_целое: минимум должен быть не больше максимума"

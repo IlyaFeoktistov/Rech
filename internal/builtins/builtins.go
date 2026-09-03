@@ -55,6 +55,12 @@ var All = []Func{
 	{Name: "пол", Params: []Kind{KindFloat}, ReturnKind: KindInt, HasReturn: true},
 	{Name: "модуль", Params: []Kind{KindFloat}, ReturnKind: KindFloat, HasReturn: true},
 
+	// Случайные числа (криптографически стойкий источник - arc4random* в
+	// cbackend, crypto/rand в интерпретаторе - НЕ math/rand/rand(), см.
+	// package doc random.go в обоих backend'ах).
+	{Name: "случайное", Params: nil, ReturnKind: KindFloat, HasReturn: true},
+	{Name: "случайное_целое", Params: []Kind{KindInt, KindInt}, ReturnKind: KindInt, HasReturn: true},
+
 	// Ввод консоли (обёртки над <stdio.h> в C, os.Stdin в интерпретаторе).
 	{Name: "прочитать_строку", Params: nil, ReturnKind: KindString, HasReturn: true},
 	{Name: "прочитать_целое", Params: nil, ReturnKind: KindInt, HasReturn: true},

@@ -178,6 +178,10 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return Value{}, true
 	case "параметры_пути":
 		return queryParams(args[0].S), true
+	case "случайное":
+		return floatValue(randomFloat()), true
+	case "случайное_целое":
+		return intValue(randomInt(args[0].I, args[1].I)), true
 	case "время":
 		return intValue(nowUnix()), true
 	case "время_как_дата":
