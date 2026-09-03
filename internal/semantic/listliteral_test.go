@@ -51,7 +51,10 @@ func TestAnalyzeListLiteralMixedTypesRejected(t *testing.T) {
 	}
 }
 
-func TestAnalyzeListLiteralEntityElementRejected(t *testing.T) {
+// TestAnalyzeListLiteralEntityElementAllowed - "[а]" с сущностью-элементом
+// допустим как локальная переменная (не поле, см. package doc
+// internal/semantic.collectionRealEntityElem).
+func TestAnalyzeListLiteralEntityElementAllowed(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 сущность Точка {
     имеет:
@@ -67,7 +70,7 @@ func TestAnalyzeListLiteralEntityElementRejected(t *testing.T) {
     переменная б = [а]
 }
 `)
-	if err == nil || !strings.Contains(err.Error(), "пользовательских сущностей") {
-		t.Fatalf("ожидалась ошибка про недопустимый элемент-сущность, получено: %v", err)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 }

@@ -76,15 +76,31 @@ func analyzeTypeOfExpr(sc *ctx, e *ast.TypeOfExpr) (ir.Expr, error) {
 	return &ir.TypeOfExpr{Type: t}, nil
 }
 
-// analyzeAsExpr разбирает "<значение> как <Имя>" - разбоксирование
+// analyzeAsExpr разбирает "<значение> как <Имя>" - обычно разбоксирование
 // "Значение" обратно к конкретному типу Имя, с проверкой в рантайме
-// (несовпадение реального типа - паника). Value обязан быть типа
+// (несовпадение реального типа - паника): Value обязан быть типа
 // "Значение" - "как" не общий оператор приведения (для этого уже есть
-// "(Тип) значение"), только парный к боксирующему касту.
+// "(Тип) значение"), только парный к боксирующему касту. ОТДЕЛЬНОЕ
+// исключение - Value типа dbResultType ("Список<Словарь<Строка,
+// Значение>>", результат "запросить"/"выполнить", db.go): "запросить(...)
+// как Список<Тип>" - маппинг строк результата в список сущностей, см.
+// db_rows.go - проверяется и обрабатывается раньше общей ветки выше
+// (dbResultType - не "Значение", KindEntity).
 func analyzeAsExpr(sc *ctx, e *ast.AsExpr) (ir.Expr, error) {
 	value, err := analyzeExpr(sc, e.Value)
 	if err != nil {
 		return nil, err
+	}
+	if valType := ir.TypeOf(value); valType.Kind == ir.KindEntity && valType.Entity == dbResultType {
+		to, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, e.TypeName)
+		if err != nil {
+			return nil, fmt.Errorf("строка %d: \"как %s\": %w", e.Line, e.TypeName, err)
+		}
+		sig, ok := sc.entities[to.Entity]
+		if to.Kind != ir.KindEntity || !ok || !sig.IsList {
+			return nil, fmt.Errorf("строка %d: результат \"запросить\"/\"выполнить\" можно привести только к \"Список<Тип>\" (маппинг строк по полям), получено %s", e.Line, to)
+		}
+		return analyzeDBRowsAsExpr(sc, value, to, sig.ElemType, e.Line)
 	}
 	if ir.TypeOf(value).Kind != ir.KindAny {
 		return nil, fmt.Errorf("строка %d: \"как\" применим только к \"Значение\", получено %s", e.Line, ir.TypeOf(value))

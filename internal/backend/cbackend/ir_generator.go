@@ -483,15 +483,34 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// Ответ>" - таблица маршрутов): C-структура сигнатуры (rech_C_...)
 	// несёт функцию/параметры ПО ЗНАЧЕНИЮ, значит должна быть уже объявлена
 	// раньше typedef такой коллекции - обратный порядок относительно
-	// обычных genericsCode выше (примитив/сущность как элемент не заставляют
+	// обычных genericsCode выше (примитив как элемент не заставляет
 	// коллекцию ждать ничего, кроме себя самой) - эмитится позже,
 	// после callableTypedefs (см. её появление в sb ниже).
-	var genericsCode, genericsCodeAfterCallables, indexSafeGetCode strings.Builder
+	//
+	// genericsCodeAfterEntities - ЕЩЁ ОДНА отдельная группа: коллекция, чей
+	// элемент - настоящая ПОЛЬЗОВАТЕЛЬСКАЯ сущность (entities[...] != nil -
+	// тот же самый признак "настоящая сущность, не generic-псевдо-сущность
+	// вроде Список<T>", которым уже пользуется nullablesAfterTypedefs ниже
+	// для того же класса проблемы - "?ИмяСущности") - анонимный `typedef
+	// struct {...} rech_Имя;` сущности не forward-declarable в C, значит
+	// коллекция с сущностью-элементом обязана идти СТРОГО ПОСЛЕ typedef
+	// этой сущности. internal/semantic.collectEntities взамен запрещает
+	// такой коллекции быть полем другой сущности/структуры (иначе
+	// понадобился бы полный топологический порядок typedef'ов вперемешку с
+	// сущностями, а не фиксированный порядок бакетов) - только локальная
+	// переменная/параметр/результат функции, поэтому единственное, что эта
+	// группа обязана видеть заранее - ВСЕ typedefs/typedefsAfterCallables
+	// (обе группы сущностей) - см. её появление в sb ниже, сразу после
+	// typedefsAfterCallables.
+	var genericsCode, genericsCodeAfterCallables, genericsCodeAfterEntities, indexSafeGetCode strings.Builder
 	usesGenerics := len(prog.Generics) > 0
 	for _, g := range prog.Generics {
 		dest := &genericsCode
-		if g.ElemType.Kind == ir.KindCallable || g.KeyType.Kind == ir.KindCallable {
+		switch {
+		case g.ElemType.Kind == ir.KindCallable || g.KeyType.Kind == ir.KindCallable:
 			dest = &genericsCodeAfterCallables
+		case g.ElemType.Kind == ir.KindEntity && entities[g.ElemType.Entity] != nil:
+			dest = &genericsCodeAfterEntities
 		}
 		elemC := fromIRType(g.ElemType).cType(ctx)
 		// rech_new_<...> - конструктор "новый Список<T>()" и т. п.
@@ -670,17 +689,29 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	if ctx.usesShow {
 		// Generics - ПЕРЕД сущностями: сущность может нести generic-
 		// коллекцию ПОЛЕМ ("участники: Список<Строка>") и её функция
-		// показа зовёт rech_show_<коллекция> - обратная зависимость
-		// невозможна (элемент встроенной коллекции - только примитив или
-		// другая встроенная коллекция, не пользовательская сущность, см.
-		// internal/semantic.resolveGenericTypeName), поэтому строгий
-		// порядок "все generics -> все сущности" достаточен без
-		// топологической сортировки.
+		// показа зовёт rech_show_<коллекция> - обратная зависимость (в
+		// обычном случае) невозможна: элемент встроенной коллекции - либо
+		// примитив/другая встроенная коллекция (эта ветка), либо настоящая
+		// пользовательская сущность (см. internal/semantic.
+		// resolveGenericTypeName) - но такая коллекция уже не может быть
+		// полем сущности (internal/semantic.collectEntities,
+		// collectionRealEntityElem), значит цикла тоже нет - её функция
+		// показа просто откладывается на третий проход ниже, ПОСЛЕ функций
+		// показа сущностей (она зовёт rech_show_<Сущность>, ему нужно уже
+		// существовать).
 		for _, g := range prog.Generics {
+			if g.ElemType.Kind == ir.KindEntity && entities[g.ElemType.Entity] != nil {
+				continue
+			}
 			showFuncs.WriteString(generateIRGenericShowFunc(ctx, g))
 		}
 		for _, ent := range prog.Entities {
 			showFuncs.WriteString(generateIREntityShowFunc(ctx, ent))
+		}
+		for _, g := range prog.Generics {
+			if g.ElemType.Kind == ir.KindEntity && entities[g.ElemType.Entity] != nil {
+				showFuncs.WriteString(generateIRGenericShowFunc(ctx, g))
+			}
 		}
 	}
 
@@ -864,6 +895,12 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	appendCodeIf(&sb, genericsCodeAfterCallables.Len() > 0, genericsCodeAfterCallables.String())
 	// После genericsCodeAfterCallables - см. её package doc выше (typedefs).
 	appendCodeIf(&sb, typedefsAfterCallables.Len() > 0, typedefsAfterCallables.String())
+	// После ОБЕИХ групп typedefs/typedefsAfterCallables (коллекция с
+	// сущностью-элементом ждёт typedef именно этой сущности, а та могла
+	// попасть в любую из двух групп) - см. package doc genericsCodeAfterEntities
+	// выше. До showFuncs ниже - её третий проход зовёт rech_show_<такая
+	// коллекция>, функция должна быть уже объявлена.
+	appendCodeIf(&sb, genericsCodeAfterEntities.Len() > 0, genericsCodeAfterEntities.String())
 	appendCodeIf(&sb, ctx.usesShow && showFuncs.Len() > 0, showFuncs.String())
 	// rech_dup - общий для HTTP-клиента/сервера и получить_от (адрес
 	// отправителя UDP-датаграммы копируется через rech_dup) - эмитится
@@ -944,6 +981,19 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	appendCodeIf(&sb, len(prog.XMLParseTargets) > 0 || len(prog.XMLSerializeTargets) > 0, xmlSbCode)
 
 	err = resolveRuntimeCode(&sb, ctx, prog, prog.XMLParseTargets, xmlRuntimeCode)
+	if err != nil {
+		return "", err
+	}
+
+	// dbRowsRuntimeCode - функции "запросить(...) как Список<Тип>"
+	// (ir.DBRowsAsExpr, db_rows.go) - тем же принципом, что jsonRuntimeCode
+	// выше: нужны уже готовый rech_new_<Тип> (ctors выше) и Список<Тип>
+	// (genericsCodeAfterEntities, эмитирован ещё раньше typedefs). Зовёт
+	// rech_panic через reflectCheckedUnboxExprCode - panicHelper уже
+	// безусловно эмитирован раньше (prog.UsesReflection уже true всегда,
+	// когда достижим этот путь - registerDBTypesOnCall, db.go), отдельный
+	// ctx.usesPanic здесь не нужен.
+	err = resolveRuntimeCode(&sb, ctx, prog, prog.DBRowTargets, dbRowsRuntimeCode)
 	if err != nil {
 		return "", err
 	}
@@ -1765,6 +1815,9 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 
 	case *ir.AsExpr:
 		return generateIRAsExpr(ctx, e)
+
+	case *ir.DBRowsAsExpr:
+		return generateIRDBRowsAsExpr(ctx, e)
 
 	case *ir.NullLiteral:
 		t := fromIRType(e.Type)

@@ -90,6 +90,13 @@ type Analyzer struct {
 	xmlParseTargets     dedupTypeList
 	xmlSerializeTargets dedupTypeList
 
+	// dbRowTargets - дедуплицированный список сущностей, встретившихся хоть
+	// раз как элемент цели "запросить(...) как Список<Тип>" (db_rows.go) -
+	// тем же принципом, что parseTargets (backend генерирует функцию
+	// маппинга строки результата в Тип один раз на каждый встретившийся
+	// Тип, не безусловно для каждой сущности программы).
+	dbRowTargets dedupTypeList
+
 	// reflectTargets - дедуплицированный список сущностей/структур,
 	// встретившихся хоть раз как аргумент боксирования ("(Значение) x")
 	// или как имя у "тип <Имя>"/"значение как <Имя>" - тем же принципом,
@@ -158,6 +165,7 @@ func (a *Analyzer) registerParseTarget(t ir.Type)        { a.parseTargets.add(t)
 func (a *Analyzer) registerSerializeTarget(t ir.Type)    { a.serializeTargets.add(t) }
 func (a *Analyzer) registerXMLParseTarget(t ir.Type)     { a.xmlParseTargets.add(t) }
 func (a *Analyzer) registerXMLSerializeTarget(t ir.Type) { a.xmlSerializeTargets.add(t) }
+func (a *Analyzer) registerDBRowTarget(t ir.Type)        { a.dbRowTargets.add(t) }
 
 // registerReflectTarget регистрирует t (сущность/структура) как нуждающийся
 // в дескрипторе рефлексии - примитивы регистрировать не нужно (см. package
@@ -285,6 +293,9 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 			if err != nil {
 				return fmt.Errorf("сущность %q: поле %q: %w", ent.Name, f.Name, err)
 			}
+			if elemEnt, ok := collectionRealEntityElem(entities, typ); ok {
+				return fmt.Errorf("сущность %q: поле %q имеет тип %s - встроенная коллекция с сущностью %q элементом допустима только вне полей сущностей/структур (локальная переменная, параметр, тип результата функции), не полем другой сущности/структуры", ent.Name, f.Name, typ, elemEnt)
+			}
 			if ent.IsExternStruct && !isFFIType(entities, typ) {
 				return fmt.Errorf("внешняя структура %q: поле %q имеет тип %s - допустимы только примитивы (Целое/Действительное/Дробное/Логическое/Байт/Символ/Строка) и внешние сущности (\"внешняя сущность\") - иначе реальный размер C-структуры был бы искажён", ent.Name, f.Name, typ)
 			}
@@ -340,6 +351,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 			}
 			params := make([]ir.Type, len(m.Params))
 			paramStates := make([]string, len(m.Params))
+			paramDefaults := make([]ast.Expr, len(m.Params))
 			for i, p := range m.Params {
 				typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, p.Type)
 				if err != nil {
@@ -347,12 +359,13 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 				}
 				params[i] = typ
 				paramStates[i] = aliasState[p.Type]
+				paramDefaults[i] = p.Default
 			}
 			revokes, err := resolveOpposesTag(m, ent.Methods, sig.States)
 			if err != nil {
 				return fmt.Errorf("сущность %q: %w", ent.Name, err)
 			}
-			msig := funcSig{Params: params, ParamStates: paramStates, Visibility: m.Visibility, IsAbstract: m.IsAbstract, IsStatic: m.IsStatic, RevokesStates: revokes}
+			msig := funcSig{Params: params, ParamStates: paramStates, ParamDefaults: paramDefaults, Visibility: m.Visibility, IsAbstract: m.IsAbstract, IsStatic: m.IsStatic, RevokesStates: revokes}
 			switch {
 			case m.SelfReturn:
 				// "этот" как тип результата - собственный метод сущности X
@@ -377,6 +390,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 		if ent.Ctor != nil {
 			ctorParams := make([]ir.Type, len(ent.Ctor.Params))
 			ctorParamNames := make([]string, len(ent.Ctor.Params))
+			ctorParamDefaults := make([]ast.Expr, len(ent.Ctor.Params))
 			for i, p := range ent.Ctor.Params {
 				typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, p.Type)
 				if err != nil {
@@ -384,10 +398,12 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 				}
 				ctorParams[i] = typ
 				ctorParamNames[i] = p.Name
+				ctorParamDefaults[i] = p.Default
 			}
 			sig.HasCtor = true
 			sig.CtorParams = ctorParams
 			sig.CtorParamNames = ctorParamNames
+			sig.CtorParamDefaults = ctorParamDefaults
 		}
 
 		// Наследование ("наследует")/интерфейсы ("реализует") -
@@ -444,6 +460,7 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 		}
 		params := make([]ir.Type, len(fn.Params))
 		paramStates := make([]string, len(fn.Params))
+		paramDefaults := make([]ast.Expr, len(fn.Params))
 		for i, p := range fn.Params {
 			typ, err := resolveTypeName(a.entities, a.methods, a.aliases, a.interfaces, p.Type)
 			if err != nil {
@@ -451,8 +468,9 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 			}
 			params[i] = typ
 			paramStates[i] = a.aliasState[p.Type]
+			paramDefaults[i] = p.Default
 		}
-		sig := funcSig{Params: params, ParamStates: paramStates}
+		sig := funcSig{Params: params, ParamStates: paramStates, ParamDefaults: paramDefaults}
 		if fn.ReturnType != "" {
 			typ, err := resolveTypeName(a.entities, a.methods, a.aliases, a.interfaces, fn.ReturnType)
 			if err != nil {
@@ -957,6 +975,7 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	out.ReflectTargets = a.reflectTargets.order
 	out.UsesReflection = a.usesReflection
 	out.UsesDB = a.usesDB
+	out.DBRowTargets = a.dbRowTargets.order
 
 	if err := a.collectCallables(out); err != nil {
 		return nil, err

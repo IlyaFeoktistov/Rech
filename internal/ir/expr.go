@@ -240,6 +240,8 @@ func TypeOf(e Expr) Type {
 		return TypeTypeInfo
 	case *AsExpr:
 		return e.To
+	case *DBRowsAsExpr:
+		return e.To
 	case *NullLiteral:
 		return e.Type
 	case *NullWrapExpr:

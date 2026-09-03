@@ -69,12 +69,12 @@ func TestAnalyzeParseExprListOfPrimitivesTarget(t *testing.T) {
 	}
 }
 
-// TestAnalyzeParseExprListOfEntitiesRejected - Список<T> сам по себе
-// поддерживает только примитивные элементы (сущности - нет, известное
-// действующее ограничение generic-коллекций, не специфика JSON) - ошибка
-// приходит из resolveTypeName/resolveGenericTypeName раньше, чем до
-// jsonCompatible вообще доходит очередь.
-func TestAnalyzeParseExprListOfEntitiesRejected(t *testing.T) {
+// TestAnalyzeParseExprListOfEntitiesAllowed - Список<Сущность> как ЛОКАЛЬНАЯ
+// переменная (не поле) - допустимая цель разбора JSON, structCompatible уже
+// рекурсирует в ElemType для sig.IsList независимо от того, элемент -
+// примитив или сущность (см. package doc internal/semantic.
+// collectionRealEntityElem про сам запрет только полем).
+func TestAnalyzeParseExprListOfEntitiesAllowed(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 сущность Пользователь
 {
@@ -86,8 +86,8 @@ func TestAnalyzeParseExprListOfEntitiesRejected(t *testing.T) {
     переменная список = разобрать JSON "[]" как Список<Пользователь>
 }
 `)
-	if err == nil {
-		t.Fatal("ожидалась ошибка - Список<Сущность> не поддержан")
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 }
 

@@ -462,19 +462,10 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if !baseSig.HasCtor {
 			return nil, fmt.Errorf("строка %d: у базовой сущности %q нет собственного конструктора - вызывать нечего, присвойте унаследованные поля напрямую через \"этот.поле = ...\"", s.Line, baseName)
 		}
-		if len(s.Args) != len(baseSig.CtorParams) {
-			return nil, fmt.Errorf("строка %d: конструктор %q ожидает аргументов: %d, передано: %d", s.Line, baseName, len(baseSig.CtorParams), len(s.Args))
-		}
-		args := make([]ir.Expr, len(s.Args))
-		for i, a := range s.Args {
-			arg, err := coerceExpr(sc, a, baseSig.CtorParams[i])
-			if err != nil {
-				return nil, err
-			}
-			if typ := ir.TypeOf(arg); !isAssignable(sc.entities, sc.interfaces, typ, baseSig.CtorParams[i]) {
-				return nil, fmt.Errorf("строка %d: аргумент %d конструктора %q должен быть типа %s, получен %s", s.Line, i+1, baseName, baseSig.CtorParams[i], typ)
-			}
-			args[i] = arg
+		baseCtorSig := funcSig{Params: baseSig.CtorParams, ParamDefaults: baseSig.CtorParamDefaults}
+		args, err := checkCallArgs(sc, s.Args, baseCtorSig, s.Line, fmt.Sprintf("конструктор %q", baseName), fmt.Sprintf("конструктора %q", baseName))
+		if err != nil {
+			return nil, err
 		}
 		return &ir.ParentCallStmt{BaseEntity: baseName, Args: args, Line: s.Line}, nil
 

@@ -20,3 +20,22 @@ type AsExpr struct {
 }
 
 func (*AsExpr) expr() {}
+
+// DBRowsAsExpr - "запросить(...) как Список<Тип>"/"выполнить(...) как
+// Список<Тип>" (internal/semantic/db_rows.go) - маппинг КАЖДОЙ строки
+// результата запроса (Rows - выражение типа "Список<Словарь<Строка,
+// Значение>>") в новый экземпляр Тип по имени поля (или его тегу
+// `sql:...`), тем же принципом, что и разбоксирование "Значение" у AsExpr,
+// но на списке строк целиком, не на одном значении. To - тип РЕЗУЛЬТАТА
+// целиком ("Список<Тип>"), тем же принципом, что ParseExpr.To у "разобрать
+// JSON ... как Список<Тип>". Elem - сам Тип (ElemType у To) отдельным
+// полем, не через resolveGenericTypeName(To) заново на стороне backend'а -
+// backend не хранит regular map "имя generic-инстанциации -> ElemType" (в
+// отличие от internal/semantic.entitySig), удобнее нести его прямо здесь.
+type DBRowsAsExpr struct {
+	Rows Expr
+	To   Type
+	Elem Type
+}
+
+func (*DBRowsAsExpr) expr() {}

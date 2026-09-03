@@ -280,6 +280,36 @@ func isBuiltinCollectionType(entities map[string]entitySig, t ir.Type) bool {
 	return entities[t.Entity].ElemType != ir.TypeUnknown
 }
 
+// collectionRealEntityElem - t сам является встроенной generic-коллекцией
+// (isBuiltinCollectionType) с элементом (у "Словарь" - значением, тот же
+// ElemType) - ПОЛЬЗОВАТЕЛЬСКОЙ сущностью/структурой (не примитивом и не
+// вложенной другой встроенной коллекцией) - возвращает эту сущность и true.
+// Используется ТОЛЬКО для запрета такой коллекции ПОЛЕМ сущности/структуры
+// (см. её вызов в collectEntities) - самим Список<T>/Словарь<К, В>
+// сущность элементом разрешена (resolveGenericTypeName), но C-typedef
+// такой коллекции (cbackend) должен идти строго ПОСЛЕ typedef самой
+// сущности-элемента (анонимные typedef struct - без forward-declaration в
+// C), а entity/structure-typedef этой же сущности местами (её поле -
+// generic-коллекция ПО ЗНАЧЕНИЮ) должен идти РАНЬШЕ typedef коллекции,
+// которую несёт - при сущности-элементе одновременно оба требования
+// решаются полным топологическим порядком typedef'ов, которого сейчас нет
+// (только фиксированный порядок "коллекции -> сущности", плюс отдельные
+// группы под "Вызываемый"/nullable-обёртки, cbackend/ir_generator.go) -
+// вместо него простой запрет: сущность-элемент коллекции не может быть
+// полем (только локальная переменная/параметр/результат функции, где такой
+// проблемы порядка нет - typedef коллекции синтезируется в отдельный блок
+// ПОСЛЕ всех typedef сущностей, см. genericsCodeAfterEntities).
+func collectionRealEntityElem(entities map[string]entitySig, t ir.Type) (ir.Type, bool) {
+	if !isBuiltinCollectionType(entities, t) {
+		return ir.TypeUnknown, false
+	}
+	elem := entities[t.Entity].ElemType
+	if elem.Kind != ir.KindEntity || isBuiltinCollectionType(entities, elem) {
+		return ir.TypeUnknown, false
+	}
+	return elem, true
+}
+
 // topoSortGenericNames упорядочивает generic-инстанциации (names) так,
 // чтобы инстанциация, использованная как ЭЛЕМЕНТ другой (Список<Целое>
 // внутри Список<Список<Целое>>), шла РАНЬШЕ той, что её содержит -
@@ -337,9 +367,6 @@ func resolveGenericTypeName(entities map[string]entitySig, methods map[string]ma
 	if elem.Kind == ir.KindNullable {
 		return ir.TypeUnknown, fmt.Errorf("%q: элементы встроенных коллекций пока не поддерживают nullable-типы", name)
 	}
-	if elem.Kind == ir.KindEntity && !isBuiltinCollectionType(entities, elem) {
-		return ir.TypeUnknown, fmt.Errorf("%q: элементы встроенных коллекций поддерживаются только для примитивов и других встроенных коллекций (Список/Стопка/Очередь/Словарь), не для пользовательских сущностей", name)
-	}
 	sigs, ok := genericMethodSigs(template, elem)
 	if !ok {
 		return ir.TypeUnknown, fmt.Errorf("неизвестный generic-тип %q", template)
@@ -385,9 +412,6 @@ func resolveDictTypeName(entities map[string]entitySig, methods map[string]map[s
 	}
 	if val.Kind == ir.KindNullable {
 		return ir.TypeUnknown, fmt.Errorf("%q: значения встроенного словаря пока не поддерживают nullable-типы", name)
-	}
-	if val.Kind == ir.KindEntity && !isBuiltinCollectionType(entities, val) {
-		return ir.TypeUnknown, fmt.Errorf("%q: значения встроенного словаря поддерживаются только для примитивов и других встроенных коллекций, не для пользовательских сущностей", name)
 	}
 	if _, exists := entities[name]; !exists {
 		entities[name] = entitySig{IsDict: true, KeyType: key, ElemType: val}

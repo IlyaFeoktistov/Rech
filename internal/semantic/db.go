@@ -1,6 +1,9 @@
 package semantic
 
-import "github.com/IlyaFeoktistov/Rech/internal/ir"
+import (
+	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/ir"
+)
 
 // dbResultType - тип результата "запросить" (см. registerDBFuncs) - как и
 // queryParamsDictType (httpserver.go), регистрируется в entities/methods
@@ -23,9 +26,13 @@ const dbResultType = "Список<Словарь<Строка, Значение
 //     конкретный диалект), параметры - отдельным списком, каждый элемент
 //     заранее боксирован в "Значение" ("(Значение) x") тем же принципом,
 //     что и аргументы ".вызвать"/"тип.создать" (рефлексия, reflect.go).
+//     Третий аргумент необязателен (значение по умолчанию - пустой "новый
+//     Список<Значение>()", см. dbNoParamsDefault) для запросов без
+//     плейсхолдеров.
 //   - "выполнить(БД, Строка, Список<Значение>): Целое" - то же самое для
 //     запросов без результата-таблицы (INSERT/UPDATE/DELETE/DDL),
-//     результат - число затронутых строк.
+//     результат - число затронутых строк, третий аргумент так же
+//     необязателен.
 //   - "закрыть_бд(БД)" - закрывает соединение, как и "закрыть_сокет".
 //
 // NULL в результате запроса боксируется в "Значение" с типом "Ничто" (то
@@ -34,10 +41,27 @@ const dbResultType = "Список<Словарь<Строка, Значение
 // результата", другое понятие) - "результат.получить(колонка).
 // тип_значения().имя() == \"Ничто\"" проверяет отсутствие значения тем же
 // словом языка, что и везде.
+// dbNoParamsDefault - значение по умолчанию третьего аргумента
+// "запросить"/"выполнить" (см. package doc) - "новый Список<Значение>()",
+// один и тот же узел ast.Expr переиспользуется для обеих сигнатур
+// (resolveParamDefault кеширует по указателю на срез ParamDefaults, не на
+// сам узел - переиспользование безопасно).
+var dbNoParamsDefault = &ast.NewExpr{Type: "Список<Значение>"}
+
 func registerDBFuncs(funcs map[string]funcSig) {
 	funcs["подключиться_к_бд"] = funcSig{Params: []ir.Type{ir.TypeString}, ReturnType: ir.TypeDB, HasReturn: true}
-	funcs["запросить"] = funcSig{Params: []ir.Type{ir.TypeDB, ir.TypeString, listOfAnyType}, ReturnType: ir.EntityType(dbResultType), HasReturn: true}
-	funcs["выполнить"] = funcSig{Params: []ir.Type{ir.TypeDB, ir.TypeString, listOfAnyType}, ReturnType: ir.TypeInt, HasReturn: true}
+	funcs["запросить"] = funcSig{
+		Params:        []ir.Type{ir.TypeDB, ir.TypeString, listOfAnyType},
+		ParamDefaults: []ast.Expr{nil, nil, dbNoParamsDefault},
+		ReturnType:    ir.EntityType(dbResultType),
+		HasReturn:     true,
+	}
+	funcs["выполнить"] = funcSig{
+		Params:        []ir.Type{ir.TypeDB, ir.TypeString, listOfAnyType},
+		ParamDefaults: []ast.Expr{nil, nil, dbNoParamsDefault},
+		ReturnType:    ir.TypeInt,
+		HasReturn:     true,
+	}
 	funcs["закрыть_бд"] = funcSig{Params: []ir.Type{ir.TypeDB}, HasReturn: false}
 }
 

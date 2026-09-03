@@ -293,7 +293,31 @@ func (p *Parser) parseParams() ([]ast.Param, error) {
 	if _, err := p.expect(lexer.RPAREN); err != nil {
 		return nil, err
 	}
+	if err := checkTrailingDefaults(params); err != nil {
+		return nil, err
+	}
 	return params, nil
+}
+
+// checkTrailingDefaults проверяет, что значения по умолчанию (Param.Default)
+// идут только ХВОСТОМ списка параметров - раз параметр получил default,
+// каждый следующий за ним обязан иметь его тоже (иначе непонятно, что
+// подставлять на пропущенное место при вызове с меньшим числом аргументов,
+// чем объявлено) - тот же принцип, что и у полей сущности
+// (docs/SPEC.md, "Явные конструкторы").
+func checkTrailingDefaults(params []ast.Param) error {
+	seenDefault := false
+	for _, p := range params {
+		if p.Default != nil {
+			seenDefault = true
+			continue
+		}
+		if seenDefault {
+			return fmt.Errorf("строка %d: параметр %q без значения по умолчанию идёт после параметра со значением по умолчанию - значения по умолчанию допустимы только хвостом списка параметров",
+				p.Line, p.Name)
+		}
+	}
+	return nil
 }
 
 // parseTypeName разбирает имя типа: IDENT [ "<" type_name { "," type_name } ">" ] -
@@ -431,7 +455,27 @@ func (p *Parser) parseParam() (ast.Param, error) {
 	if err != nil {
 		return ast.Param{}, fmt.Errorf("после \":\" у параметра %q ожидалось имя типа: %w", name.Value, err)
 	}
-	return ast.Param{Name: name.Value, CaseWord: caseWord, Type: typeName, Line: first.Line}, nil
+	def, err := p.parseParamDefault(name.Value)
+	if err != nil {
+		return ast.Param{}, err
+	}
+	return ast.Param{Name: name.Value, CaseWord: caseWord, Type: typeName, Line: first.Line, Default: def}, nil
+}
+
+// parseParamDefault разбирает необязательное "= <выражение>" после типа
+// параметра ("параметр: Тип = выражение") - nil, если "=" нет (ничего не
+// потребляет). Тем же принципом, что и значение по умолчанию поля сущности
+// (parseField, entity.go).
+func (p *Parser) parseParamDefault(paramName string) (ast.Expr, error) {
+	if p.cur().Type != lexer.ASSIGN {
+		return nil, nil
+	}
+	p.advance()
+	def, err := p.parseExpr()
+	if err != nil {
+		return nil, fmt.Errorf("в значении по умолчанию параметра %q: %w", paramName, err)
+	}
+	return def, nil
 }
 
 // parseTwoWordCaseParam разбирает двухсловную запись падежной роли с
@@ -460,5 +504,9 @@ func (p *Parser) parseTwoWordCaseParam(animateWord, inanimateWord string) (ast.P
 	if err != nil {
 		return ast.Param{}, fmt.Errorf("после \":\" у параметра %q ожидалось имя типа: %w", name.Value, err)
 	}
-	return ast.Param{Name: name.Value, CaseWord: caseWord, Type: typeName, Line: withTok.Line}, nil
+	def, err := p.parseParamDefault(name.Value)
+	if err != nil {
+		return ast.Param{}, err
+	}
+	return ast.Param{Name: name.Value, CaseWord: caseWord, Type: typeName, Line: withTok.Line, Default: def}, nil
 }

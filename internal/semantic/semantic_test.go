@@ -1264,7 +1264,11 @@ func TestAnalyzeStackAndQueueGenerics(t *testing.T) {
 	}
 }
 
-func TestAnalyzeCollectionEntityElementFails(t *testing.T) {
+// TestAnalyzeCollectionEntityElementAllowed - Список<Сущность> как ЛОКАЛЬНАЯ
+// переменная (не поле сущности/структуры) - допустимо (см. package doc
+// internal/semantic.collectionRealEntityElem про сам запрет только полем -
+// TestAnalyzeCollectionEntityFieldRejected ниже).
+func TestAnalyzeCollectionEntityElementAllowed(t *testing.T) {
 	toks, err := lexer.New(`
 сущность Пользователь
 {
@@ -1289,9 +1293,37 @@ func TestAnalyzeCollectionEntityElementFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("парсер: %v", err)
 	}
-	_, err = Analyze(prog)
-	if err == nil || !strings.Contains(err.Error(), "не для пользовательских сущностей") {
-		t.Fatalf("ожидалась ошибка про недопустимый элемент-сущность, получено: %v", err)
+	if _, err := Analyze(prog); err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
+// TestAnalyzeCollectionEntityFieldRejected - в отличие от локальной
+// переменной выше, ПОЛЕ сущности/структуры не может быть встроенной
+// коллекцией с сущностью-элементом (internal/semantic.collectEntities,
+// collectionRealEntityElem) - иначе понадобился бы полный топологический
+// порядок typedef'ов вперемешку с сущностями в cbackend вместо
+// фиксированного порядка бакетов (см. её package doc в internal/backend/
+// cbackend/ir_generator.go, genericsCodeAfterEntities).
+func TestAnalyzeCollectionEntityFieldRejected(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+сущность Пользователь
+{
+    имеет:
+        имя: Строка
+}
+сущность Отдел
+{
+    имеет:
+        сотрудники: Список<Пользователь>
+}
+функция главная
+{
+    вывести "ок"
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "допустима только вне полей сущностей/структур") {
+		t.Fatalf("ожидалась ошибка про недопустимое поле-коллекцию с сущностью-элементом, получено: %v", err)
 	}
 }
 

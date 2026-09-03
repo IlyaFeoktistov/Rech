@@ -164,6 +164,41 @@ func resolveFieldDefault(sc *ctx, entityName, fieldName string, line int) (ir.Ex
 	return val, nil
 }
 
+// resolveParamDefault - как resolveFieldDefault, но для значения по
+// умолчанию ПАРАМЕТРА функции/метода/конструктора (funcSig.ParamDefaults/
+// entitySig.CtorParamDefaults, "параметр: Тип = выражение") - вызывается
+// из checkCallArgs, когда вызов передал МЕНЬШЕ аргументов, чем объявлено
+// параметров (недостающий хвост - defaults). Кэш - по адресу самого среза
+// defaults (`%p`, стабилен для всех вызовов одной сигнатуры - funcSig/
+// entitySig копируются по значению, но срез внутри указывает на тот же
+// исходный backing-array), не по имени функции/метода: два РАЗНЫХ метода с
+// одинаковым именем на разных сущностях иначе коллизировали бы по одному
+// текстовому ключу. Та же защита от цикла (resolvingConsts) и тот же общий
+// кэш (resolvedConsts), что и у resolveFieldDefault/resolveModuleConstant -
+// пространства ключей не пересекаются (dotted "Сущность.Константа", голое
+// имя модульной константы, здесь - "%p#индекс", ни один из них не может
+// совпасть с другим форматом).
+func resolveParamDefault(sc *ctx, defaults []ast.Expr, idx int, target ir.Type, line int) (ir.Expr, error) {
+	key := fmt.Sprintf("%p#%d", defaults, idx)
+	if v, ok := sc.resolvedConsts[key]; ok {
+		return v, nil
+	}
+	if sc.resolvingConsts[key] {
+		return nil, fmt.Errorf("строка %d: значение по умолчанию параметра %d ссылается само на себя (прямо или через другой параметр/константу) - вычислить значение невозможно", line, idx+1)
+	}
+	sc.resolvingConsts[key] = true
+	val, err := coerceExpr(sc, defaults[idx], target)
+	delete(sc.resolvingConsts, key)
+	if err != nil {
+		return nil, fmt.Errorf("строка %d: в значении по умолчанию параметра %d: %w", line, idx+1, err)
+	}
+	if typ := ir.TypeOf(val); !isAssignable(sc.entities, sc.interfaces, typ, target) {
+		return nil, fmt.Errorf("строка %d: значение по умолчанию параметра %d должно быть типа %s, получено %s", line, idx+1, target, typ)
+	}
+	sc.resolvedConsts[key] = val
+	return val, nil
+}
+
 // resolveStaticFieldDefault - как resolveFieldDefault, но для статического
 // поля (entitySig.StaticField*) - используется РОВНО один раз, при сборке
 // ir.Entity.StaticFields (см. analyzeEntity), не при каждом "новый Тип(...)"

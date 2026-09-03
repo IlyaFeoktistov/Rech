@@ -36,7 +36,11 @@ func TestAnalyzeDictRejectsFloatKey(t *testing.T) {
 	}
 }
 
-func TestAnalyzeDictRejectsEntityValue(t *testing.T) {
+// TestAnalyzeDictAllowsEntityValueOutsideField - Словарь<К, Сущность>
+// допустим как локальная переменная (не поле другой сущности/структуры,
+// см. TestAnalyzeCollectionEntityFieldRejected в semantic_test.go) -
+// internal/semantic.collectionRealEntityElem.
+func TestAnalyzeDictAllowsEntityValueOutsideField(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 сущность Точка
 {
@@ -48,8 +52,8 @@ func TestAnalyzeDictRejectsEntityValue(t *testing.T) {
     переменная д = новый Словарь<Строка, Точка>()
 }
 `)
-	if err == nil || !strings.Contains(err.Error(), "значения встроенного словаря") {
-		t.Fatalf("ожидалась ошибка про недопустимые значения, получено: %v", err)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 }
 

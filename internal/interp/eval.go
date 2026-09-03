@@ -126,6 +126,9 @@ func (in *Interp) evalExpr(e ir.Expr, env *Env, cc *callCtx) (Value, error) {
 	case *ir.AsExpr:
 		return in.evalAsExpr(e, env, cc)
 
+	case *ir.DBRowsAsExpr:
+		return in.evalDBRowsAsExpr(e, env, cc)
+
 	case *ir.NullLiteral:
 		return evalNullLiteral(e), nil
 

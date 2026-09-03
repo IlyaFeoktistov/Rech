@@ -122,8 +122,8 @@ func TestAnalyzeExplicitConstructorNamedFormMissingParamFails(t *testing.T) {
     переменная точка = новая Точка(x: 3)
 }
 `)
-	if err == nil || !strings.Contains(err.Error(), "ожидает аргументов") {
-		t.Fatalf("ожидалась ошибка о числе аргументов конструктора, получено: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "не указан параметр") {
+		t.Fatalf("ожидалась ошибка о непереданном параметре без значения по умолчанию, получено: %v", err)
 	}
 }
 

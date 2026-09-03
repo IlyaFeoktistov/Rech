@@ -45,6 +45,117 @@ func TestAnalyzeDBRoundTrip(t *testing.T) {
 	}
 }
 
+// TestAnalyzeDBQueryParamsOptional - третий аргумент "запросить"/"выполнить"
+// (параметры запроса) можно опустить - dbNoParamsDefault (db.go), тем же
+// механизмом, что и обычные значения по умолчанию параметров функций (см.
+// internal/semantic/param_default_test.go). Отдельный тест от
+// TestAnalyzeDBQueryParamsOmitted в param_default_test.go - проверяет ещё
+// и что при этом не ломается остальной конвейер БД (UsesDB/UsesReflection).
+func TestAnalyzeDBQueryParamsOptional(t *testing.T) {
+	prog, err := AnalyzeSource(t, `
+функция главная
+{
+    переменная бд = подключиться_к_бд("sqlite::memory:")
+    выполнить(бд, "CREATE TABLE t (x INTEGER)")
+    переменная строки = запросить(бд, "SELECT * FROM t")
+    вывести строки.длина()
+    закрыть_бд(бд)
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !prog.UsesDB {
+		t.Fatal("UsesDB должен быть true")
+	}
+}
+
+// TestAnalyzeDBRowsAsListEntity - "запросить(...) как Список<Тип>"
+// (db_rows.go) - маппинг строк результата в список сущностей по имени поля.
+func TestAnalyzeDBRowsAsListEntity(t *testing.T) {
+	prog, err := AnalyzeSource(t, `
+сущность Пользователь
+{
+    имеет:
+        username: Строка
+        password: Строка
+}
+функция главная
+{
+    переменная бд = подключиться_к_бд("sqlite::memory:")
+    переменная пользователи = запросить(бд, "SELECT * FROM users") как Список<Пользователь>
+    вывести пользователи.длина()
+    закрыть_бд(бд)
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	found := false
+	for _, t := range prog.DBRowTargets {
+		if t.Entity == "Пользователь" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("ожидался \"Пользователь\" в prog.DBRowTargets")
+	}
+}
+
+// TestAnalyzeDBRowsAsRejectsCtorEntity - цель "запросить(...) как
+// Список<Тип>" не может иметь собственный явный конструктор (маппинг
+// заполняет поля напрямую, тем же принципом, что и JSON-разбор).
+func TestAnalyzeDBRowsAsRejectsCtorEntity(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+сущность Пользователь
+{
+    имеет:
+        имя: Строка
+
+    конструктор(имя: Строка)
+    {
+        этот.имя = имя
+    }
+}
+функция главная
+{
+    переменная бд = подключиться_к_бд("sqlite::memory:")
+    переменная пользователи = запросить(бд, "SELECT * FROM users") как Список<Пользователь>
+    закрыть_бд(бд)
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "конструктор") {
+		t.Fatalf("ожидалась ошибка про собственный конструктор, получено: %v", err)
+	}
+}
+
+// TestAnalyzeDBRowsAsRejectsNestedEntityField - поле цели "запросить(...)
+// как Список<Тип>" должно быть примитивом/nullable-примитивом - вложенная
+// сущность недопустима (строка SQL-результата плоская).
+func TestAnalyzeDBRowsAsRejectsNestedEntityField(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+сущность Адрес
+{
+    имеет:
+        город: Строка
+}
+сущность Пользователь
+{
+    имеет:
+        адрес: Адрес
+}
+функция главная
+{
+    переменная бд = подключиться_к_бд("sqlite::memory:")
+    переменная пользователи = запросить(бд, "SELECT * FROM users") как Список<Пользователь>
+    закрыть_бд(бд)
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "поле \"адрес\"") {
+		t.Fatalf("ожидалась ошибка про недопустимый тип поля, получено: %v", err)
+	}
+}
+
 func TestAnalyzeDBAbsentWithoutUse(t *testing.T) {
 	prog, err := AnalyzeSource(t, `
 функция главная { вывести 1 }

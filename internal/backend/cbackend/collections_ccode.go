@@ -13,6 +13,17 @@ import (
 // реализация (growable array) обслуживала любой путь кодогенерации, у
 // которого сигнатуры методов уже целиком в самих IR-узлах (MethodCallExpr),
 // а этому коду для кодогенерации нужен только сам C-текст.
+//
+// this_->data растёт через GC_REALLOC (Boehm GC), не голый realloc - T
+// может быть указателем на GC_MALLOC'енную сущность (T элемент - сущность/
+// класс, см. internal/semantic.resolveGenericTypeName), а обычный malloc/
+// realloc-буфер Boehm GC не сканирует на предмет исходящих указателей -
+// единственная живая ссылка на элемент только из такого буфера означала бы
+// его преждевременную сборку мусора. GC_REALLOC - honest drop-in замена
+// (тот же контракт, что у realloc: может переместить блок, копирует
+// содержимое, старый блок сам станет мусором) - применяется КО ВСЕМ
+// элементам без разбора по T (не только сущностям) ради одного простого
+// правила вместо двух путей кодогенерации.
 func listCollectionCCode(name, elemC string) string {
 	structName := mangleType(name)
 	add := mangleMethod(name, "добавить")
@@ -32,7 +43,7 @@ func listCollectionCCode(name, elemC string) string {
 static void %[3]s(%[2]s *this_, %[1]s value) {
     if (this_->len == this_->cap) {
         this_->cap = this_->cap == 0 ? 4 : this_->cap * 2;
-        this_->data = realloc(this_->data, sizeof(%[1]s) * this_->cap);
+        this_->data = GC_REALLOC(this_->data, sizeof(%[1]s) * this_->cap);
     }
     this_->data[this_->len] = value;
     this_->len++;
@@ -94,7 +105,7 @@ func stackCollectionCCode(name, elemC string) string {
 static void %[3]s(%[2]s *this_, %[1]s value) {
     if (this_->len == this_->cap) {
         this_->cap = this_->cap == 0 ? 4 : this_->cap * 2;
-        this_->data = realloc(this_->data, sizeof(%[1]s) * this_->cap);
+        this_->data = GC_REALLOC(this_->data, sizeof(%[1]s) * this_->cap);
     }
     this_->data[this_->len] = value;
     this_->len++;
@@ -145,7 +156,7 @@ func queueCollectionCCode(name, elemC string) string {
 static void %[3]s(%[2]s *this_, %[1]s value) {
     if (this_->len == this_->cap) {
         this_->cap = this_->cap == 0 ? 4 : this_->cap * 2;
-        this_->data = realloc(this_->data, sizeof(%[1]s) * this_->cap);
+        this_->data = GC_REALLOC(this_->data, sizeof(%[1]s) * this_->cap);
     }
     this_->data[this_->len] = value;
     this_->len++;
@@ -183,9 +194,12 @@ static bool %[8]s(%[2]s *this_) {
 
 // dictCollectionCCode строит C-текст для "Словарь<К, В>" - открытая
 // адресация с линейным пробированием и надгробиями (state: 0 - пусто, 1 -
-// занято, 2 - удалено) - тот же принцип "растущий буфер" (realloc/удвоение
-// ёмкости), что и у списочных коллекций выше, но с рехешированием вместо
-// простого realloc (перестройка слотов при росте - индекс зависит от cap).
+// занято, 2 - удалено) - тот же принцип "растущий буфер через GC_MALLOC"
+// (см. package doc listCollectionCCode - тот же риск преждевременной
+// сборки мусора у entity-значения, та же причина не использовать голый
+// calloc/free), что и у списочных коллекций выше, но с рехешированием
+// вместо простого удвоения (перестройка слотов при росте - индекс зависит
+// от cap; старый блок слотов сам станет мусором, не free() вручную).
 // isStringKey переключает hash/eq на strcmp/FNV-1a над байтами C-строки
 // вместо прямого сравнения/умножения значения - единственное отличие
 // между строковым и целочисленным (Целое/Байт/Символ/Логическое) ключом,
@@ -252,7 +266,7 @@ static bool %[3]s(%[2]s a, %[2]s b) {
 	fmt.Fprintf(&sb, `static void %[1]s(%[2]s *this_, long long newcap) {
     %[3]s *old = this_->slots;
     long long oldcap = this_->cap;
-    this_->slots = calloc((size_t)newcap, sizeof(%[3]s));
+    this_->slots = GC_MALLOC((size_t)newcap * sizeof(%[3]s));
     this_->cap = newcap;
     this_->count = 0;
     this_->used = 0;
@@ -269,7 +283,6 @@ static bool %[3]s(%[2]s a, %[2]s b) {
             this_->used++;
         }
     }
-    free(old);
 }
 
 static long long %[5]s(%[2]s *this_, %[6]s key) {

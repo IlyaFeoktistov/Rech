@@ -71,6 +71,13 @@ type Program struct {
 	// doc internal/backend/cbackend/db.go) и линковать ли клиентские
 	// библиотеки (-lsqlite3/-lpq/-lmysqlclient).
 	UsesDB bool
+	// DBRowTargets - сущности, встретившиеся хоть раз ЭЛЕМЕНТОМ цели
+	// "запросить(...) как Список<Тип>" (DBRowsAsExpr, internal/semantic/
+	// db_rows.go), без повторов - тем же принципом, что и ParseTargets:
+	// backend генерирует функцию маппинга ОДНОЙ строки результата
+	// (Словарь<Строка, Значение>) в Тип один раз на каждый встретившийся
+	// Тип, не безусловно для каждой сущности программы.
+	DBRowTargets []Type
 }
 
 // ExternFuncDecl соответствует "внешняя функция <CName> [как <Alias>](...)"
@@ -307,6 +314,18 @@ type Field struct {
 // internal/interp/json.go, json_serialize.go.
 func (f Field) JSONKey() string {
 	if key := structtag.Parse(f.Tag).Get("json"); key != "" {
+		return key
+	}
+	return f.Name
+}
+
+// SQLKey - внешнее имя поля как имя колонки результата запроса: значение
+// ключа "sql" тега, если оно задано, иначе - само имя поля - тот же
+// принцип, что JSONKey выше, для "запросить(...) как Список<Тип>"
+// (internal/semantic/db_rows.go, internal/backend/cbackend/db_rows.go,
+// internal/interp/db_rows.go).
+func (f Field) SQLKey() string {
+	if key := structtag.Parse(f.Tag).Get("sql"); key != "" {
 		return key
 	}
 	return f.Name

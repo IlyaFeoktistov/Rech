@@ -242,19 +242,13 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 		if e.FieldNames != nil {
 			return analyzeNewExprCtorNamed(sc, e, sig)
 		}
-		if len(e.Args) != len(sig.CtorParams) {
-			return nil, fmt.Errorf("строка %d: конструктор %q ожидает аргументов: %d, передано: %d", e.Line, e.Type, len(sig.CtorParams), len(e.Args))
-		}
-		args := make([]ir.Expr, len(e.Args))
-		for i, a := range e.Args {
-			arg, err := coerceExpr(sc, a, sig.CtorParams[i])
-			if err != nil {
-				return nil, err
-			}
-			if typ := ir.TypeOf(arg); !isAssignable(sc.entities, sc.interfaces, typ, sig.CtorParams[i]) {
-				return nil, fmt.Errorf("строка %d: аргумент %d конструктора %q должен быть типа %s, получен %s", e.Line, i+1, e.Type, sig.CtorParams[i], typ)
-			}
-			args[i] = arg
+		// Синтетическая funcSig, а не собственная копия проверки - те же
+		// правила (в т.ч. заполнение хвоста CtorParamDefaults), что и у
+		// обычного вызова функции/метода, одним местом (checkCallArgs).
+		ctorSig := funcSig{Params: sig.CtorParams, ParamDefaults: sig.CtorParamDefaults}
+		args, err := checkCallArgs(sc, e.Args, ctorSig, e.Line, fmt.Sprintf("конструктор %q", e.Type), fmt.Sprintf("конструктора %q", e.Type))
+		if err != nil {
+			return nil, err
 		}
 		return &ir.NewExpr{Entity: e.Type, Args: args}, nil
 	}
@@ -342,13 +336,13 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 // analyzeNewExprCtorNamed разбирает именованную форму "новый Тип(параметр:
 // значение, ...)" у сущности с явным конструктором - по именам ПАРАМЕТРОВ
 // конструктора (sig.CtorParamNames), не полей (они не обязаны совпадать, см.
-// package doc entitySig.HasCtor). В отличие от именованной формы у "новый"
-// без конструктора (заполняет позиционные args ниже analyzeNewExpr), здесь
-// ВСЕ параметры обязательны - у параметра, в отличие от поля, нет
-// собственного значения по умолчанию, пропускать нечем.
+// package doc entitySig.HasCtor). Параметр, не указанный явно, - ошибка,
+// если у него нет собственного значения по умолчанию (CtorParamDefaults),
+// иначе - resolveParamDefault, тем же принципом, что и у пропущенного поля
+// в именованной форме "новый" без конструктора (analyzeNewExpr выше).
 func analyzeNewExprCtorNamed(sc *ctx, e *ast.NewExpr, sig entitySig) (ir.Expr, error) {
-	if len(e.FieldNames) != len(sig.CtorParamNames) {
-		return nil, fmt.Errorf("строка %d: конструктор %q ожидает аргументов: %d, передано: %d", e.Line, e.Type, len(sig.CtorParamNames), len(e.FieldNames))
+	if len(e.FieldNames) > len(sig.CtorParamNames) {
+		return nil, fmt.Errorf("строка %d: конструктор %q ожидает аргументов: не более %d, передано: %d", e.Line, e.Type, len(sig.CtorParamNames), len(e.FieldNames))
 	}
 	args := make([]ir.Expr, len(sig.CtorParamNames))
 	seen := make([]bool, len(sig.CtorParamNames))
@@ -375,6 +369,19 @@ func analyzeNewExprCtorNamed(sc *ctx, e *ast.NewExpr, sig entitySig) (ir.Expr, e
 			return nil, fmt.Errorf("строка %d: параметр %q конструктора %q должен быть типа %s, получен %s", e.Line, label, e.Type, sig.CtorParams[idx], typ)
 		}
 		args[idx] = arg
+	}
+	for idx, ok := range seen {
+		if ok {
+			continue
+		}
+		if idx >= len(sig.CtorParamDefaults) || sig.CtorParamDefaults[idx] == nil {
+			return nil, fmt.Errorf("строка %d: конструктор %q: не указан параметр %q (у параметра нет значения по умолчанию)", e.Line, e.Type, sig.CtorParamNames[idx])
+		}
+		val, err := resolveParamDefault(sc, sig.CtorParamDefaults, idx, sig.CtorParams[idx], e.Line)
+		if err != nil {
+			return nil, err
+		}
+		args[idx] = val
 	}
 	return &ir.NewExpr{Entity: e.Type, Args: args}, nil
 }
@@ -615,12 +622,35 @@ func callHasReturn(e ir.Expr) bool {
 // пересечение если/иначе), но не может СОКРАЩАТЬСЯ от факта "передан кому-
 // то ещё", если явно не проверить это здесь.
 func checkCallArgs(sc *ctx, args []ast.Expr, sig funcSig, line int, callee, argLabel string) ([]ir.Expr, error) {
-	if len(args) != len(sig.Params) {
+	if len(args) > len(sig.Params) {
 		return nil, fmt.Errorf("строка %d: %s ожидает аргументов: %d, передано: %d", line, callee, len(sig.Params), len(args))
 	}
-	out := make([]ir.Expr, len(args))
-	for i, a := range args {
-		arg, err := coerceExpr(sc, a, sig.Params[i])
+	if len(args) < len(sig.Params) {
+		// minRequired - позиция первого параметра со значением по
+		// умолчанию (ParamDefaults только хвостом, см. её package doc) -
+		// всё, что до него, обязательно должно быть передано.
+		minRequired := len(sig.Params)
+		for i := len(sig.Params) - 1; i >= 0 && i < len(sig.ParamDefaults) && sig.ParamDefaults[i] != nil; i-- {
+			minRequired = i
+		}
+		if len(args) < minRequired {
+			return nil, fmt.Errorf("строка %d: %s ожидает аргументов: %d (минимум %d, остальные - по умолчанию), передано: %d", line, callee, len(sig.Params), minRequired, len(args))
+		}
+	}
+	out := make([]ir.Expr, len(sig.Params))
+	for i := range sig.Params {
+		var arg ir.Expr
+		var err error
+		if i < len(args) {
+			arg, err = coerceExpr(sc, args[i], sig.Params[i])
+		} else {
+			// Аргумент не передан - значение по умолчанию (уже проверено
+			// выше, что оно есть): resolveParamDefault сама делает
+			// coerceExpr/isAssignable, дальнейшая типовая проверка ниже
+			// для этого случая избыточна, но безобидна - не заводит
+			// отдельную ветку ради экономии одной проверки.
+			arg, err = resolveParamDefault(sc, sig.ParamDefaults, i, sig.Params[i], line)
+		}
 		if err != nil {
 			return nil, err
 		}
