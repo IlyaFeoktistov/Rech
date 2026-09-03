@@ -10,4 +10,4 @@
 // git-тегом на коммите, а не этим файлом - go.mod версии не хранит.
 package version
 
-var Version = "dev"
+var Version = "0.1.0"
