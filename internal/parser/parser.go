@@ -112,6 +112,15 @@ type Parser struct {
 	// pendingVarDecls - отложенные объявления ("переменная X" без "=") в
 	// ТЕКУЩЕМ блоке - см. pendingvar.go.
 	pendingVarDecls []pendingVarDecl
+
+	// lenient - true только в ParseProgramLenient (LSP, см. recovery.go) -
+	// ошибка внутри ОДНОГО верхнеуровневого объявления не останавливает
+	// разбор всего файла: она копится в errors, а разбор продолжается со
+	// следующего объявления (recoverToNextTopLevel). ParseProgram (настоящая
+	// сборка) этот путь не проходит вовсе - там первая же ошибка остаётся
+	// фатальной, как и раньше.
+	lenient bool
+	errors  []error
 }
 
 func New(tokens []lexer.Token) *Parser {
@@ -336,68 +345,86 @@ func (p *Parser) collectFunctionSignatures() error {
 	sigs := map[string][]ast.Param{}
 	generics := map[string]bool{}
 	for p.cur().Type != lexer.EOF {
-		switch p.cur().Type {
-		case lexer.KwFunction:
-			p.advance() // "функция"
-			name, err := p.expect(lexer.IDENT)
-			if err != nil {
-				return fmt.Errorf("после \"функция\" ожидалось имя функции: %w", err)
-			}
-			typeParams, err := p.parseGenericParams()
-			if err != nil {
-				return fmt.Errorf("функция %q: %w", name.Value, err)
-			}
-			if typeParams != nil {
-				generics[name.Value] = true
-			}
-			var params []ast.Param
-			if p.cur().Type == lexer.LPAREN {
-				params, err = p.parseParams()
-				if err != nil {
-					return fmt.Errorf("в списке параметров функции %q: %w", name.Value, err)
-				}
-			}
-			if p.cur().Type == lexer.COLON {
-				p.advance()
-				if _, err := p.parseTypeName(); err != nil {
-					return fmt.Errorf("после \":\" у функции %q ожидалось имя типа результата: %w", name.Value, err)
-				}
-			}
-			var tag string
-			if p.cur().Type == lexer.TAG {
-				tag = p.advance().Value
-			}
-			if err := p.registerGerundWord(name.Value, tag); err != nil {
+		start := p.pos
+		if err := p.collectOneSignature(sigs, generics); err != nil {
+			if !p.lenient {
 				return err
 			}
-			sigs[name.Value] = params
-			if err := p.skipFunctionBody(); err != nil {
-				return err
-			}
-		case lexer.KwExternal:
-			switch p.peekAt(1).Type {
-			case lexer.KwEntity:
-				if _, err := p.parseExternEntityDecl(); err != nil {
-					return err
-				}
-			case lexer.KwStruct:
-				if _, err := p.parseExternStructDecl(); err != nil {
-					return err
-				}
-			default:
-				ext, err := p.parseExternFuncDecl()
-				if err != nil {
-					return err
-				}
-				sigs[ext.Alias] = ext.Params
-			}
-		default:
-			p.advance()
+			// Ошибка здесь - LSP best-effort проход (natural-call
+			// disambiguation), не источник итоговой диагностики: та же
+			// сломанная декларация встретится ещё раз в основном цикле
+			// ParseProgram, где и попадёт в p.errors по-настоящему - здесь
+			// достаточно молча пропустить её и не задваивать сообщение.
+			p.pos = start
+			p.recoverToNextTopLevel()
 		}
 	}
 	p.funcParams = sigs
 	p.genericFuncs = generics
 	return nil
+}
+
+// collectOneSignature разбирает ОДНО верхнеуровневое объявление в проходе
+// collectFunctionSignatures - вынесено отдельно от цикла ради
+// recoverToNextTopLevel (см. lenient-ветку выше), которому нужна позиция
+// начала объявления, а не только факт ошибки.
+func (p *Parser) collectOneSignature(sigs map[string][]ast.Param, generics map[string]bool) error {
+	switch p.cur().Type {
+	case lexer.KwFunction:
+		p.advance() // "функция"
+		name, err := p.expect(lexer.IDENT)
+		if err != nil {
+			return fmt.Errorf("после \"функция\" ожидалось имя функции: %w", err)
+		}
+		typeParams, err := p.parseGenericParams()
+		if err != nil {
+			return fmt.Errorf("функция %q: %w", name.Value, err)
+		}
+		if typeParams != nil {
+			generics[name.Value] = true
+		}
+		var params []ast.Param
+		if p.cur().Type == lexer.LPAREN {
+			params, err = p.parseParams()
+			if err != nil {
+				return fmt.Errorf("в списке параметров функции %q: %w", name.Value, err)
+			}
+		}
+		if p.cur().Type == lexer.COLON {
+			p.advance()
+			if _, err := p.parseTypeName(); err != nil {
+				return fmt.Errorf("после \":\" у функции %q ожидалось имя типа результата: %w", name.Value, err)
+			}
+		}
+		var tag string
+		if p.cur().Type == lexer.TAG {
+			tag = p.advance().Value
+		}
+		if err := p.registerGerundWord(name.Value, tag); err != nil {
+			return err
+		}
+		sigs[name.Value] = params
+		return p.skipFunctionBody()
+	case lexer.KwExternal:
+		switch p.peekAt(1).Type {
+		case lexer.KwEntity:
+			_, err := p.parseExternEntityDecl()
+			return err
+		case lexer.KwStruct:
+			_, err := p.parseExternStructDecl()
+			return err
+		default:
+			ext, err := p.parseExternFuncDecl()
+			if err != nil {
+				return err
+			}
+			sigs[ext.Alias] = ext.Params
+			return nil
+		}
+	default:
+		p.advance()
+		return nil
+	}
 }
 
 // skipFunctionBody пропускает тело функции подсчётом фигурных скобок, не
@@ -447,134 +474,176 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 	// тела функции.
 	savedPending := p.beginPendingScope()
 	for p.cur().Type != lexer.EOF {
-		doc := p.consumeDoc()
-		if p.cur().Type == lexer.EOF {
-			// "/** ... */" висело в самом конце файла, не перед
-			// объявлением - обычный комментарий, ни к чему не привязанный
-			// (doc уже прочитан и отбрасывается).
+		start := p.pos
+		skip, err := p.parseTopLevelItem(prog, &topLevelStmts, &explicitMain)
+		if err != nil {
+			if !p.lenient {
+				return nil, err
+			}
+			// Сломанное объявление - откат к его собственному началу
+			// (позиция после ошибки может быть где угодно внутри его тела,
+			// подсчёт скобок в recoverToNextTopLevel обязан начаться от 0
+			// именно с этой точки) и пропуск целиком до следующего.
+			p.errors = append(p.errors, err)
+			p.pos = start
+			p.recoverToNextTopLevel()
 			continue
 		}
-		vis, err := p.parseModuleVisibility()
-		if err != nil {
-			return nil, err
-		}
-		switch p.cur().Type {
-		case lexer.KwFunction:
-			fn, err := p.parseFunction()
-			if err != nil {
-				return nil, err
-			}
-			fn.Doc = doc
-			fn.Visibility = vis
-			if fn.Name == entryPointName {
-				explicitMain = fn
-			}
-			prog.Functions = append(prog.Functions, fn)
-		case lexer.KwAbstract, lexer.KwEntity, lexer.KwClass, lexer.KwStruct:
-			ent, err := p.parseEntity()
-			if err != nil {
-				return nil, err
-			}
-			ent.Doc = doc
-			ent.Visibility = vis
-			prog.Entities = append(prog.Entities, ent)
-		case lexer.KwExport:
-			fn, ent, err := p.parseExportedDecl()
-			if err != nil {
-				return nil, err
-			}
-			if fn != nil {
-				fn.Doc = doc
-				fn.Visibility = vis
-				prog.Functions = append(prog.Functions, fn)
-			} else {
-				ent.Doc = doc
-				ent.Visibility = vis
-				prog.Entities = append(prog.Entities, ent)
-			}
-		case lexer.KwUse:
-			use, err := p.parseUseDecl()
-			if err != nil {
-				return nil, err
-			}
-			prog.Uses = append(prog.Uses, use)
-		case lexer.KwExternal:
-			switch p.peekAt(1).Type {
-			case lexer.KwEntity:
-				extEnt, err := p.parseExternEntityDecl()
-				if err != nil {
-					return nil, err
-				}
-				prog.ExternEntities = append(prog.ExternEntities, extEnt)
-			case lexer.KwStruct:
-				extStruct, err := p.parseExternStructDecl()
-				if err != nil {
-					return nil, err
-				}
-				extStruct.Doc = doc
-				prog.Entities = append(prog.Entities, extStruct)
-			default:
-				ext, err := p.parseExternFuncDecl()
-				if err != nil {
-					return nil, err
-				}
-				prog.ExternFuncs = append(prog.ExternFuncs, ext)
-			}
-		case lexer.KwEnum:
-			enum, err := p.parseEnumDecl()
-			if err != nil {
-				return nil, err
-			}
-			enum.Visibility = vis
-			prog.Enums = append(prog.Enums, enum)
-		case lexer.KwInterface:
-			iface, err := p.parseInterfaceDecl()
-			if err != nil {
-				return nil, err
-			}
-			prog.Interfaces = append(prog.Interfaces, iface)
-		case lexer.KwConst:
-			// Отдельная ветка, не "default" -> parseStatement: константа
-			// уровня модуля - ОБЪЯВЛЕНИЕ (как функция/сущность), не
-			// топ-уровневая ИНСТРУКЦИЯ неявной "главная" - файл может иметь
-			// её одновременно с явной "функция главная" без конфликта
-			// "объявляет главная явно и одновременно содержит инструкции
-			// на верхнем уровне" (см. ниже, после цикла).
-			c, err := p.parseConstDecl()
-			if err != nil {
-				return nil, err
-			}
-			c.Doc = doc
-			c.Visibility = vis
-			prog.Consts = append(prog.Consts, c)
-		default:
-			stmt, err := p.parseStatement()
-			if err != nil {
-				return nil, err
-			}
-			if stmt != nil {
-				// nil - "переменная X" без инициализации (pendingvar.go),
-				// см. тот же случай в parseBlock.
-				topLevelStmts = append(topLevelStmts, stmt)
-			}
+		if skip {
+			continue
 		}
 		if p.cur().Type == lexer.EOF {
 			break
 		}
 		if err := p.requireSeparator(); err != nil {
-			return nil, err
+			if !p.lenient {
+				return nil, err
+			}
+			p.errors = append(p.errors, err)
+			p.recoverToNextTopLevel()
 		}
 	}
 	if err := p.endPendingScope(savedPending); err != nil {
-		return nil, err
+		if !p.lenient {
+			return nil, err
+		}
+		p.errors = append(p.errors, err)
+		p.pendingVarDecls = savedPending
 	}
 	if len(topLevelStmts) > 0 {
 		if explicitMain != nil {
-			return nil, fmt.Errorf("программа объявляет функцию %q явно и одновременно содержит инструкции на верхнем уровне - выберите одну форму", entryPointName)
+			err := fmt.Errorf("программа объявляет функцию %q явно и одновременно содержит инструкции на верхнем уровне - выберите одну форму", entryPointName)
+			if !p.lenient {
+				return nil, err
+			}
+			// Best-effort: явная "главная" уже в prog.Functions - лишние
+			// инструкции верхнего уровня просто отбрасываются, не
+			// синтезируя вторую, конфликтующую "главная".
+			p.errors = append(p.errors, err)
+		} else {
+			prog.Functions = append(prog.Functions, &ast.FunctionDecl{Name: entryPointName, Body: topLevelStmts})
 		}
-		prog.Functions = append(prog.Functions, &ast.FunctionDecl{Name: entryPointName, Body: topLevelStmts})
 	}
 	return prog, nil
+}
+
+// parseTopLevelItem разбирает ОДНО верхнеуровневое объявление или (если ни
+// одно ключевое слово не подошло) инструкцию неявной "главная" - вынесено
+// из ParseProgram ради recoverToNextTopLevel в lenient-режиме, которому, как
+// и collectOneSignature, нужна позиция САМОГО НАЧАЛА объявления, а не только
+// факт ошибки (см. вызывающий цикл). skip=true - "/** ... */" висел в самом
+// конце файла, не перед объявлением - обычный комментарий, ни к чему не
+// привязанный (doc уже прочитан и отброшен), разбирать нечего.
+func (p *Parser) parseTopLevelItem(prog *ast.Program, topLevelStmts *[]ast.Stmt, explicitMain **ast.FunctionDecl) (skip bool, err error) {
+	doc := p.consumeDoc()
+	if p.cur().Type == lexer.EOF {
+		return true, nil
+	}
+	vis, err := p.parseModuleVisibility()
+	if err != nil {
+		return false, err
+	}
+	switch p.cur().Type {
+	case lexer.KwFunction:
+		fn, err := p.parseFunction()
+		if err != nil {
+			return false, err
+		}
+		fn.Doc = doc
+		fn.Visibility = vis
+		if fn.Name == entryPointName {
+			*explicitMain = fn
+		}
+		prog.Functions = append(prog.Functions, fn)
+	case lexer.KwAbstract, lexer.KwEntity, lexer.KwClass, lexer.KwStruct:
+		ent, err := p.parseEntity()
+		if err != nil {
+			return false, err
+		}
+		ent.Doc = doc
+		ent.Visibility = vis
+		prog.Entities = append(prog.Entities, ent)
+	case lexer.KwExport:
+		fn, ent, err := p.parseExportedDecl()
+		if err != nil {
+			return false, err
+		}
+		if fn != nil {
+			fn.Doc = doc
+			fn.Visibility = vis
+			prog.Functions = append(prog.Functions, fn)
+		} else {
+			ent.Doc = doc
+			ent.Visibility = vis
+			prog.Entities = append(prog.Entities, ent)
+		}
+	case lexer.KwUse:
+		use, err := p.parseUseDecl()
+		if err != nil {
+			return false, err
+		}
+		prog.Uses = append(prog.Uses, use)
+	case lexer.KwExternal:
+		switch p.peekAt(1).Type {
+		case lexer.KwEntity:
+			extEnt, err := p.parseExternEntityDecl()
+			if err != nil {
+				return false, err
+			}
+			prog.ExternEntities = append(prog.ExternEntities, extEnt)
+		case lexer.KwStruct:
+			extStruct, err := p.parseExternStructDecl()
+			if err != nil {
+				return false, err
+			}
+			extStruct.Doc = doc
+			prog.Entities = append(prog.Entities, extStruct)
+		default:
+			ext, err := p.parseExternFuncDecl()
+			if err != nil {
+				return false, err
+			}
+			prog.ExternFuncs = append(prog.ExternFuncs, ext)
+		}
+	case lexer.KwEnum:
+		enum, err := p.parseEnumDecl()
+		if err != nil {
+			return false, err
+		}
+		enum.Visibility = vis
+		prog.Enums = append(prog.Enums, enum)
+	case lexer.KwInterface:
+		iface, err := p.parseInterfaceDecl()
+		if err != nil {
+			return false, err
+		}
+		prog.Interfaces = append(prog.Interfaces, iface)
+	case lexer.KwConst:
+		// Отдельная ветка, не "default" -> parseStatement: константа
+		// уровня модуля - ОБЪЯВЛЕНИЕ (как функция/сущность), не
+		// топ-уровневая ИНСТРУКЦИЯ неявной "главная" - файл может иметь
+		// её одновременно с явной "функция главная" без конфликта
+		// "объявляет главная явно и одновременно содержит инструкции
+		// на верхнем уровне" (см. ParseProgram, после цикла).
+		c, err := p.parseConstDecl()
+		if err != nil {
+			return false, err
+		}
+		c.Doc = doc
+		c.Visibility = vis
+		prog.Consts = append(prog.Consts, c)
+	default:
+		stmt, err := p.parseStatement()
+		if err != nil {
+			return false, err
+		}
+		if stmt != nil {
+			// nil - "переменная X" без инициализации (pendingvar.go),
+			// см. тот же случай в parseBlock.
+			*topLevelStmts = append(*topLevelStmts, stmt)
+		}
+	}
+	return false, nil
 }
 
 // parseEntity разбирает необязательный модификатор "абстрактная"/
