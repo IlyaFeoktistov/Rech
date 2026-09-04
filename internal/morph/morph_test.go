@@ -201,6 +201,29 @@ func TestCompoundNounAgreementUsesFirstWord(t *testing.T) {
 	}
 }
 
+// TestCompoundNounAgreementSnakeCase - то же самое, что
+// TestCompoundNounAgreementUsesFirstWord, но для snake_case составных имён
+// полей ("хранилище_задач") - найденный недочёт (docs/ROADMAP.md, Шаг 60):
+// splitPascalWords раньше разбивал границу только по заглавной букве, "_"
+// не считался границей слова вообще, всё имя целиком читалось по хвосту
+// ("...задач" - согласная, мужской род fallback), а не по первому слову
+// ("хранилище" - средний род).
+//
+// "веса_скрытого" (буквальный пример из находки) намеренно НЕ входит сюда -
+// splitPascalWords теперь честно выделяет первое слово ("веса"), но само
+// "веса" - отдельная, более глубокая проблема классификатора по окончанию:
+// это НЕПРАВИЛЬНАЯ форма множественного числа "вес" (стяжённая, как
+// "берега"/"дома"), неотличимая по одному только окончанию "-а" от обычного
+// существительного женского рода единственного числа ("книга") - без
+// словарной формы (не входит в объём этого фикса) NounAgreement("веса")
+// так и вернёт (женский, единственное), это не регрессия от этой правки.
+func TestCompoundNounAgreementSnakeCase(t *testing.T) {
+	gender, number, ok := CompoundNounAgreement("хранилище_задач")
+	if !ok || gender != Neuter || number != Singular {
+		t.Fatalf("CompoundNounAgreement(%q) = (%v, %v, %v), хотел (Neuter, Singular, true)", "хранилище_задач", gender, number, ok)
+	}
+}
+
 func TestDictionaryRegisterNoun(t *testing.T) {
 	d := NewDictionary()
 	if err := d.RegisterNoun("пользователь", Animate); err != nil {
