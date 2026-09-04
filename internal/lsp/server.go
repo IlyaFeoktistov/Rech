@@ -47,9 +47,10 @@ func (s *server) handleRequest(msg *Message) {
 	case "initialize":
 		_ = s.rpc.Reply(msg.ID, map[string]any{
 			"capabilities": map[string]any{
-				"textDocumentSync":   1, // Full - didChange несёт весь текст целиком, не диффы
-				"hoverProvider":      true,
-				"definitionProvider": true,
+				"textDocumentSync":       1, // Full - didChange несёт весь текст целиком, не диффы
+				"hoverProvider":          true,
+				"definitionProvider":     true,
+				"implementationProvider": true,
 				"completionProvider": map[string]any{
 					"triggerCharacters": []string{"."},
 				},
@@ -61,6 +62,8 @@ func (s *server) handleRequest(msg *Message) {
 		s.handleHover(msg)
 	case "textDocument/definition":
 		s.handleDefinition(msg)
+	case "textDocument/implementation":
+		s.handleImplementation(msg)
 	case "textDocument/completion":
 		s.handleCompletion(msg)
 	default:
@@ -183,6 +186,42 @@ func (s *server) handleDefinition(msg *Message) {
 			"end":   map[string]any{"line": pos.Line - 1, "character": pos.Col - 1 + pos.Len},
 		},
 	}, nil)
+}
+
+// handleImplementation отвечает на "textDocument/implementation" - в
+// отличие от handleDefinition (ровно одна позиция), список позиций может
+// содержать НЕСКОЛЬКО мест (см. package doc implementation.go) - LSP
+// допускает как один Location, так и массив в ответе на этот метод, здесь
+// всегда массив (пустой, если ничего не найдено - тот же контракт, что и
+// "null" у handleDefinition, но для единообразия клиента проще всегда
+// массив).
+func (s *server) handleImplementation(msg *Message) {
+	var p docPosition
+	if err := json.Unmarshal(msg.Params, &p); err != nil {
+		_ = s.rpc.Reply(msg.ID, nil, err)
+		return
+	}
+	d := s.getDoc(p.TextDocument.URI)
+	if d == nil {
+		_ = s.rpc.Reply(msg.ID, []any{}, nil)
+		return
+	}
+	positions, ok := d.implementations(p.Position.Line+1, p.Position.Character+1)
+	if !ok {
+		_ = s.rpc.Reply(msg.ID, []any{}, nil)
+		return
+	}
+	locations := make([]any, len(positions))
+	for i, pos := range positions {
+		locations[i] = map[string]any{
+			"uri": p.TextDocument.URI,
+			"range": map[string]any{
+				"start": map[string]any{"line": pos.Line - 1, "character": pos.Col - 1},
+				"end":   map[string]any{"line": pos.Line - 1, "character": pos.Col - 1 + pos.Len},
+			},
+		}
+	}
+	_ = s.rpc.Reply(msg.ID, locations, nil)
 }
 
 func (s *server) handleCompletion(msg *Message) {

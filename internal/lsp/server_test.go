@@ -183,3 +183,47 @@ func TestLSPServerFullSession(t *testing.T) {
 		t.Fatalf("Run не завершился после exit")
 	}
 }
+
+// TestLSPServerImplementationOverWire - "textDocument/implementation" по
+// настоящему JSON-RPC 2.0 (не напрямую d.implementations(), см.
+// implementation_test.go) - initialize должен объявить
+// "implementationProvider", а сам ответ - настоящий JSON-массив локаций
+// (не один Location, как у "definition").
+func TestLSPServerImplementationOverWire(t *testing.T) {
+	client, serverR, serverW := newFakeClient(t)
+	done := make(chan error, 1)
+	go func() { done <- Run(serverR, serverW) }()
+
+	client.request("initialize", map[string]any{})
+	initResp := client.response(2 * time.Second)
+	caps, ok := initResp["result"].(map[string]any)["capabilities"].(map[string]any)
+	if !ok || caps["implementationProvider"] != true {
+		t.Fatalf("ожидалось \"implementationProvider\": true, получено: %+v", initResp)
+	}
+
+	client.notify("textDocument/didOpen", map[string]any{
+		"textDocument": map[string]any{"uri": "test://impl.rech", "text": implTestSrc},
+	})
+
+	line := lineOf(t, implTestSrc, "интерфейс Логгер")
+	col := runeCol(t, "интерфейс Логгер", "Логгер")
+	client.request("textDocument/implementation", map[string]any{
+		"textDocument": map[string]any{"uri": "test://impl.rech"},
+		"position":     map[string]any{"line": line - 1, "character": col - 1},
+	})
+	implResp := client.response(2 * time.Second)
+	locations, ok := implResp["result"].([]any)
+	if !ok || len(locations) != 2 {
+		t.Fatalf("ожидались 2 локации-реализации, получено: %+v", implResp)
+	}
+
+	client.notify("exit", nil)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run завершился с ошибкой: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("Run не завершился после exit")
+	}
+}
