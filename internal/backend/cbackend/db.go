@@ -172,6 +172,17 @@ extern unsigned long long mysql_affected_rows(MYSQL *mysql);
 // (rech_db_sqlite_query и т. п. - тот код возникает уже ПОСЛЕ нужных
 // opaque-типов, там "db->sqlite" неявно конвертируется в "sqlite3 *" тем же
 // правилом C, что и для любого другого "void *").
+//
+// "mutex" - одно соединение может быть разделено между несколькими
+// потоками (поле сущности/параметр функции, переданный в "запустить") -
+// ни libpq, ни libmysqlclient не допускают параллельного использования
+// ОДНОГО соединения из нескольких потоков без внешней синхронизации (не
+// просто "не гарантируют" - реальное повреждение состояния соединения),
+// SQLite - только если сама библиотека собрана в serialized-режиме, что не
+// гарантировано. rech_db_lock/rech_db_unlock (dbCommonHelperFuncs) держат
+// его ровно вокруг вызовов клиентской библиотеки - см. их package doc, где
+// именно у каждой из трёх СУБД проходит граница "нужен ли ещё живой db-
+// хендл" (rech_db_query/rech_db_exec).
 const rechDBStruct = `typedef enum { RECH_DB_SQLITE, RECH_DB_PG, RECH_DB_MYSQL } rech_db_kind;
 
 typedef struct rech_db {
@@ -179,6 +190,11 @@ typedef struct rech_db {
     void *sqlite;
     void *pg;
     void *mysql;
+#ifdef _WIN32
+    CRITICAL_SECTION mutex;
+#else
+    pthread_mutex_t mutex;
+#endif
 } rech_db_t;
 
 `
@@ -195,6 +211,34 @@ var dbCommonHelperFuncs = `static void rech_db_panicf(const char *tmpl, const ch
     char msg[1024];
     snprintf(msg, sizeof msg, tmpl, arg);
     rech_panic(msg);
+}
+
+// rech_db_lock/rech_db_unlock - вокруг вызовов клиентской библиотеки СУБД
+// на общем соединении (см. package doc "mutex" у rechDBStruct). Держат
+// мьютекс ровно до момента, когда клиентская библиотека вернула результат,
+// дальше НЕ нужный самому соединению (PGresult/MYSQL_RES - клиентские
+// копии, их разбор/PQclear/mysql_free_result идут уже разблокированными) -
+// SQLite здесь исключение, у него весь prepare/step/finalize держится под
+// мьютексом целиком, там нет отдельного "клиентского" результата. Ни один
+// вызов "rech_panic"/"rech_db_panicf" не должен происходить, пока мьютекс
+// ещё удержан этим потоком - перехваченная (docs/SPEC.md, "поймать (x:
+// Паника)") паника разворачивается через longjmp мимо парного unlock,
+// иначе оставила бы соединение заблокированным навсегда для всех
+// остальных потоков.
+static void rech_db_lock(rech_db_t *db) {
+#ifdef _WIN32
+    EnterCriticalSection(&db->mutex);
+#else
+    pthread_mutex_lock(&db->mutex);
+#endif
+}
+
+static void rech_db_unlock(rech_db_t *db) {
+#ifdef _WIN32
+    LeaveCriticalSection(&db->mutex);
+#else
+    pthread_mutex_unlock(&db->mutex);
+#endif
 }
 
 static const char *rech_db_dup_str(const char *s) {
@@ -311,6 +355,7 @@ func dbConnectCloseCode(backends dbscheme.Set) string {
 	var sb strings.Builder
 	sb.WriteString("static rech_db_t *rech_db_connect(const char *conn) {\n")
 	sb.WriteString("    rech_db_t *db = GC_MALLOC(sizeof(rech_db_t));\n")
+	sb.WriteString("#ifdef _WIN32\n    InitializeCriticalSection(&db->mutex);\n#else\n    pthread_mutex_init(&db->mutex, NULL);\n#endif\n")
 	if backends.NeedsSQLite() {
 		fmt.Fprintf(&sb, `    if (strncmp(conn, "%[1]s", %[2]d) == 0) {
         db->kind = RECH_DB_SQLITE;
@@ -362,7 +407,8 @@ func dbConnectCloseCode(backends dbscheme.Set) string {
 	if backends.NeedsMySQL() {
 		sb.WriteString("    case RECH_DB_MYSQL:\n        mysql_close(db->mysql);\n        break;\n")
 	}
-	fmt.Fprintf(&sb, "    default:\n        rech_panic(\"%s\");\n        break;\n    }\n}\n\n", escapeCString(rtmsg.DBUnreachableKind))
+	fmt.Fprintf(&sb, "    default:\n        rech_panic(\"%s\");\n        break;\n    }\n", escapeCString(rtmsg.DBUnreachableKind))
+	sb.WriteString("#ifdef _WIN32\n    DeleteCriticalSection(&db->mutex);\n#else\n    pthread_mutex_destroy(&db->mutex);\n#endif\n}\n\n")
 	return sb.String()
 }
 
@@ -432,8 +478,10 @@ func dbSubstituteCode(paramsListC string) string {
 func sqliteQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCtor string) string {
 	return fmt.Sprintf(`static %[1]s *rech_db_sqlite_query(rech_db_t *db, const char *sql) {
     %[1]s *out = %[11]s();
+    rech_db_lock(db);
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db->sqlite, sql, -1, &stmt, NULL) != 0) {
+        rech_db_unlock(db);
         rech_db_panicf("%[5]s", sql);
     }
     int ncols = sqlite3_column_count(stmt);
@@ -459,18 +507,24 @@ func sqliteQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictC
     }
     if (rc != 101) {
         sqlite3_finalize(stmt);
+        rech_db_unlock(db);
         rech_db_panicf("%[5]s", sql);
     }
     sqlite3_finalize(stmt);
+    rech_db_unlock(db);
     return out;
 }
 
 static long long rech_db_sqlite_exec(rech_db_t *db, const char *sql) {
+    rech_db_lock(db);
     char *errmsg = NULL;
     if (sqlite3_exec(db->sqlite, sql, NULL, NULL, &errmsg) != 0) {
+        rech_db_unlock(db);
         rech_db_panicf("%[10]s", sql);
     }
-    return (long long)sqlite3_changes(db->sqlite);
+    long long changes = (long long)sqlite3_changes(db->sqlite);
+    rech_db_unlock(db);
+    return changes;
 }
 
 `, resultListC, dictC, dictSet, listAdd, escapeCString(rtmsg.DBQueryFailedTemplate),
@@ -484,10 +538,18 @@ static long long rech_db_sqlite_exec(rech_db_t *db, const char *sql) {
 // PostgreSQL: int2/int4/int8=21/23/20, float4/float8/numeric=700/701/1700,
 // bool=16). PGRES_COMMAND_OK=1/PGRES_TUPLES_OK=2 - тоже часть публичного,
 // стабильного ABI (enum ExecStatusType, libpq-fe.h).
+//
+// rech_db_lock/rech_db_unlock (см. package doc) держатся только вокруг
+// самого PQexec - PGresult, который он возвращает, уже целиком клиентская
+// копия (PQresultStatus/PQntuples/PQgetvalue/PQclear читают только её, не
+// трогают соединение снова), поэтому дальше можно работать разблокированно
+// - включая любую панику при неуспешном статусе.
 func pgQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCtor string) string {
 	return fmt.Sprintf(`static %[1]s *rech_db_pg_query(rech_db_t *db, const char *sql) {
     %[1]s *out = %[12]s();
+    rech_db_lock(db);
     PGresult *res = PQexec(db->pg, sql);
+    rech_db_unlock(db);
     int status = PQresultStatus(res);
     if (status != 1 && status != 2) {
         PQclear(res);
@@ -524,7 +586,9 @@ func pgQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCtor 
 }
 
 static long long rech_db_pg_exec(rech_db_t *db, const char *sql) {
+    rech_db_lock(db);
     PGresult *res = PQexec(db->pg, sql);
+    rech_db_unlock(db);
     int status = PQresultStatus(res);
     if (status != 1 && status != 2) {
         PQclear(res);
@@ -549,13 +613,23 @@ static long long rech_db_pg_exec(rech_db_t *db, const char *sql) {
 // enum_field_types, field_types.h: TINY=1/SHORT=2/LONG=3/LONGLONG=8/
 // INT24=9/YEAR=13 - целые; DECIMAL=0/FLOAT=4/DOUBLE=5/NEWDECIMAL=246 -
 // дробные; всё остальное - текст).
+//
+// rech_db_lock/rech_db_unlock (см. package doc rechDBStruct) держатся
+// вокруг mysql_real_query+mysql_store_result - у MySQL, в отличие от
+// PostgreSQL, ИМЕННО mysql_store_result перекладывает весь результат в
+// клиентскую память (MYSQL_RES), а не сам mysql_real_query - только после
+// него дальнейшие mysql_fetch_field/mysql_fetch_row/mysql_free_result уже
+// не трогают соединение и могут идти разблокированно.
 func mysqlQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCtor string) string {
 	return fmt.Sprintf(`static %[1]s *rech_db_mysql_query(rech_db_t *db, const char *sql) {
     %[1]s *out = %[11]s();
+    rech_db_lock(db);
     if (mysql_real_query(db->mysql, sql, (unsigned long)strlen(sql)) != 0) {
+        rech_db_unlock(db);
         rech_db_panicf("%[5]s", sql);
     }
     MYSQL_RES *res = mysql_store_result(db->mysql);
+    rech_db_unlock(db);
     if (!res) {
         return out;
     }
@@ -593,10 +667,14 @@ func mysqlQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCt
 }
 
 static long long rech_db_mysql_exec(rech_db_t *db, const char *sql) {
+    rech_db_lock(db);
     if (mysql_real_query(db->mysql, sql, (unsigned long)strlen(sql)) != 0) {
+        rech_db_unlock(db);
         rech_db_panicf("%[10]s", sql);
     }
-    return (long long)mysql_affected_rows(db->mysql);
+    long long affected = (long long)mysql_affected_rows(db->mysql);
+    rech_db_unlock(db);
+    return affected;
 }
 
 `, resultListC, dictC, dictSet, listAdd, escapeCString(rtmsg.DBQueryFailedTemplate),

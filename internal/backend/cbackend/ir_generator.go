@@ -817,12 +817,15 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// отдельного заголовка не нужно; на POSIX - pthread.h (pthread_mutex_t
 	// оттуда же, что и pthread_create - один и тот же заголовок для обоих
 	// usesThreads/usesMutex, поэтому один общий #include, не два одинаковых).
-	// usesTLS - тоже pthread_mutex_t (реестр TLS-соединений, tls.go,
-	// rech_tls_lock) - её собственная блокировка нужна независимо от того,
-	// использует ли ПРОГРАММА "запустить"/"Блокировка" вообще (accept-цикл
-	// сервера уже потенциально многопоточный - Шаг ниже, "конкурентный
-	// сервер").
-	if ctx.usesThreads || ctx.usesMutex || ctx.usesTLS {
+	// usesTLS/prog.UsesDB - тоже pthread_mutex_t (реестр TLS-соединений,
+	// tls.go, rech_tls_lock; общий мьютекс rech_db_t, db.go) - их
+	// собственная блокировка нужна независимо от того, использует ли
+	// ПРОГРАММА "запустить"/"Блокировка" - "БД" может быть полем сущности
+	// или параметром функции, разделяемым между потоками, запущенными где
+	// угодно в программе - её собственная блокировка защищает ЭТО
+	// соединение, независимо от того, как именно программа организует
+	// свою многопоточность.
+	if ctx.usesThreads || ctx.usesMutex || ctx.usesTLS || prog.UsesDB {
 		sb.WriteString("#ifndef _WIN32\n#include <pthread.h>\n#endif\n")
 	}
 	sb.WriteString("\n")
