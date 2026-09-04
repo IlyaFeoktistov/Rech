@@ -125,6 +125,11 @@ type builtinFlags struct {
 	// звать "дождаться_всех_задач" без "запустить" вообще (бессмысленно,
 	// но не ошибка - счётчик всегда 0).
 	usesActiveTaskWait bool
+	// usesStringSplit - нужен ли rech_split_string (stringsplit.go) -
+	// встроенная функция "разбить" (строка, разделитель): Список<Строка>.
+	// Подразумевает usesPanic (пустой разделитель - ошибка, см.
+	// rtmsg.SplitEmptySeparator).
+	usesStringSplit bool
 }
 
 // builtinCallCode генерирует C-вызов встроенной функции (internal/builtins,
@@ -265,6 +270,10 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 	case "параметры_пути":
 		flags.usesQueryParams = true
 		return fmt.Sprintf("rech_query_params(%s)", args[0]), true
+	case "разбить":
+		flags.usesStringSplit = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_split_string(%s, %s)", args[0], args[1]), true
 	case "длина_строки":
 		flags.usesStringOps = true
 		return fmt.Sprintf("rech_string_length(%s)", args[0]), true

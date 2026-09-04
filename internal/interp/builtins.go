@@ -172,6 +172,8 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return Value{}, true
 	case "параметры_пути":
 		return queryParams(args[0].S), true
+	case "разбить":
+		return stringSplit(args[0].S, args[1].S), true
 	case "длина_строки":
 		return intValue(stringLength(args[0].S)), true
 	case "подстрока":

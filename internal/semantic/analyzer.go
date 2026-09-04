@@ -459,6 +459,7 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 	registerHTTPEntity(a.entities, "Ответ", httpResponseFields)
 	funcs["запрос"] = funcSig{Params: []ir.Type{ir.EntityType("Запрос")}, ReturnType: ir.EntityType("Ответ"), HasReturn: true}
 	registerHTTPServerFuncs(funcs)
+	registerStringSplitFunc(funcs)
 	registerDateTimeFuncs(a.entities, funcs)
 	registerCookieFuncs(a.entities, funcs)
 	registerEnvFuncs(a.entities, funcs)

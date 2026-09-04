@@ -282,3 +282,9 @@ func StateNotEstablishedFormat(typeName, state string) string {
 // ReadInvalidMax - ошибка программиста, не ожидаемый исключительный
 // случай).
 const RandomIntInvalidRange = "случайное_целое: минимум должен быть не больше максимума"
+
+// SplitEmptySeparator - "разбить(строка, разделитель)" с пустым
+// разделителем - неоднозначно (границы по байтам? по code point'ам?),
+// аварийное завершение вместо молчаливого выбора одной интерпретации, тем
+// же принципом, что и ReadInvalidMax/RandomIntInvalidRange выше.
+const SplitEmptySeparator = "разбить: разделитель не может быть пустой строкой"

@@ -779,7 +779,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		sb.WriteString("#include <gc.h>\n")
 	}
 	hasStructTargets := len(prog.ParseTargets) > 0 || len(prog.SerializeTargets) > 0 || len(prog.XMLParseTargets) > 0 || len(prog.XMLSerializeTargets) > 0
-	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesPanicCatch || hasStructTargets || prog.UsesReflection {
+	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesPanicCatch || ctx.usesStringSplit || hasStructTargets || prog.UsesReflection {
 		sb.WriteString("#include <string.h>\n")
 	}
 	if ctx.usesRandom {
@@ -1023,6 +1023,11 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// (queryParamsDictType зарегистрирован в prog.Generics принудительно,
 	// см. internal/semantic/httpserver.go).
 	appendCodeIf(&sb, ctx.usesQueryParams, queryParamsHelper)
+	// После genericsCode выше - rech_split_string использует typedef/метод
+	// "добавить" Список<Строка>, уже эмитированные там (splitResultType
+	// зарегистрирован в prog.Generics принудительно, см. internal/semantic/
+	// stringsplit.go).
+	appendCodeIf(&sb, ctx.usesStringSplit, stringSplitHelper)
 	// После typedefs - rech_time_to_date/rech_date_to_time/
 	// rech_date_to_string принимают/возвращают ДатаВремя по значению.
 	appendCodeIf(&sb, ctx.usesDateTime, datetimeHelpers)
