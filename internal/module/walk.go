@@ -615,7 +615,7 @@ func (r *rewriter) rewriteExpr(e ast.Expr) error {
 		// найденного в r.names этого файла - настоящая ошибка видимости
 		// (docs/ROADMAP.md - паритет с уже существующей приватностью
 		// функций/сущностей/интерфейсов). Встроенные перечисления
-		// (HTTPКод/ДеньНедели/Месяц, internal/semantic.standardEnums) не
+		// (HTTPКод/ДеньНедели/Месяц, internal/semantic.StandardEnums) не
 		// объявлены ни в одном .rech-файле программы - не входят ни в
 		// r.names, ни в r.allEnums, поэтому проходят молча, как и раньше.
 		if ident, ok := e.Receiver.(*ast.Identifier); ok {

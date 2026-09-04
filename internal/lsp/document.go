@@ -65,6 +65,13 @@ type doc struct {
 	astEntities   map[string]*ast.EntityDecl
 	astFuncs      map[string]*ast.FunctionDecl
 	astInterfaces map[string]*ast.InterfaceDecl
+	// astEnums - собственные перечисления документа (плюс импортированные
+	// через multifile.go - никогда не манглятся при линковке, см. её
+	// package doc, поэтому не нуждаются в алиасах, в отличие от astEntities/
+	// astFuncs). Встроенные (HTTPКод/ДеньНедели/Месяц) сюда НЕ входят - они
+	// не объявлены ни в одном файле, см. semantic.StandardEnums,
+	// enumhover.go.
+	astEnums map[string]*ast.EnumDecl
 
 	// displayName - обратное к алиасам выше: смангленное (module.Program.
 	// Link) имя сущности/функции ИЗ ДРУГОГО файла -> то самое имя (алиас),
@@ -177,6 +184,10 @@ func (d *doc) update(text string) {
 		d.astInterfaces = map[string]*ast.InterfaceDecl{}
 		for _, iface := range astProg.Interfaces {
 			d.astInterfaces[iface.Name] = iface
+		}
+		d.astEnums = map[string]*ast.EnumDecl{}
+		for _, e := range astProg.Enums {
+			d.astEnums[e.Name] = e
 		}
 		d.localNames = map[string]bool{}
 		for _, e := range astProg.Entities {

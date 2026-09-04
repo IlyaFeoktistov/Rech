@@ -162,6 +162,10 @@ func (d *doc) applyLink(res linkResult) {
 	for _, iface := range res.ast.Interfaces {
 		d.astInterfaces[iface.Name] = iface
 	}
+	d.astEnums = map[string]*ast.EnumDecl{}
+	for _, e := range res.ast.Enums {
+		d.astEnums[e.Name] = e
+	}
 	d.displayName = map[string]string{}
 	d.localNames = map[string]bool{}
 	for _, e := range res.ast.Entities {

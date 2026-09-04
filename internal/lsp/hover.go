@@ -38,7 +38,19 @@ func (d *doc) hover(line, col int) (string, bool) {
 	}
 
 	container, ok := d.resolveChain(chain[:len(chain)-1], line)
-	if !ok || container.Kind != ir.KindEntity {
+	if !ok {
+		// resolveChain не знает о перечислениях (chain[0] - не локальная
+		// переменная/поле/сущность) - "Имя.Член" только ДВУХзвенное (в
+		// самом языке нет вложенных перечислений), проверяем именно этот
+		// случай отдельным путём (enumhover.go), прежде чем сдаться.
+		if len(chain) == 2 {
+			if block, ok := d.hoverEnumMember(chain[0], name); ok {
+				return block, true
+			}
+		}
+		return "", false
+	}
+	if container.Kind != ir.KindEntity {
 		return "", false
 	}
 	ent := d.entities[container.Entity]
@@ -80,6 +92,9 @@ func (d *doc) hoverBareName(name string, line int) (string, bool) {
 		return codeBlock(name) + "\n\n" + doc, true
 	}
 	if block, ok := hoverBuiltinFunc(name); ok {
+		return block, true
+	}
+	if block, ok := d.hoverEnumType(name); ok {
 		return block, true
 	}
 	return "", false

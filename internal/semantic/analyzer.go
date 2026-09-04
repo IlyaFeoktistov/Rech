@@ -562,15 +562,15 @@ func (a *Analyzer) collectExternFuncSigs(funcs map[string]funcSig, entities map[
 }
 
 // collectEnums собирает все перечисления программы (шаг 12) - стандартные
-// (standardEnums, всегда присутствуют) плюс объявленные пользователем
-// (prog.Enums, копия standardEnums на входе - чтобы мутация ниже не
-// затронула сам standardEnums между вызовами Analyze). Дубли членов
+// (StandardEnums, всегда присутствуют) плюс объявленные пользователем
+// (prog.Enums, копия StandardEnums на входе - чтобы мутация ниже не
+// затронула сам StandardEnums между вызовами Analyze). Дубли членов
 // внутри одного перечисления уже проверены парсером (см. parseEnumDecl) -
 // здесь только коллизии ИМЕНИ самого перечисления с сущностью или другим
 // перечислением (в т. ч. встроенным).
 func (a *Analyzer) collectEnums(prog *ast.Program) error {
-	enums := make(map[string]map[string]int64, len(standardEnums)+len(prog.Enums))
-	for name, members := range standardEnums {
+	enums := make(map[string]map[string]int64, len(StandardEnums)+len(prog.Enums))
+	for name, members := range StandardEnums {
 		copied := make(map[string]int64, len(members))
 		maps.Copy(copied, members)
 		enums[name] = copied
