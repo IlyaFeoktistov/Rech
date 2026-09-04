@@ -225,38 +225,106 @@ rech build examples/основы/привет.rech
 (без `--global`) - иначе `git status` печатает кириллические пути
 восьмеричными escape-кодами.
 
+## Документация как сайт (MkDocs)
+
+`docs/MANUAL.md`/`docs/SPEC.md`/`docs/GRAMMAR.md`/`docs/MORPHOLOGY.md`
+читаются и как обычный markdown на GitHub, но их же можно собрать в
+навигируемый сайт (боковое меню по главам, поиск, тёмная/светлая тема) -
+[MkDocs](https://www.mkdocs.org/) с темой
+[Material](https://squidfunk.github.io/mkdocs-material/). `docs/ROADMAP.md`
+(внутренняя история разработки компилятора по шагам) сайт намеренно не
+включает - это не документация для пользователя языка.
+
+Нужен Python 3 - зависимость только у этого сайта, самого компилятора
+`rech` не касается. Одноразовая настройка (виртуальное окружение, чтобы не
+трогать системный Python):
+
+```sh
+python3 -m venv .venv-docs
+.venv-docs/bin/pip install -r requirements-docs.txt
+```
+
+Дальше, из корня репозитория:
+
+```sh
+# Локальный live-просмотр с автообновлением при правке .md (http://127.0.0.1:8000):
+.venv-docs/bin/mkdocs serve
+
+# Собрать статический сайт в site/ (можно открыть site/index.html
+# напрямую или выложить на любой статический хостинг):
+.venv-docs/bin/mkdocs build
+```
+
+`site/` и `.venv-docs/` - в `.gitignore`, не коммитятся.
+
 ## Структура проекта
 
+Подробный гид "как вносить изменения в компилятор" (что в каком порядке
+трогать, частые ловушки, как тестировать) - [DEVELOPMENT.md](DEVELOPMENT.md).
+Здесь - только карта каталогов.
+
+Пайплайн компиляции (`cmd/rech` -> `internal/lexer` -> `internal/morph` ->
+`internal/parser`/`internal/ast` -> `internal/module` -> `internal/semantic`/
+`internal/ir` -> `internal/backend/cbackend` **и** `internal/interp` -
+оба должны давать одинаковый наблюдаемый результат на любой программе):
+
 ```
-cmd/rech/                  - CLI (build/run/version), сборка зависимостей через google/wire
+cmd/rech/                  - CLI (build/run/test/debug/lsp/install/init/version)
 internal/lexer/            - лексер (кириллица в идентификаторах и ключевых словах)
-internal/ast/              - синтаксическое дерево, не зависящее от backend'а
-internal/parser/           - парсер v0.1
-internal/backend/cbackend/ - генерация C из AST
-internal/compiler/         - интерфейсы Frontend/Backend/Toolchain и их связывание
-internal/toolchain/        - вызов системного cc/clang/gcc
+internal/morph/            - морфологический движок (склонение ключевых слов, OpenCorpora/gomorphy)
+internal/parser/           - парсер (токены -> AST)
+internal/ast/               - синтаксическое дерево, не зависящее от backend'а
+internal/module/           - "использовать ... из" - связывание многофайловых проектов в один AST
+internal/semantic/         - типизация/видимость/проверки, сборка internal/ir.Program
+internal/ir/                - промежуточное представление, общее для обоих backend'ов
+internal/backend/cbackend/ - генерация C из IR (единственный путь к нативному бинарнику)
+internal/interp/           - дерево-обходящий интерпретатор (rech test/rech debug/rech lsp)
+internal/builtins/         - реестр встроенных функций (имена/сигнатуры, общий для семантики/обоих backend'ов)
+internal/rtmsg/            - тексты рантайм-сообщений/ошибок, общие между cbackend и interp
+internal/dbscheme/         - разбор схемы строки подключения "БД" (sqlite/postgres/mysql)
+internal/structtag/        - разбор тегов полей (`` `json:...` ``)
+internal/compiler/         - интерфейсы Frontend/Backend/Toolchain, связывание пайплайна
+internal/toolchain/        - вызов системного cc/clang/gcc, условная линковка библиотек
+internal/project/          - разбор манифеста `.rechproj`
+internal/pkgfetch/         - скачивание внешних зависимостей проекта (секция "зависимости:", `rech install`)
+internal/testrunner/       - `rech test`
+internal/lsp/              - language server (`rech lsp`) - автодополнение/hover/definition
+internal/dap/               - типы Debug Adapter Protocol
+internal/debugadapter/     - сервер DAP (`rech debug`) поверх internal/interp
+internal/rpcframe/         - общий транспортный кадр LSP/DAP (Content-Length + JSON)
+internal/debug/            - дамп AST/IR для отладки самого компилятора
 internal/version/          - версия компилятора (см. `rech version`)
 installer/unix/            - install.sh (Linux/macOS)
 installer/windows/         - setup.nsi/build.ps1 (Windows, без прав admin)
 examples/                  - примеры программ на Rech, по тематическим подпапкам
-docs/SPEC.md               - спецификация того, что реализовано прямо сейчас
-docs/ROADMAP.md            - план развития языка по шагам
+docs/MANUAL.md             - руководство по языку для пользователя (учебник)
+docs/SPEC.md               - формальная спецификация того, что реализовано прямо сейчас
 docs/GRAMMAR.md            - черновик синтаксиса для того, что запланировано
-docs/MORPHOLOGY.md         - дизайн морфологического движка (шаг 1.5)
+docs/MORPHOLOGY.md         - дизайн морфологического движка
+docs/ROADMAP.md            - история развития языка по шагам (внутренний журнал, не для пользователя)
 ```
 
 ## Архитектура
 
 ```
-RECH -> Lexer -> Morphology -> Parser -> AST -> Semantic analysis -> IR
-                                                                       |
-                                                        +--------------+--------------+
-                                                        |                             |
-                                                    C backend                   Interpreter (позже VM)
-                                                        |
-                                                   GCC/Clang
-                                                        |
-                                                Native executable
+RECH -> Lexer -> Morphology -> Parser -> AST -> Module linking -> Semantic analysis -> IR
+                                                                                          |
+                                                                Rech-программа целиком (все "использовать")
+                                                                                          |
+                                                                   +----------------------+----------------------+
+                                                                   |                                             |
+                                                              C backend                                   Interpreter
+                                                          (internal/backend/cbackend)                  (internal/interp)
+                                                                   |                                             |
+                                                              GCC/Clang/MSVC                    rech test / rech debug (DAP) / rech lsp
+                                                                   |
+                                                            Native executable
 ```
 
-AST и будущий IR не зависят от C - C backend первый, но не единственный.
+AST и IR не зависят от C - C backend первый (и единственный путь к
+нативному бинарнику), но не единственный ПОТРЕБИТЕЛЬ IR: интерпретатор -
+второй, полноправный потребитель того же IR, не урезанная копия
+компилятора - он приводит в действие `rech test`, отладчик (`rech debug`,
+DAP) и language server (`rech lsp`). Оба backend'а обязаны давать
+идентичный наблюдаемый результат на любой программе - это стандартное
+требование к каждой новой фиче языка (подробнее - [DEVELOPMENT.md](DEVELOPMENT.md)).

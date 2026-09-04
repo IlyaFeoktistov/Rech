@@ -1,0 +1,55 @@
+site_name: Rech (Речь)
+site_description: Русский язык программирования - руководство и спецификация
+docs_dir: docs
+site_dir: site
+# ROADMAP.md - внутренняя история разработки компилятора (шаги, найденные
+# баги, решения по ходу дела), не пользовательская документация языка -
+# намеренно не часть этого сайта.
+exclude_docs: |
+  ROADMAP.md
+
+theme:
+  name: material
+  language: ru
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Тёмная тема
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Светлая тема
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - toc.integrate
+    - search.suggest
+    - content.code.copy
+
+nav:
+  - Главная: index.md
+  - Руководство: MANUAL.md
+  - Спецификация: SPEC.md
+  - Грамматика (черновик): GRAMMAR.md
+  - Морфологический движок: MORPHOLOGY.md
+
+markdown_extensions:
+  - toc:
+      permalink: true
+      # slugify по умолчанию (Python-Markdown) отбрасывает кириллицу из id
+      # заголовков (получалось "id=1" вместо "id=1-введение-и-философия") -
+      # ссылки на разделы внутри MANUAL.md/SPEC.md писались вручную под
+      # GitHub-совместимые якоря, uslugify (pymdownx, Unicode-aware) даёт
+      # тот же результат.
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - tables
+  - fenced_code
+  - admonition
+  - pymdownx.highlight
+  - pymdownx.superfences
