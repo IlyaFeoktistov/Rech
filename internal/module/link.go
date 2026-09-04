@@ -35,32 +35,48 @@ func mangledName(m, entry *Module, name string) string {
 // раньше тоже проходили через mangledName - получали префикс Qualifier у
 // любого НЕ-entry модуля. Но Link() (см. merge ниже) сливает
 // merged.Interfaces БЕЗ переименования (тем же принципом, что и Enums/
-// Consts - "использовать" пока не умеет импортировать интерфейс по имени,
-// см. её комментарий) - несовпадение этих двух мест давало ссылку на
-// смангленное имя ("Файл_Интерфейс") там, где сам интерфейс на самом деле
-// остался под своим бare-именем, и cbackend падал "неизвестный тип" при
-// первом же использовании интерфейса как типа параметра/поля/результата
-// внутри НЕ-entry файла многофайловой программы (что скомпилировалось бы
-// без единого "использовать" вообще). Интерфейсы поэтому исключены из
+// Consts) - несовпадение этих двух мест давало ссылку на смангленное имя
+// ("Файл_Интерфейс") там, где сам интерфейс на самом деле остался под
+// своим бare-именем, и cbackend падал "неизвестный тип" при первом же
+// использовании интерфейса как типа параметра/поля/результата внутри
+// НЕ-entry файла многофайловой программы (что скомпилировалось бы без
+// единого "использовать" вообще). Интерфейсы поэтому исключены из
 // mangledName здесь - разрешаются в СВОЁ СОБСТВЕННОЕ bare-имя, ровно как
-// они и оказываются в merged.Interfaces.
+// они и оказываются в merged.Interfaces. Тот же принцип применён ниже к
+// ИМПОРТИРОВАННЫМ интерфейсам - "использовать ИмяИнтерфейса из ..." теперь
+// разрешён (docs/ROADMAP.md, находка "использовать не умеет импортировать
+// интерфейс"), но раз merged.Interfaces никогда не манглит их, alias в
+// файле-импортёре должен указывать на то же самое bare-имя, а не на
+// mangledName(imp.Source, ...) - иначе точно тот же класс несовпадения.
 func buildNames(m, entry *Module) map[string]string {
-	ifaceNames := make(map[string]bool, len(m.AST.Interfaces))
-	for _, iface := range m.AST.Interfaces {
-		ifaceNames[iface.Name] = true
-	}
 	names := map[string]string{}
 	for name := range localTypeNames(m.AST) {
-		if ifaceNames[name] {
+		if isInterfaceName(m.AST, name) {
 			names[name] = name
 			continue
 		}
 		names[name] = mangledName(m, entry, name)
 	}
 	for _, imp := range m.Imports {
+		if isInterfaceName(imp.Source.AST, imp.Name) {
+			names[imp.Alias] = imp.Name
+			continue
+		}
 		names[imp.Alias] = mangledName(imp.Source, entry, imp.Name)
 	}
 	return names
+}
+
+// isInterfaceName сообщает, объявлен ли name как интерфейс именно в prog
+// (а не как функция/сущность) - используется buildNames выше, чтобы решить,
+// нужно ли имени mangledName (интерфейсы - нет, см. её комментарий).
+func isInterfaceName(prog *ast.Program, name string) bool {
+	for _, iface := range prog.Interfaces {
+		if iface.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // Link проверяет видимость (каждая ссылка на функцию/тип в теле функции,
@@ -197,9 +213,14 @@ func (p *Program) Link() (*ast.Program, error) {
 		// только collectEnums (менее подробное сообщение, чем у мангла
 		// выше) - осознанный, а не забытый пробел этого среза.
 		merged.Enums = append(merged.Enums, m.AST.Enums...)
-		// Interfaces - тот же принцип, что и у Enums выше: без
-		// мангла, "использовать" пока не умеет импортировать интерфейс по
-		// имени - осознанный, а не забытый пробел этого среза.
+		// Interfaces - без мангла, ЕДИНАЯ плоская область видимости на всю
+		// программу (тем же принципом, что и у Enums выше) - "использовать"
+		// умеет их импортировать (buildNames выше отражает это разрешением
+		// импортированного alias в то же bare-имя), но само имя интерфейса
+		// в merged.Program по-прежнему не различается по файлу-источнику:
+		// два НЕСВЯЗАННЫХ файла с интерфейсом одного имени столкнутся здесь
+		// точно так же, как два одноимённых Enum - осознанный, а не
+		// забытый пробел этого среза.
 		merged.Interfaces = append(merged.Interfaces, m.AST.Interfaces...)
 		// Consts - константы уровня модуля (ast.Program.Consts) - тот же
 		// принцип, что и у Enums/Interfaces: без мангла, "использовать" не

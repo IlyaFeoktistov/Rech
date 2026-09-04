@@ -99,10 +99,11 @@ type Module struct {
 }
 
 // declaredNames - имена, которые Module объявляет на верхнем уровне и
-// которые можно импортировать через "использовать" - функции и сущности.
-// Производные типы состояний (StateDecl.TypeName) сюда не входят - они
-// пока не участвуют в системе импортов, только localTypeNames ниже (для
-// ссылок внутри того же файла, который их объявил).
+// которые можно импортировать через "использовать" - функции, сущности и
+// интерфейсы. Производные типы состояний (StateDecl.TypeName) сюда не
+// входят - они пока не участвуют в системе импортов, только
+// localTypeNames ниже (для ссылок внутри того же файла, который их
+// объявил).
 func declaredNames(prog *ast.Program) map[string]bool {
 	names := map[string]bool{}
 	for _, fn := range prog.Functions {
@@ -117,6 +118,9 @@ func declaredNames(prog *ast.Program) map[string]bool {
 	for _, ext := range prog.ExternEntities {
 		names[ext.Alias] = true
 	}
+	for _, iface := range prog.Interfaces {
+		names[iface.Name] = true
+	}
 	return names
 }
 
@@ -126,8 +130,9 @@ func declaredNames(prog *ast.Program) map[string]bool {
 // docs/SPEC.md, "Импорты") - используется ТОЛЬКО для проверки
 // "использовать" (в отличие от declaredNames, которая нужна и для проверки
 // коллизии ЛОКАЛЬНЫХ имён, где видимость не имеет значения - см. её вызов
-// в load ниже, declared). Внешние функции/сущности не поддерживают
-// модификатор видимости - всегда Public.
+// в load ниже, declared). Внешние функции/сущности и интерфейсы не
+// поддерживают модификатор видимости (ast.InterfaceDecl не несёт
+// Visibility вовсе) - всегда Public.
 func moduleVisibility(prog *ast.Program) map[string]ast.Visibility {
 	vis := map[string]ast.Visibility{}
 	for _, fn := range prog.Functions {
@@ -142,14 +147,17 @@ func moduleVisibility(prog *ast.Program) map[string]ast.Visibility {
 	for _, ext := range prog.ExternEntities {
 		vis[ext.Alias] = ast.Public
 	}
+	for _, iface := range prog.Interfaces {
+		vis[iface.Name] = ast.Public
+	}
 	return vis
 }
 
-// localTypeNames - declaredNames плюс производные типы состояний
-// (StateDecl.TypeName) и интерфейсы (InterfaceDecl.Name) - используется
-// для разрешения ссылок на тип внутри самого файла, который их объявил
+// localTypeNames - declaredNames (теперь уже включает интерфейсы) плюс
+// производные типы состояний (StateDecl.TypeName) - используется для
+// разрешения ссылок на тип внутри самого файла, который их объявил
 // (link.go), а не для проверки "использовать" (там - только
-// declaredNames): ни производные типы состояний, ни интерфейсы пока не
+// declaredNames напрямую): производные типы состояний по-прежнему не
 // участвуют в системе импортов, но должны резолвиться как тип параметра/
 // поля/результата в пределах одного файла, даже когда файл вообще не
 // содержит "использовать" - Link() всё равно проходит по нему.
@@ -159,9 +167,6 @@ func localTypeNames(prog *ast.Program) map[string]bool {
 		for _, st := range ent.States {
 			names[st.TypeName] = true
 		}
-	}
-	for _, iface := range prog.Interfaces {
-		names[iface.Name] = true
 	}
 	return names
 }

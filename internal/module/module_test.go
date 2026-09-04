@@ -294,6 +294,70 @@ func TestLinkResolvesInterfaceTypeInNonEntryModule(t *testing.T) {
 	}
 }
 
+// TestLinkImportsInterfaceByName - найденная находка (docs/ROADMAP.md, Шаг
+// 41, http_сервер): "использовать" не умело импортировать интерфейс по
+// имени вовсе (declaredNames/moduleVisibility не знали про
+// ast.Program.Interfaces) - ссылка на интерфейс из ДРУГОГО файла как тип
+// параметра падала с "не объявлено в этом файле и не импортировано", даже
+// с явным "использовать ИмяИнтерфейса из ...", которое само по себе
+// отвергалось как "файл не объявляет" это имя. В отличие от
+// TestLinkResolvesInterfaceTypeInNonEntryModule выше (там интерфейс
+// используется КАК ТИП в ТОМ ЖЕ файле, где объявлен, импорт не нужен) -
+// здесь именно entry-файл ссылается на интерфейс, объявленный в другом
+// файле, и должен его импортировать явно, как обычную сущность/функцию.
+func TestLinkImportsInterfaceByName(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "звук.rech", `интерфейс Звучащий
+{
+    издать_звук(): Строка
+}
+
+сущность Кошка реализует Звучащий
+{
+    издать_звук(): Строка
+    {
+        вернуть "мяу"
+    }
+}
+`)
+	entry := writeFile(t, dir, "главный.rech", `использовать Кошка, Звучащий из "звук"
+
+функция озвучить(х: Звучащий): Строка
+{
+    вернуть х.издать_звук()
+}
+
+функция главная
+{
+    вывести озвучить(новая Кошка())
+}
+`)
+
+	prog, err := Load(entry, testFrontend{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	merged, err := prog.Link()
+	if err != nil {
+		t.Fatalf("Link: %v", err)
+	}
+	if len(merged.Interfaces) != 1 || merged.Interfaces[0].Name != "Звучащий" {
+		t.Fatalf("ожидался интерфейс %q в слинкованной программе, получено: %+v", "Звучащий", merged.Interfaces)
+	}
+	var found bool
+	for _, fn := range merged.Functions {
+		if fn.Name == "озвучить" {
+			found = true
+			if len(fn.Params) != 1 || fn.Params[0].Type != "Звучащий" {
+				t.Fatalf("ожидался параметр типа %q (bare, без мангла - интерфейсы никогда не манглятся), получено: %+v", "Звучащий", fn.Params)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("не найдена функция \"озвучить\", получено: %+v", merged.Functions)
+	}
+}
+
 // TestLinkResolvesExplicitConstructorParamType - найденный баг: явный
 // конструктор сущности (EntityDecl.Ctor) не входил в цикл Link() вообще -
 // в отличие от обычных методов, его параметры/тело никогда не проходили
