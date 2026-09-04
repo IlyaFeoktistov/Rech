@@ -27,6 +27,7 @@
 package lsp
 
 import (
+	"net/url"
 	"os"
 	"strings"
 
@@ -47,20 +48,28 @@ type linkResult struct {
 
 // uriToPath - "file:///abs/путь.rech" -> "/abs/путь.rech"; "" для любого
 // другого вида URI (в частности, тестовые "test://..." по всему пакету) -
-// tryLink в этом случае просто не пытается ничего, см. package doc.
+// tryLink в этом случае просто не пытается ничего, см. package doc. VS Code
+// всегда шлёт URI с process-encoded (%D0%BF...) не-ASCII сегментами пути
+// (кириллица - обычное имя файла/каталога Rech-проекта) - url.Parse их
+// декодирует сам (.Path уже настоящая строка с кириллицей как есть), в
+// отличие от naive strings.TrimPrefix (буквально оставил бы "%D0%BF..." в
+// пути, os.ReadFile/module.Load искали бы файл с ТАКИМ именем и не находили
+// вовсе - живая проверка на examples/проекты/http_сервер поймала именно
+// это).
 func uriToPath(uri string) string {
-	const prefix = "file://"
-	if !strings.HasPrefix(uri, prefix) {
+	u, err := url.Parse(uri)
+	if err != nil || u.Scheme != "file" {
 		return ""
 	}
-	return strings.TrimPrefix(uri, prefix)
+	return u.Path
 }
 
 // fileURI - обратное к uriToPath, для файлов, найденных на диске через
 // граф импортов (module.Module.Path - уже filepath.Clean, см. package doc
-// module.Module).
+// module.Module) - url.URL.String() сам percent-encode'ит не-ASCII сегменты
+// path обратно (симметрично uriToPath), не строит их конкатенацией строк.
 func fileURI(path string) string {
-	return "file://" + path
+	return (&url.URL{Scheme: "file", Path: path}).String()
 }
 
 // tryLink пытается разрешить path (и весь граф "использовать" от него) тем

@@ -7,6 +7,29 @@ import (
 	"testing"
 )
 
+// TestURIRoundTripsCyrillicPath - VS Code всегда percent-encode'ит не-ASCII
+// сегменты в document.uri.toString() ("исходники" -> "%D0%B8%D1%81..." и
+// т. п., обычное дело для Rech-проекта) - uriToPath ДОЛЖЕН их декодировать
+// обратно в настоящий путь с кириллицей как есть, иначе os.ReadFile/
+// module.Load ищут файл с буквальным "%D0%B8..." в имени и не находят -
+// живая проверка на examples/проекты/http_сервер поймала именно это.
+func TestURIRoundTripsCyrillicPath(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "исходники")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatalf("не удалось создать каталог: %v", err)
+	}
+	path := filepath.Join(sub, "сервер.rech")
+
+	uri := fileURI(path)
+	if !strings.Contains(uri, "%D0%B8%D1%81%D1%85%D0%BE%D0%B4%D0%BD%D0%B8%D0%BA%D0%B8") {
+		t.Fatalf("ожидался percent-encoded сегмент \"исходники\" в URI, получено %q", uri)
+	}
+	if got := uriToPath(uri); got != path {
+		t.Fatalf("ожидался путь %q, получено %q", path, got)
+	}
+}
+
 func writeMultiFileSource(t *testing.T, dir, name, src string) string {
 	t.Helper()
 	path := filepath.Join(dir, name)
