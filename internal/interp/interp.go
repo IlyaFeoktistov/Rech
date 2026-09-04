@@ -185,6 +185,15 @@ type Value struct {
 	Conn       net.Conn
 	PacketConn net.PacketConn
 
+	// RawListener - непусто только для TLS-слушателя (слушать_tcp_защищённо
+	// - Listener тогда обёрнут в tls.NewListener, чей встроенный net.Listener
+	// - интерфейсное поле, не даёт продвинуть SetDeadline от конкретного
+	// *net.TCPListener наружу, даже если сам он его умеет) - "сырой", ДО
+	// обёртки в TLS слушатель, тот же fd - установить_таймаут/"принять" с
+	// таймаутом (network_timeout.go) ставят дедлайн именно на него, а
+	// Accept() всё равно зовут на обёрнутом Listener (для рукопожатия).
+	RawListener net.Listener
+
 	// Task - непусто только при Type.Kind == ir.KindTask (шаг 15,
 	// "запустить"/"дождаться") - см. internal/interp/concurrency.go.
 	Task *taskValue

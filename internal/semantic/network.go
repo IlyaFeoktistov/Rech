@@ -16,11 +16,25 @@ var datagramFields = []ir.Field{
 }
 
 // registerNetworkFuncs регистрирует сущность "Дейтаграмма" и функции
-// "получить_от"/"отправить_в" - не входят в internal/builtins.All (там
-// только Kind примитивов, а "получить_от" возвращает сущность), тот же
-// принцип, что и у "запрос"/registerDateTimeFuncs.
+// "получить_от"/"отправить_в"/"принять" - не входят в internal/
+// builtins.All (там только Kind примитивов и не-nullable возврат, а
+// "получить_от" возвращает сущность, "принять" - nullable "?Сокет"), тот
+// же принцип, что и у "запрос"/registerDateTimeFuncs/
+// "получить_переменную_окружения" (registerEnvFuncs).
 func registerNetworkFuncs(entities map[string]entitySig, funcs map[string]funcSig) {
 	registerHTTPEntity(entities, "Дейтаграмма", datagramFields)
 	funcs["получить_от"] = funcSig{Params: []ir.Type{ir.TypeSocket, ir.TypeInt}, ReturnType: ir.EntityType("Дейтаграмма"), HasReturn: true}
 	funcs["отправить_в"] = funcSig{Params: []ir.Type{ir.TypeSocket, ir.TypeString, ir.TypeString, ir.TypeInt}, HasReturn: false}
+
+	// "принять" возвращает Ничто, если на слушающем Сокете установлен
+	// таймаут ("установить_таймаут") и он истёк раньше, чем подключился
+	// клиент - иначе (нет таймаута, или клиент подключился раньше) ведёт
+	// себя как раньше, просто обёрнуто в "?Сокет".
+	if _, exists := entities["?Сокет"]; !exists {
+		entities["?Сокет"] = entitySig{IsNullable: true, ElemType: ir.TypeSocket}
+	}
+	funcs["принять"] = funcSig{
+		Params:     []ir.Type{ir.TypeSocket},
+		ReturnType: ir.NullableType(ir.TypeSocket), HasReturn: true,
+	}
 }

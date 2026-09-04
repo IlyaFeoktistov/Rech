@@ -21,15 +21,15 @@ func TestGenerateFromIRHTTPServerBuiltinCalls(t *testing.T) {
 		},
 		Functions: []*ir.Function{{Name: "главная", Body: []ir.Stmt{
 			&ir.VarDecl{Name: "л", Value: &ir.CallExpr{Callee: "слушать_tcp", Args: []ir.Expr{&ir.IntLiteral{Value: 8080}}, Type: ir.TypeSocket, HasReturn: true}},
-			&ir.VarDecl{Name: "с", Value: &ir.CallExpr{Callee: "принять", Args: []ir.Expr{&ir.Identifier{Name: "л", Type: ir.TypeSocket}}, Type: ir.TypeSocket, HasReturn: true}},
+			&ir.VarDecl{Name: "с", Value: &ir.CallExpr{Callee: "принять", Args: []ir.Expr{&ir.Identifier{Name: "л", Type: ir.TypeSocket}}, Type: ir.NullableType(ir.TypeSocket), HasReturn: true}},
 			&ir.VarDecl{Name: "р", Value: &ir.CallExpr{
-				Callee: "принять_http", Args: []ir.Expr{&ir.Identifier{Name: "с", Type: ir.TypeSocket}},
+				Callee: "принять_http", Args: []ir.Expr{&ir.NullUnwrapExpr{Value: &ir.Identifier{Name: "с", Type: ir.NullableType(ir.TypeSocket)}, Type: ir.TypeSocket}},
 				Type: ir.EntityType("Запрос"), HasReturn: true,
 			}},
 			&ir.ExprStmt{Call: &ir.CallExpr{
 				Callee: "отправить_http_ответ",
 				Args: []ir.Expr{
-					&ir.Identifier{Name: "с", Type: ir.TypeSocket},
+					&ir.NullUnwrapExpr{Value: &ir.Identifier{Name: "с", Type: ir.NullableType(ir.TypeSocket)}, Type: ir.TypeSocket},
 					&ir.NewExpr{Entity: "Ответ", Args: []ir.Expr{&ir.IntLiteral{Value: 200}, &ir.StringLiteral{Value: ""}, &ir.StringLiteral{Value: "ок"}}},
 				},
 			}},
@@ -40,8 +40,8 @@ func TestGenerateFromIRHTTPServerBuiltinCalls(t *testing.T) {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 	for _, want := range []string{
-		"rech_http_accept_request(v_s)",
-		"rech_http_send_response(v_s,",
+		"rech_http_accept_request(rech_T_n_soket_unwrap(v_s))",
+		"rech_http_send_response(rech_T_n_soket_unwrap(v_s),",
 		"static rech_T_zapros rech_http_accept_request(rech_socket_t s)",
 		"static void rech_http_send_response(rech_socket_t s, rech_T_otvet resp)",
 		"static char *rech_dup(const char *s)",

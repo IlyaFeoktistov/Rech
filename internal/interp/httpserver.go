@@ -137,6 +137,7 @@ func recvHTTPRequest(conn net.Conn) []byte {
 		if bodyStart >= 0 && int64(len(buf)-bodyStart) >= contentLength {
 			break
 		}
+		applyDeadline(conn, conn)
 		n, err := conn.Read(chunk)
 		if n > 0 {
 			buf = append(buf, chunk[:n]...)

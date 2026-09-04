@@ -1,7 +1,6 @@
 package interp
 
 import (
-	"crypto/tls"
 	"fmt"
 	"io"
 	"math"
@@ -118,25 +117,14 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 	case "сетевой_узел":
 		return in.networkNode(args[0].S, args[1].S, args[2].I), true
 	case "принять":
-		if args[0].Listener == nil {
-			panicRuntime("%s", rtmsg.SocketWrongKind)
-		}
-		c, err := args[0].Listener.Accept()
-		if err != nil {
-			panicRuntime("%s", rtmsg.SocketAcceptFailed)
-		}
-		// tc.Handshake() - форсирует TLS-рукопожатие СИНХРОННО (у Go
-		// *tls.Conn оно иначе ленивое, на первом Read/Write) - см. package
-		// doc network.go, listenTLS, зачем это важно для паритета с
-		// cbackend. Обычное (не TLS) соединение - type assertion просто не
-		// пройдёт, no-op.
-		if tc, ok := c.(*tls.Conn); ok {
-			if err := tc.Handshake(); err != nil {
-				c.Close()
-				panicRuntime("%s", rtmsg.TLSHandshakeFailed)
-			}
-		}
-		return connValue(c), true
+		return in.acceptWithTimeout(args[0]), true
+	case "установить_таймаут":
+		setSocketTimeout(args[0], args[1].I)
+		return Value{}, true
+	case "запрошена_остановка":
+		return boolValue(shutdownRequested()), true
+	case "дождаться_всех_задач":
+		return boolValue(waitAllTasks(args[0].I)), true
 	case "слушать_tcp_защищённо":
 		return listenTLS(args[0].I, args[1].S, args[2].S), true
 	case "получить_от":
@@ -161,6 +149,7 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 			panicRuntime("%s", rtmsg.SocketRecvInvalidMax)
 		}
 		buf := make([]byte, max)
+		applyDeadline(args[0].Conn, args[0].Conn)
 		n, err := args[0].Conn.Read(buf)
 		if err != nil && err != io.EOF {
 			panicRuntime("%s", rtmsg.SocketRecvFailed)

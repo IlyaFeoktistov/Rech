@@ -104,8 +104,8 @@ type builtinFlags struct {
 	// "декодировать_base64url" - не зависит от typedefs (только "const
 	// char *"), тем же принципом, что и usesStringOps/usesRandom.
 	usesCrypto bool
-	// usesTLS - нужна ли "слушать_tcp_защищённо" (docs/ROADMAP.md, TLS для
-	// http_сервера, tls.go) - переключает rech_accept/rech_send/rech_recv/
+	// usesTLS - нужна ли "слушать_tcp_защищённо" (TLS для http_сервера,
+	// tls.go) - переключает rech_accept/rech_send/rech_recv/
 	// rech_close_socket на TLS-осведомлённые версии (см. package doc
 	// tls.go) и подключает OpenSSL (#include <openssl/ssl.h>, -lssl
 	// -lcrypto - internal/toolchain/cc.go) - В ОТЛИЧИЕ от usesCrypto выше
@@ -113,6 +113,18 @@ type builtinFlags struct {
 	// настоящий TLS-стек с нуля - риск для безопасности, не место для
 	// принципа "не тянуть внешнюю библиотеку".
 	usesTLS bool
+	// usesShutdownFlag - нужен ли rech_shutdown_requested (shutdown.go) -
+	// встроенная функция "запрошена_остановка" - регистрирует обработчик
+	// SIGINT/SIGTERM лениво, при первом использовании программой (см. её
+	// package doc).
+	usesShutdownFlag bool
+	// usesActiveTaskWait - нужен ли rech_wait_all_tasks (active_tasks.go) -
+	// встроенная функция "дождаться_всех_задач" - отдельный от usesThreads
+	// флаг (irGenCtx, не builtinFlags - builtinCallCode не видит ctx
+	// целиком), хотя оба гейтят один и тот же счётчик: программа может
+	// звать "дождаться_всех_задач" без "запустить" вообще (бессмысленно,
+	// но не ошибка - счётчик всегда 0).
+	usesActiveTaskWait bool
 }
 
 // builtinCallCode генерирует C-вызов встроенной функции (internal/builtins,
@@ -197,6 +209,15 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 		flags.usesSockets = true
 		flags.usesPanic = true
 		return fmt.Sprintf("rech_accept(%s)", args[0]), true
+	case "установить_таймаут":
+		flags.usesSockets = true
+		return fmt.Sprintf("rech_set_timeout(%s, %s)", args[0], args[1]), true
+	case "запрошена_остановка":
+		flags.usesShutdownFlag = true
+		return "rech_shutdown_requested()", true
+	case "дождаться_всех_задач":
+		flags.usesActiveTaskWait = true
+		return fmt.Sprintf("rech_wait_all_tasks(%s)", args[0]), true
 	case "отправить":
 		flags.usesSockets = true
 		flags.usesPanic = true
@@ -784,14 +805,19 @@ static void rech_append_file(const char *path, const char *content) {
 // вариантов. rech_socket_t - int на POSIX, SOCKET на Windows (оба -
 // непрозрачные дескрипторы, как rech_file_t выше, только другого
 // системного API).
-// socketTypeAndConnectCode - typedef rech_socket_t + слушать(tcp/udp)/
-// подключиться(tcp/udp)/rech_network_node - ОБЩАЯ часть между socketHelpers
-// (обычная программа) и socketHelpersTLS (программа с "слушать_tcp_
-// защищённо", tls.go) - установление соединения не зависит от TLS вообще
-// (TLS оборачивает уже готовый TCP-сокет ПОСЛЕ rech_accept, см. package doc
-// tls.go) - только rech_accept/rech_send/rech_recv/rech_close_socket ниже
-// (plainSocketOpsCode) различаются между двумя вариантами.
-var socketTypeAndConnectCode = fmt.Sprintf(`#ifdef _WIN32
+// rechSocketTypedef - typedef rech_socket_t/RECH_INVALID_SOCKET - ОТДЕЛЬНО
+// от остального socketTypeAndConnectCode (которое ссылается на этот тип,
+// но само эмитируется намного позже, вперемешку с rech_accept - см.
+// ir_generator.go, appendCodeIf(prog.UsesSockets...)) и эмитируется РАНЬШЕ
+// nullablesCode (nullable.go) - тем же принципом, что и dbHandleTypedefCode
+// (db.go): "?Сокет" ("принять" теперь возвращает nullable) несёт
+// rech_socket_t как элемент своей обёртки (nullableCollectionCCode,
+// elemC), значит rech_socket_t обязан существовать РАНЬШЕ первого
+// упоминания "?Сокет", а rech_accept (использует ОБЁРТКУ "?Сокет") -
+// заведомо позже самой обёртки. Три уровня зависимости в ряд (rech_socket_t
+// -> обёртка "?Сокет" -> rech_accept), поэтому именно typedef выделен в
+// свой самый ранний, самостоятельный кусок, а не весь socketTypeAndConnectCode.
+const rechSocketTypedef = `#ifdef _WIN32
 typedef SOCKET rech_socket_t;
 #define RECH_INVALID_SOCKET INVALID_SOCKET
 #else
@@ -799,7 +825,17 @@ typedef int rech_socket_t;
 #define RECH_INVALID_SOCKET (-1)
 #endif
 
-static rech_socket_t rech_listen_tcp(long long port) {
+`
+
+// socketTypeAndConnectCode - слушать(tcp/udp)/подключиться(tcp/udp)/
+// rech_network_node - ОБЩАЯ часть между socketHelpers (обычная программа)
+// и socketHelpersTLS (программа с "слушать_tcp_защищённо", tls.go) -
+// установление соединения не зависит от TLS вообще (TLS оборачивает уже
+// готовый TCP-сокет ПОСЛЕ rech_accept, см. package doc tls.go) - только
+// rech_accept/rech_send/rech_recv/rech_close_socket ниже (plainSocketOpsCode)
+// различаются между двумя вариантами. rech_socket_t сам по себе - см.
+// rechSocketTypedef выше, эмитируется отдельно и раньше.
+var socketTypeAndConnectCode = fmt.Sprintf(`static rech_socket_t rech_listen_tcp(long long port) {
     rech_socket_t s = socket(AF_INET, SOCK_STREAM, 0);
     if (s == RECH_INVALID_SOCKET) {
         rech_panic("%[1]s");
@@ -814,10 +850,33 @@ static rech_socket_t rech_listen_tcp(long long port) {
     if (bind(s, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
         rech_panic("%[2]s");
     }
-    if (listen(s, 16) != 0) {
+    if (listen(s, SOMAXCONN) != 0) {
         rech_panic("%[3]s");
     }
     return s;
+}
+
+// rech_set_timeout - "установить_таймаут(сокет, миллисекунды)" - SO_RCVTIMEO
+// (Windows принимает миллисекунды напрямую как DWORD, POSIX - struct
+// timeval) - СТОЯЩАЯ (не разовая) настройка сокета, действует на КАЖДЫЙ
+// следующий "получить"/"принять_http" (через rech_socket_read_raw - её
+// TLS-осведомлённая версия, tls.go, тоже в конце концов читает тем же
+// системным recv()/сокетом, таймаут не обходит TLS) и, на слушающем
+// Сокете, на "принять" (rech_accept ниже/tls.go - ядро применяет
+// SO_RCVTIMEO слушающего сокета и к accept(), не только к recv()) - ноль
+// или отрицательное значение снимает таймаут (сокет снова блокируется
+// бессрочно). Один и тот же вызов работает на обоих вариантах rech_accept
+// (с TLS и без) - сам таймаут ниже уровня TLS, на голом сокете.
+static void rech_set_timeout(rech_socket_t s, long long ms) {
+#ifdef _WIN32
+    DWORD tv = (DWORD)(ms > 0 ? ms : 0);
+    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof(tv));
+#else
+    struct timeval tv;
+    tv.tv_sec = ms > 0 ? ms / 1000 : 0;
+    tv.tv_usec = ms > 0 ? (ms %% 1000) * 1000 : 0;
+    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+#endif
 }
 
 // rech_listen_udp - bind БЕЗ listen()/connect() (UDP не различает
@@ -900,12 +959,28 @@ static rech_socket_t rech_network_node(const char *mode, const char *host, long 
 // программа не использует "слушать_tcp_защищённо" (см. package doc
 // socketTypeAndConnectCode выше и ir_generator.go, выбор socketHelpers/
 // socketHelpersTLS по ctx.usesTLS).
-var plainSocketOpsCode = fmt.Sprintf(`static rech_socket_t rech_accept(rech_socket_t s) {
+var plainSocketOpsCode = fmt.Sprintf(`static %[5]s rech_accept(rech_socket_t s) {
     rech_socket_t c = accept(s, NULL, NULL);
     if (c == RECH_INVALID_SOCKET) {
+#ifdef _WIN32
+        if (WSAGetLastError() == WSAETIMEDOUT) {
+            return %[5]s_empty();
+        }
+#else
+        // EINTR - accept() прерван доставкой сигнала (например,
+        // rech_shutdown_signal_handler, shutdown.go) - настоящей ошибки нет,
+        // просто соединения пока не было, тот же смысл, что у настоящего
+        // таймаута (EAGAIN/EWOULDBLOCK): "принять" возвращает Ничто, цикл
+        // сервера сам решает, продолжать ли ждать (пока не запрошена_
+        // остановка) - именно так сигнал прерывает ожидание НЕМЕДЛЕННО, не
+        // дожидаясь остатка установленного "установить_таймаут".
+        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+            return %[5]s_empty();
+        }
+#endif
         rech_panic("%[1]s");
     }
-    return c;
+    return %[5]s_wrap(c);
 }
 
 static void rech_send(rech_socket_t s, const char *data) {
@@ -956,7 +1031,7 @@ static void rech_close_socket(rech_socket_t s) {
     close(s);
 #endif
 }
-`, rtmsg.SocketAcceptFailed, rtmsg.SocketSendFailed, rtmsg.SocketRecvInvalidMax, rtmsg.SocketRecvFailed)
+`, rtmsg.SocketAcceptFailed, rtmsg.SocketSendFailed, rtmsg.SocketRecvInvalidMax, rtmsg.SocketRecvFailed, mangleType("?Сокет"))
 
 // socketHelpers - сетевые примитивы БЕЗ TLS: TCP-сервер (rech_listen_tcp +
 // rech_accept), UDP-сервер (rech_listen_udp - bind без connect/listen,

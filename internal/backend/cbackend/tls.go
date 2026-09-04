@@ -131,9 +131,20 @@ static rech_tls_entry_t *rech_tls_unregister(rech_socket_t fd) {
 // ИМЕНА И СИГНАТУРЫ те же, что и у plainSocketOpsCode (builtins_shared.go),
 // эмитируется вместо неё, когда ctx.usesTLS (см. package doc выше и
 // ir_generator.go).
-var tlsSocketOpsCode = fmt.Sprintf(`static rech_socket_t rech_accept(rech_socket_t s) {
+var tlsSocketOpsCode = fmt.Sprintf(`static %[6]s rech_accept(rech_socket_t s) {
     rech_socket_t c = accept(s, NULL, NULL);
     if (c == RECH_INVALID_SOCKET) {
+#ifdef _WIN32
+        if (WSAGetLastError() == WSAETIMEDOUT) {
+            return %[6]s_empty();
+        }
+#else
+        // EINTR - см. package doc rech_accept в builtins_shared.go
+        // (plainSocketOpsCode) - тот же смысл здесь.
+        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+            return %[6]s_empty();
+        }
+#endif
         rech_panic("%[1]s");
     }
     SSL_CTX *listen_ctx = rech_tls_listen_ctx(s);
@@ -151,7 +162,7 @@ var tlsSocketOpsCode = fmt.Sprintf(`static rech_socket_t rech_accept(rech_socket
         }
         rech_tls_register(c, NULL, ssl);
     }
-    return c;
+    return %[6]s_wrap(c);
 }
 
 static void rech_send(rech_socket_t s, const char *data) {
@@ -214,7 +225,7 @@ static void rech_close_socket(rech_socket_t s) {
 #endif
 }
 
-`, rtmsg.SocketAcceptFailed, rtmsg.TLSHandshakeFailed, rtmsg.SocketSendFailed, rtmsg.SocketRecvInvalidMax, rtmsg.SocketRecvFailed)
+`, rtmsg.SocketAcceptFailed, rtmsg.TLSHandshakeFailed, rtmsg.SocketSendFailed, rtmsg.SocketRecvInvalidMax, rtmsg.SocketRecvFailed, mangleType("?Сокет"))
 
 // tlsListenSecureCode - "слушать_tcp_защищённо(порт, файл_сертификата,
 // файл_ключа)": обычный rech_listen_tcp (bind+listen, socketTypeAndConnectCode

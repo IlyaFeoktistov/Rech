@@ -134,6 +134,11 @@ func ensureTaskWrapper(ctx *irGenCtx, funcName string) {
 	sb.WriteString("    pthread_cond_signal(&t->cond);\n")
 	sb.WriteString("    pthread_mutex_unlock(&t->mutex);\n")
 	sb.WriteString("#endif\n")
+	// После сигнала завершения - "дождаться_всех_задач" не обязано увидеть
+	// оба события синхронно относительно друг друга (это два независимых
+	// потребителя: "дождаться" на КОНКРЕТНУЮ задачу читает t->done/t->exc,
+	// "дождаться_всех_задач" - только общий счётчик).
+	sb.WriteString("    rech_active_tasks_dec();\n")
 	sb.WriteString("#ifdef _WIN32\n    return 0;\n#else\n    return NULL;\n#endif\n")
 	sb.WriteString("}\n")
 
@@ -155,6 +160,11 @@ func ensureTaskWrapper(ctx *irGenCtx, funcName string) {
 		fmt.Fprintf(&sb, "    t->%s = %s;\n", n, n)
 	}
 	sb.WriteString("    t->exc = NULL;\n")
+	// Считается ДО создания потока (симметрично rech_active_tasks_dec в
+	// точке входа потока, ниже) - "дождаться_всех_задач" (active_tasks.go)
+	// иначе могла бы застать счётчик ещё не увеличенным для только что
+	// запущенной, но фактически ещё не начавшей исполняться задачи.
+	sb.WriteString("    rech_active_tasks_inc();\n")
 	// Примитив синхронизации - ДО создания потока (сама функция-точка входа
 	// signal'ит его по завершении, см. выше - обязан существовать раньше,
 	// чем поток вообще может успеть завершиться и попытаться его тронуть).

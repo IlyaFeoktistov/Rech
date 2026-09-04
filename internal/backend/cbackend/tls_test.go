@@ -75,9 +75,9 @@ func TestGenerateFromIRHTTPServerOverTLSReadsThroughSharedPrimitive(t *testing.T
 				Args:   []ir.Expr{&ir.IntLiteral{Value: 8443}, &ir.StringLiteral{Value: "cert.pem"}, &ir.StringLiteral{Value: "key.pem"}},
 				Type:   ir.TypeSocket, HasReturn: true,
 			}},
-			&ir.VarDecl{Name: "с", Value: &ir.CallExpr{Callee: "принять", Args: []ir.Expr{&ir.Identifier{Name: "л", Type: ir.TypeSocket}}, Type: ir.TypeSocket, HasReturn: true}},
+			&ir.VarDecl{Name: "с", Value: &ir.CallExpr{Callee: "принять", Args: []ir.Expr{&ir.Identifier{Name: "л", Type: ir.TypeSocket}}, Type: ir.NullableType(ir.TypeSocket), HasReturn: true}},
 			&ir.VarDecl{Name: "р", Value: &ir.CallExpr{
-				Callee: "принять_http", Args: []ir.Expr{&ir.Identifier{Name: "с", Type: ir.TypeSocket}},
+				Callee: "принять_http", Args: []ir.Expr{&ir.NullUnwrapExpr{Value: &ir.Identifier{Name: "с", Type: ir.NullableType(ir.TypeSocket)}, Type: ir.TypeSocket}},
 				Type: ir.EntityType("Запрос"), HasReturn: true,
 			}},
 		}}},

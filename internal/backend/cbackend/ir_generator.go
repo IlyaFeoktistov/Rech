@@ -799,8 +799,15 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	if ctx.usesExceptions {
 		sb.WriteString("#include <setjmp.h>\n")
 	}
+	if ctx.usesShutdownFlag {
+		sb.WriteString("#include <signal.h>\n")
+	}
 	if ctx.usesSockets {
-		sb.WriteString("#ifdef _WIN32\n#include <winsock2.h>\n#include <ws2tcpip.h>\n#else\n#include <sys/socket.h>\n#include <netinet/in.h>\n#include <arpa/inet.h>\n#include <netdb.h>\n#include <unistd.h>\n#endif\n")
+		// <errno.h> - только POSIX-ветка: "принять"/"установить_таймаут"
+		// различают "истёк таймаут" (EAGAIN/EWOULDBLOCK) от настоящей
+		// ошибки accept() - на Windows та же проверка идёт через
+		// WSAGetLastError()/WSAETIMEDOUT (winsock2.h), errno там не нужен.
+		sb.WriteString("#ifdef _WIN32\n#include <winsock2.h>\n#include <ws2tcpip.h>\n#else\n#include <sys/socket.h>\n#include <netinet/in.h>\n#include <arpa/inet.h>\n#include <netdb.h>\n#include <unistd.h>\n#include <errno.h>\n#endif\n")
 	}
 	// <openssl/ssl.h>/<openssl/err.h> - TLS ("слушать_tcp_защищённо", docs/
 	// ROADMAP.md, tls.go) - единственная внешняя (не входящая в стандартный
@@ -825,7 +832,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// угодно в программе - её собственная блокировка защищает ЭТО
 	// соединение, независимо от того, как именно программа организует
 	// свою многопоточность.
-	if ctx.usesThreads || ctx.usesMutex || ctx.usesTLS || prog.UsesDB {
+	if ctx.usesThreads || ctx.usesMutex || ctx.usesTLS || prog.UsesDB || ctx.usesActiveTaskWait {
 		sb.WriteString("#ifndef _WIN32\n#include <pthread.h>\n#endif\n")
 	}
 	sb.WriteString("\n")
@@ -883,15 +890,12 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	sb.WriteString(intDivModHelperCode(ctx.uintDivMod, false))
 	appendCodeIf(&sb, ctx.usesConsoleInput, readHelpers)
 	appendCodeIf(&sb, ctx.usesFileIO, fileHelpers)
-	if ctx.usesTLS {
-		// socketHelpersTLS (tls.go) ВМЕСТО socketHelpers - тот же
-		// socketTypeAndConnectCode (слушать/подключиться, TLS не касается),
-		// но TLS-осведомлённые rech_accept/rech_send/rech_recv/
-		// rech_close_socket - см. package doc tls.go.
-		sb.WriteString(socketHelpersTLS)
-	} else {
-		appendCodeIf(&sb, ctx.usesSockets, socketHelpers)
-	}
+	// rechSocketTypedef - см. её package doc (builtins_shared.go): только
+	// сам typedef rech_socket_t, здесь и сейчас - остальной рантайм сокетов
+	// (socketHelpers/socketHelpersTLS, включая rech_accept) эмитируется
+	// НАМНОГО позже, после nullablesCode ниже ("принять" возвращает
+	// "?Сокет", обёртка которого должна существовать раньше rech_accept).
+	appendCodeIf(&sb, ctx.usesSockets, rechSocketTypedef)
 	if prog.UsesReflection {
 		// Перед genericsCode - Список<Значение> ссылается на rech_any_t как
 		// на свой C-тип элемента (см. package doc reflectTypedefs) - тот же
@@ -956,6 +960,22 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	appendCodeIf(&sb, staticDecl != "", staticDecl)
 	appendCodeIf(&sb, nullablesAfterTypedefs.Len() > 0, nullablesAfterTypedefs.String())
 
+	// После ОБЕИХ групп nullablesCode/nullablesAfterTypedefs - rech_accept
+	// (socketHelpers/socketHelpersTLS) возвращает "?Сокет" (обёртку
+	// rech_T_n_soket_wrap/_empty, nullable.go), которая уже должна
+	// существовать (см. package doc rechSocketTypedef, builtins_shared.go, -
+	// сам typedef rech_socket_t эмитирован намного раньше, только эта,
+	// остальная часть рантайма сокетов - здесь).
+	if ctx.usesTLS {
+		// socketHelpersTLS (tls.go) ВМЕСТО socketHelpers - тот же
+		// socketTypeAndConnectCode (слушать/подключиться, TLS не касается),
+		// но TLS-осведомлённые rech_accept/rech_send/rech_recv/
+		// rech_close_socket - см. package doc tls.go.
+		sb.WriteString(socketHelpersTLS)
+	} else {
+		appendCodeIf(&sb, ctx.usesSockets, socketHelpers)
+	}
+
 	// После genericsCode (нужен C-typedef/find-функция самой коллекции)
 	// И после ОБЕИХ групп nullablesCode/nullablesAfterTypedefs (нужна
 	// обёртка "?T" элемента, независимо от того, в какую из двух групп
@@ -1019,6 +1039,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// После typedefs (rech_T_n_stroka - "?Строка" - уже объявлен, тем же
 	// принципом, что и usesCookies выше).
 	appendCodeIf(&sb, ctx.usesEnv, envHelpers(mangleType("?Строка")))
+	// Не зависит от typedefs (только sig_atomic_t/int) - можно эмитировать
+	// в любом месте после panicHelper, здесь - просто рядом с остальными
+	// небольшими самодостаточными хелперами.
+	appendCodeIf(&sb, ctx.usesShutdownFlag, shutdownFlagCode)
 	// "rech_db_t" сам уже виден (dbHandleTypedefCode, эмитирован раньше
 	// typedefs/genericsCode выше) - здесь только остальной рантайм БД
 	// (подключение/запросы/подстановка параметров), который ссылается на
@@ -1102,6 +1126,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		sb.WriteString(reflectCode)
 	}
 
+	// activeTasksCode (active_tasks.go) - ДО taskCode ниже: точка входа
+	// потока (concurrency.go, ensureTaskWrapper) зовёт rech_active_tasks_dec
+	// текстом, объявление должно предшествовать использованию.
+	appendCodeIf(&sb, ctx.usesThreads || ctx.usesActiveTaskWait, activeTasksCode)
 	// taskCode - обёртки "запустить"/"дождаться" (internal/backend/cbackend/
 	// concurrency.go) - ссылаются на &rech_<имя> обёрнутых функций (нужны
 	// protos выше) и на rech_throw (нужен exceptionRuntimeCode выше), сама

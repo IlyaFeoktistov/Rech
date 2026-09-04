@@ -42,6 +42,7 @@ func (in *Interp) evalLaunchExpr(e *ir.LaunchExpr, env *Env, cc *callCtx) (Value
 		args[i] = in.cloneValue(v)
 	}
 	t := &taskValue{done: make(chan struct{})}
+	activeTasksInc()
 	// thread - под отладчиком (in.debugger != nil, "rech debug") "запустить"
 	// заводит НОВЫЙ поток DAP (см. internal/interp/debugger.go) - новая
 	// горутина Go ведёт собственный, независимый стек кадров/собственные
@@ -54,6 +55,7 @@ func (in *Interp) evalLaunchExpr(e *ir.LaunchExpr, env *Env, cc *callCtx) (Value
 	}
 	go func() {
 		defer close(t.done)
+		defer activeTasksDec()
 		if thread != nil {
 			defer in.debugger.threadExited(thread)
 		}
