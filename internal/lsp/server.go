@@ -84,8 +84,10 @@ func (s *server) handleNotification(msg *Message) {
 		}
 		if json.Unmarshal(msg.Params, &p) == nil {
 			s.mu.Lock()
-			s.docs[p.TextDocument.URI] = newDoc(p.TextDocument.URI, p.TextDocument.Text)
+			d := newDoc(p.TextDocument.URI, p.TextDocument.Text)
+			s.docs[p.TextDocument.URI] = d
 			s.mu.Unlock()
+			s.publishDiagnostics(p.TextDocument.URI, d)
 		}
 	case "textDocument/didChange":
 		var p struct {
@@ -101,12 +103,15 @@ func (s *server) handleNotification(msg *Message) {
 			// одно изменение с полным новым текстом, не список диффов.
 			text := p.ContentChanges[len(p.ContentChanges)-1].Text
 			s.mu.Lock()
-			if d, ok := s.docs[p.TextDocument.URI]; ok {
+			d, ok := s.docs[p.TextDocument.URI]
+			if ok {
 				d.update(text)
 			} else {
-				s.docs[p.TextDocument.URI] = newDoc(p.TextDocument.URI, text)
+				d = newDoc(p.TextDocument.URI, text)
+				s.docs[p.TextDocument.URI] = d
 			}
 			s.mu.Unlock()
+			s.publishDiagnostics(p.TextDocument.URI, d)
 		}
 	case "textDocument/didClose":
 		var p struct {
@@ -118,8 +123,33 @@ func (s *server) handleNotification(msg *Message) {
 			s.mu.Lock()
 			delete(s.docs, p.TextDocument.URI)
 			s.mu.Unlock()
+			// Снимает подчёркивание, если оно было - закрытый документ
+			// больше не должен показывать диагностику в списке "Проблемы".
+			_ = s.rpc.Notify("textDocument/publishDiagnostics", map[string]any{
+				"uri": p.TextDocument.URI, "diagnostics": []any{},
+			})
 		}
 	}
+}
+
+// publishDiagnostics отправляет "textDocument/publishDiagnostics" для d -
+// один Diagnostic (см. package doc diagnostics.go), если d.diagnostic не
+// nil, иначе пустой список (снимает раньше показанное подчёркивание, когда
+// документ снова стал разбираться/анализироваться успешно).
+func (s *server) publishDiagnostics(uri string, d *doc) {
+	diags := []any{}
+	if d.diagnostic != nil {
+		diag := d.diagnostic
+		diags = append(diags, map[string]any{
+			"range": map[string]any{
+				"start": map[string]any{"line": diag.Line - 1, "character": diag.Col - 1},
+				"end":   map[string]any{"line": diag.Line - 1, "character": diag.Col - 1 + diag.Len},
+			},
+			"severity": 1,
+			"message":  diag.Message,
+		})
+	}
+	_ = s.rpc.Notify("textDocument/publishDiagnostics", map[string]any{"uri": uri, "diagnostics": diags})
 }
 
 // docPosition - общая форма параметров hover/completion:

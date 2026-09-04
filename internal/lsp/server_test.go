@@ -132,6 +132,14 @@ func TestLSPServerFullSession(t *testing.T) {
 	client.notify("textDocument/didOpen", map[string]any{
 		"textDocument": map[string]any{"uri": "test://a.rech", "text": hoverTestSrc},
 	})
+	// didOpen публикует диагностику (см. publishDiagnostics, server.go) -
+	// пустую (документ разбирается успешно) - вычитывается до самого
+	// запроса, иначе следующий response() получил бы её, а не ответ на
+	// hover.
+	diagNotif := client.response(2 * time.Second)
+	if diagNotif["method"] != "textDocument/publishDiagnostics" {
+		t.Fatalf("ожидалось уведомление publishDiagnostics, получено: %+v", diagNotif)
+	}
 
 	line := lineOf(t, hoverTestSrc, "вывести т.x")
 	col := runeCol(t, "    вывести т.x", "x")
@@ -204,6 +212,9 @@ func TestLSPServerImplementationOverWire(t *testing.T) {
 	client.notify("textDocument/didOpen", map[string]any{
 		"textDocument": map[string]any{"uri": "test://impl.rech", "text": implTestSrc},
 	})
+	if diagNotif := client.response(2 * time.Second); diagNotif["method"] != "textDocument/publishDiagnostics" {
+		t.Fatalf("ожидалось уведомление publishDiagnostics, получено: %+v", diagNotif)
+	}
 
 	line := lineOf(t, implTestSrc, "интерфейс Логгер")
 	col := runeCol(t, "интерфейс Логгер", "Логгер")

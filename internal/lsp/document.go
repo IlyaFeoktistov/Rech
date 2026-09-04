@@ -96,6 +96,13 @@ type doc struct {
 	// обязан быть точным между двумя didChange, только не течь между
 	// СОВСЕМ разными документами).
 	foreignTokenCache map[string][]lexer.Token
+
+	// diagnostic - ошибка ПОСЛЕДНЕГО update(), превращённая в Diagnostic
+	// (diagnostics.go) - nil, если разбор+анализ прошёл успешно (см. package
+	// doc update). server.go публикует её через "textDocument/
+	// publishDiagnostics" после каждого didOpen/didChange - пустой список,
+	// когда diagnostic стал nil, снимает раньше показанное подчёркивание.
+	diagnostic *Diagnostic
 }
 
 // update пересобирает документ по новому тексту - при ошибке разбора старое
@@ -113,18 +120,28 @@ func (d *doc) update(text string) {
 	d.text = text
 	toks, err := lexer.New(text).Tokenize()
 	if err != nil {
+		d.setDiagnostic(err)
 		return
 	}
 	astProg, err := parser.New(toks).ParseProgram()
 	if err != nil {
+		d.setDiagnostic(err)
 		return
 	}
 	ast.StampFile(astProg, d.uri)
 	irProg, semErr := semantic.Analyze(astProg)
-	linked, linkOK := tryLink(d.path)
+	linked, linkOK, linkErr := tryLink(d.path)
 	if semErr != nil && !linkOK {
+		// linkErr, если линковка вообще пыталась (см. package doc tryLink) -
+		// обычно информативнее одиночного semErr одного файла.
+		if linkErr != nil {
+			d.setDiagnostic(linkErr)
+		} else {
+			d.setDiagnostic(semErr)
+		}
 		return
 	}
+	d.diagnostic = nil
 
 	d.goodText = text
 	d.astProg = astProg

@@ -65,28 +65,31 @@ func fileURI(path string) string {
 
 // tryLink пытается разрешить path (и весь граф "использовать" от него) тем
 // же путём, что internal/compiler.parseFile - см. package doc про то, с
-// какого именно содержимого файлов. false - path пуст/не .rech, файл не
-// читается, ошибка импорта/цикла или семантики где-то в графе - ЛЮБАЯ из
-// этих причин просто оставляет вызывающую сторону (doc.update) с уже
-// готовым однофайловым результатом, без иной обработки ошибки (это не
-// "rech build" - здесь нет пользователя, которому есть смысл её показать).
-func tryLink(path string) (linkResult, bool) {
+// какого именно содержимого файлов. ok==false, path пуст/не .rech - линковка
+// вообще не пыталась ничего (attemptErr тоже nil в этом случае - вызывающая
+// сторона остаётся с однофайловым результатом молча, как и раньше). ok==
+// false, attemptErr != nil - линковка ПЫТАЛАСЬ (файл не читается, ошибка
+// импорта/цикла или семантики где-то в графе) - doc.update использует
+// attemptErr как диагностику (см. diagnostics.go), она обычно куда
+// информативнее однофайлового semErr (тот часто просто каскад "неизвестный
+// тип" от самого факта отсутствия разрешения импорта).
+func tryLink(path string) (res linkResult, ok bool, attemptErr error) {
 	if path == "" || !strings.HasSuffix(path, ".rech") {
-		return linkResult{}, false
+		return linkResult{}, false, nil
 	}
 	prog, err := module.Load(path, compiler.NewFrontend())
 	if err != nil {
-		return linkResult{}, false
+		return linkResult{}, false, err
 	}
 	merged, err := prog.Link()
 	if err != nil {
-		return linkResult{}, false
+		return linkResult{}, false, err
 	}
 	irProg, err := semantic.Analyze(merged)
 	if err != nil {
-		return linkResult{}, false
+		return linkResult{}, false, err
 	}
-	return linkResult{ast: merged, ir: irProg, entryImports: prog.Entry.Imports}, true
+	return linkResult{ast: merged, ir: irProg, entryImports: prog.Entry.Imports}, true, nil
 }
 
 // importedMergedName - под каким именем module.Program.Link() сохраняет
