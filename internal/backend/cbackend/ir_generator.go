@@ -215,6 +215,63 @@ type irGenCtx struct {
 	// её собственный capturedRedirect не должен добавляться к уже
 	// активному, а полностью его временно заменять на время своего тела).
 	capturedRedirect map[string]string
+
+	// chainTmpCounter/chainTmpPreamble/curIndent - материализация получателя
+	// вызова метода/присваивания полю, когда получатель ("структура",
+	// значение) - не адресуемое выражение (результат вызова, а не
+	// переменная/поле/"этот") - см. materializeIfNeeded. curIndent - отступ
+	// ТЕКУЩЕЙ инструкции (обновляется в generateIRStmt перед разбором её
+	// тела) - туда же, тем же отступом, попадает и объявление временной
+	// переменной. chainTmpPreamble копится, пока разбирается ОДНА
+	// инструкция (сколько угодно уровней цепочки внутри одного выражения -
+	// каждый добавляет свою строку) - generateIRStmt сбрасывает и сбрасывает
+	// в sb перед собственной строкой инструкции, см. package doc там же.
+	chainTmpCounter  int
+	chainTmpPreamble []string
+	curIndent        string
+}
+
+// materializeIfNeeded - получатель вызова метода/присваивания полю не
+// адресуем НАПРЯМУЮ (не переменная/поле/"этот", результат вызова
+// функции/метода/конструктора) - у "структура" (значение) в C нет
+// постоянного адреса, "&(code)"/"(code).поле = ..." невалидны для rvalue.
+// Заводит временную C-переменную (объявление копится в
+// ctx.chainTmpPreamble, generateIRStmt вставляет её ПЕРЕД строкой текущей
+// инструкции) и возвращает её имя вместо code - у переменной уже есть
+// адрес, дальше generateIRAddressableExpr/FieldAssign работают с ней как с
+// любым обычным адресуемым получателем. Для получателя-ссылки
+// (сущность/интерфейс) вызывать не нужно - у неё "&"/материализация не
+// нужны вообще (см. receiverIsPointer), поэтому здесь их не различает -
+// вызывается только из веток, уже отфильтровавших "не указатель".
+func (ctx *irGenCtx) materializeIfNeeded(receiver ir.Expr, code string) string {
+	if isAddressableIR(ctx, receiver) {
+		return code
+	}
+	ctx.chainTmpCounter++
+	name := fmt.Sprintf("rech_chain_tmp%d", ctx.chainTmpCounter)
+	cType := fromIRType(ir.TypeOf(receiver)).cType(ctx)
+	ctx.chainTmpPreamble = append(ctx.chainTmpPreamble, fmt.Sprintf("%s%s %s = %s;\n", ctx.curIndent, cType, name, code))
+	return name
+}
+
+// isAddressableIR - IR-эквивалент internal/semantic.receiverAddressable
+// (переменная/"этот"/доступ к полю), но для доступа к полю - рекурсивно:
+// `x.a.b` адресуем, только если адресуем сам `x` (пока цепочка не упрётся
+// в получатель-указатель, для которого "->" валиден на ЛЮБОМ rvalue-коде
+// слева, см. receiverIsPointer) - `создать().a.b` НЕ адресуем целиком, хотя
+// сам узел верхнего уровня - FieldAccess, как и в адресуемом случае.
+func isAddressableIR(ctx *irGenCtx, e ir.Expr) bool {
+	switch v := e.(type) {
+	case *ir.Identifier, *ir.ThisExpr:
+		return true
+	case *ir.FieldAccess:
+		if ctx.receiverIsPointer(v.Receiver) {
+			return true
+		}
+		return isAddressableIR(ctx, v.Receiver)
+	default:
+		return false
+	}
 }
 
 // varRef - C-выражение, читающее/пишущее переменную name в текущей точке
@@ -1497,7 +1554,37 @@ func generateIRMethod(ctx *irGenCtx, entityName string, m *ir.Method) (string, e
 	return sb.String(), nil
 }
 
+// generateIRStmt - тонкая обёртка над generateIRStmtBody: заводит для
+// ЭТОЙ инструкции свежий ctx.chainTmpPreamble (см. package doc
+// materializeIfNeeded) и локальный буфер, генерирует тело инструкции туда
+// (сама инструкция, а если она составная - IfStmt/WhileStmt/... - и всё
+// вложенное тело рекурсивными вызовами ЭТОЙ ЖЕ обёртки, каждый со своим
+// собственным chainTmpPreamble), затем сбрасывает накопленные объявления
+// временных переменных В sb ПЕРЕД строкой самой инструкции - порядок
+// важен (переменная должна быть объявлена раньше своего использования).
+// Вложенные инструкции (тела if/while и т. п.) пишут не в исходный sb
+// напрямую, а в тот же локальный буфер этой функции (см. вызовы
+// generateIRStmt(sb, ...) внутри switch generateIRStmtBody - там sb уже
+// это локальный буфер, а не аргумент верхнего вызова) - поэтому временная
+// переменная вложенной инструкции окажется на своём месте, прямо перед
+// НЕЙ, а не выше всего блока.
 func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) error {
+	ctx.curIndent = indent(depth)
+	ctx.chainTmpPreamble = nil
+	var body strings.Builder
+	err := generateIRStmtBody(&body, ctx, s, depth)
+	for _, p := range ctx.chainTmpPreamble {
+		sb.WriteString(p)
+	}
+	ctx.chainTmpPreamble = nil
+	if err != nil {
+		return err
+	}
+	sb.WriteString(body.String())
+	return nil
+}
+
+func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) error {
 	ind := indent(depth)
 	// Строка ТЕКУЩЕЙ инструкции обновляет верхний кадр стека вызовов
 	// (rech_trace_line) ДО генерации собственно инструкции - если внутри
@@ -1663,6 +1750,12 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 		op := "."
 		if ctx.receiverIsPointer(s.Receiver) {
 			op = "->"
+		} else {
+			// Получатель-"структура" не адресуем напрямую (результат вызова,
+			// не переменная/поле/"этот") - "(rvalue).поле = ..." невалиден в
+			// C так же, как и "&(rvalue)" у вызова метода. materializeIfNeeded
+			// заводит временную переменную (уже lvalue, "." работает).
+			receiverCode = ctx.materializeIfNeeded(s.Receiver, receiverCode)
 		}
 		fmt.Fprintf(sb, "%s(%s)%s%s = %s;\n", ind, receiverCode, op, mangleField(s.Field), code)
 		return nil
@@ -2364,16 +2457,16 @@ func generateIRNewExpr(ctx *irGenCtx, e *ir.NewExpr) (string, valueType, error) 
 // generateIRAddressableExpr генерирует receiver ОДИН раз и возвращает и
 // обычный C-код значения (code), и код указателя на него (ptr) - для
 // вызова метода/безопасной индексации, которым нужен указатель на
-// получателя (this_/this_ у *_get_safe). Ветка "&(code)" достижима только
-// когда receiverIsPointer(receiver) ложь - т. е. получатель "структура"
-// (значение) - семантика (analyzeMethodCallExpr, internal/semantic/expr.go)
-// в этом случае требует receiver-lvalue (receiverAddressable -
-// переменная/поле/"этот"), поэтому "&(code)" синтаксически валиден в C.
-// Для ссылочной сущности/интерфейса/generic-коллекции receiverIsPointer -
-// истина, поэтому получателем годится ЛЮБОЕ выражение, включая результат
-// другого вызова (`x.метод1().метод2()`) - "&" в этой ветке не берётся.
-// Не пересчитывает code дважды, в отличие от вызова generateIRExpr
-// отдельно для каждой формы.
+// получателя (this_/this_ у *_get_safe). Для ссылочной сущности/
+// интерфейса/generic-коллекции (receiverIsPointer - истина) получателем
+// годится ЛЮБОЕ выражение, включая результат другого вызова
+// (`x.метод1().метод2()`) - "&" не берётся вовсе, code уже указатель. Для
+// "структура" (значение) - materializeIfNeeded: если receiver уже
+// адресуем (переменная/поле/"этот") - "&(code)" синтаксически валиден
+// напрямую; иначе (результат вызова - rvalue, "&" от него невалиден в C) -
+// материализуется временная переменная (см. package doc там же), и "&"
+// берётся уже от неё. Не пересчитывает code дважды, в отличие от вызова
+// generateIRExpr отдельно для каждой формы.
 func generateIRAddressableExpr(ctx *irGenCtx, receiver ir.Expr) (code, ptr string, err error) {
 	code, _, err = generateIRExpr(ctx, receiver)
 	if err != nil {
@@ -2382,6 +2475,7 @@ func generateIRAddressableExpr(ctx *irGenCtx, receiver ir.Expr) (code, ptr strin
 	if ctx.receiverIsPointer(receiver) {
 		return code, fmt.Sprintf("(%s)", code), nil
 	}
+	code = ctx.materializeIfNeeded(receiver, code)
 	return code, fmt.Sprintf("&(%s)", code), nil
 }
 

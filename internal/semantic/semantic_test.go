@@ -1014,11 +1014,12 @@ func TestAnalyzeMethodCallOnTemporaryEntityAllowed(t *testing.T) {
 	}
 }
 
-func TestAnalyzeMethodCallOnTemporaryStructFails(t *testing.T) {
-	// В отличие от ссылочной сущности (см.
-	// TestAnalyzeMethodCallOnTemporaryEntityAllowed), получатель-"структура"
-	// (значение, не указатель) остаётся недопустим как результат вызова -
-	// у cbackend нет способа взять C-адрес временного значения.
+func TestAnalyzeMethodCallOnTemporaryStructAllowed(t *testing.T) {
+	// В отличие от ссылочной сущности, получатель-"структура" (значение, не
+	// указатель) как результат вызова НЕ адресуем напрямую в C - но это
+	// больше не ошибка семантики: cbackend материализует временную
+	// переменную (materializeIfNeeded, internal/backend/cbackend/
+	// ir_generator.go), семантика получателя не ограничивает вовсе.
 	toks, err := lexer.New(`
 структура Точка
 {
@@ -1046,9 +1047,8 @@ func TestAnalyzeMethodCallOnTemporaryStructFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("парсер: %v", err)
 	}
-	_, err = Analyze(prog)
-	if err == nil || !strings.Contains(err.Error(), "может быть только переменная") {
-		t.Fatalf("ожидалась ошибка про неадресуемого получателя вызова метода структуры, получено: %v", err)
+	if _, err = Analyze(prog); err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 }
 
@@ -1100,11 +1100,11 @@ func TestAnalyzeFieldAssignOnTemporaryEntityAllowed(t *testing.T) {
 	}
 }
 
-func TestAnalyzeFieldAssignOnTemporaryStructFails(t *testing.T) {
-	// В отличие от ссылочной сущности (см.
-	// TestAnalyzeFieldAssignOnTemporaryEntityAllowed), получатель-"структура"
-	// как результат вызова метода/функции остаётся недопустим - у неё нет
-	// постоянного C-адреса.
+func TestAnalyzeFieldAssignOnTemporaryStructAllowed(t *testing.T) {
+	// Получатель-"структура" (значение) как результат вызова функции - как
+	// и у TestAnalyzeMethodCallOnTemporaryStructAllowed, у неё нет
+	// постоянного C-адреса, но семантика это больше не проверяет вовсе -
+	// cbackend материализует временную переменную (materializeIfNeeded).
 	toks, err := lexer.New(`
 структура Точка
 {
@@ -1127,9 +1127,8 @@ func TestAnalyzeFieldAssignOnTemporaryStructFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("парсер: %v", err)
 	}
-	_, err = Analyze(prog)
-	if err == nil || !strings.Contains(err.Error(), "может быть только переменная") {
-		t.Fatalf("ожидалась ошибка про неадресуемого получателя присваивания полю структуры, получено: %v", err)
+	if _, err = Analyze(prog); err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 }
 

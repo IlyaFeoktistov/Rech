@@ -269,6 +269,77 @@ func TestGenerateFromIRStructFieldsConstructorMethodsAndThis(t *testing.T) {
 	}
 }
 
+// TestGenerateFromIRMethodCallOnStructTemporaryMaterializesTemp -
+// получатель вызова метода структуры - результат вызова функции (не
+// переменная/поле/"этот"), значит не адресуем напрямую - materializeIfNeeded
+// должен завести временную переменную ПЕРЕД строкой вызова и взять "&" уже
+// от неё, а не пытаться "&(rech_sozdat())" (невалидный C).
+func TestGenerateFromIRMethodCallOnStructTemporaryMaterializesTemp(t *testing.T) {
+	entity := &ir.Entity{
+		Name:     "Точка",
+		IsStruct: true,
+		Fields:   []ir.Field{{Name: "x", Type: ir.TypeInt}},
+		Methods: []*ir.Method{
+			{Name: "сумма", ReturnType: ir.TypeInt, HasReturn: true, Body: []ir.Stmt{
+				&ir.ReturnStmt{Value: &ir.FieldAccess{Receiver: &ir.ThisExpr{Entity: "Точка"}, Field: "x", Type: ir.TypeInt}},
+			}},
+		},
+	}
+	create := &ir.Function{Name: "создать", ReturnType: ir.EntityType("Точка"), HasReturn: true, Body: []ir.Stmt{
+		&ir.ReturnStmt{Value: &ir.NewExpr{Entity: "Точка", Args: []ir.Expr{&ir.IntLiteral{Value: 5}}}},
+	}}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.ExprStmt{MethodCall: &ir.MethodCallExpr{
+			Receiver: &ir.CallExpr{Callee: "создать", Type: ir.EntityType("Точка"), HasReturn: true},
+			Entity:   "Точка", Method: "сумма", Type: ir.TypeInt, HasReturn: true,
+		}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Entities: []*ir.Entity{entity}, Functions: []*ir.Function{create, main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "rech_T_tochka rech_chain_tmp1 = rech_sozdat();") {
+		t.Fatalf("ожидалось объявление временной переменной ПЕРЕД вызовом метода, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "rech_M_tochka_summa(&(rech_chain_tmp1));") {
+		t.Fatalf("ожидался вызов метода с адресом временной переменной, получено:\n%s", out)
+	}
+	if strings.Contains(out, "&(rech_sozdat())") {
+		t.Fatalf("не должно быть \"&\" напрямую от результата вызова (невалидный C), получено:\n%s", out)
+	}
+}
+
+// TestGenerateFromIRFieldAssignOnStructTemporaryMaterializesTemp - тот же
+// принцип, что и у TestGenerateFromIRMethodCallOnStructTemporaryMaterializesTemp,
+// но для присваивания полю ("создать().x = значение") - "(rvalue).поле = ..."
+// тоже невалиден в C без материализации.
+func TestGenerateFromIRFieldAssignOnStructTemporaryMaterializesTemp(t *testing.T) {
+	entity := &ir.Entity{
+		Name:     "Точка",
+		IsStruct: true,
+		Fields:   []ir.Field{{Name: "x", Type: ir.TypeInt}},
+	}
+	create := &ir.Function{Name: "создать", ReturnType: ir.EntityType("Точка"), HasReturn: true, Body: []ir.Stmt{
+		&ir.ReturnStmt{Value: &ir.NewExpr{Entity: "Точка", Args: []ir.Expr{&ir.IntLiteral{Value: 0}}}},
+	}}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.FieldAssign{
+			Receiver: &ir.CallExpr{Callee: "создать", Type: ir.EntityType("Точка"), HasReturn: true},
+			Field:    "x", Value: &ir.IntLiteral{Value: 100},
+		},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Entities: []*ir.Entity{entity}, Functions: []*ir.Function{create, main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "rech_T_tochka rech_chain_tmp1 = rech_sozdat();") {
+		t.Fatalf("ожидалось объявление временной переменной ПЕРЕД присваиванием полю, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "(rech_chain_tmp1).f_x = 100LL;") {
+		t.Fatalf("ожидалось присваивание полю временной переменной, получено:\n%s", out)
+	}
+}
+
 // TestGenerateFromIRBecomeStmtSetsStateFlagsBit - "становится" устанавливает
 // бит СОБСТВЕННОГО состояния сущности в скрытом рантайм-поле "state_flags"
 // (StateBit - индекс в StateNames + StateBitOffset, здесь оба 0) - читает
