@@ -1,7 +1,8 @@
 // Переход к определению ("go to definition") - функция/метод/сущность/
 // поле/константа верхнего уровня документа, в том числе объявленных в
-// ДРУГОМ файле, найденном через "использовать" (см. multifile.go); локальные
-// переменные/параметры не поддержаны.
+// ДРУГОМ файле, найденном через "использовать" (см. multifile.go); локальная
+// переменная/параметр (в пределах текущей функции/метода) и "этот" (к
+// объявлению владеющей сущности) - тоже.
 package lsp
 
 import (
@@ -44,6 +45,24 @@ func (d *doc) definition(line, col int) (definitionPos, bool) {
 	name := chain[len(chain)-1]
 
 	if len(chain) == 1 {
+		scope := d.scopeAt(line)
+		// Порядок приоритета - тот же, что у hoverBareName (resolve.go
+		// такого приоритета не задаёт сам по себе, но конфликт имени
+		// локальной переменной/параметра с функцией/сущностью верхнего
+		// уровня того же имени - обычное затенение, локальная переменная
+		// должна выигрывать): "этот" -> локальная переменная/параметр ->
+		// функция -> сущность.
+		if name == "этот" && scope != nil && scope.entityName != "" {
+			if ed, ok := d.astEntities[scope.entityName]; ok {
+				return d.declPosInFile(ed.File, ed.Line, scope.entityName)
+			}
+			return definitionPos{}, false
+		}
+		if scope != nil {
+			if pos, ok := d.localDeclPos(scope, line, name); ok {
+				return pos, true
+			}
+		}
 		if fd, ok := d.astFuncs[name]; ok {
 			return d.declPosInFile(fd.File, fd.Line, name)
 		}
@@ -77,6 +96,65 @@ func (d *doc) definition(line, col int) (definitionPos, bool) {
 		}
 	}
 	return definitionPos{}, false
+}
+
+// localDeclPos - место объявления локальной переменной/параметра name,
+// ДЕЙСТВУЮЩЕЕ в строке line внутри scope - то же правило "последнее
+// объявление до этой строки побеждает" (не моделирует область видимости
+// вложенных блоков по-настоящему), что и у localsAt/collectVarDecls
+// (document.go) - только здесь нужно ме́сто объявления, не тип. Переменная
+// (`переменная x = ...`) - её собственная строка; параметр - строка
+// объявления самой функции/метода (весь список параметров предполагается
+// на этой же строке - тот же приём, что и у declPos везде в пакете).
+func (d *doc) localDeclPos(scope *funcScope, line int, name string) (definitionPos, bool) {
+	lines := map[string]int{}
+	collectVarDeclLines(scope.body, line, lines)
+	if declLine, ok := lines[name]; ok {
+		return d.declPos(declLine, name)
+	}
+	for _, p := range scope.params {
+		if p.Name == name {
+			return d.declPos(scope.declLine, name)
+		}
+	}
+	return definitionPos{}, false
+}
+
+// collectVarDeclLines - как collectVarDecls (document.go), но копит СТРОКУ
+// объявления вместо типа - структурно идентичный обход (тот же порядок
+// рекурсии в те же вложенные тела), чтобы результат совпадал с тем, что
+// показывает hover для того же имени в той же точке.
+func collectVarDeclLines(stmts []ir.Stmt, maxLine int, out map[string]int) {
+	for _, s := range stmts {
+		switch s := s.(type) {
+		case *ir.VarDecl:
+			if s.Line <= maxLine {
+				out[s.Name] = s.Line
+			}
+		case *ir.IfStmt:
+			collectVarDeclLines(s.Then, maxLine, out)
+			collectVarDeclLines(s.Else, maxLine, out)
+		case *ir.WhileStmt:
+			collectVarDeclLines(s.Body, maxLine, out)
+		case *ir.ForStmt:
+			if s.Line <= maxLine {
+				out[s.Var] = s.Line
+			}
+			collectVarDeclLines(s.Body, maxLine, out)
+		case *ir.ForEachStmt:
+			if s.Line <= maxLine {
+				out[s.Var] = s.Line
+			}
+			collectVarDeclLines(s.Body, maxLine, out)
+		case *ir.TryStmt:
+			collectVarDeclLines(s.Body, maxLine, out)
+			collectVarDeclLines(s.CatchBody, maxLine, out)
+		case *ir.GerundStmt:
+			collectVarDeclLines(s.Body, maxLine, out)
+		case *ir.BlockStmt:
+			collectVarDeclLines(s.Body, maxLine, out)
+		}
+	}
 }
 
 // declPos - позиция первого IDENT-токена строки line со значением name В

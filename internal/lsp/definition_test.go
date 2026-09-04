@@ -71,3 +71,54 @@ func TestDefinitionOnConstantAccessJumpsToConstDecl(t *testing.T) {
 		t.Fatalf("ожидалась строка %d, получено %d", wantLine, pos.Line)
 	}
 }
+
+// TestDefinitionOnLocalVariableJumpsToVarDecl - "итог" в "вернуть итог"
+// (функция "сложить", hoverTestSrc) должно вести к "переменная итог = ...",
+// не к функции/сущности с тем же именем (которых здесь и нет) - локальная
+// переменная/параметр раньше не поддерживались вовсе (см. localDeclPos).
+func TestDefinitionOnLocalVariableJumpsToVarDecl(t *testing.T) {
+	d := newDoc("test://a.rech", hoverTestSrc)
+	line := lineOf(t, hoverTestSrc, "вернуть итог")
+	col := runeCol(t, "    вернуть итог", "итог")
+	pos, ok := d.definition(line, col)
+	if !ok {
+		t.Fatalf("ожидалось определение локальной переменной \"итог\"")
+	}
+	wantLine := lineOf(t, hoverTestSrc, "переменная итог")
+	if pos.Line != wantLine {
+		t.Fatalf("ожидалась строка %d, получено %d", wantLine, pos.Line)
+	}
+}
+
+// TestDefinitionOnParameterJumpsToFunctionDecl - "кого" внутри тела
+// "сложить" должно вести к строке САМОГО объявления функции (там же
+// написаны параметры) - тот же принцип, что и у declPos везде в пакете.
+func TestDefinitionOnParameterJumpsToFunctionDecl(t *testing.T) {
+	d := newDoc("test://a.rech", hoverTestSrc)
+	line := lineOf(t, hoverTestSrc, "переменная итог = кого + кому")
+	col := runeCol(t, "    переменная итог = кого + кому", "кого")
+	pos, ok := d.definition(line, col)
+	if !ok {
+		t.Fatalf("ожидалось определение параметра \"кого\"")
+	}
+	wantLine := lineOf(t, hoverTestSrc, "функция сложить")
+	if pos.Line != wantLine {
+		t.Fatalf("ожидалась строка %d, получено %d", wantLine, pos.Line)
+	}
+}
+
+// TestDefinitionOnThisJumpsToOwningEntity - "этот" внутри метода "длина()"
+// должно вести к объявлению самой сущности "Точка".
+func TestDefinitionOnThisJumpsToOwningEntity(t *testing.T) {
+	d := newDoc("test://a.rech", hoverTestSrc)
+	line := lineOf(t, hoverTestSrc, "вернуть этот.x")
+	col := runeCol(t, "        вернуть этот.x", "этот")
+	pos, ok := d.definition(line, col)
+	if !ok {
+		t.Fatalf("ожидалось определение \"этот\"")
+	}
+	wantLine := lineOf(t, hoverTestSrc, "сущность Точка")
+	if pos.Line != wantLine {
+		t.Fatalf("ожидалась строка %d, получено %d", wantLine, pos.Line)
+	}
+}
