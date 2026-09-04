@@ -259,6 +259,40 @@ func TestDictionaryRegisterNoun(t *testing.T) {
 	}
 }
 
+// TestDictionaryRegisterNounPluralForm - переменную-коллекцию обычно
+// называют во множественном числе ("сервисы", "элементы") - RegisterNoun,
+// получив такое имя напрямую (ClassifyByEnding явно отказывается от "-ы"/
+// "-и" - не окончание единственного числа ни одного класса), пробует
+// восстановить единственное число и зарегистрировать по НЕМУ, но под
+// исходным (множественным) ключом - см. package doc RegisterNoun/
+// tryDepluralizeMasculine.
+func TestDictionaryRegisterNounPluralForm(t *testing.T) {
+	d := NewDictionary()
+	for _, plural := range []string{"сервисы", "элементы", "пользователи", "коты"} {
+		if err := d.RegisterNoun(plural, Inanimate); err != nil {
+			t.Fatalf("RegisterNoun(%q): %v", plural, err)
+		}
+	}
+	tests := []struct{ prepositional, lemma string }{
+		{"сервисах", "сервисы"},
+		{"элементах", "элементы"},
+		{"пользователях", "пользователи"},
+		{"котах", "коты"},
+	}
+	for _, tt := range tests {
+		got := d.Analyze(tt.prepositional)
+		found := false
+		for _, a := range got {
+			if a.Lemma == tt.lemma && a.Tag.Case == Prepositional {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Analyze(%q) = %v, ожидался предложный падеж леммы %q", tt.prepositional, got, tt.lemma)
+		}
+	}
+}
+
 // TestDictionaryRegisterNounFullException проверяет "список" -
 // nounFullExceptions (беглая гласная + написание "и" после заднеязычной во
 // мн.ч.), первое слово, потребовавшее готовой парадигмы вместо генератора

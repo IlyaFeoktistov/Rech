@@ -77,8 +77,12 @@ func (d *Dictionary) addReverse(form string, a Analysis) {
 // по окончанию (ClassifyByEnding) -> для слов на "-ь" (там, где окончание
 // само по себе не определяет род) - справочный словарь OpenCorpora через
 // gomorphy (см. gomorphy_source.go и docs/MORPHOLOGY.md, "gomorphy: узкое
-// использование"). Одушевлённость всегда передаётся явно - она не следует
-// из формы слова вообще, ни один из источников её не определяет.
+// использование") -> для слов на "-ы"/"-и" (переменная объявлена сразу во
+// множественном числе, как обычно и называют коллекции - "сервисы",
+// "элементы") - попытка восстановить единственное число и проверить его
+// через тот же словарь (tryDepluralizeMasculine). Одушевлённость всегда
+// передаётся явно - она не следует из формы слова вообще, ни один из
+// источников её не определяет.
 func (d *Dictionary) RegisterNoun(nomSg string, animacy Animacy) error {
 	if exc, ok := nounFullExceptions[nomSg]; ok {
 		return d.registerNounWithParadigm(nomSg, exc.Gender, animacy, exc.Paradigm)
@@ -97,6 +101,23 @@ func (d *Dictionary) RegisterNoun(nomSg string, animacy Animacy) error {
 			return fmt.Errorf("%q определено как женский род на \"-ь\" (по словарю OpenCorpora) - такой класс склонения относится к Фазе B и пока не реализован; зарегистрируйте через RegisterNounExplicit с готовой парадигмой", nomSg)
 		}
 	}
+	if hasPluralEnding(nomSg) {
+		if singular, ok := tryDepluralizeMasculine(nomSg); ok {
+			// ClassifyByEnding сама отказывается от "-ь" (см. её package doc -
+			// окончание само по себе не определяет род/класс, разбирается
+			// отдельной веткой чуть выше) - tryDepluralizeMasculine уже
+			// подтвердила gomorphy'ем, что singular - именно мужского рода
+			// (иначе не вернула бы true для кандидата на "-ь"), поэтому здесь
+			// он однозначно ClassFirstSoft, тем же принципом, что и в ветке
+			// "-ь" самого nomSg выше.
+			if strings.HasSuffix(singular, "ь") {
+				return d.registerNounFromSingular(nomSg, singular, ClassFirstSoft, Masculine, animacy)
+			}
+			if class, ok := ClassifyByEnding(singular); ok {
+				return d.registerNounFromSingular(nomSg, singular, class, GenderOf(class), animacy)
+			}
+		}
+	}
 	return fmt.Errorf("не удалось автоматически определить склонение %q (окончание неоднозначно в Фазе A, слова в словаре OpenCorpora не нашлось) - зарегистрируйте через RegisterNounExplicit или добавьте в словарь исключений", nomSg)
 }
 
@@ -105,21 +126,33 @@ func (d *Dictionary) RegisterNoun(nomSg string, animacy Animacy) error {
 // ClassifyByEnding не берётся классифицировать, и для будущих разносклоняемых
 // исключений.
 func (d *Dictionary) RegisterNounExplicit(nomSg string, class DeclensionClass, gender Gender, animacy Animacy) error {
-	if _, exists := d.lemmas[nomSg]; exists {
-		return fmt.Errorf("лемма %q уже зарегистрирована", nomSg)
+	return d.registerNounFromSingular(nomSg, nomSg, class, gender, animacy)
+}
+
+// registerNounFromSingular - общее тело RegisterNounExplicit: строит
+// парадигму ИЗ singularForm (именительный падеж единственного числа -
+// BuildNounParadigm умеет работать только с ним), но регистрирует лемму и
+// обратный индекс под lemmaKey - отдельным параметром ради
+// tryDepluralizeMasculine ниже (там lemmaKey - буквальное имя переменной,
+// написанное программистом во множественном числе, "сервисы", а
+// singularForm - восстановленная по нему форма "сервис", по которой только
+// и можно построить парадигму).
+func (d *Dictionary) registerNounFromSingular(lemmaKey, singularForm string, class DeclensionClass, gender Gender, animacy Animacy) error {
+	if _, exists := d.lemmas[lemmaKey]; exists {
+		return fmt.Errorf("лемма %q уже зарегистрирована", lemmaKey)
 	}
-	paradigm, err := BuildNounParadigm(nomSg, class, animacy)
+	paradigm, err := BuildNounParadigm(singularForm, class, animacy)
 	if err != nil {
 		return err
 	}
-	d.lemmas[nomSg] = &Lemma{
-		Text:  nomSg,
+	d.lemmas[lemmaKey] = &Lemma{
+		Text:  lemmaKey,
 		POS:   Noun,
 		Noun:  &NounInfo{Class: class, Gender: gender, Animacy: animacy},
 		Forms: paradigm,
 	}
 	for tag, form := range paradigm {
-		d.addReverse(form, Analysis{Lemma: nomSg, POS: Noun, Tag: tag})
+		d.addReverse(form, Analysis{Lemma: lemmaKey, POS: Noun, Tag: tag})
 	}
 	return nil
 }
