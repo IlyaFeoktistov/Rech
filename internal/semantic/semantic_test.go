@@ -1052,6 +1052,87 @@ func TestAnalyzeMethodCallOnTemporaryStructFails(t *testing.T) {
 	}
 }
 
+func TestAnalyzeFieldAssignOnTemporaryEntityAllowed(t *testing.T) {
+	// Присваивание полю ссылочной сущности, полученной как результат
+	// вызова метода (не переменная/поле/"этот") - допустимо, тем же
+	// принципом, что и TestAnalyzeMethodCallOnTemporaryEntityAllowed:
+	// сущность уже указатель сама по себе. Проверяет и вложенную цепочку
+	// вызовов (`контейнер.обёртка().счётчик().число = ...`).
+	toks, err := lexer.New(`
+сущность Счётчик
+{
+    имеет:
+        число: Целое
+}
+сущность Обёртка
+{
+    имеет:
+        приватный счётчик_: Счётчик
+
+    конструктор(счётчик: Счётчик)
+    {
+        этот.счётчик_ = счётчик
+    }
+
+    счётчик(): Счётчик
+    {
+        вернуть этот.счётчик_
+    }
+}
+функция создать(): Обёртка
+{
+    вернуть новая Обёртка(новый Счётчик())
+}
+функция главная
+{
+    создать().счётчик().число = 5
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	if _, err = Analyze(prog); err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
+func TestAnalyzeFieldAssignOnTemporaryStructFails(t *testing.T) {
+	// В отличие от ссылочной сущности (см.
+	// TestAnalyzeFieldAssignOnTemporaryEntityAllowed), получатель-"структура"
+	// как результат вызова метода/функции остаётся недопустим - у неё нет
+	// постоянного C-адреса.
+	toks, err := lexer.New(`
+структура Точка
+{
+    имеет:
+        x: Целое
+}
+функция создать(): Точка
+{
+    вернуть новая Точка(0)
+}
+функция главная
+{
+    создать().x = 5
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
+	if err == nil || !strings.Contains(err.Error(), "может быть только переменная") {
+		t.Fatalf("ожидалась ошибка про неадресуемого получателя присваивания полю структуры, получено: %v", err)
+	}
+}
+
 func TestAnalyzeBecomeStmtAndDerivedType(t *testing.T) {
 	irProg := parseProgram(t, `
 сущность Пользователь

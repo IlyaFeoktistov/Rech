@@ -422,9 +422,6 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if s.Static {
 			return analyzeStaticFieldAssign(sc, s)
 		}
-		if !receiverAddressable(s.Receiver) {
-			return nil, fmt.Errorf("строка %d: получателем присваивания полю может быть только переменная, поле или \"этот\"", s.Line)
-		}
 		receiver, err := analyzeExpr(sc, s.Receiver)
 		if err != nil {
 			return nil, err
@@ -434,6 +431,15 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			return nil, fmt.Errorf("строка %d: нельзя присвоить полю %q - тип %s не сущность", s.Line, s.Field, typ)
 		}
 		sig := sc.entities[typ.Entity]
+		// Как и у analyzeMethodCallExpr - адресуемость получателя
+		// (переменная/поле/"этот") нужна только для "структура" (значение,
+		// нет постоянного адреса для "&" в cbackend). Ссылочная сущность -
+		// уже указатель сама по себе, получателем годится результат ЛЮБОГО
+		// вызова (`x.метод().поле = значение`, сколь угодно вложенно -
+		// `x.а().б().поле = значение`).
+		if !receiverAddressable(s.Receiver) && sig.IsStruct {
+			return nil, fmt.Errorf("строка %d: получателем присваивания полю структуры %q может быть только переменная, поле или \"этот\" - результат вызова (значение, не ссылка) не адресуем", s.Line, typ.Entity)
+		}
 
 		// Нельзя присваивать значение константе сущности
 		if cidx := sig.constIndex(s.Field); cidx != -1 {

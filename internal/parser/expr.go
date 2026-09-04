@@ -291,6 +291,17 @@ func (p *Parser) parsePostfix() (ast.Expr, error) {
 	if err != nil {
 		return nil, err
 	}
+	return p.parsePostfixTail(expr)
+}
+
+// parsePostfixTail - хвост postfix-цикла (см. package doc parsePostfix),
+// начатый уже разобранным expr вместо parsePrimary() - переиспользуется
+// там, где база цепочки не примарное выражение, а уже готовый вызов
+// функции/естественный вызов/деепричастная форма (parseStatement,
+// "создать_логгер().ошибка(...)" - результат вызова функции как
+// самостоятельной инструкции ТОЖЕ может продолжаться цепочкой "."/"::",
+// как и результат вызова метода).
+func (p *Parser) parsePostfixTail(expr ast.Expr) (ast.Expr, error) {
 	for {
 		switch p.cur().Type {
 		case lexer.DOT:

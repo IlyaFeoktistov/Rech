@@ -160,14 +160,14 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 			if err != nil {
 				return nil, err
 			}
-			return &ast.ExprStmt{Call: call, Line: call.Line}, nil
+			return p.finishCallChainStmt(call)
 		}
 		if p.genericFuncs[p.cur().Value] && p.peekAt(1).Type == lexer.LT {
 			call, err := p.parseGenericCallExpr()
 			if err != nil {
 				return nil, err
 			}
-			return &ast.ExprStmt{Call: call, Line: call.Line}, nil
+			return p.finishCallChainStmt(call)
 		}
 		if params, ok := p.funcParams[p.cur().Value]; ok {
 			call, err := p.parseNaturalCall(params)
@@ -194,10 +194,45 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 }
 
 // parseDotStatement разбирает инструкцию, начинающуюся с получателя (IDENT
-// или "этот"), за которым следует "." - либо присваивание полю
-// (receiver.поле = выражение), либо вызов метода как самостоятельная
-// инструкция (receiver.метод(...)). Позиция парсера на входе - на
-// получателе.
+// или "этот"), за которым следует "." - присваивание полю (receiver.поле =
+// выражение, в том числе вложенное - "x.a.b = значение", получатель
+// присваивания тогда "x.a" целиком, см. finishFieldAssign), вызов метода
+// как самостоятельная инструкция (receiver.метод(...)) - в том числе
+// цепочкой (receiver.метод1().метод2()) - или присваивание полю ВЛОЖЕННОЙ
+// сущности через цепочку методов ("x.метод().поле = значение" - недопустимо,
+// как и раньше: получатель присваивания полю обязан быть переменной/полем/
+// "этот", не результатом вызова - см. FieldAssign в internal/semantic).
+// Позиция парсера на входе - на получателе.
+// finishCallChainStmt - как parseDotStatement, но для инструкции,
+// начинающейся не с получателя (IDENT/"этот"), а с уже разобранного вызова
+// СВОБОДНОЙ функции (`имя(...)`/generic-вызов `имя<Тип>(...)`) - результат
+// такого вызова тоже годится базой для цепочки "."/"::"
+// (`создать_логгер().ошибка(...)`, `создать().а().поле = значение`), тем
+// же принципом, что и у результата вызова метода (см.
+// analyzeMethodCallExpr/analyzeFieldAssign, internal/semantic). Без
+// продолжения - просто вызов как самостоятельная инструкция, как и раньше.
+func (p *Parser) finishCallChainStmt(call *ast.CallExpr) (ast.Stmt, error) {
+	if p.cur().Type != lexer.DOT && p.cur().Type != lexer.DBLCOLON {
+		return &ast.ExprStmt{Call: call, Line: call.Line}, nil
+	}
+	startLine, startCol := p.cur().Line, p.cur().Col
+	expr, err := p.parsePostfixTail(call)
+	if err != nil {
+		return nil, err
+	}
+	switch e := expr.(type) {
+	case *ast.MethodCallExpr:
+		return &ast.ExprStmt{MethodCall: e, Line: e.Line}, nil
+	case *ast.FieldAccess:
+		opTok := p.cur()
+		if opTok.Type == lexer.ASSIGN || isCompoundAssignTok(opTok.Type) {
+			return p.finishFieldAssign(e.Receiver, e.Field, e.Static, e.Line)
+		}
+	}
+	return nil, fmt.Errorf("строка %d, столбец %d: доступ к полю сам по себе не является инструкцией - нужен вызов метода или присваивание",
+		startLine, startCol)
+}
+
 func (p *Parser) parseDotStatement() (ast.Stmt, error) {
 	if p.peekAt(3).Type == lexer.ASSIGN || isCompoundAssignTok(p.peekAt(3).Type) {
 		return p.parseFieldAssign()
@@ -207,8 +242,14 @@ func (p *Parser) parseDotStatement() (ast.Stmt, error) {
 	if err != nil {
 		return nil, err
 	}
-	if call, ok := expr.(*ast.MethodCallExpr); ok {
-		return &ast.ExprStmt{MethodCall: call, Line: call.Line}, nil
+	switch e := expr.(type) {
+	case *ast.MethodCallExpr:
+		return &ast.ExprStmt{MethodCall: e, Line: e.Line}, nil
+	case *ast.FieldAccess:
+		opTok := p.cur()
+		if opTok.Type == lexer.ASSIGN || isCompoundAssignTok(opTok.Type) {
+			return p.finishFieldAssign(e.Receiver, e.Field, e.Static, e.Line)
+		}
 	}
 	return nil, fmt.Errorf("строка %d, столбец %d: доступ к полю сам по себе не является инструкцией - нужен вызов метода или присваивание",
 		start.Line, start.Col)
@@ -440,8 +481,12 @@ func (p *Parser) parseIndexAssign() (ast.Stmt, error) {
 	return &ast.ExprStmt{MethodCall: call, Line: receiverTok.Line}, nil
 }
 
-// parseFieldAssign разбирает "receiver.поле = выражение". Позиция парсера
-// на входе - на получателе (IDENT переменной или "этот").
+// parseFieldAssign разбирает "receiver.поле = выражение" - receiver РОВНО
+// один уровень (IDENT переменной или "этот"), без вложенности - самый
+// частый случай, отдельный быстрый путь без общей parsePostfix. Позиция
+// парсера на входе - на получателе. Присваивание в поле ВЛОЖЕННОЙ сущности
+// (`x.a.b = значение`) идёт другим путём - см. parseDotStatement,
+// finishFieldAssign.
 func (p *Parser) parseFieldAssign() (ast.Stmt, error) {
 	receiverTok := p.advance() // IDENT получателя или "этот"
 	var receiver ast.Expr
@@ -459,19 +504,29 @@ func (p *Parser) parseFieldAssign() (ast.Stmt, error) {
 	if err != nil {
 		return nil, fmt.Errorf("после \".\" ожидалось имя поля: %w", err)
 	}
+	return p.finishFieldAssign(receiver, field.Value, static, receiverTok.Line)
+}
+
+// finishFieldAssign разбирает хвост присваивания полю - "= выражение" (или
+// составной оператор, "+=" и т. п.) - после того как получатель и имя поля
+// уже разобраны. Общий для parseFieldAssign (получатель - ровно один
+// уровень) и parseDotStatement (получатель - результат parsePostfix,
+// возможно вложенный - `x.a.b = значение`: `receiver` здесь - уже
+// `x.a` целиком, `field` - "b").
+func (p *Parser) finishFieldAssign(receiver ast.Expr, field string, static bool, line int) (ast.Stmt, error) {
 	opTok := p.cur()
 	if opTok.Type != lexer.ASSIGN && !isCompoundAssignTok(opTok.Type) {
-		return nil, fmt.Errorf("строка %d, столбец %d: ожидался \"=\" в присваивании полю %q, получено %q", opTok.Line, opTok.Col, field.Value, opTok.Value)
+		return nil, fmt.Errorf("строка %d, столбец %d: ожидался \"=\" в присваивании полю %q, получено %q", opTok.Line, opTok.Col, field, opTok.Value)
 	}
 	p.advance()
 	value, err := p.parseExpr()
 	if err != nil {
-		return nil, fmt.Errorf("в присваивании полю %q: %w", field.Value, err)
+		return nil, fmt.Errorf("в присваивании полю %q: %w", field, err)
 	}
 	if baseOp, ok := compoundAssignOps[opTok.Type]; ok {
-		value = &ast.BinaryExpr{Op: baseOp, Left: &ast.FieldAccess{Receiver: receiver, Field: field.Value, Static: static, Line: receiverTok.Line}, Right: value, Line: opTok.Line}
+		value = &ast.BinaryExpr{Op: baseOp, Left: &ast.FieldAccess{Receiver: receiver, Field: field, Static: static, Line: line}, Right: value, Line: opTok.Line}
 	}
-	return &ast.FieldAssign{Receiver: receiver, Field: field.Value, Static: static, Value: value, Line: receiverTok.Line}, nil
+	return &ast.FieldAssign{Receiver: receiver, Field: field, Static: static, Value: value, Line: line}, nil
 }
 
 func (p *Parser) parseIfStmt() (ast.Stmt, error) {

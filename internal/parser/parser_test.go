@@ -739,6 +739,72 @@ func TestParseFieldCompoundAssign(t *testing.T) {
 	}
 }
 
+func TestParseNestedFieldAssign(t *testing.T) {
+	// "x.a.b = значение" - получатель присваивания ("x.a") сам вложенный
+	// доступ к полю, не просто IDENT (см. finishFieldAssign).
+	prog, err := parseSource(t, `
+функция главная {
+    переменная пользователь = 0
+    пользователь.адрес.город = "Казань"
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	stmt, ok := prog.Functions[0].Body[1].(*ast.FieldAssign)
+	if !ok {
+		t.Fatalf("ожидался FieldAssign, получено %T", prog.Functions[0].Body[1])
+	}
+	if stmt.Field != "город" {
+		t.Fatalf("ожидалось поле \"город\", получено %q", stmt.Field)
+	}
+	recv, ok := stmt.Receiver.(*ast.FieldAccess)
+	if !ok || recv.Field != "адрес" {
+		t.Fatalf("ожидался получатель - доступ к полю \"адрес\", получено %+v", stmt.Receiver)
+	}
+	if id, ok := recv.Receiver.(*ast.Identifier); !ok || id.Name != "пользователь" {
+		t.Fatalf("ожидался получатель \"пользователь\" на предыдущем уровне, получено %+v", recv.Receiver)
+	}
+}
+
+func TestParseCallChainStmt(t *testing.T) {
+	// "имя(...)" как самостоятельная инструкция - результат тоже годится
+	// базой для продолжения цепочки "." (метод как инструкция, присваивание
+	// полю), не только результат вызова МЕТОДА (parseDotStatement) - см.
+	// finishCallChainStmt.
+	prog, err := parseSource(t, `
+функция главная {
+    создать().ошибка("текст")
+    создать().а.б = 1
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	exprStmt, ok := prog.Functions[0].Body[0].(*ast.ExprStmt)
+	if !ok || exprStmt.MethodCall == nil {
+		t.Fatalf("инструкция 0: ожидался ExprStmt с MethodCall, получено %T", prog.Functions[0].Body[0])
+	}
+	call, ok := exprStmt.MethodCall.Receiver.(*ast.CallExpr)
+	if !ok || call.Callee != "создать" {
+		t.Fatalf("инструкция 0: получатель метода должен быть вызовом \"создать\", получено %+v", exprStmt.MethodCall.Receiver)
+	}
+	if exprStmt.MethodCall.Method != "ошибка" {
+		t.Fatalf("инструкция 0: ожидался метод \"ошибка\", получено %q", exprStmt.MethodCall.Method)
+	}
+	fieldAssign, ok := prog.Functions[0].Body[1].(*ast.FieldAssign)
+	if !ok || fieldAssign.Field != "б" {
+		t.Fatalf("инструкция 1: ожидался FieldAssign поля \"б\", получено %+v", prog.Functions[0].Body[1])
+	}
+	recv, ok := fieldAssign.Receiver.(*ast.FieldAccess)
+	if !ok || recv.Field != "а" {
+		t.Fatalf("инструкция 1: ожидался получатель - доступ к полю \"а\", получено %+v", fieldAssign.Receiver)
+	}
+	if _, ok := recv.Receiver.(*ast.CallExpr); !ok {
+		t.Fatalf("инструкция 1: получатель на предыдущем уровне должен быть вызовом \"создать\", получено %+v", recv.Receiver)
+	}
+}
+
 func TestParseMethodAndThis(t *testing.T) {
 	prog, err := parseSource(t, `
 сущность Пользователь
