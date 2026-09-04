@@ -84,19 +84,25 @@ func (d *doc) memberCompletion(dotIdx, line int) []CompletionItem {
 	}
 	var out []CompletionItem
 	for _, f := range ent.Fields {
-		out = append(out, CompletionItem{Label: f.Name, Kind: kindField, Detail: f.Type.String(), Documentation: strings.TrimSpace(f.Doc)})
+		out = append(out, CompletionItem{Label: f.Name, Kind: kindField, Detail: d.dispType(f.Type), Documentation: strings.TrimSpace(f.Doc)})
 	}
 	for _, c := range ent.Constants {
-		out = append(out, CompletionItem{Label: c.Name, Kind: kindField, Detail: c.Type.String() + " (константа)", Documentation: strings.TrimSpace(c.Doc)})
+		out = append(out, CompletionItem{Label: c.Name, Kind: kindField, Detail: d.dispType(c.Type) + " (константа)", Documentation: strings.TrimSpace(c.Doc)})
 	}
 	for _, m := range ent.Methods {
-		out = append(out, CompletionItem{Label: m.Name, Kind: kindMethod, Detail: functionSignature(m.Name, m.Params, m.HasReturn, m.ReturnType), Documentation: strings.TrimSpace(m.Doc)})
+		out = append(out, CompletionItem{Label: m.Name, Kind: kindMethod, Detail: d.functionSignature(m.Name, m.Params, m.HasReturn, m.ReturnType), Documentation: strings.TrimSpace(m.Doc)})
 	}
 	return out
 }
 
 // generalCompletion - локальные переменные/параметры текущей функции +
-// функции/сущности верхнего уровня + ключевые слова.
+// функции/сущности верхнего уровня + ключевые слова. Функции/сущности - из
+// d.funcs/d.entities (не d.irProg.Functions/.Entities напрямую), отфильтрованы
+// по d.localNames - при многофайловом обогащении (multifile.go) эти карты
+// несут ЕЩЁ и внутренние смангленные ключи сущностей/функций из ДРУГИХ
+// файлов (нужны resolveChain/implementation.go) - без фильтра они бы тоже
+// попали в список автодополнения под именем, которое пользователь в
+// принципе не может написать сам (см. package doc display.go).
 func (d *doc) generalCompletion(line int) []CompletionItem {
 	var out []CompletionItem
 	scope := d.scopeAt(line)
@@ -105,14 +111,20 @@ func (d *doc) generalCompletion(line int) []CompletionItem {
 			out = append(out, CompletionItem{Label: "этот", Kind: kindVariable, Detail: scope.entityName})
 		}
 		for name, t := range localsAt(scope, line) {
-			out = append(out, CompletionItem{Label: name, Kind: kindVariable, Detail: t.String()})
+			out = append(out, CompletionItem{Label: name, Kind: kindVariable, Detail: d.dispType(t)})
 		}
 	}
-	for _, fn := range d.irProg.Functions {
-		out = append(out, CompletionItem{Label: fn.Name, Kind: kindFunction, Detail: functionSignature(fn.Name, fn.Params, fn.HasReturn, fn.ReturnType), Documentation: strings.TrimSpace(fn.Doc)})
+	for label, fn := range d.funcs {
+		if !d.localNames[label] {
+			continue
+		}
+		out = append(out, CompletionItem{Label: label, Kind: kindFunction, Detail: d.functionSignature(label, fn.Params, fn.HasReturn, fn.ReturnType), Documentation: strings.TrimSpace(fn.Doc)})
 	}
-	for _, ent := range d.irProg.Entities {
-		out = append(out, CompletionItem{Label: ent.Name, Kind: kindClass, Documentation: strings.TrimSpace(ent.Doc)})
+	for label, ent := range d.entities {
+		if !d.localNames[label] {
+			continue
+		}
+		out = append(out, CompletionItem{Label: label, Kind: kindClass, Documentation: strings.TrimSpace(ent.Doc)})
 	}
 	for _, kw := range keywords {
 		out = append(out, CompletionItem{Label: kw, Kind: kindKeyword})

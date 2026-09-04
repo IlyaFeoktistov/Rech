@@ -58,11 +58,11 @@ func (d *doc) hoverBareName(name string, line int) (string, bool) {
 	}
 	if scope != nil {
 		if t, ok := localsAt(scope, line)[name]; ok {
-			return codeBlock(fmt.Sprintf("%s: %s", name, t)), true
+			return codeBlock(fmt.Sprintf("%s: %s", name, d.dispType(t))), true
 		}
 	}
 	if fn, ok := d.funcs[name]; ok {
-		block := withDoc(codeBlock(functionSignature(fn.Name, fn.Params, fn.HasReturn, fn.ReturnType)), fn.Doc)
+		block := withDoc(codeBlock(d.functionSignature(d.disp(fn.Name), fn.Params, fn.HasReturn, fn.ReturnType)), fn.Doc)
 		return withRefCount(block, d.countFunctionRefs(name)), true
 	}
 	if ent, ok := d.entities[name]; ok {
@@ -73,7 +73,7 @@ func (d *doc) hoverBareName(name string, line int) (string, bool) {
 		if ent.IsAbstract {
 			kind = "абстрактная " + kind
 		}
-		block := withDoc(codeBlock(fmt.Sprintf("%s %s", kind, ent.Name)), ent.Doc)
+		block := withDoc(codeBlock(fmt.Sprintf("%s %s", kind, d.disp(ent.Name))), ent.Doc)
 		return withRefCount(block, d.countEntityRefs(name)), true
 	}
 	if doc, ok := builtinTypeDocs[name]; ok {
@@ -88,15 +88,16 @@ func (d *doc) hoverBareName(name string, line int) (string, bool) {
 // hoverMember - name - поле/метод/константа ent (последний элемент цепочки
 // "receiver.поле"/"receiver.метод").
 func (d *doc) hoverMember(ent *ir.Entity, name string) (string, bool) {
+	entName := d.disp(ent.Name)
 	for _, f := range ent.Fields {
 		if f.Name == name {
-			block := withDoc(codeBlock(fmt.Sprintf("%s.%s: %s", ent.Name, f.Name, f.Type)), f.Doc)
+			block := withDoc(codeBlock(fmt.Sprintf("%s.%s: %s", entName, f.Name, d.dispType(f.Type))), f.Doc)
 			return withRefCount(block, d.countMemberRefs(name)), true
 		}
 	}
 	for _, c := range ent.Constants {
 		if c.Name == name {
-			block := codeBlock(fmt.Sprintf("%s.%s: %s (константа)", ent.Name, c.Name, c.Type))
+			block := codeBlock(fmt.Sprintf("%s.%s: %s (константа)", entName, c.Name, d.dispType(c.Type)))
 			if lit, ok := literalText(c.Value); ok {
 				block += fmt.Sprintf("\n\nЗначение: `%s`", lit)
 			}
@@ -106,7 +107,7 @@ func (d *doc) hoverMember(ent *ir.Entity, name string) (string, bool) {
 	}
 	for _, m := range ent.Methods {
 		if m.Name == name {
-			block := withDoc(codeBlock(functionSignature(ent.Name+"."+m.Name, m.Params, m.HasReturn, m.ReturnType)), m.Doc)
+			block := withDoc(codeBlock(d.functionSignature(entName+"."+m.Name, m.Params, m.HasReturn, m.ReturnType)), m.Doc)
 			return withRefCount(block, d.countMethodRefs(name)), true
 		}
 	}
@@ -141,15 +142,19 @@ func literalText(v ir.Expr) (string, bool) {
 }
 
 // functionSignature - "функция имя(параметр: Тип, ...): ТипРезультата" -
-// без "функция" для методов (entityMethodName уже несёт "Тип.метод").
-func functionSignature(name string, params []ir.Param, hasReturn bool, returnType ir.Type) string {
+// без "функция" для методов (entityMethodName уже несёт "Тип.метод"). name
+// уже должно быть пропущено через d.disp вызывающей стороной (сама
+// функция/метод могла быть найдена по алиасу, но название параметров ей не
+// принадлежит явно - только типы параметров/результата нуждаются в
+// dispType здесь).
+func (d *doc) functionSignature(name string, params []ir.Param, hasReturn bool, returnType ir.Type) string {
 	parts := make([]string, len(params))
 	for i, p := range params {
-		parts[i] = fmt.Sprintf("%s: %s", p.Name, p.Type)
+		parts[i] = fmt.Sprintf("%s: %s", p.Name, d.dispType(p.Type))
 	}
 	sig := fmt.Sprintf("%s(%s)", name, strings.Join(parts, ", "))
 	if hasReturn {
-		sig += ": " + returnType.String()
+		sig += ": " + d.dispType(returnType)
 	}
 	return sig
 }

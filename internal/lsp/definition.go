@@ -1,11 +1,10 @@
 // Переход к определению ("go to definition") - функция/метод/сущность/
-// поле/константа верхнего уровня документа; локальные переменные/
-// параметры не поддержаны (тот же класс ограничения "однофайловый
-// документ", что и у остального пакета, см. package doc document.go).
+// поле/константа верхнего уровня документа, в том числе объявленных в
+// ДРУГОМ файле, найденном через "использовать" (см. multifile.go); локальные
+// переменные/параметры не поддержаны.
 package lsp
 
 import (
-	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 )
@@ -13,8 +12,13 @@ import (
 // definitionPos - место объявления найденного под курсором имени: строка/
 // столбец начала самого идентификатора (оба 1-индексные, как lexer.Token)
 // и его длина в рунах, для построения LSP Range без повторного разбора
-// строки на стороне вызывающего кода (server.go).
+// строки на стороне вызывающего кода (server.go). URI - "" (позиция в ТЕКУЩЕМ
+// открытом документе, вызывающая сторона в server.go подставляет URI самого
+// запроса) или адрес ДРУГОГО файла (см. declPosInFile/multifile.go) -
+// объявление, до которого дотянулись через "использовать", лежит не в том
+// файле, где стоит курсор.
 type definitionPos struct {
+	URI            string
 	Line, Col, Len int
 }
 
@@ -40,15 +44,11 @@ func (d *doc) definition(line, col int) (definitionPos, bool) {
 	name := chain[len(chain)-1]
 
 	if len(chain) == 1 {
-		for _, fd := range d.astProg.Functions {
-			if fd.Name == name {
-				return d.declPos(fd.Line, name)
-			}
+		if fd, ok := d.astFuncs[name]; ok {
+			return d.declPosInFile(fd.File, fd.Line, name)
 		}
-		for _, ed := range d.astProg.Entities {
-			if ed.Name == name {
-				return d.declPos(ed.Line, name)
-			}
+		if ed, ok := d.astEntities[name]; ok {
+			return d.declPosInFile(ed.File, ed.Line, name)
 		}
 		return definitionPos{}, false
 	}
@@ -57,47 +57,67 @@ func (d *doc) definition(line, col int) (definitionPos, bool) {
 	if !ok || container.Kind != ir.KindEntity {
 		return definitionPos{}, false
 	}
-	ed := d.astEntity(container.Entity)
-	if ed == nil {
+	ed, ok := d.astEntities[container.Entity]
+	if !ok {
 		return definitionPos{}, false
 	}
 	for _, f := range ed.Fields {
 		if f.Name == name {
-			return d.declPos(f.Line, name)
+			return d.declPosInFile(ed.File, f.Line, name)
 		}
 	}
 	for _, c := range ed.Constants {
 		if c.Name == name {
-			return d.declPos(c.Line, name)
+			return d.declPosInFile(ed.File, c.Line, name)
 		}
 	}
 	for _, m := range ed.Methods {
 		if m.Name == name {
-			return d.declPos(m.Line, name)
+			return d.declPosInFile(ed.File, m.Line, name)
 		}
 	}
 	return definitionPos{}, false
 }
 
-// astEntity ищет ast.EntityDecl по имени сущности в d.astProg.
-func (d *doc) astEntity(name string) *ast.EntityDecl {
-	for _, e := range d.astProg.Entities {
-		if e.Name == name {
-			return e
-		}
-	}
-	return nil
+// declPos - позиция первого IDENT-токена строки line со значением name В
+// ТЕКУЩЕМ документе - объявления (ast.FunctionDecl/EntityDecl/Field/
+// ConstDecl/MethodDecl) несут Line, но не Col, поэтому столбец имени
+// восстанавливается поиском по уже разобранным токенам (тот же приём, что
+// и в остальном пакете).
+func (d *doc) declPos(line int, name string) (definitionPos, bool) {
+	return declPosIn(d.tokens, line, name)
 }
 
-// declPos - позиция первого IDENT-токена строки line со значением name -
-// объявления (ast.FunctionDecl/EntityDecl/Field/ConstDecl/MethodDecl) несут
-// Line, но не Col, поэтому столбец имени восстанавливается поиском по уже
-// разобранным токенам (тот же приём, что и в остальном пакете).
-func (d *doc) declPos(line int, name string) (definitionPos, bool) {
-	for _, tok := range d.tokens {
+// declPosIn - как declPos, но по ПРОИЗВОЛЬНОМУ списку токенов - общий
+// поиск, используемый и для текущего документа (declPos), и для чужого
+// файла (declPosInFile).
+func declPosIn(toks []lexer.Token, line int, name string) (definitionPos, bool) {
+	for _, tok := range toks {
 		if tok.Line == line && tok.Type == lexer.IDENT && tok.Value == name {
 			return definitionPos{Line: line, Col: tok.Col, Len: len([]rune(name))}, true
 		}
 	}
 	return definitionPos{}, false
+}
+
+// declPosInFile - как declPos, но объявление может лежать в ЛЮБОМ файле
+// графа импортов, не только в текущем открытом документе - file берётся из
+// ast.EntityDecl.File/ast.FunctionDecl.File (см. package doc, ast.StampFile).
+// Тот же файл, что и текущий документ (isCurrentFile) - тот же результат,
+// что и у declPos, URI не заполняется (сервер сам подставит URI запроса).
+// Другой файл - читает и лексит его с диска (foreignTokens, кешируется на
+// доке) для точного столбца; если это не удалось (файл переименован/удалён
+// с последней линковки) или сам токен не нашёлся - приблизительная позиция
+// (начало строки, нулевая длина) вместо отказа показать хоть что-то.
+func (d *doc) declPosInFile(file string, line int, name string) (definitionPos, bool) {
+	if d.isCurrentFile(file) {
+		return d.declPos(line, name)
+	}
+	if toks, ok := d.foreignTokens(file); ok {
+		if pos, ok := declPosIn(toks, line, name); ok {
+			pos.URI = fileURI(file)
+			return pos, true
+		}
+	}
+	return definitionPos{URI: fileURI(file), Line: line, Col: 1, Len: 0}, true
 }

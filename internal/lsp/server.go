@@ -180,12 +180,22 @@ func (s *server) handleDefinition(msg *Message) {
 		return
 	}
 	_ = s.rpc.Reply(msg.ID, map[string]any{
-		"uri": p.TextDocument.URI,
+		"uri": posURI(pos, p.TextDocument.URI),
 		"range": map[string]any{
 			"start": map[string]any{"line": pos.Line - 1, "character": pos.Col - 1},
 			"end":   map[string]any{"line": pos.Line - 1, "character": pos.Col - 1 + pos.Len},
 		},
 	}, nil)
+}
+
+// posURI - definitionPos.URI, если он задан (позиция в ДРУГОМ файле, см.
+// package doc definition.go/multifile.go), иначе requestURI (позиция в том
+// же документе, к которому обращён запрос).
+func posURI(pos definitionPos, requestURI string) string {
+	if pos.URI != "" {
+		return pos.URI
+	}
+	return requestURI
 }
 
 // handleImplementation отвечает на "textDocument/implementation" - в
@@ -214,7 +224,7 @@ func (s *server) handleImplementation(msg *Message) {
 	locations := make([]any, len(positions))
 	for i, pos := range positions {
 		locations[i] = map[string]any{
-			"uri": p.TextDocument.URI,
+			"uri": posURI(pos, p.TextDocument.URI),
 			"range": map[string]any{
 				"start": map[string]any{"line": pos.Line - 1, "character": pos.Col - 1},
 				"end":   map[string]any{"line": pos.Line - 1, "character": pos.Col - 1 + pos.Len},
