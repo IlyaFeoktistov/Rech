@@ -50,6 +50,12 @@ type Program struct {
 	// потребовало бы нести формат в каждой записи.
 	XMLParseTargets     []Type
 	XMLSerializeTargets []Type
+	// YAMLParseTargets/YAMLSerializeTargets - те же роли для "разобрать
+	// YAML"/"сериализовать YAML" - отдельные списки от JSON/XML, тем же
+	// принципом, что и у XMLParseTargets выше (rech_yaml_extract_<T> -
+	// отдельная функция от rech_json_extract_<T>/rech_xml_extract_<T>).
+	YAMLParseTargets     []Type
+	YAMLSerializeTargets []Type
 	// ReflectTargets - конкретные сущности/структуры/интерфейсы,
 	// встретившиеся хоть раз как аргумент боксирования ("(Значение) x"),
 	// как имя у "тип <Имя>", или как цель "<значение> как <Имя>", без

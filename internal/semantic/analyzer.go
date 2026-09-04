@@ -81,15 +81,18 @@ type Analyzer struct {
 	// ir.VarDecl.IsStatic.
 	nextStaticVarID int
 
-	// parseTargets/serializeTargets/xmlParseTargets/xmlSerializeTargets -
-	// дедуплицированные по имени типа списки целей "разобрать"/
-	// "сериализовать" (JSON/XML отдельно - backend генерирует разные
-	// функции для одного и того же Rech-типа в зависимости от формата) -
-	// тем же принципом, что callablesSeen/callableOrder. См. dedupTypeList.
-	parseTargets        dedupTypeList
-	serializeTargets    dedupTypeList
-	xmlParseTargets     dedupTypeList
-	xmlSerializeTargets dedupTypeList
+	// parseTargets/serializeTargets/xmlParseTargets/xmlSerializeTargets/
+	// yamlParseTargets/yamlSerializeTargets - дедуплицированные по имени
+	// типа списки целей "разобрать"/"сериализовать" (JSON/XML/YAML отдельно
+	// - backend генерирует разные функции для одного и того же Rech-типа в
+	// зависимости от формата) - тем же принципом, что callablesSeen/
+	// callableOrder. См. dedupTypeList.
+	parseTargets         dedupTypeList
+	serializeTargets     dedupTypeList
+	xmlParseTargets      dedupTypeList
+	xmlSerializeTargets  dedupTypeList
+	yamlParseTargets     dedupTypeList
+	yamlSerializeTargets dedupTypeList
 
 	// dbRowTargets - дедуплицированный список сущностей, встретившихся хоть
 	// раз как элемент цели "запросить(...) как Список<Тип>" (db_rows.go) -
@@ -164,11 +167,13 @@ func (l *dedupTypeList) add(t ir.Type) {
 	l.order = append(l.order, t)
 }
 
-func (a *Analyzer) registerParseTarget(t ir.Type)        { a.parseTargets.add(t) }
-func (a *Analyzer) registerSerializeTarget(t ir.Type)    { a.serializeTargets.add(t) }
-func (a *Analyzer) registerXMLParseTarget(t ir.Type)     { a.xmlParseTargets.add(t) }
-func (a *Analyzer) registerXMLSerializeTarget(t ir.Type) { a.xmlSerializeTargets.add(t) }
-func (a *Analyzer) registerDBRowTarget(t ir.Type)        { a.dbRowTargets.add(t) }
+func (a *Analyzer) registerParseTarget(t ir.Type)         { a.parseTargets.add(t) }
+func (a *Analyzer) registerSerializeTarget(t ir.Type)     { a.serializeTargets.add(t) }
+func (a *Analyzer) registerXMLParseTarget(t ir.Type)      { a.xmlParseTargets.add(t) }
+func (a *Analyzer) registerXMLSerializeTarget(t ir.Type)  { a.xmlSerializeTargets.add(t) }
+func (a *Analyzer) registerYAMLParseTarget(t ir.Type)     { a.yamlParseTargets.add(t) }
+func (a *Analyzer) registerYAMLSerializeTarget(t ir.Type) { a.yamlSerializeTargets.add(t) }
+func (a *Analyzer) registerDBRowTarget(t ir.Type)         { a.dbRowTargets.add(t) }
 
 // registerReflectTarget регистрирует t (сущность/структура) как нуждающийся
 // в дескрипторе рефлексии - примитивы регистрировать не нужно (см. package
@@ -991,6 +996,8 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	out.SerializeTargets = a.serializeTargets.order
 	out.XMLParseTargets = a.xmlParseTargets.order
 	out.XMLSerializeTargets = a.xmlSerializeTargets.order
+	out.YAMLParseTargets = a.yamlParseTargets.order
+	out.YAMLSerializeTargets = a.yamlSerializeTargets.order
 	out.ReflectTargets = a.reflectTargets.order
 	// InterfaceImplementors - см. package doc ir.Program.InterfaceImplementors -
 	// для КАЖДОГО объявленного интерфейса программы (не только

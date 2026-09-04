@@ -216,6 +216,19 @@ func XMLFieldDuplicated(field string) string {
 
 const XMLValueMismatch = "разобрать XML: значение имеет несовместимый тип"
 
+// YAMLParseError/YAMLFieldMissing/YAMLValueMismatch - те же роли, что
+// JSONParseError/JSONFieldMissing/JSONValueMismatch выше, для "разобрать
+// YAML"/"сериализовать YAML" (блочный YAML - отступами, без фигурных
+// скобок/кавычек у большинства значений) - отдельные сообщения, чтобы
+// текст ошибки указывал на реально использованный формат.
+const YAMLParseError = "разобрать YAML: текст не является корректным YAML"
+
+func YAMLFieldMissing(field string) string {
+	return fmt.Sprintf("разобрать YAML: отсутствует поле %q", field)
+}
+
+const YAMLValueMismatch = "разобрать YAML: значение имеет несовместимый тип"
+
 // UncaughtExceptionFormat - сообщение при "выбросить", которое не поймал ни
 // один охватывающий "попытаться"/"поймать" - typeName - фактическая
 // сущность выброшенного значения (не обязательно "Исключение" само по

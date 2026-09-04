@@ -40,6 +40,55 @@ func TestAnalyzeParseExprEntityTarget(t *testing.T) {
 	}
 }
 
+// TestAnalyzeParseExprYAMLTarget - "разобрать YAML" регистрирует цель в
+// prog.YAMLParseTargets, отдельно от prog.ParseTargets (JSON) - тот же
+// принцип, что и XML (internal/ir.Program.YAMLParseTargets, package doc).
+func TestAnalyzeParseExprYAMLTarget(t *testing.T) {
+	prog, err := AnalyzeSource(t, `
+сущность Пользователь
+{
+    имеет:
+        имя: Строка
+}
+функция главная
+{
+    переменная текст = "имя: аня"
+    переменная п = разобрать YAML текст как Пользователь
+    вывести п.имя
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if len(prog.YAMLParseTargets) != 1 || prog.YAMLParseTargets[0].Entity != "Пользователь" {
+		t.Fatalf("ожидался один YAMLParseTarget Пользователь, получено %v", prog.YAMLParseTargets)
+	}
+	if len(prog.ParseTargets) != 0 {
+		t.Fatalf("ParseTargets (JSON) должен остаться пустым, получено %v", prog.ParseTargets)
+	}
+}
+
+func TestAnalyzeSerializeExprYAMLTarget(t *testing.T) {
+	prog, err := AnalyzeSource(t, `
+сущность Пользователь
+{
+    имеет:
+        имя: Строка
+}
+функция главная
+{
+    переменная п = новый Пользователь()
+    переменная текст = сериализовать YAML п
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if len(prog.YAMLSerializeTargets) != 1 || prog.YAMLSerializeTargets[0].Entity != "Пользователь" {
+		t.Fatalf("ожидался один YAMLSerializeTarget Пользователь, получено %v", prog.YAMLSerializeTargets)
+	}
+}
+
 func TestAnalyzeParseExprAbsentWithoutUse(t *testing.T) {
 	prog, err := AnalyzeSource(t, `
 функция главная { вывести 1 }

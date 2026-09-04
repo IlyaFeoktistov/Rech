@@ -294,6 +294,10 @@ func generateIRParseExpr(ctx *irGenCtx, e *ir.ParseExpr) (string, valueType, err
 		code := fmt.Sprintf("%s(rech_xml_parse(%s))", xmlExtractorNameFor(e.To), srcCode)
 		return code, fromIRType(e.To), nil
 	}
+	if e.Format == "YAML" {
+		code, vt := generateIRParseExprYAML(e, srcCode)
+		return code, vt, nil
+	}
 	code := fmt.Sprintf("%s(rech_json_parse(%s))", jsonExtractorNameFor(e.To), srcCode)
 	return code, fromIRType(e.To), nil
 }

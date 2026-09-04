@@ -88,6 +88,44 @@ func TestParseSerializeExprXML(t *testing.T) {
 	}
 }
 
+func TestParseParseExprYAML(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная
+{
+    переменная текст = "порт: 8080"
+    переменная п = разобрать YAML текст как Пользователь
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	stmt := prog.Functions[0].Body[1].(*ast.VarDecl)
+	pe := stmt.Value.(*ast.ParseExpr)
+	if pe.Format != "YAML" {
+		t.Fatalf("ожидался формат YAML, получено %q", pe.Format)
+	}
+}
+
+func TestParseSerializeExprYAML(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная
+{
+    переменная п = сериализовать YAML 42
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	stmt := prog.Functions[0].Body[0].(*ast.VarDecl)
+	se, ok := stmt.Value.(*ast.SerializeExpr)
+	if !ok {
+		t.Fatalf("ожидался *ast.SerializeExpr, получено %T", stmt.Value)
+	}
+	if se.Format != "YAML" {
+		t.Fatalf("ожидался формат YAML, получено %q", se.Format)
+	}
+}
+
 func TestParseParseExprRequiresAs(t *testing.T) {
 	_, err := parseSource(t, `
 функция главная

@@ -46,7 +46,7 @@ func registerParseErrorEntity(entities map[string]entitySig) {
 }
 
 // supportedFormats - форматы, поддержанные "разобрать"/"сериализовать".
-var supportedFormats = map[string]bool{"JSON": true, "XML": true}
+var supportedFormats = map[string]bool{"JSON": true, "XML": true, "YAML": true}
 
 // analyzeParseExpr - см. package doc и ast.ParseExpr. Source обязан быть
 // Строкой, целевой Тип - совместим с форматом (structCompatible).
@@ -56,7 +56,7 @@ var supportedFormats = map[string]bool{"JSON": true, "XML": true}
 // рекурсивно для любого достижимого из него типа поля/элемента списка).
 func analyzeParseExpr(sc *ctx, e *ast.ParseExpr) (ir.Expr, error) {
 	if !supportedFormats[e.Format] {
-		return nil, fmt.Errorf("строка %d: \"разобрать\" поддерживает только форматы JSON/XML, получено %q", e.Line, e.Format)
+		return nil, fmt.Errorf("строка %d: \"разобрать\" поддерживает только форматы JSON/XML/YAML, получено %q", e.Line, e.Format)
 	}
 	source, err := analyzeExpr(sc, e.Source)
 	if err != nil {
@@ -73,9 +73,12 @@ func analyzeParseExpr(sc *ctx, e *ast.ParseExpr) (ir.Expr, error) {
 		return nil, fmt.Errorf("строка %d: \"разобрать %s\" в %s: %w", e.Line, e.Format, target, err)
 	}
 	registerParseErrorEntity(sc.entities)
-	if e.Format == "XML" {
+	switch e.Format {
+	case "XML":
 		sc.a.registerXMLParseTarget(target)
-	} else {
+	case "YAML":
+		sc.a.registerYAMLParseTarget(target)
+	default:
 		sc.a.registerParseTarget(target)
 	}
 	return &ir.ParseExpr{Format: e.Format, Source: source, To: target}, nil
@@ -90,7 +93,7 @@ func analyzeParseExpr(sc *ctx, e *ast.ParseExpr) (ir.Expr, error) {
 // рекурсивно для любого достижимого из него).
 func analyzeSerializeExpr(sc *ctx, e *ast.SerializeExpr) (ir.Expr, error) {
 	if !supportedFormats[e.Format] {
-		return nil, fmt.Errorf("строка %d: \"сериализовать\" поддерживает только форматы JSON/XML, получено %q", e.Line, e.Format)
+		return nil, fmt.Errorf("строка %d: \"сериализовать\" поддерживает только форматы JSON/XML/YAML, получено %q", e.Line, e.Format)
 	}
 	value, err := analyzeExpr(sc, e.Value)
 	if err != nil {
@@ -108,9 +111,12 @@ func analyzeSerializeExpr(sc *ctx, e *ast.SerializeExpr) (ir.Expr, error) {
 	if err := structCompatible(sc.entities, t, nil, e.Format); err != nil {
 		return nil, fmt.Errorf("строка %d: \"сериализовать %s\" для %s: %w", e.Line, e.Format, t, err)
 	}
-	if e.Format == "XML" {
+	switch e.Format {
+	case "XML":
 		sc.a.registerXMLSerializeTarget(t)
-	} else {
+	case "YAML":
+		sc.a.registerYAMLSerializeTarget(t)
+	default:
 		sc.a.registerSerializeTarget(t)
 	}
 	return &ir.SerializeExpr{Format: e.Format, Value: value}, nil
@@ -162,7 +168,12 @@ func structCompatible(entities map[string]entitySig, t ir.Type, seen map[string]
 		if seen[t.Entity] {
 			return fmt.Errorf("%s ссылается сам на себя - самоссылающиеся типы не поддержаны как цель разбора %s", t, format)
 		}
-		if format == "JSON" {
+		if format == "JSON" || format == "YAML" {
+			// YAML - тот же принцип "ключ: значение", что и JSON (и то же
+			// поле JSONKey/тег "json:..." переименовывает ключ, отдельного
+			// "yaml:..." тега не заводится - одно и то же имя поля видно
+			// под одним и тем же ключом обоим форматам) - проверка
+			// попарной различности ключей нужна ей ровно так же.
 			if err := checkJSONKeysDistinct(sig); err != nil {
 				return fmt.Errorf("%s: %w", t, err)
 			}

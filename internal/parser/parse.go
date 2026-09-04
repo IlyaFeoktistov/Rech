@@ -8,11 +8,12 @@ import (
 )
 
 // expectFormat разбирает формат-маркер после "разобрать"/"сериализовать" -
-// "JSON" (lexer.KwJSON) или "XML" (lexer.KwXML), оба не склоняются.
+// "JSON" (lexer.KwJSON), "XML" (lexer.KwXML) или "YAML" (lexer.KwYAML) - ни
+// один не склоняется.
 func (p *Parser) expectFormat(after string) (lexer.Token, error) {
-	if p.cur().Type != lexer.KwJSON && p.cur().Type != lexer.KwXML {
+	if p.cur().Type != lexer.KwJSON && p.cur().Type != lexer.KwXML && p.cur().Type != lexer.KwYAML {
 		tok := p.cur()
-		return lexer.Token{}, fmt.Errorf("строка %d, столбец %d: после %q ожидался формат (JSON или XML), получено %q", tok.Line, tok.Col, after, tok.Value)
+		return lexer.Token{}, fmt.Errorf("строка %d, столбец %d: после %q ожидался формат (JSON, XML или YAML), получено %q", tok.Line, tok.Col, after, tok.Value)
 	}
 	return p.advance(), nil
 }
@@ -21,6 +22,7 @@ func (p *Parser) expectFormat(after string) (lexer.Token, error) {
 //
 //	разобрать JSON <выражение> как <Тип>
 //	разобрать XML <выражение> как <Тип>
+//	разобрать YAML <выражение> как <Тип>
 //
 // Источник - произвольное выражение (обычно Строка), не только литерал -
 // тот же уровень приоритета, что и операнд каста (parseUnary, а не
@@ -50,6 +52,7 @@ func (p *Parser) parseParseExpr() (ast.Expr, error) {
 //
 //	сериализовать JSON <выражение>
 //	сериализовать XML <выражение>
+//	сериализовать YAML <выражение>
 //
 // Обратное к parseParseExpr - без "как <Тип>" (целевой тип - тип самого
 // значения, уже известен на этапе анализа).
