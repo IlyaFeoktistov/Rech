@@ -294,7 +294,7 @@ func substMethods(methods []*ast.MethodDecl, subst map[string]string) []*ast.Met
 		out[i] = &ast.MethodDecl{
 			Name: m.Name, Params: substParams(m.Params, subst),
 			ReturnType: substituteTypeString(m.ReturnType, subst), SelfReturn: m.SelfReturn,
-			Body: substStmts(m.Body, subst), Visibility: m.Visibility, Line: m.Line, Doc: m.Doc,
+			Body: substStmts(m.Body, subst), Visibility: m.Visibility, Line: m.Line, Doc: m.Doc, Tag: m.Tag,
 		}
 	}
 	return out
@@ -410,6 +410,7 @@ func (inst *instantiator) ensureEntity(name string, line int) error {
 		Line:      line,
 		File:      template.File,
 		Doc:       template.Doc,
+		Tag:       template.Tag,
 	}
 	inst.entities[name] = synthesized
 	if len(checks) > 0 {

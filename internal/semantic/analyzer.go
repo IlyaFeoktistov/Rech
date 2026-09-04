@@ -728,7 +728,7 @@ func (a *Analyzer) analyzeEntity(ent *ast.EntityDecl) (*ir.Entity, error) {
 	return &ir.Entity{
 		Name: ent.Name, IsStruct: ent.IsStruct, IsAbstract: ent.IsAbstract, BaseName: ent.BaseName, Interfaces: ent.Interfaces,
 		Constants: constants, Fields: fields, StaticFields: staticFields, Methods: irMethods, Ctor: ctor, Doc: ent.Doc, Exported: ent.Exported,
-		StateNames: sig.StateNames, StateBitOffset: sig.StateBitOffset, HasStateFlags: sig.HasStateFlags,
+		StateNames: sig.StateNames, StateBitOffset: sig.StateBitOffset, HasStateFlags: sig.HasStateFlags, Tag: ent.Tag,
 	}, nil
 }
 
@@ -784,6 +784,7 @@ func (a *Analyzer) analyzeMethod(ent *ast.EntityDecl, m *ast.MethodDecl) (*ir.Me
 		IsStatic:   m.IsStatic,
 		File:       ent.File,
 		Doc:        m.Doc,
+		Tag:        m.Tag,
 	}, nil
 }
 

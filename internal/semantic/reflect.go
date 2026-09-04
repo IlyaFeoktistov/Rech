@@ -50,13 +50,33 @@ var typeInfoMethodSigs = map[string]funcSig{
 	// на самом Rech: они не могут прочитать ir.Field.Tag напрямую (это
 	// компилятор), но могут пройти по полям через рефлексию и спросить свой
 	// собственный ключ тега у каждого.
-	"тег_поля":                {Params: []ir.Type{ir.TypeInt, ir.TypeString}, ReturnType: ir.TypeString, HasReturn: true},
+	"тег_поля": {Params: []ir.Type{ir.TypeInt, ir.TypeString}, ReturnType: ir.TypeString, HasReturn: true},
+	// "тег_поля_текст" - тот же тег поля по индексу, но СЫРЫМ ТЕКСТОМ целиком
+	// (без разбора по ключу) - docs/ROADMAP.md: "тег_поля(i, ключ)" уже
+	// требует ЗНАТЬ ключ заранее, библиотеке, которая хочет пройтись по
+	// ВСЕМ ключам тега (не только своему одному) или разобрать его
+	// собственным форматом, нужен доступ к исходной строке - тем же
+	// принципом, что и у "тег_метода_текст"/"тег_текст" ниже.
+	"тег_поля_текст":          {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeString, HasReturn: true},
 	"число_методов":           {Params: nil, ReturnType: ir.TypeInt, HasReturn: true},
 	"имя_метода":              {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeString, HasReturn: true},
 	"число_параметров_метода": {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeInt, HasReturn: true},
 	"тип_параметра_метода":    {Params: []ir.Type{ir.TypeInt, ir.TypeInt}, ReturnType: ir.TypeTypeInfo, HasReturn: true},
 	"тип_результата_метода":   {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeTypeInfo, HasReturn: true},
-	"создать":                 {Params: []ir.Type{listOfAnyType}, ReturnType: ir.TypeAny, HasReturn: true},
+	// "тег_метода"/"тег_метода_текст" - тот же тег, что уже был у поля, но
+	// метода (docs/ROADMAP.md, паритет с C#-атрибутами на методе - у
+	// метода тег в языке уже существует синтаксически, internal/parser,
+	// служит и служебным ключам компилятора вроде "противоположность", но
+	// не был виден рефлексии до этого шага).
+	"тег_метода":       {Params: []ir.Type{ir.TypeInt, ir.TypeString}, ReturnType: ir.TypeString, HasReturn: true},
+	"тег_метода_текст": {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeString, HasReturn: true},
+	"создать":          {Params: []ir.Type{listOfAnyType}, ReturnType: ir.TypeAny, HasReturn: true},
+	// "тег"/"тег_текст" - тег самой сущности/структуры целиком (не поля/
+	// метода) - docs/ROADMAP.md, паритет с C#-атрибутами на классе:
+	// "сущность Имя `ключ:значение`" - новый синтаксис (ast.EntityDecl.Tag),
+	// у интерфейса/примитива тега нет - "" везде.
+	"тег":       {Params: []ir.Type{ir.TypeString}, ReturnType: ir.TypeString, HasReturn: true},
+	"тег_текст": {Params: nil, ReturnType: ir.TypeString, HasReturn: true},
 	// "базовый_тип"/"наследует_ли"/"число_интерфейсов"/"получить_интерфейс"/
 	// "реализует_ли" - docs/ROADMAP.md, паритет с C# Type.BaseType/
 	// IsSubclassOf/GetInterfaces/IsAssignableFrom - тем же принципом

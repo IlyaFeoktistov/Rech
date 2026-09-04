@@ -144,6 +144,9 @@ func (in *Interp) evalTypeInfoMethod(recv Value, e *ir.MethodCallExpr, env *Env,
 	case "тег_поля":
 		f := indexField(ent, args[0].I, recv.S)
 		return stringValue(structtag.Parse(f.Tag).Get(args[1].S)), nil
+	case "тег_поля_текст":
+		f := indexField(ent, args[0].I, recv.S)
+		return stringValue(f.Tag), nil
 	case "число_методов":
 		if iface != nil {
 			return intValue(int64(len(iface.Methods))), nil
@@ -188,8 +191,38 @@ func (in *Interp) evalTypeInfoMethod(recv Value, e *ir.MethodCallExpr, env *Env,
 			return Value{Type: ir.TypeTypeInfo, S: "Пусто"}, nil
 		}
 		return typeInfoValue(m.ReturnType), nil
+	// "тег_метода"/"тег_метода_текст" (docs/ROADMAP.md, паритет с
+	// C#-атрибутами на методе) - у интерфейса всегда "" (ir.InterfaceMethod
+	// не несёт Tag - у самого языка тег метода интерфейса синтаксически
+	// не существует, только у метода СУЩНОСТИ).
+	case "тег_метода":
+		if iface != nil {
+			return stringValue(""), nil
+		}
+		m := indexMethod(in.effectiveMethods(recv.S), args[0].I, recv.S)
+		return stringValue(structtag.Parse(m.Tag).Get(args[1].S)), nil
+	case "тег_метода_текст":
+		if iface != nil {
+			return stringValue(""), nil
+		}
+		m := indexMethod(in.effectiveMethods(recv.S), args[0].I, recv.S)
+		return stringValue(m.Tag), nil
 	case "создать":
 		return in.reflectCreate(recv.S, args[0], env, cc)
+	// "тег"/"тег_текст" (docs/ROADMAP.md, паритет с C#-атрибутами на
+	// классе) - тег самой сущности целиком ("сущность Имя `ключ:значение`",
+	// ast.EntityDecl.Tag) - "" у примитива/интерфейса (ent == nil), тем же
+	// принципом, что у остальных методов, действующих только на сущность.
+	case "тег":
+		if ent == nil {
+			return stringValue(""), nil
+		}
+		return stringValue(structtag.Parse(ent.Tag).Get(args[0].S)), nil
+	case "тег_текст":
+		if ent == nil {
+			return stringValue(""), nil
+		}
+		return stringValue(ent.Tag), nil
 	// "базовый_тип"/"наследует_ли"/"число_интерфейсов"/"получить_интерфейс"/"реализует_ли" -
 	// docs/ROADMAP.md, паритет с C# Type.BaseType/IsSubclassOf/GetInterfaces/
 	// IsAssignableFrom - действуют только на сущность/структуру (ent !=

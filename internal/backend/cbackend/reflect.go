@@ -59,6 +59,7 @@ typedef struct {
     const rech_type_meta_t *const *param_types;
     const rech_type_meta_t *return_type;
     rech_method_invoker_t invoke;
+    const char *tag;
 } rech_method_meta_t;
 
 typedef rech_any_t (*rech_ctor_invoker_t)(rech_any_t *args, int argc);
@@ -74,6 +75,7 @@ struct rech_type_meta {
     const rech_type_meta_t *base;
     const rech_type_meta_t *const *interfaces;
     int interface_count;
+    const char *tag;
 };
 
 `
@@ -371,9 +373,9 @@ func primitiveReflectDescriptors() string {
 	var sb strings.Builder
 	for _, k := range reflectPrimitiveKinds {
 		name := ir.Type{Kind: k}.String()
-		fmt.Fprintf(&sb, "static const rech_type_meta_t %s = {\"%s\", NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0};\n", reflectMetaName(name), escapeCString(name))
+		fmt.Fprintf(&sb, "static const rech_type_meta_t %s = {\"%s\", NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0, \"\"};\n", reflectMetaName(name), escapeCString(name))
 	}
-	fmt.Fprintf(&sb, "static const rech_type_meta_t %s = {\"%s\", NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0};\n", reflectMetaName(reflectPustoName), escapeCString(reflectPustoName))
+	fmt.Fprintf(&sb, "static const rech_type_meta_t %s = {\"%s\", NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0, \"\"};\n", reflectMetaName(reflectPustoName), escapeCString(reflectPustoName))
 	sb.WriteString("\n")
 	return sb.String()
 }
@@ -539,6 +541,8 @@ func generateIRTypeInfoMethodCall(ctx *irGenCtx, e *ir.MethodCallExpr) (string, 
 		return fmt.Sprintf("rech_field_at(%s, %s)->type", recvCode, argCodes[0]), typeTypeInfo, nil
 	case "тег_поля":
 		return fmt.Sprintf("rech_tag_lookup(rech_field_at(%s, %s)->tag, %s)", recvCode, argCodes[0], argCodes[1]), typeString, nil
+	case "тег_поля_текст":
+		return fmt.Sprintf("rech_field_at(%s, %s)->tag", recvCode, argCodes[0]), typeString, nil
 	case "число_методов":
 		return fmt.Sprintf("(%s)->method_count", recvCode), typeInt, nil
 	case "имя_метода":
@@ -549,8 +553,16 @@ func generateIRTypeInfoMethodCall(ctx *irGenCtx, e *ir.MethodCallExpr) (string, 
 		return fmt.Sprintf("rech_param_at(rech_method_at(%s, %s), %s)", recvCode, argCodes[0], argCodes[1]), typeTypeInfo, nil
 	case "тип_результата_метода":
 		return fmt.Sprintf("rech_method_at(%s, %s)->return_type", recvCode, argCodes[0]), typeTypeInfo, nil
+	case "тег_метода":
+		return fmt.Sprintf("rech_tag_lookup(rech_method_at(%s, %s)->tag, %s)", recvCode, argCodes[0], argCodes[1]), typeString, nil
+	case "тег_метода_текст":
+		return fmt.Sprintf("rech_method_at(%s, %s)->tag", recvCode, argCodes[0]), typeString, nil
 	case "создать":
 		return fmt.Sprintf("rech_reflect_create(%s, %s)", recvCode, argCodes[0]), typeAny, nil
+	case "тег":
+		return fmt.Sprintf("rech_tag_lookup((%s)->tag, %s)", recvCode, argCodes[0]), typeString, nil
+	case "тег_текст":
+		return fmt.Sprintf("(%s)->tag", recvCode), typeString, nil
 	case "базовый_тип":
 		return fmt.Sprintf("rech_type_base_or_pusto(%s)", recvCode), typeTypeInfo, nil
 	case "наследует_ли":
@@ -816,7 +828,7 @@ func (g *reflectGen) ensureGeneric(t ir.Type, gi ir.GenericInstantiation) error 
 			return err
 		}
 	}
-	fmt.Fprintf(&g.code, "static const rech_type_meta_t %s = {\"%s\", NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0};\n",
+	fmt.Fprintf(&g.code, "static const rech_type_meta_t %s = {\"%s\", NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0, \"\"};\n",
 		reflectMetaVarFor(t), escapeCString(t.Entity))
 	return nil
 }
@@ -906,20 +918,23 @@ func (g *reflectGen) interfaceTypeDescriptorCode(iface *ir.Interface) string {
 			if m.HasReturn {
 				returnMeta = reflectMetaVarFor(m.ReturnType)
 			}
-			fmt.Fprintf(&sb, "    {\"%s\", %d, %s, &%s, NULL},\n", escapeCString(m.Name), len(m.Params), paramsRef, returnMeta)
+			fmt.Fprintf(&sb, "    {\"%s\", %d, %s, &%s, NULL, \"\"},\n", escapeCString(m.Name), len(m.Params), paramsRef, returnMeta)
 		}
 		sb.WriteString("};\n")
 	}
 
-	// base/interfaces/interface_count - всегда NULL/NULL/0 у дескриптора
-	// САМОГО интерфейса: "базовый_тип"/"наследует_ли"/"число_интерфейсов"/
-	// "получить_интерфейс"/"реализует_ли" (docs/ROADMAP.md) действуют только на
-	// сущность/структуру - интерфейс не "наследует" сущность и не
-	// "реализует" другой интерфейс тем же словом (у самого интерфейса есть
-	// только "наследует" МЕЖДУ интерфейсами, уже полностью отражённое
-	// плоским списком iface.Methods выше, отдельного смысла в этих трёх
-	// полях для интерфейса нет).
-	fmt.Fprintf(&sb, "static const rech_type_meta_t %s = {\"%s\", NULL, 0, %s, %d, NULL, 0, NULL, NULL, 0};\n\n",
+	// base/interfaces/interface_count/tag - всегда NULL/NULL/0/NULL у
+	// дескриптора САМОГО интерфейса: "базовый_тип"/"наследует_ли"/"число_
+	// интерфейсов"/"получить_интерфейс"/"реализует_ли" (docs/ROADMAP.md)
+	// действуют только на сущность/структуру - интерфейс не "наследует"
+	// сущность и не "реализует" другой интерфейс тем же словом (у самого
+	// интерфейса есть только "наследует" МЕЖДУ интерфейсами, уже полностью
+	// отражённое плоским списком iface.Methods выше, отдельного смысла в
+	// этих трёх полях для интерфейса нет); собственного тега у интерфейса
+	// в этом срезе тоже нет (только у сущности/структуры/метода/поля - см.
+	// ast.EntityDecl.Tag/MethodDecl.Tag/Field.Tag - парсер не принимает тег
+	// после "интерфейс ...", осознанно уже, не забыто).
+	fmt.Fprintf(&sb, "static const rech_type_meta_t %s = {\"%s\", NULL, 0, %s, %d, NULL, 0, NULL, NULL, 0, \"\"};\n\n",
 		metaName, escapeCString(iface.Name), methodsArr, len(iface.Methods))
 	return sb.String()
 }
@@ -1106,7 +1121,7 @@ func (g *reflectGen) typeDescriptorCode(ent *ir.Entity, ems []effectiveReflectMe
 			if em.m.HasReturn {
 				returnMeta = reflectMetaVarFor(em.m.ReturnType)
 			}
-			fmt.Fprintf(&sb, "    {\"%s\", %d, %s, &%s, %s},\n", escapeCString(em.m.Name), len(em.m.Params), paramsRef, returnMeta, reflectInvokerName(em.owner, em.m.Name))
+			fmt.Fprintf(&sb, "    {\"%s\", %d, %s, &%s, %s, \"%s\"},\n", escapeCString(em.m.Name), len(em.m.Params), paramsRef, returnMeta, reflectInvokerName(em.owner, em.m.Name), escapeCString(em.m.Tag))
 		}
 		sb.WriteString("};\n")
 	}
@@ -1130,8 +1145,8 @@ func (g *reflectGen) typeDescriptorCode(ent *ir.Entity, ems []effectiveReflectMe
 		fmt.Fprintf(&sb, "static const rech_type_meta_t *const %s[] = {%s};\n", interfacesArr, strings.Join(parts, ", "))
 	}
 
-	fmt.Fprintf(&sb, "static const rech_type_meta_t %s = {\"%s\", %s, %d, %s, %d, %s, %d, %s, %s, %d};\n\n",
+	fmt.Fprintf(&sb, "static const rech_type_meta_t %s = {\"%s\", %s, %d, %s, %d, %s, %d, %s, %s, %d, \"%s\"};\n\n",
 		metaName, escapeCString(ent.Name), fieldsArr, len(ent.Fields), methodsArr, len(ems), reflectCtorName(ent.Name), ctorParamCount,
-		base, interfacesArr, len(ifaceNames))
+		base, interfacesArr, len(ifaceNames), escapeCString(ent.Tag))
 	return sb.String()
 }

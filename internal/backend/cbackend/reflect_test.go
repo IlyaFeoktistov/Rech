@@ -21,7 +21,7 @@ func TestGenerateFromIRTypeOfPrimitiveEmitsDescriptor(t *testing.T) {
 	if !strings.Contains(out, "v_t_INIT = (&rech_type_meta_celoe);") {
 		t.Fatalf("ожидался адрес дескриптора Целое, получено:\n%s", out)
 	}
-	if !strings.Contains(out, `static const rech_type_meta_t rech_type_meta_celoe = {"Целое", NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0};`) {
+	if !strings.Contains(out, `static const rech_type_meta_t rech_type_meta_celoe = {"Целое", NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0, ""};`) {
 		t.Fatalf("ожидался статический дескриптор примитива Целое, получено:\n%s", out)
 	}
 }
@@ -174,7 +174,7 @@ func TestGenerateFromIREntityFieldOfGenericCollectionReflects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, `static const rech_type_meta_t `+reflectMetaName(dictType)+` = {"`+dictType+`", NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0};`) {
+	if !strings.Contains(out, `static const rech_type_meta_t `+reflectMetaName(dictType)+` = {"`+dictType+`", NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0, ""};`) {
 		t.Fatalf("ожидался тривиальный дескриптор Словарь<Строка, Значение>, получено:\n%s", out)
 	}
 	if !strings.Contains(out, "static rech_any_t rech_reflect_get_hranilische_dannye(void *self) {") {
@@ -230,7 +230,7 @@ func TestGenerateFromIRInterfaceReflectTargetGeneratesDescriptor(t *testing.T) {
 	if !strings.Contains(out, `static const rech_type_meta_t rech_type_meta_zvuchaschij = {"Звучащий", NULL, 0,`) {
 		t.Fatalf("ожидался дескриптор интерфейса Звучащий без полей, получено:\n%s", out)
 	}
-	if !strings.Contains(out, `{"издать_звук", 0, NULL, &rech_type_meta_stroka, NULL},`) {
+	if !strings.Contains(out, `{"издать_звук", 0, NULL, &rech_type_meta_stroka, NULL, ""},`) {
 		t.Fatalf("ожидался метод \"издать_звук\" с invoke=NULL, получено:\n%s", out)
 	}
 }
@@ -302,7 +302,7 @@ func TestGenerateFromIREntityDescriptorCarriesBaseAndInterfaces(t *testing.T) {
 		t.Fatalf("ожидался массив rech_type_meta_kot_interfaces, получено:\n%s", out)
 	}
 	if !strings.Contains(out, `rech_type_meta_kot = {"Кот", NULL, 0,`) ||
-		!strings.Contains(out, `&rech_type_meta_zhivotnoe, rech_type_meta_kot_interfaces, 1};`) {
+		!strings.Contains(out, `&rech_type_meta_zhivotnoe, rech_type_meta_kot_interfaces, 1, ""};`) {
 		t.Fatalf("ожидался дескриптор Кот с base=&rech_type_meta_zhivotnoe и interfaces/interface_count=1, получено:\n%s", out)
 	}
 }
@@ -379,5 +379,82 @@ func TestGenerateFromIREntityInterfaceCircularReflectOrderingRegression(t *testi
 	usePos := strings.Index(out, "rech_iface_impls_zvuchaschij[] = {&rech_type_meta_kot};")
 	if declPos == -1 || usePos == -1 || declPos >= usePos {
 		t.Fatalf("ожидалось опережающее объявление rech_type_meta_kot РАНЬШЕ ссылки на него в rech_iface_impls_zvuchaschij, получено:\n%s", out)
+	}
+}
+
+// TestGenerateFromIRPrimitiveTagIsEmptyStringNotNull - НАЙДЕННЫЙ И
+// ИСПРАВЛЕННЫЙ баг (docs/ROADMAP.md): поле "tag" дескриптора примитива/
+// generic-коллекции/интерфейса изначально эмитилось как буквальный C `NULL`
+// (в отличие от поля/метода/сущности, у которых "нет тега" ВСЕГДА "" -
+// пустая СТРОКА, никогда NULL-указатель) - "тег_текст()"/"->tag" на такой
+// дескриптор читает `->tag` НАПРЯМУЮ, без проверки на NULL (в отличие от
+// rech_tag_lookup, который её делает) - настоящий cc падал сегфолтом при
+// попытке показать/использовать результат как Строка. Тест проверяет
+// текстово - дескриптор примитива не должен содержать буквальный "NULL"
+// последним полем.
+func TestGenerateFromIRPrimitiveTagIsEmptyStringNotNull(t *testing.T) {
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "т", Value: &ir.TypeOfExpr{Type: ir.TypeInt}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}, UsesReflection: true})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if strings.Contains(out, `rech_type_meta_celoe = {"Целое", NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0, NULL};`) {
+		t.Fatalf("поле tag дескриптора примитива - буквальный NULL, ожидалась пустая строка \"\", получено:\n%s", out)
+	}
+	if !strings.Contains(out, `rech_type_meta_celoe = {"Целое", NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0, ""};`) {
+		t.Fatalf("ожидался дескриптор Целое с tag = \"\", получено:\n%s", out)
+	}
+}
+
+// TestGenerateFromIREntityMethodAndFieldTagReflection - docs/ROADMAP.md,
+// паритет с C#-атрибутами на классе/методе/поле (тег сущности - новый
+// синтаксис "сущность Имя `ключ:значение`"; тег метода - синтаксис уже
+// существовал, но не был виден рефлексии): "тег(ключ)"/"тег_текст()" на
+// самой сущности, "тег_метода(i, ключ)"/"тег_метода_текст(i)" на методе,
+// "тег_поля_текст(i)" - сырой текст тега поля (в дополнение к уже
+// существующему "тег_поля(i, ключ)").
+func TestGenerateFromIREntityMethodAndFieldTagReflection(t *testing.T) {
+	recv := &ir.Identifier{Name: "т", Type: ir.TypeTypeInfo}
+	entity := &ir.Entity{
+		Name: "Пользователь",
+		Tag:  "таблица:users",
+		Fields: []ir.Field{
+			{Name: "имя", Type: ir.TypeString, Tag: "json:name"},
+		},
+		Methods: []*ir.Method{
+			{Name: "сохранить", ReturnType: ir.TypeString, HasReturn: true, Tag: "выполняет:запись",
+				Body: []ir.Stmt{&ir.ReturnStmt{Value: &ir.StringLiteral{Value: "ok"}}}},
+		},
+	}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "т", Value: &ir.TypeOfExpr{Type: ir.EntityType("Пользователь")}},
+		&ir.PrintStmt{Value: &ir.MethodCallExpr{Receiver: recv, Method: "тег", Args: []ir.Expr{&ir.StringLiteral{Value: "таблица"}}, Type: ir.TypeString, HasReturn: true}},
+		&ir.PrintStmt{Value: &ir.MethodCallExpr{Receiver: recv, Method: "тег_текст", Type: ir.TypeString, HasReturn: true}},
+		&ir.PrintStmt{Value: &ir.MethodCallExpr{Receiver: recv, Method: "тег_поля_текст", Args: []ir.Expr{&ir.IntLiteral{Value: 0}}, Type: ir.TypeString, HasReturn: true}},
+		&ir.PrintStmt{Value: &ir.MethodCallExpr{Receiver: recv, Method: "тег_метода", Args: []ir.Expr{&ir.IntLiteral{Value: 0}, &ir.StringLiteral{Value: "выполняет"}}, Type: ir.TypeString, HasReturn: true}},
+		&ir.PrintStmt{Value: &ir.MethodCallExpr{Receiver: recv, Method: "тег_метода_текст", Args: []ir.Expr{&ir.IntLiteral{Value: 0}}, Type: ir.TypeString, HasReturn: true}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{
+		Entities: []*ir.Entity{entity}, Functions: []*ir.Function{main},
+		UsesReflection: true, ReflectTargets: []ir.Type{ir.EntityType("Пользователь")},
+	})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	for _, want := range []string{
+		`rech_tag_lookup((v_t)->tag, "таблица")`,
+		"(v_t)->tag",
+		"rech_field_at(v_t, 0LL)->tag",
+		`rech_tag_lookup(rech_method_at(v_t, 0LL)->tag, "выполняет")`,
+		"rech_method_at(v_t, 0LL)->tag",
+		`, "таблица:users"};`,
+		`"имя", &rech_type_meta_stroka, rech_reflect_get_polzovatel_imya, rech_reflect_set_polzovatel_imya, "json:name"`,
+		`{"сохранить", 0, NULL, &rech_type_meta_stroka, rech_reflect_invoke_polzovatel_sohranit, "выполняет:запись"}`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ожидалось %q, получено:\n%s", want, out)
+		}
 	}
 }

@@ -301,6 +301,11 @@ type Entity struct {
 	Doc string
 	// Exported - см. ast.EntityDecl.Exported.
 	Exported bool
+	// Tag - см. ast.EntityDecl.Tag - копируется без изменений, разбирается
+	// лениво потребителем (docs/ROADMAP.md, паритет с C#-атрибутами на
+	// классе) - читается только рефлексией ("Тип".тег(ключ)/.тег_текст()),
+	// тем же принципом, что и Field.Tag.
+	Tag string
 
 	// StateNames/StateBitOffset/HasStateFlags - см. package doc
 	// internal/semantic.entitySig (те же поля, скопированы без изменений):
@@ -418,6 +423,13 @@ type Method struct {
 	// Doc - см. ast.MethodDecl.Doc (тем же принципом, что и File - метод,
 	// унаследованный без переопределения, несёт Doc БАЗОВОЙ сущности).
 	Doc string
+	// Tag - см. ast.MethodDecl.Tag - копируется без изменений. Уже несёт
+	// СЛУЖЕБНЫЙ смысл для компилятора (ключ "противоположность" -
+	// internal/semantic/verbfamily.go), но не был виден рефлексии до
+	// docs/ROADMAP.md (паритет с C#-атрибутами на методе) - "Тип".
+	// тег_метода(индекс, ключ)/.тег_метода_текст(индекс), тем же принципом,
+	// что и Field.Tag.
+	Tag string
 }
 
 // Stmt - общий маркерный интерфейс инструкций IR (как ast.Stmt).

@@ -665,6 +665,11 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 		return nil, fmt.Errorf("%s %q: generic-%s не может быть абстрактной - её нельзя ни унаследовать, ни (тем более) создать экземпляр", label, name.Value, label)
 	}
 
+	var tag string
+	if p.cur().Type == lexer.TAG {
+		tag = p.advance().Value
+	}
+
 	p.skipNewlines()
 
 	if _, err := p.expect(lexer.LBRACE); err != nil {
@@ -846,5 +851,6 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 		Ctor:       ctor,
 		TypeParams: typeParams,
 		Line:       kw.Line,
+		Tag:        tag,
 	}, nil
 }
