@@ -54,6 +54,7 @@ var All = []Func{
 	{Name: "потолок", Params: []Kind{KindFloat}, ReturnKind: KindInt, HasReturn: true},
 	{Name: "пол", Params: []Kind{KindFloat}, ReturnKind: KindInt, HasReturn: true},
 	{Name: "модуль", Params: []Kind{KindFloat}, ReturnKind: KindFloat, HasReturn: true},
+	{Name: "экспонента", Params: []Kind{KindFloat}, ReturnKind: KindFloat, HasReturn: true},
 
 	// Случайные числа (криптографически стойкий источник - arc4random* в
 	// cbackend, crypto/rand в интерпретаторе - НЕ math/rand/rand(), см.

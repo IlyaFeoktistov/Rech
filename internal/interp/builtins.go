@@ -34,6 +34,8 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return intValue(int64(math.Floor(args[0].F))), true
 	case "модуль":
 		return floatValue(math.Abs(args[0].F)), true
+	case "экспонента":
+		return floatValue(math.Exp(args[0].F)), true
 	case "прочитать_строку":
 		return stringValue(in.readLine()), true
 	case "прочитать_целое":

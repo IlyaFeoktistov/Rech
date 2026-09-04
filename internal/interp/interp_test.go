@@ -1078,9 +1078,10 @@ func TestRunMathBuiltins(t *testing.T) {
     вывести потолок(3.1)
     вывести пол(3.9)
     вывести модуль(-5.5)
+    вывести экспонента(0.0)
 }
 `)
-	want := "4\n1024\n4\n4\n3\n5.5\n"
+	want := "4\n1024\n4\n4\n3\n5.5\n1\n"
 	if got != want {
 		t.Fatalf("получили %q, ожидалось %q", got, want)
 	}

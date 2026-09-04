@@ -154,6 +154,9 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 	case "модуль":
 		flags.usesMath = true
 		return fmt.Sprintf("fabs(%s)", args[0]), true
+	case "экспонента":
+		flags.usesMath = true
+		return fmt.Sprintf("exp(%s)", args[0]), true
 	case "прочитать_строку":
 		flags.usesConsoleInput = true
 		flags.usesPanic = true
