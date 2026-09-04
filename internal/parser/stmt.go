@@ -101,8 +101,36 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 		incDec := expr.(*ast.IncDecExpr)
 		return &ast.ExprStmt{IncDec: incDec, Line: incDec.Line}, nil
 	case lexer.STAR:
+		// "*Тип имя = значение" (объявление через указатель-сахар, "Указатель<
+		// Тип>" - tryParseTypedVarDecl) неотличимо от "*p = значение"
+		// (разыменование, parseDerefAssignStmt) только по первому токену "*" -
+		// разница появляется дальше (один IDENT до "=" - разыменование, два -
+		// объявление), тем же принципом, что и в case IDENT ниже.
+		if decl, ok, err := p.tryParseTypedVarDecl(); err != nil {
+			return nil, err
+		} else if ok {
+			return decl, nil
+		}
 		return p.parseDerefAssignStmt()
+	case lexer.QUESTION:
+		// "?Тип имя = значение" (nullable-объявление без слова "переменная") -
+		// у "?" нет никакого другого смысла в начале инструкции, поэтому здесь
+		// либо tryParseTypedVarDecl совпадёт, либо разбор упадёт с обычной
+		// ошибкой "неожиданный токен" ниже по стеку (сама tryParseTypedVarDecl
+		// откатывает позицию перед этим).
+		if decl, ok, err := p.tryParseTypedVarDecl(); err != nil {
+			return nil, err
+		} else if ok {
+			return decl, nil
+		}
+		return nil, fmt.Errorf("строка %d, столбец %d: неожиданный токен %q в теле функции",
+			p.cur().Line, p.cur().Col, p.cur().Value)
 	case lexer.IDENT:
+		if decl, ok, err := p.tryParseTypedVarDecl(); err != nil {
+			return nil, err
+		} else if ok {
+			return decl, nil
+		}
 		if p.peekAt(1).Type == lexer.ASSIGN || isCompoundAssignTok(p.peekAt(1).Type) {
 			return p.parseAssign()
 		}
