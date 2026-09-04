@@ -391,15 +391,22 @@ func analyzeNewExprCtorNamed(sc *ctx, e *ast.NewExpr, sig entitySig) (ir.Expr, e
 // HasReturn - проверяется вызывающей стороной, analyzeExpr) - тот же
 // принцип, что и analyzeCallExpr для функций.
 func analyzeMethodCallExpr(sc *ctx, e *ast.MethodCallExpr) (*ir.MethodCallExpr, error) {
-	if !receiverAddressable(e.Receiver) {
-		return nil, fmt.Errorf("строка %d: получателем вызова метода может быть только переменная, поле или \"этот\"", e.Line)
-	}
 	receiver, err := analyzeExpr(sc, e.Receiver)
 	if err != nil {
 		return nil, err
 	}
 	receiver = maybeUnwrapNarrowed(sc, receiver)
 	typ := ir.TypeOf(receiver)
+	// Получатель обязан быть адресуемым (переменная/поле/"этот"), только
+	// если это "структура" (значение, не указатель) - cbackend берёт "&"
+	// от C-кода получателя (generateIRAddressableExpr), а "&" от результата
+	// вызова - невалидный C (нельзя взять адрес временного значения).
+	// Сущность-ссылка/интерфейс/generic-коллекция - уже указатель сам по
+	// себе, поэтому цепочка `x.метод1().метод2()` для них адресуемости не
+	// требует - результат ЛЮБОГО вызова годится как получатель следующего.
+	if !receiverAddressable(e.Receiver) && typ.Kind == ir.KindEntity && sc.entities[typ.Entity].IsStruct {
+		return nil, fmt.Errorf("строка %d: получателем вызова метода структуры %q может быть только переменная, поле или \"этот\" - результат вызова (значение, не ссылка) не адресуем", e.Line, typ.Entity)
+	}
 	var sig funcSig
 	switch typ.Kind {
 	case ir.KindInterface:

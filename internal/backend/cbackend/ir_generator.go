@@ -2364,11 +2364,16 @@ func generateIRNewExpr(ctx *irGenCtx, e *ir.NewExpr) (string, valueType, error) 
 // generateIRAddressableExpr генерирует receiver ОДИН раз и возвращает и
 // обычный C-код значения (code), и код указателя на него (ptr) - для
 // вызова метода/безопасной индексации, которым нужен указатель на
-// получателя (this_/this_ у *_get_safe). Receiver уже проверен семантикой
-// как адресуемый (receiverAddressable - переменная/поле/"этот", см.
-// internal/semantic), поэтому "&(code)" всегда синтаксически валиден в C
-// (получатель - lvalue, не результат вызова) - не пересчитывает code
-// дважды, в отличие от вызова generateIRExpr отдельно для каждой формы.
+// получателя (this_/this_ у *_get_safe). Ветка "&(code)" достижима только
+// когда receiverIsPointer(receiver) ложь - т. е. получатель "структура"
+// (значение) - семантика (analyzeMethodCallExpr, internal/semantic/expr.go)
+// в этом случае требует receiver-lvalue (receiverAddressable -
+// переменная/поле/"этот"), поэтому "&(code)" синтаксически валиден в C.
+// Для ссылочной сущности/интерфейса/generic-коллекции receiverIsPointer -
+// истина, поэтому получателем годится ЛЮБОЕ выражение, включая результат
+// другого вызова (`x.метод1().метод2()`) - "&" в этой ветке не берётся.
+// Не пересчитывает code дважды, в отличие от вызова generateIRExpr
+// отдельно для каждой формы.
 func generateIRAddressableExpr(ctx *irGenCtx, receiver ir.Expr) (code, ptr string, err error) {
 	code, _, err = generateIRExpr(ctx, receiver)
 	if err != nil {
