@@ -11,13 +11,15 @@ import (
 )
 
 // Diagnostic - одна запись диагностики в форме, которую JSON-кодирует
-// server.go (см. handlePublishDiagnostics) - LSP Diagnostic.severity: 1 -
-// Error (лексер/парсер/семантика/линковка - все три вида ошибок этого
-// пакета одинаково фатальны для остального анализа документа, отдельных
-// уровней Warning/Information/Hint здесь нет).
+// server.go (см. publishDiagnostics). Severity - LSP DiagnosticSeverity
+// (errorSeverity=1 у ошибок разбора/анализа этого файла - см.
+// errToDiagnostic, hintSeverity=4 у "@устарело" - см. deprecated.go, тот
+// же файл несёт и deprecatedTag для Tags). Tags - nil у обычной ошибки.
 type Diagnostic struct {
 	Line, Col, Len int
 	Message        string
+	Severity       int
+	Tags           []int
 }
 
 // diagLineRe - тот же регекс, что и parseDiagnostics в rech-vscode/
@@ -39,14 +41,14 @@ func errToDiagnostic(err error) Diagnostic {
 	msg := err.Error()
 	m := diagLineRe.FindStringSubmatch(msg)
 	if m == nil {
-		return Diagnostic{Line: 1, Col: 1, Len: 1, Message: msg}
+		return Diagnostic{Line: 1, Col: 1, Len: 1, Message: msg, Severity: errorSeverity}
 	}
 	line, _ := strconv.Atoi(m[1])
 	col := 1
 	if m[2] != "" {
 		col, _ = strconv.Atoi(m[2])
 	}
-	return Diagnostic{Line: line, Col: col, Len: 1, Message: m[3]}
+	return Diagnostic{Line: line, Col: col, Len: 1, Message: m[3], Severity: errorSeverity}
 }
 
 // setDiagnostic - см. package doc doc/document.go, поле diagnostic.

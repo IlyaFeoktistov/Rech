@@ -136,23 +136,42 @@ func (s *server) handleNotification(msg *Message) {
 }
 
 // publishDiagnostics отправляет "textDocument/publishDiagnostics" для d -
-// один Diagnostic (см. package doc diagnostics.go), если d.diagnostic не
-// nil, иначе пустой список (снимает раньше показанное подчёркивание, когда
-// документ снова стал разбираться/анализироваться успешно).
+// d.diagnostic (ошибка разбора/анализа - diagnostics.go), если не nil, плюс
+// по одной записи на каждое вхождение "@устарело"-имени (deprecated.go) -
+// пустой список снимает раньше показанное подчёркивание/зачёркивание, когда
+// документ снова стал разбираться/анализироваться успешно, либо когда
+// устаревшее имя перестало где-либо встречаться.
 func (s *server) publishDiagnostics(uri string, d *doc) {
 	diags := []any{}
 	if d.diagnostic != nil {
-		diag := d.diagnostic
-		diags = append(diags, map[string]any{
-			"range": map[string]any{
-				"start": map[string]any{"line": diag.Line - 1, "character": diag.Col - 1},
-				"end":   map[string]any{"line": diag.Line - 1, "character": diag.Col - 1 + diag.Len},
-			},
-			"severity": 1,
-			"message":  diag.Message,
-		})
+		diags = append(diags, diagnosticJSON(*d.diagnostic))
+	}
+	for _, dep := range d.deprecatedDiagnostics() {
+		diags = append(diags, diagnosticJSON(dep))
 	}
 	_ = s.rpc.Notify("textDocument/publishDiagnostics", map[string]any{"uri": uri, "diagnostics": diags})
+}
+
+// diagnosticJSON - Diagnostic (diagnostics.go/deprecated.go) в форме LSP
+// Diagnostic - "tags" опускается вовсе, если пуст (не каждый клиент готов
+// к пустому массиву именно в этом поле).
+func diagnosticJSON(diag Diagnostic) map[string]any {
+	m := map[string]any{
+		"range": map[string]any{
+			"start": map[string]any{"line": diag.Line - 1, "character": diag.Col - 1},
+			"end":   map[string]any{"line": diag.Line - 1, "character": diag.Col - 1 + diag.Len},
+		},
+		"severity": diag.Severity,
+		"message":  diag.Message,
+	}
+	if len(diag.Tags) > 0 {
+		tags := make([]any, len(diag.Tags))
+		for i, t := range diag.Tags {
+			tags[i] = t
+		}
+		m["tags"] = tags
+	}
+	return m
 }
 
 // docPosition - общая форма параметров hover/completion:
