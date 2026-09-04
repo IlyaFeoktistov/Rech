@@ -63,14 +63,35 @@ func ensureTaskWrapper(ctx *irGenCtx, funcName string) {
 	// Структура задачи: аргументы обёрнутой функции, место под результат
 	// (тот же C-тип, что и у самой функции - "int"-заглушка для функции без
 	// объявленного типа результата, cReturnTypeFor, ровно как у обычного
-	// вызова), исключение (NULL - не было) и сам дескриптор потока ОС.
+	// вызова), исключение (NULL - не было) и сигнал завершения - НЕ
+	// дескриптор потока ОС (см. package doc ниже, rech_launch_.../
+	// rech_await_... - поток открепляется от задачи сразу при запуске,
+	// дескриптор ему не нужен вовсе).
 	fmt.Fprintf(&sb, "typedef struct {\n")
 	for _, f := range argFields {
 		sb.WriteString(f)
 	}
 	fmt.Fprintf(&sb, "    %s result;\n", resultC)
 	sb.WriteString("    void *exc;\n")
-	sb.WriteString("#ifdef _WIN32\n    HANDLE thread;\n#else\n    pthread_t thread;\n#endif\n")
+	// done/mutex/cond (POSIX) или done_event (Windows) - сигнал завершения
+	// потока, НЕ его дескриптор (HANDLE/pthread_t) - "запустить" без
+	// единого "дождаться" (осознанный сценарий "фоновой задачи", docs/
+	// SPEC.md, раздел 15 - консоль управления/задача на КАЖДОЕ HTTP-
+	// соединение http_сервера) иначе никогда не освобождал бы дескриптор
+	// потока (pthread_join/CloseHandle раньше вызывались ТОЛЬКО внутри
+	// "дождаться") - на POSIX непристёгнутый (non-detached) поток без
+	// join держит занятой запись в таблице потоков ОС ДАЖЕ ПОСЛЕ
+	// завершения своей функции - при потоке на каждое короткоживущее
+	// HTTP-соединение это утечка, которая рано или поздно исчерпывает
+	// лимит потоков процесса и роняет pthread_create - именно так и было
+	// найдено при переводе http_сервер на поток-на-соединение (docs/
+	// ROADMAP.md). Исправлено - поток теперь ВСЕГДА открепляется
+	// (pthread_detach/закрытие HANDLE) сразу при запуске, а "дождаться"
+	// ждёт этот сигнал вместо потока напрямую - тот же класс "утечки при
+	// отсутствии дождаться", что и у самой структуры задачи (GC_MALLOC,
+	// никогда не освобождается явно) - маленький кусок памяти/примитив
+	// синхронизации, не дефицитный ресурс ядра ОС.
+	sb.WriteString("#ifdef _WIN32\n    HANDLE done_event;\n#else\n    pthread_mutex_t mutex;\n    pthread_cond_t cond;\n    int done;\n#endif\n")
 	fmt.Fprintf(&sb, "} %s;\n", taskType)
 
 	// Функция-точка входа потока - исполняет тело обёрнутой функции под тем
@@ -102,6 +123,18 @@ func ensureTaskWrapper(ctx *irGenCtx, funcName string) {
 	fmt.Fprintf(&sb, "        %s = rech_frame.prev;\n", catchTopVar)
 	sb.WriteString("        t->exc = rech_frame.exc;\n")
 	sb.WriteString("    }\n")
+	// Сигнал завершения - ПОСЛЕ t->result/t->exc (см. package doc выше) -
+	// "дождаться" видит их уже готовыми к моменту, когда просыпается по
+	// этому сигналу (упорядочивание обеспечено самой блокировкой/событием,
+	// не нужен отдельный барьер памяти).
+	sb.WriteString("#ifdef _WIN32\n")
+	sb.WriteString("    SetEvent(t->done_event);\n")
+	sb.WriteString("#else\n")
+	sb.WriteString("    pthread_mutex_lock(&t->mutex);\n")
+	sb.WriteString("    t->done = 1;\n")
+	sb.WriteString("    pthread_cond_signal(&t->cond);\n")
+	sb.WriteString("    pthread_mutex_unlock(&t->mutex);\n")
+	sb.WriteString("#endif\n")
 	sb.WriteString("#ifdef _WIN32\n    return 0;\n#else\n    return NULL;\n#endif\n")
 	sb.WriteString("}\n")
 
@@ -123,10 +156,24 @@ func ensureTaskWrapper(ctx *irGenCtx, funcName string) {
 		fmt.Fprintf(&sb, "    t->%s = %s;\n", n, n)
 	}
 	sb.WriteString("    t->exc = NULL;\n")
+	// Примитив синхронизации - ДО создания потока (сама функция-точка входа
+	// signal'ит его по завершении, см. выше - обязан существовать раньше,
+	// чем поток вообще может успеть завершиться и попытаться его тронуть).
+	// Поток открепляется СРАЗУ (закрытие HANDLE на Windows, pthread_detach
+	// на POSIX) - его дескриптор дальше не нужен вообще, "дождаться" ждёт
+	// done_event/mutex+cond, не сам поток (см. package doc структуры
+	// задачи выше).
 	sb.WriteString("#ifdef _WIN32\n")
-	fmt.Fprintf(&sb, "    t->thread = CreateThread(NULL, 0, %s, t, 0, NULL);\n", entry)
+	sb.WriteString("    t->done_event = CreateEvent(NULL, TRUE, FALSE, NULL);\n")
+	fmt.Fprintf(&sb, "    HANDLE rech_thread_handle = CreateThread(NULL, 0, %s, t, 0, NULL);\n", entry)
+	sb.WriteString("    CloseHandle(rech_thread_handle);\n")
 	sb.WriteString("#else\n")
-	fmt.Fprintf(&sb, "    pthread_create(&t->thread, NULL, %s, t);\n", entry)
+	sb.WriteString("    pthread_mutex_init(&t->mutex, NULL);\n")
+	sb.WriteString("    pthread_cond_init(&t->cond, NULL);\n")
+	sb.WriteString("    t->done = 0;\n")
+	sb.WriteString("    pthread_t rech_thread_handle;\n")
+	fmt.Fprintf(&sb, "    pthread_create(&rech_thread_handle, NULL, %s, t);\n", entry)
+	sb.WriteString("    pthread_detach(rech_thread_handle);\n")
 	sb.WriteString("#endif\n")
 	sb.WriteString("    return t;\n")
 	sb.WriteString("}\n")
@@ -137,11 +184,22 @@ func ensureTaskWrapper(ctx *irGenCtx, funcName string) {
 	// возвращает результат.
 	await := mangleTaskAwait(funcName)
 	fmt.Fprintf(&sb, "static %s %s(%s *t) {\n", resultC, await, taskType)
+	// Ждёт СИГНАЛ завершения (done_event/mutex+cond), не сам поток - тот
+	// уже откреплён и закрыт в rech_launch_... (см. package doc структуры
+	// задачи выше) - освобождает примитив синхронизации здесь же (в
+	// отличие от структуры задачи целиком - GC_MALLOC, отдельно не
+	// освобождается никогда).
 	sb.WriteString("#ifdef _WIN32\n")
-	sb.WriteString("    WaitForSingleObject(t->thread, INFINITE);\n")
-	sb.WriteString("    CloseHandle(t->thread);\n")
+	sb.WriteString("    WaitForSingleObject(t->done_event, INFINITE);\n")
+	sb.WriteString("    CloseHandle(t->done_event);\n")
 	sb.WriteString("#else\n")
-	sb.WriteString("    pthread_join(t->thread, NULL);\n")
+	sb.WriteString("    pthread_mutex_lock(&t->mutex);\n")
+	sb.WriteString("    while (!t->done) {\n")
+	sb.WriteString("        pthread_cond_wait(&t->cond, &t->mutex);\n")
+	sb.WriteString("    }\n")
+	sb.WriteString("    pthread_mutex_unlock(&t->mutex);\n")
+	sb.WriteString("    pthread_mutex_destroy(&t->mutex);\n")
+	sb.WriteString("    pthread_cond_destroy(&t->cond);\n")
 	sb.WriteString("#endif\n")
 	sb.WriteString("    if (t->exc != NULL) {\n")
 	fmt.Fprintf(&sb, "        %s(t->exc, %s);\n", throwFunc, throwTypeNameExpr(ctx, "t->exc", systemExceptionEntity))

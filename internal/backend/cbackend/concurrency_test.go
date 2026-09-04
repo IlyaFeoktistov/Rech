@@ -31,11 +31,9 @@ func TestGenerateFromIRLaunchAwaitEmitsThreadWrapper(t *testing.T) {
 	}
 	for _, want := range []string{
 		"#define GC_THREADS", "#include <gc.h>",
-		"typedef struct {\n    long long arg_a;\n    long long arg_b;\n    long long result;\n    void *exc;\n#ifdef _WIN32\n    HANDLE thread;\n#else\n    pthread_t thread;\n#endif\n} rech_TASK_poschitat;",
+		"typedef struct {\n    long long arg_a;\n    long long arg_b;\n    long long result;\n    void *exc;\n#ifdef _WIN32\n    HANDLE done_event;\n#else\n    pthread_mutex_t mutex;\n    pthread_cond_t cond;\n    int done;\n#endif\n} rech_TASK_poschitat;",
 		"static rech_TASK_poschitat *rech_launch_poschitat(long long arg_a, long long arg_b) {",
 		"static long long rech_await_poschitat(rech_TASK_poschitat *t) {",
-		"pthread_create(&t->thread, NULL, rech_task_entry_poschitat, t);",
-		"CreateThread(NULL, 0, rech_task_entry_poschitat, t, 0, NULL);",
 		"rech_TASK_poschitat * v_zadacha_INIT = rech_launch_poschitat(2LL, 3LL);",
 		"long long v_rezultat_INIT = rech_await_poschitat(v_zadacha);",
 	} {
@@ -45,6 +43,19 @@ func TestGenerateFromIRLaunchAwaitEmitsThreadWrapper(t *testing.T) {
 	}
 	if strings.Contains(out, "GC_register_my_thread") || strings.Contains(out, "GC_unregister_my_thread") {
 		t.Fatalf("ручная регистрация потока в GC не нужна (автоматическая через GC_THREADS-редирект) - получено:\n%s", out)
+	}
+	// Поток открепляется СРАЗУ (не остаётся ждать "дождаться") - см.
+	// package doc concurrency.go, ensureTaskWrapper: "запустить" без
+	// единого "дождаться" (фоновая задача) иначе никогда не освобождал бы
+	// дескриптор потока - именно так была найдена утечка при переводе
+	// http_сервер на поток-на-соединение (docs/ROADMAP.md).
+	for _, want := range []string{"pthread_detach(rech_thread_handle);", "CloseHandle(rech_thread_handle);"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ожидалось открепление потока сразу при запуске (%q), получено:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "t->thread") {
+		t.Fatalf("задача не должна нести дескриптор потока - только сигнал завершения (см. package doc), получено:\n%s", out)
 	}
 	if strings.Count(out, "rech_TASK_poschitat;") != 1 {
 		t.Fatalf("структура задачи должна эмититься ровно один раз, получено:\n%s", out)
