@@ -442,26 +442,56 @@ func (l *Lexer) readChar(line, col int) (Token, error) {
 	return Token{Type: CHAR, Value: string(value), Line: line, Col: col}, nil
 }
 
-// readTag разбирает "`ключ:значение ...`" (тег поля, см. internal/structtag) -
-// сырая строка без экранирования (как Go raw string) - переносы строк
-// внутри не поддержаны (тег - однострочная аннотация).
+// readTag разбирает содержимое между обратными кавычками - ОДИН и тот же
+// токен (TAG) обслуживает ДВЕ разные синтаксические роли, различаемые
+// парсером по ПОЗИЦИИ (не лексером): тег поля/метода (`json:"name"` и
+// т. п., см. internal/structtag) в позиции перед объявлением поля/метода -
+// парсер просто берёт .Value как есть, ничего в нём не разбирая; шаблонная
+// строка (`Привет, ${имя}!`) в позиции выражения - internal/parser
+// дополнительно разбирает .Value на текстовые куски и "${...}"-вставки
+// (см. internal/parser/template.go). Настоящий перенос строки в исходнике -
+// уже настоящий перенос строки в значении (многострочность работает без
+// какого-либо спецсимвола, как в heredoc с незакавыченным маркером); сверх
+// этого поддерживается небольшой набор explicit-экранирований для
+// символов, которые неудобно/невозможно набрать как есть.
 func (l *Lexer) readTag(line, col int) (Token, error) {
 	l.advance() // "`"
-	start := l.pos
+	var sb []rune
 	for {
 		if l.pos >= len(l.src) {
-			return Token{}, fmt.Errorf("строка %d, столбец %d: тег не закрыт (нет \"`\")", line, col)
+			return Token{}, fmt.Errorf("строка %d, столбец %d: строка в обратных кавычках не закрыта (нет \"`\")", line, col)
 		}
-		if l.peek() == '\n' {
-			return Token{}, fmt.Errorf("строка %d, столбец %d: перенос строки внутри тега не поддерживается", line, col)
-		}
-		if l.peek() == '`' {
-			text := string(l.src[start:l.pos])
+		r := l.peek()
+		if r == '`' {
 			l.advance()
-			return Token{Type: TAG, Value: text, Line: line, Col: col}, nil
+			break
 		}
+		if r == '\\' {
+			l.advance()
+			esc := l.peek()
+			switch esc {
+			case 'n':
+				sb = append(sb, '\n')
+			case 't':
+				sb = append(sb, '\t')
+			case 'r':
+				sb = append(sb, '\r')
+			case '`':
+				sb = append(sb, '`')
+			case '\\':
+				sb = append(sb, '\\')
+			case '$':
+				sb = append(sb, '$')
+			default:
+				return Token{}, fmt.Errorf("строка %d, столбец %d: неизвестная последовательность экранирования \\%c", l.line, l.col, esc)
+			}
+			l.advance()
+			continue
+		}
+		sb = append(sb, r)
 		l.advance()
 	}
+	return Token{Type: TAG, Value: string(sb), Line: line, Col: col}, nil
 }
 
 // validateUTF8 - небольшая защита от бинарного мусора на входе;

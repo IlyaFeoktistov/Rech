@@ -161,11 +161,36 @@ func TestLexerTag(t *testing.T) {
 	}
 }
 
-func TestLexerTagRejectsUnclosedAndNewline(t *testing.T) {
+func TestLexerTagRejectsUnclosed(t *testing.T) {
 	if _, err := New("`json:name").Tokenize(); err == nil {
 		t.Fatal("ожидалась ошибка на незакрытом теге")
 	}
-	if _, err := New("`json:name\n`").Tokenize(); err == nil {
-		t.Fatal("ожидалась ошибка на переносе строки внутри тега")
+}
+
+// TestLexerTagAllowsNewline - перенос строки внутри обратных кавычек
+// разрешён (нужен для многострочных шаблонных литералов, см.
+// internal/parser/template.go) - тот же токен TAG используется и для
+// тегов поля/метода, где перенос строки на практике не встречается.
+func TestLexerTagAllowsNewline(t *testing.T) {
+	toks, err := New("`первая\nвторая`").Tokenize()
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if toks[0].Type != TAG || toks[0].Value != "первая\nвторая" {
+		t.Fatalf("получили %+v", toks[0])
+	}
+}
+
+// TestLexerTagEscapes - экранирования внутри тега: реальный перенос строки
+// в исходнике проходит как есть, а "\n"/"\t"/"\r"/"\`"/"\\"/"\$" - явные
+// экранирования (то же множество, что и в шаблонных литералах).
+func TestLexerTagEscapes(t *testing.T) {
+	toks, err := New(`` + "`" + `таб:\t перенос:\n кавычка:\` + "`" + ` доллар:\$` + "`" + ``).Tokenize()
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	want := "таб:\t перенос:\n кавычка:` доллар:$"
+	if toks[0].Type != TAG || toks[0].Value != want {
+		t.Fatalf("хотели %q, получили %+v", want, toks[0])
 	}
 }

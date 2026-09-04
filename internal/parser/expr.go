@@ -369,6 +369,9 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 	case lexer.STRING:
 		p.advance()
 		return &ast.StringLiteral{Value: tok.Value, Line: tok.Line}, nil
+	case lexer.TAG:
+		p.advance()
+		return p.parseTemplateLiteral(tok)
 	case lexer.CHAR:
 		p.advance()
 		r := []rune(tok.Value)[0]
