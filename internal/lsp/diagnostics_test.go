@@ -37,24 +37,51 @@ func TestErrToDiagnosticWithoutLineFallsBackToLineOne(t *testing.T) {
 }
 
 // TestUpdateSetsDiagnosticOnParseError - синтаксическая ошибка (не закрыта
-// фигурная скобка) должна попасть в d.diagnostic - см. package doc
+// фигурная скобка) должна попасть в d.diagnostics - см. package doc
 // document.go, update().
 func TestUpdateSetsDiagnosticOnParseError(t *testing.T) {
 	d := newDoc("test://bad.rech", "функция главная {\n    вывести \"ок\"\n")
-	if d.diagnostic == nil {
+	if len(d.diagnostics) == 0 {
 		t.Fatalf("ожидалась диагностика на незакрытую фигурную скобку")
 	}
 }
 
 // TestUpdateClearsDiagnosticOnFix - документ с ошибкой, затем исправленный
-// текст - diagnostic должен стать nil.
+// текст - diagnostics должен стать пустым.
 func TestUpdateClearsDiagnosticOnFix(t *testing.T) {
 	d := newDoc("test://bad.rech", "функция главная {\n    вывести \"ок\"\n")
-	if d.diagnostic == nil {
+	if len(d.diagnostics) == 0 {
 		t.Fatalf("ожидалась диагностика на незакрытую фигурную скобку")
 	}
 	d.update("функция главная {\n    вывести \"ок\"\n}\n")
-	if d.diagnostic != nil {
-		t.Fatalf("ожидалось, что диагностика снята после исправления, получено %+v", d.diagnostic)
+	if len(d.diagnostics) != 0 {
+		t.Fatalf("ожидалось, что диагностика снята после исправления, получено %+v", d.diagnostics)
+	}
+}
+
+// TestUpdateKeepsGoodDeclarationsAfterBrokenOne - главная находка ROADMAP
+// ("LSP не должен ГЛОХНУТЬ целиком из-за одной ошибки в файле"): опечатка в
+// одной функции файла не должна лишать hover/definition/completion доступа
+// к ОСТАЛЬНЫМ, синтаксически исправным объявлениям того же файла.
+func TestUpdateKeepsGoodDeclarationsAfterBrokenOne(t *testing.T) {
+	d := newDoc("test://mixed.rech", `
+функция хорошая
+{
+    вывести "1"
+}
+
+функция сломанная(
+{
+    вывести "не разберётся"
+}
+`)
+	if len(d.diagnostics) == 0 {
+		t.Fatalf("ожидалась диагностика на сломанную функцию")
+	}
+	if d.astProg == nil {
+		t.Fatalf("ожидался частичный ast.Program, получено nil")
+	}
+	if _, ok := d.astFuncs["хорошая"]; !ok {
+		t.Fatalf("ожидалось, что \"хорошая\" останется разобранной несмотря на соседнюю ошибку, astFuncs=%+v", d.astFuncs)
 	}
 }

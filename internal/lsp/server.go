@@ -136,15 +136,16 @@ func (s *server) handleNotification(msg *Message) {
 }
 
 // publishDiagnostics отправляет "textDocument/publishDiagnostics" для d -
-// d.diagnostic (ошибка разбора/анализа - diagnostics.go), если не nil, плюс
-// по одной записи на каждое вхождение "@устарело"-имени (deprecated.go) -
-// пустой список снимает раньше показанное подчёркивание/зачёркивание, когда
+// d.diagnostics (ошибки разбора/анализа - diagnostics.go, может быть
+// несколько сразу, см. package doc document.go update), плюс по одной
+// записи на каждое вхождение "@устарело"-имени (deprecated.go) - пустой
+// список снимает раньше показанное подчёркивание/зачёркивание, когда
 // документ снова стал разбираться/анализироваться успешно, либо когда
 // устаревшее имя перестало где-либо встречаться.
 func (s *server) publishDiagnostics(uri string, d *doc) {
 	diags := []any{}
-	if d.diagnostic != nil {
-		diags = append(diags, diagnosticJSON(*d.diagnostic))
+	for _, diag := range d.diagnostics {
+		diags = append(diags, diagnosticJSON(diag))
 	}
 	for _, dep := range d.deprecatedDiagnostics() {
 		diags = append(diags, diagnosticJSON(dep))
@@ -290,7 +291,7 @@ func (s *server) handleImplementation(msg *Message) {
 // единственный вид quick fix - автоимпорт (см. codeaction.go): не
 // зависит от диапазона/списка диагностик запроса (LSP это разрешает,
 // context.diagnostics - лишь ПОДСКАЗКА клиента, не обязательное условие) -
-// решает по d.diagnostic целиком, у документа он всегда один.
+// решает по d.diagnostics целиком.
 func (s *server) handleCodeAction(msg *Message) {
 	var p struct {
 		TextDocument struct {

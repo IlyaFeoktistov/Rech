@@ -24,7 +24,7 @@ func TestCodeActionOffersAutoImportForMissingEntity(t *testing.T) {
 	mainPath := writeMultiFileSource(t, dir, "главный.rech", src)
 
 	d := newDoc(fileURI(mainPath), src)
-	if d.diagnostic == nil {
+	if len(d.diagnostics) == 0 {
 		t.Fatalf("ожидалась диагностика \"не объявлено... не импортировано\"")
 	}
 
@@ -57,7 +57,7 @@ func TestCodeActionInsertsAfterExistingImports(t *testing.T) {
 	mainPath := writeMultiFileSource(t, dir, "главный.rech", src)
 
 	d := newDoc(fileURI(mainPath), src)
-	if d.diagnostic == nil {
+	if len(d.diagnostics) == 0 {
 		t.Fatalf("ожидалась диагностика \"не объявлено... не импортировано\"")
 	}
 

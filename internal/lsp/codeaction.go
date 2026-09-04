@@ -31,28 +31,33 @@ type CodeAction struct {
 var missingImportRe = regexp.MustCompile(`"([^"]+)" не объявлено в этом файле и не импортировано`)
 
 // codeActions - quick fix'ы для ТЕКУЩЕГО состояния документа (см. package
-// doc) - пусто, если нет активной диагностики, путь документа неизвестен
-// (не "file://", см. multifile.go, uriToPath) или диагностика - не про
-// отсутствующий импорт.
+// doc) - пусто, если нет ни одной диагностики, путь документа неизвестен
+// (не "file://", см. multifile.go, uriToPath) или ни одна диагностика - не
+// про отсутствующий импорт. d.diagnostics может нести несколько записей
+// сразу (lenient-разбор, см. document.go update) - перебираются все, не
+// только первая, хотя на практике сообщение этой формы даёт только
+// семантика/линковка (см. package doc missingImportRe), она в d.diagnostics
+// всегда одна, если вообще есть.
 func (d *doc) codeActions() []CodeAction {
-	if d.diagnostic == nil || d.path == "" || d.astProg == nil {
+	if d.path == "" || d.astProg == nil {
 		return nil
 	}
-	m := missingImportRe.FindStringSubmatch(d.diagnostic.Message)
-	if m == nil {
-		return nil
-	}
-	name := m[1]
 	docDir := filepath.Dir(d.path)
-	candidates := findWorkspaceDecl(docDir, d.path, name)
 	insertLine := d.importInsertLine()
-	out := make([]CodeAction, 0, len(candidates))
-	for _, c := range candidates {
-		out = append(out, CodeAction{
-			Title:   fmt.Sprintf("Импортировать %q из %q", name, c.ImportPath),
-			NewLine: insertLine,
-			NewText: fmt.Sprintf("использовать %s из %q\n", name, c.ImportPath),
-		})
+	var out []CodeAction
+	for _, diag := range d.diagnostics {
+		m := missingImportRe.FindStringSubmatch(diag.Message)
+		if m == nil {
+			continue
+		}
+		name := m[1]
+		for _, c := range findWorkspaceDecl(docDir, d.path, name) {
+			out = append(out, CodeAction{
+				Title:   fmt.Sprintf("Импортировать %q из %q", name, c.ImportPath),
+				NewLine: insertLine,
+				NewText: fmt.Sprintf("использовать %s из %q\n", name, c.ImportPath),
+			})
+		}
 	}
 	return out
 }

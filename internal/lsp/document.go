@@ -104,25 +104,35 @@ type doc struct {
 	// СОВСЕМ разными документами).
 	foreignTokenCache map[string][]lexer.Token
 
-	// diagnostic - ошибка ПОСЛЕДНЕГО update(), превращённая в Diagnostic
-	// (diagnostics.go) - nil, если разбор+анализ прошёл успешно (см. package
-	// doc update). server.go публикует её через "textDocument/
-	// publishDiagnostics" после каждого didOpen/didChange - пустой список,
-	// когда diagnostic стал nil, снимает раньше показанное подчёркивание.
-	diagnostic *Diagnostic
+	// diagnostics - ошибки ПОСЛЕДНЕГО update(), превращённые в Diagnostic
+	// (diagnostics.go) - пусто, если разбор+анализ прошёл полностью успешно
+	// (см. package doc update). Может нести НЕСКОЛЬКО записей одновременно -
+	// разбор в lenient-режиме (internal/parser, ParseProgramLenient)
+	// копит ошибку на КАЖДОЕ сломанное верхнеуровневое объявление файла,
+	// а не только первую, плюс, отдельным элементом в конце, ошибку
+	// семантики/линковки, если она есть. server.go публикует их все через
+	// "textDocument/publishDiagnostics" после каждого didOpen/didChange -
+	// пустой список снимает раньше показанное подчёркивание.
+	diagnostics []Diagnostic
 }
 
-// update пересобирает документ по новому тексту - при ошибке разбора старое
-// "последнее удачное" состояние остаётся как было (см. package doc), text
-// (текущий, возможно кривой буфер) обновляется всегда. Семантический анализ
-// ОДНОГО этого файла (irProg/semErr ниже) может не пройти именно потому,
-// что файл ссылается на другой ("использовать") - тогда решает
-// многофайловая линковка (tryLink, см. multifile.go): она одна может
-// провалиться сама по себе (нет "использовать" вообще, файл не читается,
-// цикл импорта, ошибка семантики где-то в графе), тогда сохраняется
-// однофайловый результат, как и раньше - НИ ОДИН путь не сработал только
-// если оба провалились, и тогда update целиком ничего не меняет (та же
-// гарантия "не хуже, чем было", что и раньше у одного semErr).
+// update пересобирает документ по новому тексту - text (текущий, возможно
+// кривой буфер) обновляется всегда. astProg/tokens - тоже, ВСЕГДА, даже
+// если lenient-разбор (internal/parser, ParseProgramLenient) нашёл ошибки
+// в части объявлений файла - остальные, синтаксически исправные, разобраны
+// как обычно и не должны становиться недоступны hover/definition/completion
+// только потому, что где-то ещё в файле опечатка (docs/ROADMAP.md,
+// "LSP не должен ГЛОХНУТЬ целиком из-за одной ошибки в файле"). Единственный
+// путь, где старое "последнее удачное" состояние (goodText/irProg/entities/
+// funcs/scopes) остаётся как было - провал СЕМАНТИКИ/линковки: она либо
+// проходит целиком, либо нет, частичного результата у неё, в отличие от
+// парсера, не бывает. Семантический анализ ОДНОГО этого файла (irProg/semErr
+// ниже) может не пройти именно потому, что файл ссылается на другой
+// ("использовать") - тогда решает многофайловая линковка (tryLink, см.
+// multifile.go): она одна может провалиться сама по себе (нет
+// "использовать" вообще, файл не читается, цикл импорта, ошибка семантики
+// где-то в графе), тогда сохраняется однофайловый результат, как и раньше -
+// НИ ОДИН путь не сработал только если оба провалились.
 func (d *doc) update(text string) {
 	d.text = text
 	toks, err := lexer.New(text).Tokenize()
@@ -130,17 +140,13 @@ func (d *doc) update(text string) {
 		d.setDiagnostic(err)
 		return
 	}
-	astProg, err := parser.New(toks).ParseProgram()
-	if err != nil {
-		d.setDiagnostic(err)
-		return
-	}
+	astProg, parseErrs := parser.New(toks).ParseProgramLenient()
 	ast.StampFile(astProg, d.uri)
-	// astProg/tokens - валидны сами по себе (синтаксис уже прошёл), даже
-	// если семантика/линковка ниже провалятся - codeActions (автоимпорт,
-	// codeaction.go - нужен d.astProg.Uses, чтобы найти место вставки) и
-	// прочий позиционный код (tokenIndexAt и т. п.) должны видеть их и в
-	// этом случае, не только при полностью успешном разборе.
+	// astProg/tokens - весь синтаксически исправный ОСТАТОК файла, даже
+	// если часть объявлений сломана (parseErrs выше) или семантика/линковка
+	// ниже провалятся - codeActions (автоимпорт, codeaction.go - нужен
+	// d.astProg.Uses, чтобы найти место вставки) и прочий позиционный код
+	// (tokenIndexAt и т. п.) должны видеть их и в этом случае.
 	d.astProg = astProg
 	d.tokens = toks
 	d.foreignTokenCache = map[string][]lexer.Token{}
@@ -151,13 +157,13 @@ func (d *doc) update(text string) {
 		// linkErr, если линковка вообще пыталась (см. package doc tryLink) -
 		// обычно информативнее одиночного semErr одного файла.
 		if linkErr != nil {
-			d.setDiagnostic(linkErr)
+			d.setDiagnostics(append(parseDiagnostics(parseErrs), errToDiagnostic(linkErr)))
 		} else {
-			d.setDiagnostic(semErr)
+			d.setDiagnostics(append(parseDiagnostics(parseErrs), errToDiagnostic(semErr)))
 		}
 		return
 	}
-	d.diagnostic = nil
+	d.setDiagnostics(parseDiagnostics(parseErrs))
 	d.goodText = text
 
 	if linkOK {

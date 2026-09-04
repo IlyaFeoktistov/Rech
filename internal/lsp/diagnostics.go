@@ -51,8 +51,31 @@ func errToDiagnostic(err error) Diagnostic {
 	return Diagnostic{Line: line, Col: col, Len: 1, Message: m[3], Severity: errorSeverity}
 }
 
-// setDiagnostic - см. package doc doc/document.go, поле diagnostic.
+// setDiagnostic - одна ошибка (лексер - единственный оставшийся вызывающий,
+// см. package doc document.go update - у него нет частичного результата,
+// в отличие от lenient-парсера).
 func (d *doc) setDiagnostic(err error) {
-	diag := errToDiagnostic(err)
-	d.diagnostic = &diag
+	d.diagnostics = []Diagnostic{errToDiagnostic(err)}
+}
+
+// setDiagnostics - см. package doc document.go, поле diagnostics.
+func (d *doc) setDiagnostics(diags []Diagnostic) {
+	d.diagnostics = diags
+}
+
+// parseDiagnostics превращает ошибки lenient-разбора (internal/parser,
+// ParseProgramLenient - по одной на каждое сломанное верхнеуровневое
+// объявление файла) в Diagnostic, той же errToDiagnostic, что и для любой
+// другой ошибки компилятора. nil, если ошибок не было (разбор прошёл
+// полностью успешно) - тогда append(...) в update() ниже просто ничего не
+// добавляет к семантической ошибке, если она есть.
+func parseDiagnostics(errs []error) []Diagnostic {
+	if len(errs) == 0 {
+		return nil
+	}
+	out := make([]Diagnostic, len(errs))
+	for i, err := range errs {
+		out[i] = errToDiagnostic(err)
+	}
+	return out
 }
