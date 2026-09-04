@@ -81,6 +81,51 @@ func TestCompileCLinksGCOnlyWhenSourceUsesIt(t *testing.T) {
 	}
 }
 
+// TestCompileCLinksSSLOnlyWhenSourceUsesTLS - -lssl/-lcrypto (TLS для
+// "слушать_tcp_защищённо", internal/backend/cbackend/tls.go) - тот же
+// принцип, что и у -lgc выше: линкуются только по маркеру "#include
+// <openssl/ssl.h>" в сгенерированном файле, не безусловно (сломало бы
+// сборку любой программы без libssl-dev, даже без единого TLS-вызова).
+func TestCompileCLinksSSLOnlyWhenSourceUsesTLS(t *testing.T) {
+	script := fakeCC(t)
+	t.Setenv("CC", script)
+
+	dir := t.TempDir()
+	withTLS := filepath.Join(dir, "with_tls.c")
+	if err := os.WriteFile(withTLS, []byte("#include <openssl/ssl.h>\nint main(void){return 0;}\n"), 0o644); err != nil {
+		t.Fatalf("запись исходника: %v", err)
+	}
+	withoutTLS := filepath.Join(dir, "without_tls.c")
+	if err := os.WriteFile(withoutTLS, []byte("int main(void){return 0;}\n"), 0o644); err != nil {
+		t.Fatalf("запись исходника: %v", err)
+	}
+
+	cc := &CC{}
+	binWith := filepath.Join(dir, "bin_with")
+	if err := cc.CompileC(withTLS, binWith, nil); err != nil {
+		t.Fatalf("CompileC: %v", err)
+	}
+	argsWith, err := os.ReadFile(script + ".args")
+	if err != nil {
+		t.Fatalf("чтение записанных аргументов: %v", err)
+	}
+	if !strings.Contains(string(argsWith), "-lssl") || !strings.Contains(string(argsWith), "-lcrypto") {
+		t.Fatalf("ожидались флаги -lssl -lcrypto для файла с #include <openssl/ssl.h>, аргументы: %q", argsWith)
+	}
+
+	binWithout := filepath.Join(dir, "bin_without")
+	if err := cc.CompileC(withoutTLS, binWithout, nil); err != nil {
+		t.Fatalf("CompileC: %v", err)
+	}
+	argsWithout, err := os.ReadFile(script + ".args")
+	if err != nil {
+		t.Fatalf("чтение записанных аргументов: %v", err)
+	}
+	if strings.Contains(string(argsWithout), "-lssl") {
+		t.Fatalf("не ожидался флаг -lssl для файла без TLS (сломает сборку без libssl-dev), аргументы: %q", argsWithout)
+	}
+}
+
 // TestCompileCLinksDBLibrariesOnlyWhenSourceUsesThem - internal/dbscheme.Set
 // (docs/ROADMAP.md, "toolchain линкует -lsqlite3 -lpq -lmysqlclient
 // безусловно") - каждая из трёх библиотек линкуется НЕЗАВИСИМО от двух

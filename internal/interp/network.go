@@ -1,6 +1,7 @@
 package interp
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net"
 	"strconv"
@@ -49,6 +50,32 @@ func (in *Interp) networkNode(mode, host string, port int64) Value {
 		panicRuntime("%s", rtmsg.SocketUnknownMode)
 		return Value{}
 	}
+}
+
+// listenTLS - "слушать_tcp_защищённо(порт, файл_сертификата, файл_ключа)"
+// (docs/ROADMAP.md, TLS для http_сервера) - crypto/tls стандартной
+// библиотеки Go, НЕ собственная реализация (в отличие от SHA-256/HMAC,
+// crypto.go - настоящий TLS-стек с нуля - риск для безопасности, см.
+// package doc internal/backend/cbackend/tls.go, тот же принцип на этом
+// backend'е). tls.Listen оборачивает обычный net.Listen("tcp", ...) -
+// "принять" (builtins.go) дальше вызывает Accept() ТЕМ ЖЕ кодом, что и у
+// обычного слушателя (никакого отдельного пути) - явный tc.Handshake()
+// там же форсирует рукопожатие СИНХРОННО, в момент "принять" - у Go
+// *tls.Conn оно иначе ленивое (на первом Read/Write), а cbackend
+// (rech_accept, tls.go) делает SSL_accept сразу - расхождение поведения
+// между backend'ами иначе было бы наблюдаемым (когда именно всплывает
+// ошибка рукопожатия).
+func listenTLS(port int64, certFile, keyFile string) Value {
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err != nil {
+		panicRuntime("%s", rtmsg.TLSCertLoadFailed)
+	}
+	cfg := &tls.Config{Certificates: []tls.Certificate{cert}}
+	l, err := tls.Listen("tcp", fmt.Sprintf(":%d", port), cfg)
+	if err != nil {
+		panicRuntime("%s", rtmsg.SocketBindFailed)
+	}
+	return listenerValue(l)
 }
 
 // recvFrom - "получить_от" - одна входящая UDP-датаграмма вместе с адресом

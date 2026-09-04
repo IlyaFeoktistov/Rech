@@ -802,12 +802,27 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	if ctx.usesSockets {
 		sb.WriteString("#ifdef _WIN32\n#include <winsock2.h>\n#include <ws2tcpip.h>\n#else\n#include <sys/socket.h>\n#include <netinet/in.h>\n#include <arpa/inet.h>\n#include <netdb.h>\n#include <unistd.h>\n#endif\n")
 	}
+	// <openssl/ssl.h>/<openssl/err.h> - TLS ("слушать_tcp_защищённо", docs/
+	// ROADMAP.md, tls.go) - единственная внешняя (не входящая в стандартный
+	// C-тулчейн) библиотека этого блока, кроме libgc/клиентов БД выше -
+	// НАСТОЯЩИЙ TLS-стек, не переиспользованная collection/панический
+	// хелпер, поэтому не эмитится безусловно вместе с usesSockets - только
+	// когда программа реально вызвала "слушать_tcp_защищённо" (-lssl
+	// -lcrypto - internal/toolchain/cc.go, по маркеру этого #include).
+	if ctx.usesTLS {
+		sb.WriteString("#include <openssl/ssl.h>\n#include <openssl/err.h>\n")
+	}
 	// Потоки ("запустить"/"дождаться") и "Блокировка" - на Windows
 	// CreateThread/CRITICAL_SECTION уже объявлены через windows.h выше,
 	// отдельного заголовка не нужно; на POSIX - pthread.h (pthread_mutex_t
 	// оттуда же, что и pthread_create - один и тот же заголовок для обоих
 	// usesThreads/usesMutex, поэтому один общий #include, не два одинаковых).
-	if ctx.usesThreads || ctx.usesMutex {
+	// usesTLS - тоже pthread_mutex_t (реестр TLS-соединений, tls.go,
+	// rech_tls_lock) - её собственная блокировка нужна независимо от того,
+	// использует ли ПРОГРАММА "запустить"/"Блокировка" вообще (accept-цикл
+	// сервера уже потенциально многопоточный - Шаг ниже, "конкурентный
+	// сервер").
+	if ctx.usesThreads || ctx.usesMutex || ctx.usesTLS {
 		sb.WriteString("#ifndef _WIN32\n#include <pthread.h>\n#endif\n")
 	}
 	sb.WriteString("\n")
@@ -865,7 +880,15 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	sb.WriteString(intDivModHelperCode(ctx.uintDivMod, false))
 	appendCodeIf(&sb, ctx.usesConsoleInput, readHelpers)
 	appendCodeIf(&sb, ctx.usesFileIO, fileHelpers)
-	appendCodeIf(&sb, ctx.usesSockets, socketHelpers)
+	if ctx.usesTLS {
+		// socketHelpersTLS (tls.go) ВМЕСТО socketHelpers - тот же
+		// socketTypeAndConnectCode (слушать/подключиться, TLS не касается),
+		// но TLS-осведомлённые rech_accept/rech_send/rech_recv/
+		// rech_close_socket - см. package doc tls.go.
+		sb.WriteString(socketHelpersTLS)
+	} else {
+		appendCodeIf(&sb, ctx.usesSockets, socketHelpers)
+	}
 	if prog.UsesReflection {
 		// Перед genericsCode - Список<Значение> ссылается на rech_any_t как
 		// на свой C-тип элемента (см. package doc reflectTypedefs) - тот же

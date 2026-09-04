@@ -97,7 +97,7 @@ static char *rech_recv_http_request(rech_socket_t s) {
             cap *= 2;
             buf = realloc(buf, cap);
         }
-        long long n = recv(s, buf + len, (int)(cap - len - 1), 0);
+        long long n = rech_socket_read_raw(s, buf + len, (long long)(cap - len - 1));
         if (n < 0) {
             free(buf);
             rech_panic("%[10]s");

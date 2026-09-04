@@ -114,6 +114,17 @@ func commonLinkFlags(src []byte) []string {
 	if bytes.Contains(src, []byte("mysql_init(")) {
 		flags = append(flags, "-lmysqlclient")
 	}
+	// -lssl -lcrypto - OpenSSL (TLS для "слушать_tcp_защищённо", internal/
+	// backend/cbackend/tls.go) - тот же принцип, что и у -lgc/клиентов БД
+	// выше: не входит в стандартный C-тулчейн, линкуется только когда
+	// программа реально использует TLS (по маркеру "#include
+	// <openssl/ssl.h>" в сгенерированном файле - тот эмитируется только при
+	// ctx.usesTLS, см. ir_generator.go). -lssl ДО -lcrypto - libssl зависит
+	// от libcrypto, порядок статической линковки на некоторых линковщиках
+	// (GNU ld без --start-group) значим.
+	if bytes.Contains(src, []byte("#include <openssl/ssl.h>")) {
+		flags = append(flags, "-lssl", "-lcrypto")
+	}
 	if runtime.GOOS == "windows" {
 		// -lshell32 - CommandLineToArgvW (internal/backend/cbackend.
 		// argFuncHelper/rech_init_args): argv, который сам даёт CRT на
@@ -175,23 +186,33 @@ var knownDBLibs = []struct{ lib, dbName string }{
 // уже показанном пользователю сыром выводе линковщика.
 func missingLibHint(linkerOutput string) string {
 	lower := strings.ToLower(linkerOutput)
+	mentionsMissing := strings.Contains(lower, "find") || strings.Contains(lower, "found") || strings.Contains(lower, "cannot open")
 	var missing []string
 	for _, l := range knownDBLibs {
 		mentionsLib := strings.Contains(lower, "-l"+l.lib) || strings.Contains(lower, l.lib+".lib")
-		mentionsMissing := strings.Contains(lower, "find") || strings.Contains(lower, "found") || strings.Contains(lower, "cannot open")
 		if mentionsLib && mentionsMissing {
 			missing = append(missing, l.lib)
 		}
 	}
-	if len(missing) == 0 {
-		return ""
+	var hint strings.Builder
+	if len(missing) > 0 {
+		hint.WriteString("похоже, не хватает клиентской библиотеки БД для линковки:\n")
+		for _, lib := range missing {
+			fmt.Fprintf(&hint, "  - %s: %s\n", lib, installHintFor(lib))
+		}
 	}
-	var sb strings.Builder
-	sb.WriteString("похоже, не хватает клиентской библиотеки БД для линковки:\n")
-	for _, lib := range missing {
-		fmt.Fprintf(&sb, "  - %s: %s\n", lib, installHintFor(lib))
+	// -lssl/-lcrypto (TLS, tls.go) - тот же класс подсказки, отдельно от
+	// БД выше (не СУБД, другая формулировка сообщения) - libssl-dev
+	// (заголовки) часто не установлен, даже если сама библиотека времени
+	// исполнения (libssl3) уже есть в системе (apt ставит их отдельными
+	// пакетами).
+	mentionsSSL := strings.Contains(lower, "-lssl") || strings.Contains(lower, "ssl.lib") ||
+		strings.Contains(lower, "-lcrypto") || strings.Contains(lower, "crypto.lib") ||
+		strings.Contains(lower, "openssl/ssl.h")
+	if mentionsSSL && (mentionsMissing || strings.Contains(lower, "no such file")) {
+		fmt.Fprintf(&hint, "похоже, не хватает OpenSSL для TLS (\"слушать_tcp_защищённо\"): %s\n", installHintFor("ssl"))
 	}
-	return strings.TrimRight(sb.String(), "\n")
+	return strings.TrimRight(hint.String(), "\n")
 }
 
 // installHintFor - подсказка по установке одной из трёх клиентских
@@ -215,6 +236,11 @@ func installHintFor(lib string) string {
 			"linux":   "sudo apt install libmysqlclient-dev (Debian/Ubuntu) или sudo dnf install mysql-devel (Fedora)",
 			"darwin":  "brew install mysql-client",
 			"windows": "vcpkg install libmysql (или MySQL Connector/C из поставки MySQL Server)",
+		},
+		"ssl": {
+			"linux":   "sudo apt install libssl-dev (Debian/Ubuntu) или sudo dnf install openssl-devel (Fedora)",
+			"darwin":  "brew install openssl (может понадобиться -L/-I на путь brew --prefix openssl)",
+			"windows": "vcpkg install openssl",
 		},
 	}
 	if perOS, ok := hints[lib]; ok {

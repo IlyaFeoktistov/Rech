@@ -104,6 +104,15 @@ type builtinFlags struct {
 	// "декодировать_base64url" - не зависит от typedefs (только "const
 	// char *"), тем же принципом, что и usesStringOps/usesRandom.
 	usesCrypto bool
+	// usesTLS - нужна ли "слушать_tcp_защищённо" (docs/ROADMAP.md, TLS для
+	// http_сервера, tls.go) - переключает rech_accept/rech_send/rech_recv/
+	// rech_close_socket на TLS-осведомлённые версии (см. package doc
+	// tls.go) и подключает OpenSSL (#include <openssl/ssl.h>, -lssl
+	// -lcrypto - internal/toolchain/cc.go) - В ОТЛИЧИЕ от usesCrypto выше
+	// (SHA-256/HMAC - собственная реализация, без внешней библиотеки):
+	// настоящий TLS-стек с нуля - риск для безопасности, не место для
+	// принципа "не тянуть внешнюю библиотеку".
+	usesTLS bool
 }
 
 // builtinCallCode генерирует C-вызов встроенной функции (internal/builtins,
@@ -209,6 +218,11 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 	case "закрыть_сокет":
 		flags.usesSockets = true
 		return fmt.Sprintf("rech_close_socket(%s)", args[0]), true
+	case "слушать_tcp_защищённо":
+		flags.usesSockets = true
+		flags.usesTLS = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_listen_tcp_secure(%s, %s, %s)", args[0], args[1], args[2]), true
 	case "запрос":
 		flags.usesHTTP = true
 		flags.usesSockets = true
@@ -770,7 +784,14 @@ static void rech_append_file(const char *path, const char *content) {
 // вариантов. rech_socket_t - int на POSIX, SOCKET на Windows (оба -
 // непрозрачные дескрипторы, как rech_file_t выше, только другого
 // системного API).
-var socketHelpers = fmt.Sprintf(`#ifdef _WIN32
+// socketTypeAndConnectCode - typedef rech_socket_t + слушать(tcp/udp)/
+// подключиться(tcp/udp)/rech_network_node - ОБЩАЯ часть между socketHelpers
+// (обычная программа) и socketHelpersTLS (программа с "слушать_tcp_
+// защищённо", tls.go) - установление соединения не зависит от TLS вообще
+// (TLS оборачивает уже готовый TCP-сокет ПОСЛЕ rech_accept, см. package doc
+// tls.go) - только rech_accept/rech_send/rech_recv/rech_close_socket ниже
+// (plainSocketOpsCode) различаются между двумя вариантами.
+var socketTypeAndConnectCode = fmt.Sprintf(`#ifdef _WIN32
 typedef SOCKET rech_socket_t;
 #define RECH_INVALID_SOCKET INVALID_SOCKET
 #else
@@ -822,14 +843,6 @@ static rech_socket_t rech_listen_udp(long long port) {
     return s;
 }
 
-static rech_socket_t rech_accept(rech_socket_t s) {
-    rech_socket_t c = accept(s, NULL, NULL);
-    if (c == RECH_INVALID_SOCKET) {
-        rech_panic("%[4]s");
-    }
-    return c;
-}
-
 static rech_socket_t rech_connect(const char *host, long long port, int type) {
     struct addrinfo hints, *res;
     memset(&hints, 0, sizeof(hints));
@@ -878,6 +891,22 @@ static rech_socket_t rech_network_node(const char *mode, const char *host, long 
     rech_panic("%[11]s");
     return RECH_INVALID_SOCKET;
 }
+`, rtmsg.SocketCreateFailed, rtmsg.SocketBindFailed, rtmsg.SocketListenFailed, rtmsg.SocketAcceptFailed,
+	rtmsg.SocketResolveFailed, rtmsg.SocketConnectCreate, rtmsg.SocketConnectFailed, rtmsg.SocketSendFailed,
+	rtmsg.SocketRecvInvalidMax, rtmsg.SocketRecvFailed, rtmsg.SocketUnknownMode)
+
+// plainSocketOpsCode - rech_accept/rech_send/rech_recv/rech_close_socket
+// БЕЗ TLS - вариант, эмитируемый вместо tlsSocketOpsCode (tls.go), когда
+// программа не использует "слушать_tcp_защищённо" (см. package doc
+// socketTypeAndConnectCode выше и ir_generator.go, выбор socketHelpers/
+// socketHelpersTLS по ctx.usesTLS).
+var plainSocketOpsCode = fmt.Sprintf(`static rech_socket_t rech_accept(rech_socket_t s) {
+    rech_socket_t c = accept(s, NULL, NULL);
+    if (c == RECH_INVALID_SOCKET) {
+        rech_panic("%[1]s");
+    }
+    return c;
+}
 
 static void rech_send(rech_socket_t s, const char *data) {
     size_t len = strlen(data);
@@ -885,21 +914,36 @@ static void rech_send(rech_socket_t s, const char *data) {
     while (sent < len) {
         long long n = send(s, data + sent, (int)(len - sent), 0);
         if (n <= 0) {
-            rech_panic("%[8]s");
+            rech_panic("%[2]s");
         }
         sent += (size_t)n;
     }
 }
 
+// rech_socket_read_raw - ЕДИНСТВЕННАЯ точка настоящего чтения байт из
+// потокового (TCP) сокета - и rech_recv ниже (публичная встроенная
+// функция "получить"), и rech_recv_http_request (httpserver.go), и
+// rech_recv_until_close (httpHelpers, HTTP-клиент "запрос") зовут ИМЕННО
+// её, не recv() напрямую - иначе TLS-осведомлённая версия этой функции
+// (tlsSocketOpsCode, tls.go) не покрывала бы чтение внутри "принять_http"/
+// "запрос", а голый recv() там читал бы ещё зашифрованные байты TLS-
+// записи вместо расшифрованного HTTP-текста (ровно так был найден баг -
+// "принять_http" зависал в ожидании "\r\n\r\n", которого в шифротексте
+// нет и не будет). Сигнатура/семантика возврата - как у recv() (число
+// байт, 0 - собеседник закрыл соединение, отрицательное - ошибка).
+static long long rech_socket_read_raw(rech_socket_t s, char *buf, long long max) {
+    return recv(s, buf, (int)max, 0);
+}
+
 static char *rech_recv(rech_socket_t s, long long max) {
     if (max <= 0) {
-        rech_panic("%[9]s");
+        rech_panic("%[3]s");
     }
     char *buf = malloc((size_t)max + 1);
-    long long n = recv(s, buf, (int)max, 0);
+    long long n = rech_socket_read_raw(s, buf, max);
     if (n < 0) {
         free(buf);
-        rech_panic("%[10]s");
+        rech_panic("%[4]s");
     }
     buf[n] = '\0';
     return buf;
@@ -912,9 +956,22 @@ static void rech_close_socket(rech_socket_t s) {
     close(s);
 #endif
 }
-`, rtmsg.SocketCreateFailed, rtmsg.SocketBindFailed, rtmsg.SocketListenFailed, rtmsg.SocketAcceptFailed,
-	rtmsg.SocketResolveFailed, rtmsg.SocketConnectCreate, rtmsg.SocketConnectFailed, rtmsg.SocketSendFailed,
-	rtmsg.SocketRecvInvalidMax, rtmsg.SocketRecvFailed, rtmsg.SocketUnknownMode)
+`, rtmsg.SocketAcceptFailed, rtmsg.SocketSendFailed, rtmsg.SocketRecvInvalidMax, rtmsg.SocketRecvFailed)
+
+// socketHelpers - сетевые примитивы БЕЗ TLS: TCP-сервер (rech_listen_tcp +
+// rech_accept), UDP-сервер (rech_listen_udp - bind без connect/listen,
+// дальше recvfrom/sendto - см. udpDatagramHelpers), TCP/UDP-клиент
+// (rech_connect_tcp/rech_connect_udp - для UDP через connect() на
+// datagram-сокете, что фиксирует адрес получателя и позволяет дальше
+// использовать один и тот же send/recv, что и у TCP), rech_send/rech_recv/
+// rech_close_socket. rech_network_node - единая точка входа
+// ("сетевой_узел(режим, хост, порт)"): host[0] == '\0' решает "слушать"
+// вместо "подключиться", mode строкой ("tcp"/"udp") - какой из четырёх
+// вариантов. rech_socket_t - int на POSIX, SOCKET на Windows (оба -
+// непрозрачные дескрипторы, как rech_file_t выше, только другого
+// системного API). См. socketHelpersTLS (tls.go) - вариант этого же текста
+// для программы, использующей "слушать_tcp_защищённо".
+var socketHelpers = socketTypeAndConnectCode + plainSocketOpsCode
 
 // httpHelpers - "запрос" (шаг 9, HTTP-клиент типа curl): строит HTTP/1.1-
 // запрос и парсит ответ поверх уже существующих rech_connect_tcp/rech_send/
@@ -951,7 +1008,7 @@ var httpHelpers = fmt.Sprintf(`static char *rech_recv_until_close(rech_socket_t 
             cap *= 2;
             buf = realloc(buf, cap);
         }
-        long long n = recv(s, buf + len, (int)(cap - len - 1), 0);
+        long long n = rech_socket_read_raw(s, buf + len, (long long)(cap - len - 1));
         if (n < 0) {
             free(buf);
             rech_panic("%[10]s");
