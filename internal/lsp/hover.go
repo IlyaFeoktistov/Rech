@@ -107,7 +107,8 @@ func (d *doc) hoverMember(ent *ir.Entity, name string) (string, bool) {
 	}
 	for _, m := range ent.Methods {
 		if m.Name == name {
-			block := withDoc(codeBlock(d.functionSignature(entName+"."+m.Name, m.Params, m.HasReturn, m.ReturnType)), m.Doc)
+			doc := d.resolvedMethodDoc(ent, name, m.Doc)
+			block := withDoc(codeBlock(d.functionSignature(entName+"."+m.Name, m.Params, m.HasReturn, m.ReturnType)), doc)
 			return withRefCount(block, d.countMethodRefs(name)), true
 		}
 	}
