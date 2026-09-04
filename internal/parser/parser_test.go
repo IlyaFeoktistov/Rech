@@ -881,8 +881,16 @@ func TestParseForEachOverListResolvesPrepositionalCase(t *testing.T) {
 	}
 }
 
-func TestParseForEachUnrecognizedWordformFails(t *testing.T) {
-	_, err := parseSource(t, `
+// TestParseForEachUnrecognizedWordformFallsBackToLiteral - словарь (даже
+// вместе с tryDepluralizeMasculine, dictionary.go) не знает АБСОЛЮТНО
+// каждое существительное - без словоформы вообще проверить падеж
+// невозможно, поэтому парсер принимает голое имя КАК ЕСТЬ вместо ошибки
+// (docs/ROADMAP.md, найденная находка - падежный словарь не распознавал
+// "сервис"/"элемент"/"пользователь" и т. п. в этой позиции) - настоящая
+// проверка ("такая переменная вообще объявлена?") откладывается на
+// семантический анализ, где ей и место.
+func TestParseForEachUnrecognizedWordformFallsBackToLiteral(t *testing.T) {
+	prog, err := parseSource(t, `
 функция главная {
     переменная список = новый Список<Целое>()
     для x в чтототам {
@@ -890,8 +898,13 @@ func TestParseForEachUnrecognizedWordformFails(t *testing.T) {
     }
 }
 `)
-	if err == nil || !strings.Contains(err.Error(), "не распознано как существительное в предложном падеже") {
-		t.Fatalf("ожидалась ошибка про неопознанную словоформу коллекции, получено: %v", err)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	loop := prog.Functions[0].Body[1].(*ast.ForEachStmt)
+	coll, ok := loop.Collection.(*ast.Identifier)
+	if !ok || coll.Name != "чтототам" {
+		t.Fatalf("ожидался Collection == Identifier(\"чтототам\"), получено %+v", loop.Collection)
 	}
 }
 
