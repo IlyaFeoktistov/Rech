@@ -202,3 +202,72 @@ func TestGenerateFromIRReflectTypedefsBeforeGenerics(t *testing.T) {
 		t.Fatalf("ожидался rech_any_t typedef раньше Список<Значение>, получено:\n%s", out)
 	}
 }
+
+// TestGenerateFromIRInterfaceReflectTargetGeneratesDescriptor -
+// найденная и исправленная находка (docs/ROADMAP.md - "тип ИмяИнтерфейса
+// не существует") - "тип <ИмяИнтерфейса>" эмитит дескриптор БЕЗ полей и
+// БЕЗ конструктора (в отличие от сущности), с собственными методами
+// интерфейса, у которых invoke = NULL (диспетчеризация "значение.
+// вызвать(...)" никогда не идёт через дескриптор интерфейса - см. её же
+// package doc ensureInterface).
+func TestGenerateFromIRInterfaceReflectTargetGeneratesDescriptor(t *testing.T) {
+	iface := &ir.Interface{
+		Name: "Звучащий",
+		Methods: []ir.InterfaceMethod{
+			{Name: "издать_звук", ReturnType: ir.TypeString, HasReturn: true},
+		},
+	}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "т", Value: &ir.TypeOfExpr{Type: ir.InterfaceType("Звучащий")}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{
+		Interfaces: []*ir.Interface{iface}, Functions: []*ir.Function{main},
+		UsesReflection: true, ReflectTargets: []ir.Type{ir.InterfaceType("Звучащий")},
+	})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, `static const rech_type_meta_t rech_type_meta_zvuchaschij = {"Звучащий", NULL, 0,`) {
+		t.Fatalf("ожидался дескриптор интерфейса Звучащий без полей, получено:\n%s", out)
+	}
+	if !strings.Contains(out, `{"издать_звук", 0, NULL, &rech_type_meta_stroka, NULL},`) {
+		t.Fatalf("ожидался метод \"издать_звук\" с invoke=NULL, получено:\n%s", out)
+	}
+}
+
+// TestGenerateFromIRAsInterfaceUsesImplementorsCheck - найденная и
+// исправленная находка (docs/ROADMAP.md - "значение как ИмяИнтерфейса не
+// распаковывает боксированную реализацию") - в отличие от обычного "как
+// Тип" (rech_unbox_check, точное совпадение с ОДНИМ ожидаемым
+// дескриптором), использует rech_unbox_check_iface со статическим
+// массивом дескрипторов ВСЕХ реализующих сущностей (Program.
+// InterfaceImplementors).
+func TestGenerateFromIRAsInterfaceUsesImplementorsCheck(t *testing.T) {
+	iface := &ir.Interface{Name: "Звучащий", Methods: []ir.InterfaceMethod{
+		{Name: "издать_звук", ReturnType: ir.TypeString, HasReturn: true},
+	}}
+	entity := &ir.Entity{Name: "Кот", Interfaces: []string{"Звучащий"}, Methods: []*ir.Method{
+		{Name: "издать_звук", ReturnType: ir.TypeString, HasReturn: true,
+			Body: []ir.Stmt{&ir.ReturnStmt{Value: &ir.StringLiteral{Value: "мяу"}}}},
+	}}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "кот", Value: &ir.NewExpr{Entity: "Кот"}},
+		&ir.VarDecl{Name: "коробка", Value: &ir.CastExpr{Value: &ir.Identifier{Name: "кот", Type: ir.EntityType("Кот")}, To: ir.TypeAny}},
+		&ir.VarDecl{Name: "звучащий", Value: &ir.AsExpr{Value: &ir.Identifier{Name: "коробка", Type: ir.TypeAny}, To: ir.InterfaceType("Звучащий")}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{
+		Entities: []*ir.Entity{entity}, Interfaces: []*ir.Interface{iface}, Functions: []*ir.Function{main},
+		UsesReflection:        true,
+		ReflectTargets:        []ir.Type{ir.EntityType("Кот"), ir.InterfaceType("Звучащий")},
+		InterfaceImplementors: map[string][]string{"Звучащий": {"Кот"}},
+	})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "static const rech_type_meta_t *const rech_iface_impls_zvuchaschij[] = {&rech_type_meta_kot};") {
+		t.Fatalf("ожидался массив реализаций rech_iface_impls_zvuchaschij, получено:\n%s", out)
+	}
+	if !strings.Contains(out, `rech_unbox_check_iface(v_korobka, rech_iface_impls_zvuchaschij, 1, "Звучащий")`) {
+		t.Fatalf("ожидался вызов rech_unbox_check_iface, получено:\n%s", out)
+	}
+}

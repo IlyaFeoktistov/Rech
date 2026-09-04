@@ -90,7 +90,7 @@ func TestRunAllExamplesMatchCompiledOutput(t *testing.T) {
 		"основы/строковые_операции.rech":         "12\nпривет\nмир\n8\n-1\nabc123\n",
 		"основы/типы_и_касты.rech":               "45.5\n6.21828\nя\n200\n1103\na\n200\n232\n2.71828\n1.25\nю\nю\n200\n",
 		"основы/целые_ширины.rech":               "127\n73\n-116\n44\n18446744073709551615\n9223372036854775807\n18446744073709551615\n1.84467e+19\n5\n-5\n-2000000000\n6\n5\nистина\nистина\n",
-		"основы/рефлексия.rech":                  "Кот\n1\nимя\n1\n7\nМурка\nБарсик\nмяу\nРыжик\n",
+		"основы/рефлексия.rech":                  "Кот\n1\nимя\n1\n7\nМурка\nБарсик\nмяу\nРыжик\nМяукающий\n1\nмяу\n",
 		"основы/тег_поля.rech":                   "имя\nuser_name\nвозраст\nage\nактивен\n\n",
 		"основы/управление.rech":                 "больше пяти\n15\n120\nистина\n",
 		"основы/выбор.rech":                      "два или три\nвыходной\nадминистратор\nобычный пользователь\n",
@@ -132,6 +132,49 @@ func TestRunAllExamplesMatchCompiledOutput(t *testing.T) {
 				t.Fatalf("вывод не совпадает с эталонным (скомпилированным) -\nхотели:\n%q\nполучили:\n%q", want, got)
 			}
 		})
+	}
+}
+
+// TestEvalAsInterfaceMismatchPanicsWithClearMessage - "значение как
+// ИмяИнтерфейса" (docs/ROADMAP.md - находка "значение как ИмяИнтерфейса не
+// распаковывает боксированную реализацию") для сущности, НЕ реализующей
+// интерфейс, - паника с тем же текстом, что и cbackend
+// (rtmsg.AsInterfaceMismatchFormat, см. internal/backend/cbackend/
+// reflect_test.go, аналогичная проверка). Не через runSrc (тот
+// t.Fatalf'ит на любую ошибку Run) - нужен именно текст ошибки.
+func TestEvalAsInterfaceMismatchPanicsWithClearMessage(t *testing.T) {
+	src := `
+интерфейс Звучащий
+{
+    издать_звук(): Строка
+}
+сущность Стол
+{
+    имеет:
+        ножки: Целое
+}
+функция главная
+{
+    переменная коробка = (Значение) новый Стол()
+    переменная звучащий = коробка как Звучащий
+}
+`
+	toks, err := lexer.New(src).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	irProg, err := semantic.Analyze(prog)
+	if err != nil {
+		t.Fatalf("семантический анализ: %v", err)
+	}
+	var buf bytes.Buffer
+	err = Run(irProg, &buf, strings.NewReader(""))
+	if err == nil || !strings.Contains(err.Error(), "фактический тип значения (Стол) не реализует этот интерфейс") {
+		t.Fatalf("ожидалась паника про несоответствие интерфейсу, получено: %v", err)
 	}
 }
 

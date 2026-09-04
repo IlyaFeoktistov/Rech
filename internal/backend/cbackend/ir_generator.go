@@ -109,6 +109,11 @@ type irGenCtx struct {
 	// interfaces - интерфейсы программы по имени (см.
 	// internal/backend/cbackend/vtable.go).
 	interfaces map[string]*ir.Interface
+	// interfaceImplementors - см. package doc ir.Program.InterfaceImplementors -
+	// нужен reflectCheckedUnboxExprCode для "значение как ИмяИнтерфейса"
+	// (число реализующих сущностей - в rech_unbox_check_iface(...) на месте
+	// вызова, сам массив - interfaceImplementorsArrayName).
+	interfaceImplementors map[string][]string
 	// dispatchSlots/dispatchParticipants/usesVtable - см. package doc
 	// vtable.go, computeDispatch.
 	dispatchSlots        map[string]int
@@ -368,17 +373,18 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		generics[g.Name] = true
 	}
 	ctx := &irGenCtx{
-		entities:             entities,
-		generics:             generics,
-		nullableInner:        nullableInner,
-		pointerInner:         pointerInner,
-		externCNames:         externCNames,
-		usesGC:               usesGC,
-		usesStateFlags:       usesStateFlags,
-		libMode:              libMode,
-		interfaces:           interfaces,
-		dispatchParticipants: participants,
-		dispatchSlots:        slots,
+		entities:              entities,
+		generics:              generics,
+		nullableInner:         nullableInner,
+		pointerInner:          pointerInner,
+		externCNames:          externCNames,
+		usesGC:                usesGC,
+		usesStateFlags:        usesStateFlags,
+		libMode:               libMode,
+		interfaces:            interfaces,
+		interfaceImplementors: prog.InterfaceImplementors,
+		dispatchParticipants:  participants,
+		dispatchSlots:         slots,
 		// usesVtable - хотя бы одна сущность участвует в диспетчеризации
 		// (participants), не "есть хотя бы один слот" (slots) - сущность
 		// без единого метода (например, системная "Исключение" и её
@@ -841,6 +847,8 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		sb.WriteString(primitiveReflectDescriptors())
 		sb.WriteString(reflectUnboxCheckHelper)
 		sb.WriteString("\n")
+		sb.WriteString(reflectUnboxCheckIfaceHelper)
+		sb.WriteString("\n")
 		sb.WriteString(reflectLookupHelpers)
 		sb.WriteString("\n")
 		sb.WriteString(reflectTagLookupHelper)
@@ -1029,7 +1037,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// После protos/ctors - геттеры/сеттеры/инвокеры полей и методов
 		// вызывают уже сгенерированные C-функции полей/методов/rech_new_<Тип>
 		// (см. package doc reflect.go).
-		reflectCode, err := reflectRuntimeCode(ctx, prog.ReflectTargets, prog.Generics)
+		reflectCode, err := reflectRuntimeCode(ctx, prog.ReflectTargets, prog.Generics, prog.InterfaceImplementors)
 		if err != nil {
 			return "", err
 		}

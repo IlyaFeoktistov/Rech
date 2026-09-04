@@ -9,6 +9,7 @@ package interp
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
@@ -31,15 +32,46 @@ func evalTypeOfExpr(e *ir.TypeOfExpr) Value {
 // паника при несовпадении фактического типа боксированного значения с e.To
 // (тот же принцип, что и у прочих несовпадений во время явных кастов,
 // internal/rtmsg).
+//
+// e.To.Kind == ir.KindInterface (docs/ROADMAP.md - "значение как
+// ИмяИнтерфейса не распаковывает боксированную реализацию") - ОТДЕЛЬНАЯ
+// проверка: боксированное значение всегда несёт дескриптор КОНКРЕТНОЙ
+// сущности (v.Boxed.Type, никогда сам интерфейс - боксирование
+// интерфейсно-типизированного ВЫРАЖЕНИЯ не поддержано отдельно, см. package
+// doc reflectBoxExprCode в cbackend), поэтому точное совпадение "!=" здесь
+// в принципе никогда не сработает - нужно "реализует ли фактический тип
+// этот интерфейс" (entityImplementsInterface, транзитивно - тот же список,
+// что и in.interfaceImplementors, посчитанный один раз в internal/semantic).
+// Результат разбоксирования - тот же *v.Boxed БЕЗ переобёртывания в
+// "интерфейсный" тип - interp не различает интерфейсно-типизированное и
+// сущностно-типизированное значение в рантайме вообще (диспетчеризация
+// методов везде идёт по фактическому Obj.typeName, см. findMethod), только
+// на этапе статической проверки типов.
 func (in *Interp) evalAsExpr(e *ir.AsExpr, env *Env, cc *callCtx) (Value, error) {
 	v, err := in.evalExpr(e.Value, env, cc)
 	if err != nil {
 		return Value{}, err
 	}
+	if e.To.Kind == ir.KindInterface {
+		if !in.entityImplementsInterface(v.Boxed.Type, e.To.Entity) {
+			panicRuntime("%s", rtmsg.AsInterfaceMismatchFormat(e.To.Entity, v.Boxed.Type.String()))
+		}
+		return *v.Boxed, nil
+	}
 	if v.Boxed.Type != e.To {
 		panicRuntime("%s", rtmsg.AsTypeMismatchFormat(v.Boxed.Type.String(), e.To.String()))
 	}
 	return *v.Boxed, nil
+}
+
+// entityImplementsInterface - t (обязан быть KindEntity - боксированное
+// значение никогда не несёт сам интерфейс, см. package doc evalAsExpr выше)
+// реализует ли ifaceName, по уже посчитанному in.interfaceImplementors.
+func (in *Interp) entityImplementsInterface(t ir.Type, ifaceName string) bool {
+	if t.Kind != ir.KindEntity {
+		return false
+	}
+	return slices.Contains(in.interfaceImplementors[ifaceName], t.Entity)
 }
 
 // effectiveMethods - методы typeName, включая унаследованные (в отличие
@@ -77,12 +109,24 @@ func (in *Interp) effectiveMethods(typeName string) []*ir.Method {
 // Fields), число_методов/... - через effectiveMethods выше. Примитив или
 // синглтон "Пусто" (тип результата метода без результата) - in.entities не
 // содержит такого имени, счётчики полей/методов для них равны 0.
+//
+// iface != nil (docs/ROADMAP.md - находка "тип ИмяИнтерфейса не
+// существует") - recv.S называет интерфейс, не сущность: у интерфейса
+// НЕТ полей и НЕТ конструктора (".создать" здесь неприменимо - falls
+// through в reflectCreate, которая паникует "метод не найден", раз имени
+// нет в in.entities, ровно тем же путём, что и для примитива), но ЕСТЬ
+// собственные (уже сплющенные с унаследованными по "наследует" - см.
+// interfaceSig.IRMethods, internal/semantic/interfaces.go) методы -
+// iface.Methods, того же вида (Name/Params/ReturnType/HasReturn), что и
+// ir.Method, но без Body - отдельный indexInterfaceMethod ниже, тот же
+// принцип, что и у indexMethod.
 func (in *Interp) evalTypeInfoMethod(recv Value, e *ir.MethodCallExpr, env *Env, cc *callCtx) (Value, error) {
 	args, err := in.evalArgs(e.Args, env, cc)
 	if err != nil {
 		return Value{}, err
 	}
 	ent := in.entities[recv.S]
+	iface := in.interfaces[recv.S]
 	switch e.Method {
 	case "имя":
 		return stringValue(recv.S), nil
@@ -101,21 +145,44 @@ func (in *Interp) evalTypeInfoMethod(recv Value, e *ir.MethodCallExpr, env *Env,
 		f := indexField(ent, args[0].I, recv.S)
 		return stringValue(structtag.Parse(f.Tag).Get(args[1].S)), nil
 	case "число_методов":
+		if iface != nil {
+			return intValue(int64(len(iface.Methods))), nil
+		}
 		if ent == nil {
 			return intValue(0), nil
 		}
 		return intValue(int64(len(in.effectiveMethods(recv.S)))), nil
 	case "имя_метода":
+		if iface != nil {
+			return stringValue(indexInterfaceMethod(iface.Methods, args[0].I, recv.S).Name), nil
+		}
 		m := indexMethod(in.effectiveMethods(recv.S), args[0].I, recv.S)
 		return stringValue(m.Name), nil
 	case "число_параметров_метода":
+		if iface != nil {
+			return intValue(int64(len(indexInterfaceMethod(iface.Methods, args[0].I, recv.S).Params))), nil
+		}
 		m := indexMethod(in.effectiveMethods(recv.S), args[0].I, recv.S)
 		return intValue(int64(len(m.Params))), nil
 	case "тип_параметра_метода":
+		if iface != nil {
+			m := indexInterfaceMethod(iface.Methods, args[0].I, recv.S)
+			if args[1].I < 0 || args[1].I >= int64(len(m.Params)) {
+				panicRuntime("%s", rtmsg.ReflectIndexOutOfRangeFormat("параметр", m.Name))
+			}
+			return typeInfoValue(m.Params[args[1].I].Type), nil
+		}
 		m := indexMethod(in.effectiveMethods(recv.S), args[0].I, recv.S)
 		p := indexParam(m, args[1].I)
 		return typeInfoValue(p.Type), nil
 	case "тип_результата_метода":
+		if iface != nil {
+			m := indexInterfaceMethod(iface.Methods, args[0].I, recv.S)
+			if !m.HasReturn {
+				return Value{Type: ir.TypeTypeInfo, S: "Пусто"}, nil
+			}
+			return typeInfoValue(m.ReturnType), nil
+		}
 		m := indexMethod(in.effectiveMethods(recv.S), args[0].I, recv.S)
 		if !m.HasReturn {
 			return Value{Type: ir.TypeTypeInfo, S: "Пусто"}, nil
@@ -178,6 +245,18 @@ func indexField(ent *ir.Entity, idx int64, typeName string) ir.Field {
 }
 
 func indexMethod(methods []*ir.Method, idx int64, typeName string) *ir.Method {
+	if idx < 0 || idx >= int64(len(methods)) {
+		panicRuntime("%s", rtmsg.ReflectIndexOutOfRangeFormat("метод", typeName))
+	}
+	return methods[idx]
+}
+
+// indexInterfaceMethod - то же самое, что indexMethod выше, но для
+// iface.Methods ([]ir.InterfaceMethod - та же форма Name/Params/
+// ReturnType/HasReturn, что и у ir.Method, но без Body, см. её package
+// doc) - отдельная функция, не переиспользование indexMethod, потому что
+// это разные Go-типы (*ir.Method против ir.InterfaceMethod).
+func indexInterfaceMethod(methods []ir.InterfaceMethod, idx int64, typeName string) ir.InterfaceMethod {
 	if idx < 0 || idx >= int64(len(methods)) {
 		panicRuntime("%s", rtmsg.ReflectIndexOutOfRangeFormat("метод", typeName))
 	}

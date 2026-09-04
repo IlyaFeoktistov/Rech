@@ -3,6 +3,8 @@ package semantic
 import (
 	"strings"
 	"testing"
+
+	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
 func TestAnalyzeTypeOfExprOK(t *testing.T) {
@@ -173,5 +175,100 @@ func TestAnalyzeReflectAnyValueUsableAsListElement(t *testing.T) {
 `)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
+// TestAnalyzeTypeOfInterfaceRegistersReflectTarget - "тип ИмяИнтерфейса"
+// (docs/ROADMAP.md - находка "тип ИмяИнтерфейса не существует") теперь
+// разрешён и регистрирует KindInterface в ReflectTargets (backend'у нужен
+// дескриптор), не только KindEntity, как было раньше.
+func TestAnalyzeTypeOfInterfaceRegistersReflectTarget(t *testing.T) {
+	prog, err := AnalyzeSource(t, `
+интерфейс Звучащий
+{
+    издать_звук(): Строка
+}
+функция главная
+{
+    переменная т = тип Звучащий
+    вывести т.имя()
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	found := false
+	for _, target := range prog.ReflectTargets {
+		if target == ir.InterfaceType("Звучащий") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("ожидался \"Звучащий\" в ReflectTargets, получено: %+v", prog.ReflectTargets)
+	}
+}
+
+// TestAnalyzeAsInterfaceOKAndComputesImplementors - "значение как
+// ИмяИнтерфейса" (docs/ROADMAP.md - находка "значение как ИмяИнтерфейса не
+// распаковывает боксированную реализацию") теперь разрешён для боксированной
+// КОНКРЕТНОЙ реализации, и Program.InterfaceImplementors вычисляется
+// транзитивно (entitySatisfies) для каждого объявленного интерфейса.
+func TestAnalyzeAsInterfaceOKAndComputesImplementors(t *testing.T) {
+	prog, err := AnalyzeSource(t, `
+интерфейс Звучащий
+{
+    издать_звук(): Строка
+}
+сущность Кот реализует Звучащий
+{
+    издать_звук(): Строка
+    {
+        вернуть "мяу"
+    }
+}
+функция главная
+{
+    переменная коробка = (Значение) новый Кот()
+    переменная звучащий = коробка как Звучащий
+    вывести звучащий.издать_звук()
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	impls := prog.InterfaceImplementors["Звучащий"]
+	if len(impls) != 1 || impls[0] != "Кот" {
+		t.Fatalf("ожидался implementors [\"Кот\"] у \"Звучащий\", получено: %+v", impls)
+	}
+}
+
+// TestAnalyzeBoxInterfaceTypedValueRejected - боксирование "(Значение) x",
+// где x статически типизирован ИНТЕРФЕЙСОМ, отклоняется явной ошибкой
+// компиляции (не тихий неверный код) - см. package doc analyzeCastExpr,
+// внутри cast.go, "ИСКЛЮЧЕНИЕ - from.Kind == ir.KindInterface".
+func TestAnalyzeBoxInterfaceTypedValueRejected(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+интерфейс Звучащий
+{
+    издать_звук(): Строка
+}
+сущность Кот реализует Звучащий
+{
+    издать_звук(): Строка
+    {
+        вернуть "мяу"
+    }
+}
+функция обработать(з: Звучащий)
+{
+    переменная коробка = (Значение) з
+}
+функция главная
+{
+    обработать(новый Кот())
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "интерфейсно-типизированное") {
+		t.Fatalf("ожидалась ошибка про боксирование интерфейсного значения, получено: %v", err)
 	}
 }

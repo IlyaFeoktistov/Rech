@@ -447,12 +447,18 @@ func panicRuntime(format string, args ...any) {
 // "rech debug") - обычный Run/rech test его не заводит вовсе, поэтому не
 // платит ни за какие проверки/блокировки отладчика.
 type Interp struct {
-	out      io.Writer
-	stdin    *bufio.Reader
-	funcs    map[string]*ir.Function
-	entities map[string]*ir.Entity
-	generics map[string]ir.GenericInstantiation
-	debugger *Debugger
+	out        io.Writer
+	stdin      *bufio.Reader
+	funcs      map[string]*ir.Function
+	entities   map[string]*ir.Entity
+	interfaces map[string]*ir.Interface
+	generics   map[string]ir.GenericInstantiation
+	debugger   *Debugger
+
+	// interfaceImplementors - см. package doc ir.Program.InterfaceImplementors
+	// (internal/semantic уже вычислил его транзитивно, entitySatisfies) -
+	// нужен evalAsExpr для "значение как ИмяИнтерфейса".
+	interfaceImplementors map[string][]string
 
 	// staticFields - значение статического поля сущности ("Тип::поле", см.
 	// ir.Entity.StaticFields) по (имя сущности, имя поля) - одно общее
@@ -515,19 +521,24 @@ func newInterp(prog *ir.Program, out io.Writer, stdin io.Reader) (*Interp, *ir.F
 			prog.ExternFuncs[0].Alias)
 	}
 	in := &Interp{
-		out:          out,
-		stdin:        bufio.NewReader(stdin),
-		funcs:        map[string]*ir.Function{},
-		entities:     map[string]*ir.Entity{},
-		generics:     map[string]ir.GenericInstantiation{},
-		staticFields: map[string]map[string]Value{},
-		staticLocals: map[int]Value{},
+		out:                   out,
+		stdin:                 bufio.NewReader(stdin),
+		funcs:                 map[string]*ir.Function{},
+		entities:              map[string]*ir.Entity{},
+		interfaces:            map[string]*ir.Interface{},
+		generics:              map[string]ir.GenericInstantiation{},
+		staticFields:          map[string]map[string]Value{},
+		staticLocals:          map[int]Value{},
+		interfaceImplementors: prog.InterfaceImplementors,
 	}
 	for _, fn := range prog.Functions {
 		in.funcs[fn.Name] = fn
 	}
 	for _, ent := range prog.Entities {
 		in.entities[ent.Name] = ent
+	}
+	for _, iface := range prog.Interfaces {
+		in.interfaces[iface.Name] = iface
 	}
 	for _, g := range prog.Generics {
 		in.generics[g.Name] = g

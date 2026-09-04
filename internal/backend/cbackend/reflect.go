@@ -90,6 +90,27 @@ var reflectUnboxCheckHelper = fmt.Sprintf(`static rech_any_t rech_unbox_check(re
 }
 `, escapeCString(rtmsg.AsTypeMismatchTemplate))
 
+// reflectUnboxCheckIfaceHelper - "значение как ИмяИнтерфейса"
+// (docs/ROADMAP.md - находка "значение как ИмяИнтерфейса не распаковывает
+// боксированную реализацию") - в отличие от rech_unbox_check выше (точное
+// совпадение с ОДНИМ ожидаемым дескриптором), проверяет членство v.type
+// среди impls (rech_iface_impls_<Интерфейс>, см. interfaceImplementorsArrayCode) -
+// боксированное значение несёт дескриптор КОНКРЕТНОЙ сущности, не самого
+// интерфейса, поэтому единственный корректный вопрос - "реализует ли ЭТА
+// сущность требуемый интерфейс", не "совпадает ли с ним дословно".
+var reflectUnboxCheckIfaceHelper = fmt.Sprintf(`static rech_any_t rech_unbox_check_iface(rech_any_t v, const rech_type_meta_t *const *impls, int impl_count, const char *iface_name) {
+    for (int i = 0; i < impl_count; i++) {
+        if (v.type == impls[i]) {
+            return v;
+        }
+    }
+    char msg[256];
+    snprintf(msg, sizeof(msg), "%s", iface_name, v.type->name);
+    rech_panic(msg);
+    return v;
+}
+`, escapeCString(rtmsg.AsInterfaceMismatchTemplate))
+
 // reflectLookupHelpers - поиск поля/метода по имени (линейный - число
 // полей/методов сущности единицы, не нужен хеш) и по индексу (с проверкой
 // границ) - общие для всех типов, используются кодогенерацией методов
@@ -372,6 +393,16 @@ func reflectUnboxExprCode(ctx *irGenCtx, t ir.Type, anyExpr string) string {
 			return fmt.Sprintf("((%s *)(%s).v.ptr)", cType, anyExpr)
 		}
 		return fmt.Sprintf("(*(%s *)(%s).v.ptr)", cType, anyExpr)
+	case ir.KindInterface:
+		// Представление интерфейсного значения - всегда "void *" (см.
+		// package doc ctx.receiverIsPointer, vtable.go) - боксированный
+		// указатель (v.v.ptr) уже указывает на КОНКРЕТНУЮ сущность,
+		// реализующую интерфейс (rech_unbox_check_iface выше уже это
+		// проверил - см. reflectCheckedUnboxExprCode), она сама несёт
+		// скрытый заголовок vtable первым полем - тот же указатель без
+		// изменений УЖЕ пригоден для обычного вызова метода через
+		// интерфейс, никакого дополнительного оборачивания не нужно.
+		return fmt.Sprintf("((void *)(%s).v.ptr)", anyExpr)
 	default:
 		return fmt.Sprintf("((%s)(%s).v.i)", fromIRType(t).cType(ctx), anyExpr)
 	}
@@ -384,6 +415,12 @@ func reflectUnboxExprCode(ctx *irGenCtx, t ir.Type, anyExpr string) string {
 // "установить_поле"/"создать") - ни одна из этих операций не должна
 // молча читать чужой union-вариант.
 func reflectCheckedUnboxExprCode(ctx *irGenCtx, t ir.Type, anyExpr string) string {
+	if t.Kind == ir.KindInterface {
+		implCount := len(ctx.interfaceImplementors[t.Entity])
+		checked := fmt.Sprintf("rech_unbox_check_iface(%s, %s, %d, \"%s\")",
+			anyExpr, interfaceImplementorsArrayName(t.Entity), implCount, escapeCString(t.Entity))
+		return reflectUnboxExprCode(ctx, t, checked)
+	}
 	checked := fmt.Sprintf("rech_unbox_check(%s, &%s)", anyExpr, reflectMetaVarFor(t))
 	return reflectUnboxExprCode(ctx, t, checked)
 }
@@ -563,19 +600,24 @@ type reflectGen struct {
 	// приходят к ОДНОМУ И ТОМУ ЖЕ имени обёртки - без этой памяти вторая
 	// сгенерировала бы дублирующее определение C-функции.
 	thunksGenerated map[string]bool
-	code            strings.Builder
+	// implementors - см. package doc ir.Program.InterfaceImplementors -
+	// нужен ensureInterface (implementors[Имя] - сущности, чьи дескрипторы
+	// эмитятся ДО дескриптора интерфейса, чтобы массив rech_iface_impls_*
+	// мог сослаться на их адреса) и interfaceImplementorsArrayCode.
+	implementors map[string][]string
+	code         strings.Builder
 }
 
 // reflectRuntimeCode - точка входа: primitiveReflectDescriptors уже
 // эмитятся раньше (см. generateSource) - эта функция генерирует код на
-// сущности/структуры и (см. ensure) на встреченные внутри них generic-
-// коллекции (Список/Стопка/Очередь/Словарь).
-func reflectRuntimeCode(ctx *irGenCtx, targets []ir.Type, generics []ir.GenericInstantiation) (string, error) {
+// сущности/структуры/интерфейсы и (см. ensure) на встреченные внутри них
+// generic-коллекции (Список/Стопка/Очередь/Словарь).
+func reflectRuntimeCode(ctx *irGenCtx, targets []ir.Type, generics []ir.GenericInstantiation, implementors map[string][]string) (string, error) {
 	genericsByName := make(map[string]ir.GenericInstantiation, len(generics))
 	for _, gi := range generics {
 		genericsByName[gi.Name] = gi
 	}
-	g := &reflectGen{ctx: ctx, generated: map[string]bool{}, generics: genericsByName, thunksGenerated: map[string]bool{}}
+	g := &reflectGen{ctx: ctx, generated: map[string]bool{}, generics: genericsByName, thunksGenerated: map[string]bool{}, implementors: implementors}
 	for _, t := range targets {
 		if err := g.ensure(t); err != nil {
 			return "", err
@@ -602,6 +644,13 @@ func reflectRuntimeCode(ctx *irGenCtx, targets []ir.Type, generics []ir.GenericI
 // только элемент/ключ, которые сами могут быть сущностями и тоже требуют
 // ensure).
 func (g *reflectGen) ensure(t ir.Type) error {
+	if t.Kind == ir.KindInterface {
+		if g.generated[t.Entity] {
+			return nil
+		}
+		g.generated[t.Entity] = true
+		return g.ensureInterface(t)
+	}
 	if t.Kind != ir.KindEntity {
 		return nil
 	}
@@ -693,6 +742,122 @@ func (g *reflectGen) ensureGeneric(t ir.Type, gi ir.GenericInstantiation) error 
 	fmt.Fprintf(&g.code, "static const rech_type_meta_t %s = {\"%s\", NULL, 0, NULL, 0, NULL, 0};\n",
 		reflectMetaVarFor(t), escapeCString(t.Entity))
 	return nil
+}
+
+// ensureInterface - дескриптор интерфейса t (docs/ROADMAP.md - находки
+// "тип ИмяИнтерфейса"/"значение как ИмяИнтерфейса") - в отличие от
+// ensure/ensureGeneric выше, у интерфейса НЕТ полей и НЕТ конструктора
+// (ctor рефлексивно недостижим - "тип.создать" для имени, которого нет в
+// g.ctx.entities, уже отдельно и корректно паникует "метод не найден" -
+// см. reflectCreate/её аналог в internal/interp), а методы несут invoke =
+// NULL: диспетчеризация "значение.вызвать(...)" ВСЕГДА идёт через v.type
+// боксированного значения, а это ВСЕГДА дескриптор КОНКРЕТНОЙ сущности
+// (боксирование интерфейсно-типизированного ВЫРАЖЕНИЯ само по себе не
+// поддержано - reflectBoxExprCode ниже не различает KindInterface,
+// боксируется всегда конкретный, статически известный тип), значит invoke
+// у дескриптора самого интерфейса не разыменовывается в реальном пути
+// исполнения ни разу.
+//
+// Отдельно эмитит rech_iface_impls_<Имя> - статический массив указателей
+// на дескрипторы ВСЕХ сущностей программы, реально реализующих t
+// (g.implementors, вычислено транзитивно один раз в internal/semantic,
+// entitySatisfies) - используется reflectCheckedUnboxExprCode для
+// "значение как ИмяИнтерфейса": несовпадение v.type ни с ОДНИМ элементом
+// этого списка - паника (rech_unbox_check_iface), не точное сравнение с
+// единственным ожидаемым дескриптором, как у rech_unbox_check.
+func (g *reflectGen) ensureInterface(t ir.Type) error {
+	iface, ok := g.ctx.interfaces[t.Entity]
+	if !ok {
+		return fmt.Errorf("генерация C из IR: рефлексия по неизвестному интерфейсу %q", t.Entity)
+	}
+	// Опережающее объявление - тот же приём (и по той же причине), что и у
+	// ensure (сущности) выше: методы ниже и implementors теоретически могут
+	// рекурсивно сослаться на ЭТОТ ЖЕ интерфейс (поле/параметр/результат
+	// метода реализующей сущности типа этого самого интерфейса).
+	fmt.Fprintf(&g.code, "static const rech_type_meta_t %s;\n", reflectMetaVarFor(t))
+	for _, m := range iface.Methods {
+		for _, p := range m.Params {
+			if err := g.ensure(p.Type); err != nil {
+				return err
+			}
+		}
+		if m.HasReturn {
+			if err := g.ensure(m.ReturnType); err != nil {
+				return err
+			}
+		}
+	}
+	implementors := g.implementors[t.Entity]
+	for _, entName := range implementors {
+		if err := g.ensure(ir.EntityType(entName)); err != nil {
+			return err
+		}
+	}
+	g.code.WriteString(g.interfaceTypeDescriptorCode(iface))
+	g.code.WriteString(interfaceImplementorsArrayCode(t.Entity, implementors))
+	return nil
+}
+
+// interfaceTypeDescriptorCode - тот же формат, что typeDescriptorCode у
+// сущности (ниже по файлу), но без полей/конструктора - см. package doc
+// ensureInterface.
+func (g *reflectGen) interfaceTypeDescriptorCode(iface *ir.Interface) string {
+	metaName := reflectMetaVarFor(ir.InterfaceType(iface.Name))
+	var sb strings.Builder
+
+	methodsArr := "NULL"
+	if len(iface.Methods) > 0 {
+		methodsArr = metaName + "_methods"
+		for _, m := range iface.Methods {
+			if len(m.Params) == 0 {
+				continue
+			}
+			arrName := metaName + "_params_" + transliterate(m.Name)
+			parts := make([]string, len(m.Params))
+			for i, p := range m.Params {
+				parts[i] = "&" + reflectMetaVarFor(p.Type)
+			}
+			fmt.Fprintf(&sb, "static const rech_type_meta_t *const %s[] = {%s};\n", arrName, strings.Join(parts, ", "))
+		}
+		fmt.Fprintf(&sb, "static const rech_method_meta_t %s[] = {\n", methodsArr)
+		for _, m := range iface.Methods {
+			paramsRef := "NULL"
+			if len(m.Params) > 0 {
+				paramsRef = metaName + "_params_" + transliterate(m.Name)
+			}
+			returnMeta := reflectMetaName(reflectPustoName)
+			if m.HasReturn {
+				returnMeta = reflectMetaVarFor(m.ReturnType)
+			}
+			fmt.Fprintf(&sb, "    {\"%s\", %d, %s, &%s, NULL},\n", escapeCString(m.Name), len(m.Params), paramsRef, returnMeta)
+		}
+		sb.WriteString("};\n")
+	}
+
+	fmt.Fprintf(&sb, "static const rech_type_meta_t %s = {\"%s\", NULL, 0, %s, %d, NULL, 0};\n\n",
+		metaName, escapeCString(iface.Name), methodsArr, len(iface.Methods))
+	return sb.String()
+}
+
+// interfaceImplementorsArrayName/interfaceImplementorsArrayCode - см.
+// package doc ensureInterface. Пустой implementors (интерфейс без единой
+// реализующей сущности в программе) - всё равно валидный C нужен: массив
+// нулевой длины без инициализатора недопустим стандартным C - единственный
+// NULL-элемент, count (второй аргумент rech_unbox_check_iface на месте
+// вызова) при этом всегда 0, элемент физически не читается никогда.
+func interfaceImplementorsArrayName(ifaceName string) string {
+	return "rech_iface_impls_" + transliterate(ifaceName)
+}
+
+func interfaceImplementorsArrayCode(ifaceName string, implementors []string) string {
+	if len(implementors) == 0 {
+		return fmt.Sprintf("static const rech_type_meta_t *const %s[] = {NULL};\n", interfaceImplementorsArrayName(ifaceName))
+	}
+	parts := make([]string, len(implementors))
+	for i, entName := range implementors {
+		parts[i] = "&" + reflectMetaVarFor(ir.EntityType(entName))
+	}
+	return fmt.Sprintf("static const rech_type_meta_t *const %s[] = {%s};\n", interfaceImplementorsArrayName(ifaceName), strings.Join(parts, ", "))
 }
 
 // structBoxFuncCode - "(Значение) x" для структуры (по значению) -

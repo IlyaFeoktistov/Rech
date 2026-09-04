@@ -18,6 +18,20 @@ func AsTypeMismatchFormat(actual, expected string) string {
 	return fmt.Sprintf(AsTypeMismatchTemplate, expected, actual)
 }
 
+// AsInterfaceMismatchTemplate/AsInterfaceMismatchFormat - тот же случай, что
+// AsTypeMismatchTemplate выше, но целевой тип "как" - интерфейс
+// (docs/ROADMAP.md - "значение как ИмяИнтерфейса не распаковывает
+// боксированную реализацию"): проверка не "совпадает ли фактический тип с
+// ОДНИМ ожидаемым" (rech_unbox_check), а "реализует ли фактический тип этот
+// интерфейс" (rech_unbox_check_iface, internal/backend/cbackend/reflect.go) -
+// отдельное сообщение, чтобы не путать "неверный тип" с "неверный тип, не
+// реализующий требуемый контракт".
+const AsInterfaceMismatchTemplate = "каст (Значение -> %s): фактический тип значения (%s) не реализует этот интерфейс"
+
+func AsInterfaceMismatchFormat(ifaceName, actualType string) string {
+	return fmt.Sprintf(AsInterfaceMismatchTemplate, ifaceName, actualType)
+}
+
 // ReflectIndexOutOfRangeTemplate/ReflectIndexOutOfRangeFormat -
 // сообщение при выходе за границы у индексных методов "Тип"
 // (имя_поля/тип_поля/имя_метода/...) - kind - "поле"/"метод"/"параметр".

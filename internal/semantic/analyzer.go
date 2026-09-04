@@ -990,6 +990,25 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	out.XMLParseTargets = a.xmlParseTargets.order
 	out.XMLSerializeTargets = a.xmlSerializeTargets.order
 	out.ReflectTargets = a.reflectTargets.order
+	// InterfaceImplementors - см. package doc ir.Program.InterfaceImplementors -
+	// для КАЖДОГО объявленного интерфейса программы (не только
+	// зарегистрированных как ReflectTargets - дёшево посчитать для всех),
+	// entitySatisfies уже умеет транзитивно проверить и цепочку "наследует"
+	// у сущности, и цепочку "наследует" у самого интерфейса
+	// (interfaceIsOrExtends, interfaces.go) - тот же курируемый источник
+	// истины, что уже используется для проверки "реализует" на этапе
+	// компиляции, не отдельная параллельная реализация.
+	if len(out.Interfaces) > 0 {
+		implementors := make(map[string][]string, len(out.Interfaces))
+		for _, iface := range out.Interfaces {
+			for _, ent := range out.Entities {
+				if entitySatisfies(a.entities, a.interfaces, ent.Name, iface.Name) {
+					implementors[iface.Name] = append(implementors[iface.Name], ent.Name)
+				}
+			}
+		}
+		out.InterfaceImplementors = implementors
+	}
 	out.UsesReflection = a.usesReflection
 	out.UsesDB = a.usesDB
 	out.DBBackends = a.dbBackends

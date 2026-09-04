@@ -62,15 +62,16 @@ var typeInfoMethodSigs = map[string]funcSig{
 // analyzeTypeOfExpr разбирает "тип <Имя>" - дескриптор типа Имя, известного
 // уже во время компиляции (аналог typeof(T)). Имя резолвится тем же
 // resolveTypeName, что и любое другое упоминание типа - сущность/структура
-// регистрируется в Program.ReflectTargets (backend генерирует под неё
-// дескриптор), примитив - нет (его дескриптор эмитится всегда).
+// ИЛИ интерфейс (docs/ROADMAP.md - находка "тип ИмяИнтерфейса не
+// существует") регистрируется в Program.ReflectTargets (backend генерирует
+// под неё дескриптор), примитив - нет (его дескриптор эмитится всегда).
 func analyzeTypeOfExpr(sc *ctx, e *ast.TypeOfExpr) (ir.Expr, error) {
 	t, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, e.TypeName)
 	if err != nil {
 		return nil, fmt.Errorf("строка %d: \"тип %s\": %w", e.Line, e.TypeName, err)
 	}
 	sc.a.markUsesReflection()
-	if t.Kind == ir.KindEntity {
+	if t.Kind == ir.KindEntity || t.Kind == ir.KindInterface {
 		sc.a.registerReflectTarget(t)
 	}
 	return &ir.TypeOfExpr{Type: t}, nil
@@ -110,7 +111,14 @@ func analyzeAsExpr(sc *ctx, e *ast.AsExpr) (ir.Expr, error) {
 		return nil, fmt.Errorf("строка %d: \"как %s\": %w", e.Line, e.TypeName, err)
 	}
 	sc.a.markUsesReflection()
-	if to.Kind == ir.KindEntity {
+	// KindInterface (docs/ROADMAP.md - находка "значение как ИмяИнтерфейса
+	// не распаковывает боксированную реализацию") - регистрируется тем же
+	// путём, что и сущность: backend'у нужен дескриптор САМОГО интерфейса
+	// (тип_значения()/тип_параметра_метода(...) метода, встреченного через
+	// него) и, отдельно, Program.InterfaceImplementors (собран в buildIR,
+	// ниже по файлу analyzer.go) - список сущностей, которые он реально
+	// принимает при разбоксировании.
+	if to.Kind == ir.KindEntity || to.Kind == ir.KindInterface {
 		sc.a.registerReflectTarget(to)
 	}
 	return &ir.AsExpr{Value: value, To: to}, nil
