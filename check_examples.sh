@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Смоук-тест "собираются ли все examples/*.rech" - тот же путь, что и у
+# реального пользователя (rech build), не юнит-тесты компилятора (которые
+# не гоняют настоящий cc, см. DEVELOPMENT.md, "Как тестировать"). Только
+# компиляция (не запуск) - часть примеров интерактивна (читает stdin) или
+# долго исполняется (обучение нейросети), это здесь не нужно.
+#
+# Пропускает: .rech-файлы внутри каталога проекта (.rechproj рядом или
+# выше по дереву - "исходники/*.rech" не самостоятельные программы, их
+# собирает только сам .rechproj целиком) и .rech-файлы без "функция
+# главная" (библиотечные модули для "использовать ... из", не собираются
+# отдельно - см. examples/импорты/утилиты.rech, импортируется из
+# examples/импорты/главный.rech).
+set -uo pipefail
+cd "$(dirname "$0")"
+
+tmp_bin="$(mktemp -d)/rech"
+trap 'rm -rf "$(dirname "$tmp_bin")"' EXIT
+
+echo "Сборка компилятора..."
+if ! go build -o "$tmp_bin" ./cmd/rech; then
+    echo "не удалось собрать компилятор" >&2
+    exit 1
+fi
+
+total=0
+failed=0
+declare -a project_dirs=()
+
+check() {
+    local path="$1"
+    total=$((total + 1))
+    local out
+    if out=$("$tmp_bin" build "$path" </dev/null 2>&1 >/dev/null); then
+        echo "OK      $path"
+    else
+        failed=$((failed + 1))
+        echo "ОШИБКА  $path"
+        echo "$out" | sed 's/^/        /'
+    fi
+}
+
+echo
+echo "== Проекты (.rechproj) =="
+while IFS= read -r proj; do
+    check "$proj"
+    project_dirs+=("$(dirname "$proj")")
+done < <(find examples -iname '*.rechproj' | sort)
+
+is_in_project_dir() {
+    local f="$1"
+    local pd
+    for pd in "${project_dirs[@]:-}"; do
+        [[ "$f" == "$pd"/* ]] && return 0
+    done
+    return 1
+}
+
+echo
+echo "== Отдельные файлы (.rech) =="
+while IFS= read -r f; do
+    is_in_project_dir "$f" && continue
+    grep -qF 'функция главная' "$f" || continue
+    check "$f"
+done < <(find examples -iname '*.rech' | sort)
+
+echo
+echo "Итого: $total, ошибок: $failed"
+[ "$failed" -eq 0 ]
