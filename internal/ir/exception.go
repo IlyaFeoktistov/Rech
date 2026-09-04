@@ -17,9 +17,15 @@ func (*ThrowStmt) stmt() {}
 // "Исключение" - единственный гарантированный общий предок всего списка
 // (все элементы CatchTypes обязаны быть им самим или его наследником).
 type TryStmt struct {
-	Body         []Stmt
-	CatchVar     string
-	CatchTypes   []string
+	Body       []Stmt
+	CatchVar   string
+	CatchTypes []string
+	// CatchPanic - см. ast.TryStmt.CatchPanic (docs/ROADMAP.md, изоляция
+	// паники) - "поймать (<CatchVar>: Паника)": CatchTypes пуст,
+	// CatchVarType всегда TypeString, ловит "rech_panic"-класс ошибок, не
+	// "выбросить"-исключения (совершенно отдельный, не пересекающийся с
+	// CatchTypes/rech_throw путь и в cbackend, и в interp).
+	CatchPanic   bool
 	CatchVarType Type
 	CatchBody    []Stmt
 }

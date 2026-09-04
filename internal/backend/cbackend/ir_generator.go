@@ -141,6 +141,15 @@ type irGenCtx struct {
 	usesExceptions bool
 	tryCounter     int
 
+	// usesPanicCatch - хотя бы один "поймать (<имя>: Паника)" реально
+	// встретился в программе (docs/ROADMAP.md, изоляция паники, см.
+	// ir.TryStmt.CatchPanic/generateIRTryCatchPanicStmt) - переключает
+	// rech_panic с безусловного fprintf+exit (panicHelper) на версию,
+	// которая ищет ближайший такой кадр вверх по rech_catch_top
+	// (panicCatchHelperCode) - подавляющее большинство программ этот флаг
+	// не поднимают, panicHelper для них не меняется вовсе.
+	usesPanicCatch bool
+
 	// irFuncs - функции программы по имени (нужно generateIRLaunchExpr,
 	// чтобы найти параметры/тип результата обёрнутой функции - см.
 	// internal/backend/cbackend/concurrency.go, ensureTaskWrapper).
@@ -770,7 +779,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		sb.WriteString("#include <gc.h>\n")
 	}
 	hasStructTargets := len(prog.ParseTargets) > 0 || len(prog.SerializeTargets) > 0 || len(prog.XMLParseTargets) > 0 || len(prog.XMLSerializeTargets) > 0
-	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || hasStructTargets || prog.UsesReflection {
+	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesPanicCatch || hasStructTargets || prog.UsesReflection {
 		sb.WriteString("#include <string.h>\n")
 	}
 	if ctx.usesRandom {
@@ -826,7 +835,20 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// (например, число -> Строка) - тот же принцип, что и у usesGenerics
 	// здесь: panicHelper должен быть виден целиком, раз в файле есть хотя
 	// бы один потенциальный вызывающий его блок текста.
-	appendCodeIf(&sb, usesGenerics || usesNullables || ctx.usesPanic || ctx.usesCast || prog.UsesReflection, panicHelper)
+	//
+	// ctx.usesPanicCatch - полное тело rech_panic эмитится не здесь, а
+	// НИЖЕ, после exceptionRuntimeCode (panicCatchHelperCode читает
+	// rech_catch_frame/rech_catch_top оттуда) - здесь в этом случае только
+	// прототип, чтобы все вызовы rech_panic() выше (readHelpers/
+	// socketHelpers/castHelpers и т. п., ниже этой строки, но раньше
+	// exceptionRuntimeCode) остались валидным C (объявление обязано
+	// предшествовать первому вызову).
+	panicGate := usesGenerics || usesNullables || ctx.usesPanic || ctx.usesCast || prog.UsesReflection || ctx.usesPanicCatch
+	if ctx.usesPanicCatch {
+		appendCodeIf(&sb, panicGate, "static void rech_panic(const char *msg);\n")
+	} else {
+		appendCodeIf(&sb, panicGate, panicHelper)
+	}
 	appendCodeIf(&sb, ctx.usesArgs, argFuncHelper)
 	appendCodeIf(&sb, ctx.usesCast, castHelpers)
 
@@ -917,6 +939,11 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// После typedefs - использует rech_vtable_header/rech_T_Исключение,
 	// оба уже должны быть объявлены (см. exceptions.go).
 	appendCodeIf(&sb, ctx.usesExceptions, exceptionRuntimeCode(ctx))
+	// panicCatchHelperCode - полное тело rech_panic, когда программа
+	// содержит "поймать (x: Паника)" (см. прототип вместо panicHelper
+	// выше) - после exceptionRuntimeCode: читает rech_catch_frame/
+	// rech_catch_top, определённые там.
+	appendCodeIf(&sb, ctx.usesPanicCatch, panicCatchHelperCode())
 	appendCodeIf(&sb, callableTypedefs.Len() > 0, callableTypedefs.String())
 	// После callableTypedefs - см. её package doc выше (genericsCode).
 	appendCodeIf(&sb, genericsCodeAfterCallables.Len() > 0, genericsCodeAfterCallables.String())

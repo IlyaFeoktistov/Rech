@@ -127,6 +127,28 @@ func analyzeTryStmt(sc *ctx, s *ast.TryStmt) (ir.Stmt, error) {
 	}
 	sc.established = preTry
 
+	// CatchPanic - "поймать (<имя>: Паника)" (docs/ROADMAP.md, изоляция
+	// паники) - совершенно отдельная от обычного поймать(Тип) ветка:
+	// CatchVar несёт "Строка" (сообщение rech_panic), не сущность-
+	// исключение, поэтому ниже её типовая проверка/entityIsOrExtends не
+	// применяется вовсе.
+	if s.CatchPanic {
+		sc.push()
+		if err := sc.declare(s.CatchVar, ir.TypeString); err != nil {
+			sc.pop()
+			return nil, fmt.Errorf("строка %d: %w", s.Line, err)
+		}
+		catchBody, err := analyzeBlock(sc, s.CatchBody)
+		sc.pop()
+		if err != nil {
+			return nil, err
+		}
+		sc.established = preTry
+		return &ir.TryStmt{
+			Body: body, CatchVar: s.CatchVar, CatchPanic: true, CatchVarType: ir.TypeString, CatchBody: catchBody,
+		}, nil
+	}
+
 	if len(s.CatchTypes) == 0 {
 		return nil, fmt.Errorf("строка %d: \"поймать(...)\" должно перечислять хотя бы один тип исключения", s.Line)
 	}

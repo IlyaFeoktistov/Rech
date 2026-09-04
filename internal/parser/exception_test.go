@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
@@ -84,6 +85,54 @@ func TestParseIsExprTakesTargetLiterallyWithoutDeclension(t *testing.T) {
 	}
 	if isExpr.Target != "Пользователь" {
 		t.Fatalf("ожидался Target %q без склонения, получено %q", "Пользователь", isExpr.Target)
+	}
+}
+
+// TestParseTryCatchPanic - "поймать (x: Паника)" (docs/ROADMAP.md, изоляция
+// паники) - "Паника" не заносится в CatchTypes (не настоящий тип
+// исключения, см. package doc ast.TryStmt.CatchPanic), а ставит CatchPanic.
+func TestParseTryCatchPanic(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная
+{
+    попытаться {
+        вывести "тело"
+    } поймать(сообщение: Паника) {
+        вывести сообщение
+    }
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	try := prog.Functions[0].Body[0].(*ast.TryStmt)
+	if !try.CatchPanic {
+		t.Fatalf("ожидался CatchPanic == true")
+	}
+	if try.CatchVar != "сообщение" {
+		t.Fatalf("ожидалось имя переменной \"сообщение\", получено %q", try.CatchVar)
+	}
+	if len(try.CatchTypes) != 0 {
+		t.Fatalf("ожидался пустой CatchTypes у \"поймать(x: Паника)\", получено %+v", try.CatchTypes)
+	}
+}
+
+// TestParseTryCatchPanicRejectsUnionWithOtherType - "Паника" обязана быть
+// единственным элементом списка типов - "поймать(x: Паника|Исключение)"
+// должен быть явной ошибкой разбора, не тихим падением дальше в семантику.
+func TestParseTryCatchPanicRejectsUnionWithOtherType(t *testing.T) {
+	_, err := parseSource(t, `
+функция главная
+{
+    попытаться {
+        вывести "тело"
+    } поймать(сообщение: Паника|Исключение) {
+        вывести "поймано"
+    }
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "не может сочетаться") {
+		t.Fatalf("ожидалась ошибка о несовместимости \"Паника\" с другими типами, получено: %v", err)
 	}
 }
 

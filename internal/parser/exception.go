@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
@@ -70,6 +71,20 @@ func (p *Parser) parseTryStmt() (ast.Stmt, error) {
 	catchBody, err := p.parseBlock()
 	if err != nil {
 		return nil, err
+	}
+	// "Паника" (docs/ROADMAP.md, изоляция паники) - НЕ настоящий тип
+	// исключения (см. package doc ast.TryStmt.CatchPanic) - распознаётся
+	// здесь ПОСЛЕ полного разбора списка типов, а не как отдельная ветка
+	// грамматики: "поймать (x: Паника | ОшибкаХ)" - явная ошибка (не тихое
+	// падение в резолюцию несуществующей сущности "Паника" где-то дальше в
+	// семантике), "Паника" обязана быть ЕДИНСТВЕННЫМ элементом списка.
+	if len(catchTypes) > 1 && slices.Contains(catchTypes, "Паника") {
+		return nil, fmt.Errorf("строка %d: \"Паника\" в \"поймать(...)\" не может сочетаться с другими типами через \"|\"", kw.Line)
+	}
+	if len(catchTypes) == 1 && catchTypes[0] == "Паника" {
+		return &ast.TryStmt{
+			Body: body, CatchVar: catchVar.Value, CatchPanic: true, CatchBody: catchBody, Line: kw.Line,
+		}, nil
 	}
 	return &ast.TryStmt{
 		Body: body, CatchVar: catchVar.Value, CatchTypes: catchTypes, CatchBody: catchBody, Line: kw.Line,

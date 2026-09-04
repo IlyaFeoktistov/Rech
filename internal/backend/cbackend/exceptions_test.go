@@ -162,3 +162,74 @@ func TestGenerateFromIRVtableFieldEmittedForEntityWithoutMethods(t *testing.T) {
 		t.Fatalf("ожидалось поле vt у участвующей в наследовании сущности без методов, получено:\n%s", out)
 	}
 }
+
+// TestGenerateFromIRTryCatchPanicUsesFrameSearchingRechPanic - "поймать (x:
+// Паника)" (docs/ROADMAP.md, изоляция паники) должен переключить rech_panic
+// с безусловного fprintf+exit (panicHelper) на версию, которая ищет кадр с
+// catch_panics=true - и вставить прототип rech_panic РАНЬШЕ полного тела
+// (полное тело читает rech_catch_frame/rech_catch_top, определённые вместе
+// с exceptionRuntimeCode).
+func TestGenerateFromIRTryCatchPanicUsesFrameSearchingRechPanic(t *testing.T) {
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.TryStmt{
+			Body: []ir.Stmt{
+				&ir.AssertStmt{Cond: &ir.BoolLiteral{Value: false}, Line: 1},
+			},
+			CatchVar: "сообщение", CatchPanic: true, CatchVarType: ir.TypeString,
+			CatchBody: []ir.Stmt{
+				&ir.PrintStmt{Value: &ir.Identifier{Name: "сообщение", Type: ir.TypeString}},
+			},
+		},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	protoIdx := strings.Index(out, "static void rech_panic(const char *msg);")
+	if protoIdx < 0 {
+		t.Fatalf("ожидался прототип rech_panic, получено:\n%s", out)
+	}
+	defIdx := strings.Index(out, "static void rech_panic(const char *msg) {")
+	if defIdx < 0 || defIdx < protoIdx {
+		t.Fatalf("ожидалось полное тело rech_panic ПОСЛЕ прототипа, получено:\n%s", out)
+	}
+	for _, want := range []string{
+		"bool catch_panics;", "const char *panic_msg;",
+		"while (f != NULL && !f->catch_panics)", "f->panic_msg = rech_panic_copy;",
+		"rech_frame_1.catch_panics = true;", "rech_frame_1.panic_msg;",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ожидался фрагмент %q, получено:\n%s", want, out)
+		}
+	}
+}
+
+// TestGenerateFromIRThrowSkipsCatchPanicFrames - "выбросить" внутри
+// "поймать (x: Паника)" обязано пролететь мимо catch_panics-кадра насквозь
+// (rech_throw не умеет диспетчеризовать по типу через panic_msg) - см.
+// package doc rech_throw в exceptions.go.
+func TestGenerateFromIRThrowSkipsCatchPanicFrames(t *testing.T) {
+	custom := &ir.Entity{Name: "ОшибкаХ", BaseName: systemExceptionEntity}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.TryStmt{
+			Body: []ir.Stmt{
+				&ir.TryStmt{
+					Body: []ir.Stmt{
+						&ir.ThrowStmt{Value: &ir.NewExpr{Entity: "ОшибкаХ", Args: []ir.Expr{&ir.StringLiteral{Value: "х"}}}},
+					},
+					CatchVar: "п", CatchPanic: true, CatchVarType: ir.TypeString,
+					CatchBody: []ir.Stmt{},
+				},
+			},
+			CatchVar: "иск", CatchTypes: []string{"ОшибкаХ"}, CatchVarType: ir.EntityType("ОшибкаХ"),
+			CatchBody: []ir.Stmt{},
+		},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Entities: []*ir.Entity{exceptionEntity(), custom}, Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "while (f != NULL && f->catch_panics)") {
+		t.Fatalf("ожидался пропуск catch_panics-кадров в rech_throw, получено:\n%s", out)
+	}
+}

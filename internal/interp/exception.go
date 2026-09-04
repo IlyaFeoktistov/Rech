@@ -2,6 +2,7 @@ package interp
 
 import (
 	"slices"
+	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
@@ -98,6 +99,9 @@ func (in *Interp) execThrowStmt(s *ir.ThrowStmt, env *Env, cc *callCtx) (ctrl, e
 // как есть дальше, до ближайшего охватывающего "попытаться" или до самого
 // верха.
 func (in *Interp) execTryStmt(s *ir.TryStmt, env *Env, cc *callCtx) (ctrl, error) {
+	if s.CatchPanic {
+		return in.execTryCatchPanic(s, env, cc)
+	}
 	c, err := in.execBlock(s.Body, newEnv(env), cc)
 	if err == nil {
 		return c, nil
@@ -119,6 +123,38 @@ func (in *Interp) execTryStmt(s *ir.TryStmt, env *Env, cc *callCtx) (ctrl, error
 	catchEnv := newEnv(env)
 	catchEnv.declare(s.CatchVar, in.cloneValue(thrown.value))
 	return in.execBlock(s.CatchBody, catchEnv, cc)
+}
+
+// execTryCatchPanic - "попытаться { ... } поймать (<CatchVar>: Паника) { ... }"
+// (docs/ROADMAP.md, изоляция паники) - в отличие от execTryStmt выше,
+// ловит НЕ "выбросить"-исключение (обычная error, thrownException), а
+// panicRuntime (rtmsg.PanicPrefix + внутреннее сообщение - выход за
+// границы Список/Стопка/Очередь, несовпадение "как"/рефлексии,
+// "утверждать" и т. п.) - это Go panic/recover, не error-возврат (см.
+// package doc panicRuntime/callFunction - каждая граница вызова функции
+// уже перехватывает *runtimeError, дописывает свой кадр стека и
+// перепаниковывает дальше тем же r); recover здесь работает по тому же
+// принципу, просто НЕ перепаниковывает - конвертирует в обычный возврат.
+// "внутренняя ошибка интерпретатора" (r, не приводимый к *runtimeError -
+// настоящий баг interp, не паника Rech-программы) пробрасывается дальше
+// без изменений - НЕ наше дело перехватывать её здесь, как и Run() не
+// перехватывает её иначе на самом верху.
+func (in *Interp) execTryCatchPanic(s *ir.TryStmt, env *Env, cc *callCtx) (c ctrl, err error) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			return
+		}
+		re, ok := r.(*runtimeError)
+		if !ok {
+			panic(r)
+		}
+		msg := strings.TrimPrefix(re.msg, rtmsg.PanicPrefix)
+		catchEnv := newEnv(env)
+		catchEnv.declare(s.CatchVar, stringValue(msg))
+		c, err = in.execBlock(s.CatchBody, catchEnv, cc)
+	}()
+	return in.execBlock(s.Body, newEnv(env), cc)
 }
 
 // evalIsExpr - "<выражение> относится к <Тип>" - см. isA.

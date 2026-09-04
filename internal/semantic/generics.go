@@ -190,7 +190,7 @@ func substStmt(s ast.Stmt, subst map[string]string) ast.Stmt {
 			catchTypes[i] = substituteTypeString(t, subst)
 		}
 		return &ast.TryStmt{
-			Body: substStmts(s.Body, subst), CatchVar: s.CatchVar, CatchTypes: catchTypes,
+			Body: substStmts(s.Body, subst), CatchVar: s.CatchVar, CatchTypes: catchTypes, CatchPanic: s.CatchPanic,
 			CatchBody: substStmts(s.CatchBody, subst), Line: s.Line,
 		}
 	case *ast.GerundStmt:

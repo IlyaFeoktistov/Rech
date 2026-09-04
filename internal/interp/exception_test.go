@@ -116,6 +116,53 @@ func TestRunCatchTypeMismatchRethrowsToOuterTry(t *testing.T) {
 	}
 }
 
+// TestRunCatchPanicBindsMessageAndContinuesExecution - "поймать (x:
+// Паника)" (docs/ROADMAP.md, изоляция паники) должен поймать выход за
+// границы Список.получить (rech_panic-класс ошибки, не "выбросить"), а
+// исполнение - продолжиться нормально после блока попытаться.
+func TestRunCatchPanicBindsMessageAndContinuesExecution(t *testing.T) {
+	out := runSrc(t, `
+функция главная
+{
+    переменная числа = новый Список<Целое>()
+    числа.добавить(1)
+    попытаться {
+        переменная х = числа.получить(5)
+    } поймать(сообщение: Паника) {
+        вывести сообщение
+    }
+    вывести "после"
+}
+`)
+	if out != "индекс вне границ у Список<Целое>\nпосле\n" {
+		t.Fatalf("неожиданный вывод: %q", out)
+	}
+}
+
+// TestRunCatchPanicDoesNotCatchThrownException - "поймать(x: Паника)" -
+// отдельный, не пересекающийся с "выбросить"/поймать(Тип) канал (см.
+// package doc ir.TryStmt.CatchPanic) - обычное исключение обязано
+// пролететь мимо него насквозь до внешнего поймать(Исключение).
+func TestRunCatchPanicDoesNotCatchThrownException(t *testing.T) {
+	out := runSrc(t, `
+функция главная
+{
+    попытаться {
+        попытаться {
+            выбросить новое Исключение("настоящее")
+        } поймать(сообщение: Паника) {
+            вывести "не должно сработать"
+        }
+    } поймать(иск: Исключение) {
+        вывести иск.сообщение
+    }
+}
+`)
+	if out != "настоящее\n" {
+		t.Fatalf("неожиданный вывод: %q", out)
+	}
+}
+
 func TestRunUncaughtThrowReturnsError(t *testing.T) {
 	err := runSrcExpectRuntimeError(t, `
 функция главная

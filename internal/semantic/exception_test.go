@@ -118,6 +118,33 @@ func TestAnalyzeCatchRejectsDuplicateTypeInUnion(t *testing.T) {
 	}
 }
 
+// TestAnalyzeCatchPanicBindsCatchVarAsString - "поймать (x: Паника)" (docs/
+// ROADMAP.md, изоляция паники) - CatchVar всегда Строка, независимо от
+// того, объявлена ли в программе своя сущность "Исключение" вообще.
+func TestAnalyzeCatchPanicBindsCatchVarAsString(t *testing.T) {
+	prog := parseProgram(t, `
+функция главная
+{
+    попытаться {
+        вывести "тело"
+    } поймать(сообщение: Паника) {
+        вывести сообщение
+    }
+}
+`)
+	fn := findFunc(prog, "главная")
+	try := fn.Body[0].(*ir.TryStmt)
+	if !try.CatchPanic {
+		t.Fatalf("ожидался CatchPanic == true")
+	}
+	if try.CatchVarType != ir.TypeString {
+		t.Fatalf("ожидался тип Строка у переменной поймать(x: Паника), получено %s", try.CatchVarType)
+	}
+	if len(try.CatchTypes) != 0 {
+		t.Fatalf("ожидался пустой CatchTypes, получено %+v", try.CatchTypes)
+	}
+}
+
 func TestAnalyzeIsExprBetweenRelatedEntities(t *testing.T) {
 	prog := parseProgram(t, `
 сущность ОшибкаДеления наследует Исключение
