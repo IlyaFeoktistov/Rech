@@ -36,6 +36,32 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return floatValue(math.Abs(args[0].F)), true
 	case "экспонента":
 		return floatValue(math.Exp(args[0].F)), true
+	case "синус":
+		return floatValue(math.Sin(args[0].F)), true
+	case "косинус":
+		return floatValue(math.Cos(args[0].F)), true
+	case "тангенс":
+		return floatValue(math.Tan(args[0].F)), true
+	case "арксинус":
+		return floatValue(math.Asin(args[0].F)), true
+	case "арккосинус":
+		return floatValue(math.Acos(args[0].F)), true
+	case "арктангенс":
+		return floatValue(math.Atan(args[0].F)), true
+	case "арктангенс2":
+		return floatValue(math.Atan2(args[0].F, args[1].F)), true
+	case "логарифм":
+		return floatValue(math.Log(args[0].F)), true
+	case "логарифм2":
+		return floatValue(math.Log2(args[0].F)), true
+	case "логарифм10":
+		return floatValue(math.Log10(args[0].F)), true
+	case "минимум":
+		return floatValue(math.Min(args[0].F, args[1].F)), true
+	case "максимум":
+		return floatValue(math.Max(args[0].F, args[1].F)), true
+	case "пи":
+		return floatValue(math.Pi), true
 	case "прочитать_строку":
 		return stringValue(in.readLine()), true
 	case "прочитать_целое":

@@ -55,6 +55,19 @@ var All = []Func{
 	{Name: "пол", Params: []Kind{KindFloat}, ReturnKind: KindInt, HasReturn: true},
 	{Name: "модуль", Params: []Kind{KindFloat}, ReturnKind: KindFloat, HasReturn: true},
 	{Name: "экспонента", Params: []Kind{KindFloat}, ReturnKind: KindFloat, HasReturn: true},
+	{Name: "синус", Params: []Kind{KindFloat}, ReturnKind: KindFloat, HasReturn: true},
+	{Name: "косинус", Params: []Kind{KindFloat}, ReturnKind: KindFloat, HasReturn: true},
+	{Name: "тангенс", Params: []Kind{KindFloat}, ReturnKind: KindFloat, HasReturn: true},
+	{Name: "арксинус", Params: []Kind{KindFloat}, ReturnKind: KindFloat, HasReturn: true},
+	{Name: "арккосинус", Params: []Kind{KindFloat}, ReturnKind: KindFloat, HasReturn: true},
+	{Name: "арктангенс", Params: []Kind{KindFloat}, ReturnKind: KindFloat, HasReturn: true},
+	{Name: "арктангенс2", Params: []Kind{KindFloat, KindFloat}, ReturnKind: KindFloat, HasReturn: true},
+	{Name: "логарифм", Params: []Kind{KindFloat}, ReturnKind: KindFloat, HasReturn: true},
+	{Name: "логарифм2", Params: []Kind{KindFloat}, ReturnKind: KindFloat, HasReturn: true},
+	{Name: "логарифм10", Params: []Kind{KindFloat}, ReturnKind: KindFloat, HasReturn: true},
+	{Name: "минимум", Params: []Kind{KindFloat, KindFloat}, ReturnKind: KindFloat, HasReturn: true},
+	{Name: "максимум", Params: []Kind{KindFloat, KindFloat}, ReturnKind: KindFloat, HasReturn: true},
+	{Name: "пи", Params: nil, ReturnKind: KindFloat, HasReturn: true},
 
 	// Случайные числа (криптографически стойкий источник - arc4random* в
 	// cbackend, crypto/rand в интерпретаторе - НЕ math/rand/rand(), см.

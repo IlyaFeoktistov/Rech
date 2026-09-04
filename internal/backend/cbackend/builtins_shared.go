@@ -162,6 +162,45 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 	case "экспонента":
 		flags.usesMath = true
 		return fmt.Sprintf("exp(%s)", args[0]), true
+	case "синус":
+		flags.usesMath = true
+		return fmt.Sprintf("sin(%s)", args[0]), true
+	case "косинус":
+		flags.usesMath = true
+		return fmt.Sprintf("cos(%s)", args[0]), true
+	case "тангенс":
+		flags.usesMath = true
+		return fmt.Sprintf("tan(%s)", args[0]), true
+	case "арксинус":
+		flags.usesMath = true
+		return fmt.Sprintf("asin(%s)", args[0]), true
+	case "арккосинус":
+		flags.usesMath = true
+		return fmt.Sprintf("acos(%s)", args[0]), true
+	case "арктангенс":
+		flags.usesMath = true
+		return fmt.Sprintf("atan(%s)", args[0]), true
+	case "арктангенс2":
+		flags.usesMath = true
+		return fmt.Sprintf("atan2(%s, %s)", args[0], args[1]), true
+	case "логарифм":
+		flags.usesMath = true
+		return fmt.Sprintf("log(%s)", args[0]), true
+	case "логарифм2":
+		flags.usesMath = true
+		return fmt.Sprintf("log2(%s)", args[0]), true
+	case "логарифм10":
+		flags.usesMath = true
+		return fmt.Sprintf("log10(%s)", args[0]), true
+	case "минимум":
+		flags.usesMath = true
+		return fmt.Sprintf("fmin(%s, %s)", args[0], args[1]), true
+	case "максимум":
+		flags.usesMath = true
+		return fmt.Sprintf("fmax(%s, %s)", args[0], args[1]), true
+	case "пи":
+		flags.usesMath = true
+		return "3.14159265358979323846", true
 	case "прочитать_строку":
 		flags.usesConsoleInput = true
 		flags.usesPanic = true
