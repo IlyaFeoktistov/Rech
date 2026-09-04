@@ -817,7 +817,27 @@ static void rech_append_file(const char *path, const char *content) {
 // заведомо позже самой обёртки. Три уровня зависимости в ряд (rech_socket_t
 // -> обёртка "?Сокет" -> rech_accept), поэтому именно typedef выделен в
 // свой самый ранний, самостоятельный кусок, а не весь socketTypeAndConnectCode.
+//
+// Эмитируется БЕЗУСЛОВНО (ir_generator.go зовёт её не через
+// appendCodeIf(ctx.usesSockets, ...), как остальной сетевой рантайм, а
+// всегда) - НАЙДЕННЫЙ БАГ: "?Сокет" (nullable-обёртка "принять") попадает
+// в prog.Nullables БЕЗУСЛОВНО для ЛЮБОЙ программы (internal/semantic/
+// analyzer.go строит prog.Nullables сканом ВСЕХ когда-либо
+// зарегистрированных nullable-сущностей, а не только реально
+// использованных - registerNetworkFuncs регистрирует funcSig "принять"
+// безусловно, тем же принципом, что и остальные builtin'ы), значит
+// nullablesCode всегда пытается эмитировать обёртку вокруг rech_socket_t,
+// даже для программы, ни разу не тронувшей сети. "?Строка" (тот же
+// безусловный принцип регистрации у "получить_переменную_окружения",
+// registerEnvFuncs) с этим никогда не сталкивалась - "Строка" (const
+// char *) не нуждается в собственном typedef, а rech_socket_t раньше
+// был условным - настоящий cc падал "unknown type name rech_socket_t" на
+// любой программе без единого сетевого вызова. Поэтому typedef здесь
+// (в отличие от остального socketTypeAndConnectCode) самодостаточен - сам
+// несёт свой #include <winsock2.h> на Windows (SOCKET нужен уже здесь, а
+// не только там, где winsock2.h подключается условно, ниже).
 const rechSocketTypedef = `#ifdef _WIN32
+#include <winsock2.h>
 typedef SOCKET rech_socket_t;
 #define RECH_INVALID_SOCKET INVALID_SOCKET
 #else

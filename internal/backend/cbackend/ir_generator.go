@@ -890,12 +890,14 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	sb.WriteString(intDivModHelperCode(ctx.uintDivMod, false))
 	appendCodeIf(&sb, ctx.usesConsoleInput, readHelpers)
 	appendCodeIf(&sb, ctx.usesFileIO, fileHelpers)
-	// rechSocketTypedef - см. её package doc (builtins_shared.go): только
-	// сам typedef rech_socket_t, здесь и сейчас - остальной рантайм сокетов
-	// (socketHelpers/socketHelpersTLS, включая rech_accept) эмитируется
-	// НАМНОГО позже, после nullablesCode ниже ("принять" возвращает
-	// "?Сокет", обёртка которого должна существовать раньше rech_accept).
-	appendCodeIf(&sb, ctx.usesSockets, rechSocketTypedef)
+	// rechSocketTypedef - см. её package doc (builtins_shared.go) - БЕЗУСЛОВНО
+	// (не ctx.usesSockets - "?Сокет", обёртка "принять", попадает в
+	// prog.Nullables для ЛЮБОЙ программы независимо от реального
+	// использования сетей, значит и rech_socket_t, на который эта обёртка
+	// ссылается, обязан существовать всегда). Остальной рантайм сокетов
+	// (socketHelpers/socketHelpersTLS, включая rech_accept) по-прежнему
+	// условный и эмитируется НАМНОГО позже, после nullablesCode ниже.
+	sb.WriteString(rechSocketTypedef)
 	if prog.UsesReflection {
 		// Перед genericsCode - Список<Значение> ссылается на rech_any_t как
 		// на свой C-тип элемента (см. package doc reflectTypedefs) - тот же
