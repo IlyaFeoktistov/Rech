@@ -459,6 +459,9 @@ type Interp struct {
 	// (internal/semantic уже вычислил его транзитивно, entitySatisfies) -
 	// нужен evalAsExpr для "значение как ИмяИнтерфейса".
 	interfaceImplementors map[string][]string
+	// entityInterfaces - см. package doc ir.Program.EntityInterfaces - нужен
+	// evalTypeInfoMethod для "число_интерфейсов"/"получить_интерфейс".
+	entityInterfaces map[string][]string
 
 	// staticFields - значение статического поля сущности ("Тип::поле", см.
 	// ir.Entity.StaticFields) по (имя сущности, имя поля) - одно общее
@@ -530,6 +533,7 @@ func newInterp(prog *ir.Program, out io.Writer, stdin io.Reader) (*Interp, *ir.F
 		staticFields:          map[string]map[string]Value{},
 		staticLocals:          map[int]Value{},
 		interfaceImplementors: prog.InterfaceImplementors,
+		entityInterfaces:      prog.EntityInterfaces,
 	}
 	for _, fn := range prog.Functions {
 		in.funcs[fn.Name] = fn

@@ -21,7 +21,7 @@ func TestGenerateFromIRTypeOfPrimitiveEmitsDescriptor(t *testing.T) {
 	if !strings.Contains(out, "v_t_INIT = (&rech_type_meta_celoe);") {
 		t.Fatalf("ожидался адрес дескриптора Целое, получено:\n%s", out)
 	}
-	if !strings.Contains(out, `static const rech_type_meta_t rech_type_meta_celoe = {"Целое", NULL, 0, NULL, 0, NULL, 0};`) {
+	if !strings.Contains(out, `static const rech_type_meta_t rech_type_meta_celoe = {"Целое", NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0};`) {
 		t.Fatalf("ожидался статический дескриптор примитива Целое, получено:\n%s", out)
 	}
 }
@@ -174,7 +174,7 @@ func TestGenerateFromIREntityFieldOfGenericCollectionReflects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, `static const rech_type_meta_t `+reflectMetaName(dictType)+` = {"`+dictType+`", NULL, 0, NULL, 0, NULL, 0};`) {
+	if !strings.Contains(out, `static const rech_type_meta_t `+reflectMetaName(dictType)+` = {"`+dictType+`", NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0};`) {
 		t.Fatalf("ожидался тривиальный дескриптор Словарь<Строка, Значение>, получено:\n%s", out)
 	}
 	if !strings.Contains(out, "static rech_any_t rech_reflect_get_hranilische_dannye(void *self) {") {
@@ -269,5 +269,115 @@ func TestGenerateFromIRAsInterfaceUsesImplementorsCheck(t *testing.T) {
 	}
 	if !strings.Contains(out, `rech_unbox_check_iface(v_korobka, rech_iface_impls_zvuchaschij, 1, "Звучащий")`) {
 		t.Fatalf("ожидался вызов rech_unbox_check_iface, получено:\n%s", out)
+	}
+}
+
+// TestGenerateFromIREntityDescriptorCarriesBaseAndInterfaces - docs/ROADMAP.md,
+// паритет с C# Type.BaseType/GetInterfaces: дескриптор сущности несёт
+// base (адрес дескриптора BaseName) и interfaces/interface_count
+// (транзитивный список из Program.EntityInterfaces), не только
+// поля/методы/конструктор, как раньше.
+func TestGenerateFromIREntityDescriptorCarriesBaseAndInterfaces(t *testing.T) {
+	iface := &ir.Interface{Name: "Звучащий", Methods: []ir.InterfaceMethod{
+		{Name: "издать_звук", ReturnType: ir.TypeString, HasReturn: true},
+	}}
+	base := &ir.Entity{Name: "Животное"}
+	derived := &ir.Entity{Name: "Кот", BaseName: "Животное", Interfaces: []string{"Звучащий"}, Methods: []*ir.Method{
+		{Name: "издать_звук", ReturnType: ir.TypeString, HasReturn: true,
+			Body: []ir.Stmt{&ir.ReturnStmt{Value: &ir.StringLiteral{Value: "мяу"}}}},
+	}}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "т", Value: &ir.TypeOfExpr{Type: ir.EntityType("Кот")}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{
+		Entities: []*ir.Entity{base, derived}, Interfaces: []*ir.Interface{iface}, Functions: []*ir.Function{main},
+		UsesReflection:   true,
+		ReflectTargets:   []ir.Type{ir.EntityType("Кот")},
+		EntityInterfaces: map[string][]string{"Кот": {"Звучащий"}},
+	})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "static const rech_type_meta_t *const rech_type_meta_kot_interfaces[] = {&rech_type_meta_zvuchaschij};") {
+		t.Fatalf("ожидался массив rech_type_meta_kot_interfaces, получено:\n%s", out)
+	}
+	if !strings.Contains(out, `rech_type_meta_kot = {"Кот", NULL, 0,`) ||
+		!strings.Contains(out, `&rech_type_meta_zhivotnoe, rech_type_meta_kot_interfaces, 1};`) {
+		t.Fatalf("ожидался дескриптор Кот с base=&rech_type_meta_zhivotnoe и interfaces/interface_count=1, получено:\n%s", out)
+	}
+}
+
+// TestGenerateFromIRTypeInfoBaseAndInterfaceReflectionMethods - "базовый_тип"/
+// "наследует_ли"/"число_интерфейсов"/"получить_интерфейс"/"реализует_ли"
+// (docs/ROADMAP.md, паритет с C# Type.BaseType/IsSubclassOf/GetInterfaces/
+// IsAssignableFrom) компилируются в ожидаемые обращения к полям/хелперам
+// дескриптора.
+func TestGenerateFromIRTypeInfoBaseAndInterfaceReflectionMethods(t *testing.T) {
+	recv := &ir.Identifier{Name: "т", Type: ir.TypeTypeInfo}
+	arg := &ir.Identifier{Name: "т2", Type: ir.TypeTypeInfo}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.PrintStmt{Value: &ir.MethodCallExpr{Receiver: recv, Method: "базовый_тип", Type: ir.TypeTypeInfo, HasReturn: true}},
+		&ir.PrintStmt{Value: &ir.MethodCallExpr{Receiver: recv, Method: "наследует_ли", Args: []ir.Expr{arg}, Type: ir.TypeBool, HasReturn: true}},
+		&ir.PrintStmt{Value: &ir.MethodCallExpr{Receiver: recv, Method: "число_интерфейсов", Type: ir.TypeInt, HasReturn: true}},
+		&ir.PrintStmt{Value: &ir.MethodCallExpr{Receiver: recv, Method: "получить_интерфейс", Args: []ir.Expr{&ir.IntLiteral{Value: 0}}, Type: ir.TypeTypeInfo, HasReturn: true}},
+		&ir.PrintStmt{Value: &ir.MethodCallExpr{Receiver: recv, Method: "реализует_ли", Args: []ir.Expr{arg}, Type: ir.TypeBool, HasReturn: true}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}, UsesReflection: true})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	for _, want := range []string{
+		"rech_type_base_or_pusto(v_t)",
+		"rech_type_is_subclass((v_t)->base, v_t2)",
+		"(v_t)->interface_count",
+		"rech_iface_at(v_t, 0LL)",
+		"rech_type_implements(v_t, v_t2)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ожидалось %q, получено:\n%s", want, out)
+		}
+	}
+}
+
+// TestGenerateFromIREntityInterfaceCircularReflectOrderingRegression -
+// НАЙДЕННЫЙ И ИСПРАВЛЕННЫЙ баг (docs/ROADMAP.md): сущность, реализующая
+// интерфейс, чей InterfaceImplementors указывает на ТУ ЖЕ сущность
+// (обычный случай - "Кот реализует Звучащий", "Звучащий".implementors ==
+// ["Кот"]) - раньше тентативное объявление "static const rech_type_meta_t
+// rech_type_meta_kot;" писалось ПОСЛЕ ensure() полей/методов/base/
+// interfaces сущности, а не сразу после появления записи в g.generated -
+// ensure(Кот) помечал себя сгенерированным, рекурсивно вызывал
+// ensure(Звучащий), тот - ensure(Кот) СНОВА (implementors), видел
+// g.generated[Кот]==true и возвращался БЕЗ единой написанной строки -
+// ensureInterface(Звучащий) продолжал и писал "rech_iface_impls_zvuchaschij
+// = {&rech_type_meta_kot}", ссылаясь на СИМВОЛ, ЕЩЁ НЕ ОБЪЯВЛЕННЫЙ НИ
+// ТЕНТАТИВНО, НИ ПОЛНОСТЬЮ (настоящий cc падал "undeclared identifier").
+// Тест проверяет ПОРЯДОК текста - тентативное объявление обязано появиться
+// РАНЬШЕ первой ссылки на него.
+func TestGenerateFromIREntityInterfaceCircularReflectOrderingRegression(t *testing.T) {
+	iface := &ir.Interface{Name: "Звучащий", Methods: []ir.InterfaceMethod{
+		{Name: "издать_звук", ReturnType: ir.TypeString, HasReturn: true},
+	}}
+	entity := &ir.Entity{Name: "Кот", Interfaces: []string{"Звучащий"}, Methods: []*ir.Method{
+		{Name: "издать_звук", ReturnType: ir.TypeString, HasReturn: true,
+			Body: []ir.Stmt{&ir.ReturnStmt{Value: &ir.StringLiteral{Value: "мяу"}}}},
+	}}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "т", Value: &ir.TypeOfExpr{Type: ir.EntityType("Кот")}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{
+		Entities: []*ir.Entity{entity}, Interfaces: []*ir.Interface{iface}, Functions: []*ir.Function{main},
+		UsesReflection:        true,
+		ReflectTargets:        []ir.Type{ir.EntityType("Кот")},
+		InterfaceImplementors: map[string][]string{"Звучащий": {"Кот"}},
+		EntityInterfaces:      map[string][]string{"Кот": {"Звучащий"}},
+	})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	declPos := strings.Index(out, "static const rech_type_meta_t rech_type_meta_kot;")
+	usePos := strings.Index(out, "rech_iface_impls_zvuchaschij[] = {&rech_type_meta_kot};")
+	if declPos == -1 || usePos == -1 || declPos >= usePos {
+		t.Fatalf("ожидалось опережающее объявление rech_type_meta_kot РАНЬШЕ ссылки на него в rech_iface_impls_zvuchaschij, получено:\n%s", out)
 	}
 }

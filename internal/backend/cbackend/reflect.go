@@ -71,6 +71,9 @@ struct rech_type_meta {
     int method_count;
     rech_ctor_invoker_t ctor;
     int ctor_param_count;
+    const rech_type_meta_t *base;
+    const rech_type_meta_t *const *interfaces;
+    int interface_count;
 };
 
 `
@@ -160,6 +163,37 @@ static const rech_type_meta_t *rech_param_at(const rech_method_meta_t *m, long l
     return m->param_types[i];
 }
 
+static const rech_type_meta_t *rech_iface_at(const rech_type_meta_t *t, long long i) {
+    if (i < 0 || i >= (long long)t->interface_count) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "%s", "интерфейс", t->name);
+        rech_panic(msg);
+    }
+    return t->interfaces[i];
+}
+
+static bool rech_type_is_subclass(const rech_type_meta_t *base, const rech_type_meta_t *target) {
+    for (; base != NULL; base = base->base) {
+        if (base == target) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool rech_type_implements(const rech_type_meta_t *t, const rech_type_meta_t *iface) {
+    for (int i = 0; i < t->interface_count; i++) {
+        if (t->interfaces[i] == iface) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static const rech_type_meta_t *rech_type_base_or_pusto(const rech_type_meta_t *t) {
+    return t->base ? t->base : &%s;
+}
+
 static rech_any_t rech_reflect_get_field(rech_any_t self, const char *name) {
     const rech_field_meta_t *f = rech_field_by_name(self.type, name);
     if (!f) {
@@ -180,8 +214,9 @@ static void rech_reflect_set_field(rech_any_t self, const char *name, rech_any_t
     f->set(self.v.ptr, v);
 }
 `, escapeCString(rtmsg.ReflectIndexOutOfRangeTemplate), escapeCString(rtmsg.ReflectIndexOutOfRangeTemplate),
-	escapeCString(rtmsg.ReflectIndexOutOfRangeTemplate), escapeCString(rtmsg.ReflectFieldNotFoundTemplate),
-	escapeCString(rtmsg.ReflectFieldNotFoundTemplate))
+	escapeCString(rtmsg.ReflectIndexOutOfRangeTemplate), escapeCString(rtmsg.ReflectIndexOutOfRangeTemplate),
+	reflectMetaName(reflectPustoName),
+	escapeCString(rtmsg.ReflectFieldNotFoundTemplate), escapeCString(rtmsg.ReflectFieldNotFoundTemplate))
 
 // reflectTagLookupHelper - "тег_поля(индекс, ключ)": rech_field_meta_t.tag
 // несёт сырой текст тега поля ("json:name, sql:user_name", "" - тега нет) -
@@ -336,9 +371,9 @@ func primitiveReflectDescriptors() string {
 	var sb strings.Builder
 	for _, k := range reflectPrimitiveKinds {
 		name := ir.Type{Kind: k}.String()
-		fmt.Fprintf(&sb, "static const rech_type_meta_t %s = {\"%s\", NULL, 0, NULL, 0, NULL, 0};\n", reflectMetaName(name), escapeCString(name))
+		fmt.Fprintf(&sb, "static const rech_type_meta_t %s = {\"%s\", NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0};\n", reflectMetaName(name), escapeCString(name))
 	}
-	fmt.Fprintf(&sb, "static const rech_type_meta_t %s = {\"%s\", NULL, 0, NULL, 0, NULL, 0};\n", reflectMetaName(reflectPustoName), escapeCString(reflectPustoName))
+	fmt.Fprintf(&sb, "static const rech_type_meta_t %s = {\"%s\", NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0};\n", reflectMetaName(reflectPustoName), escapeCString(reflectPustoName))
 	sb.WriteString("\n")
 	return sb.String()
 }
@@ -516,6 +551,16 @@ func generateIRTypeInfoMethodCall(ctx *irGenCtx, e *ir.MethodCallExpr) (string, 
 		return fmt.Sprintf("rech_method_at(%s, %s)->return_type", recvCode, argCodes[0]), typeTypeInfo, nil
 	case "создать":
 		return fmt.Sprintf("rech_reflect_create(%s, %s)", recvCode, argCodes[0]), typeAny, nil
+	case "базовый_тип":
+		return fmt.Sprintf("rech_type_base_or_pusto(%s)", recvCode), typeTypeInfo, nil
+	case "наследует_ли":
+		return fmt.Sprintf("rech_type_is_subclass((%s)->base, %s)", recvCode, argCodes[0]), typeBool, nil
+	case "число_интерфейсов":
+		return fmt.Sprintf("(%s)->interface_count", recvCode), typeInt, nil
+	case "получить_интерфейс":
+		return fmt.Sprintf("rech_iface_at(%s, %s)", recvCode, argCodes[0]), typeTypeInfo, nil
+	case "реализует_ли":
+		return fmt.Sprintf("rech_type_implements(%s, %s)", recvCode, argCodes[0]), typeBool, nil
 	default:
 		return "", typeUnknown, fmt.Errorf("генерация C из IR: у \"Тип\" нет метода %q", e.Method)
 	}
@@ -667,6 +712,32 @@ func (g *reflectGen) ensure(t ir.Type) error {
 	if !ok {
 		return fmt.Errorf("генерация C из IR: рефлексия по неизвестному типу %q", t.Entity)
 	}
+
+	// Опережающее объявление без инициализатора (само по себе валидное
+	// определение с внешним связыванием по умолчанию у static - "tentative
+	// definition", C99 6.9.2) - ДО ЛЮБОЙ рекурсии ensure() ниже (поля/
+	// методы/конструктор/base/interfaces), не только до структуры-обёртки/
+	// геттеров/сеттеров/инвокеров/typeDescriptorCode этой же сущности, как
+	// было раньше.
+	//
+	// **Найденный и исправленный баг**: раньше тентативное объявление
+	// писалось ПОСЛЕ всех этих ensure()-вызовов - для настоящего взаимного
+	// цикла (сущность X реализует интерфейс I, I.implementors включает ТУ
+	// ЖЕ X - см. entityInterfaces/ensureInterface ниже) это давало
+	// "неизвестный идентификатор": ensure(X) помечает g.generated[X]=true
+	// В САМОМ НАЧАЛЕ (до тентативного объявления, которое было ещё дальше),
+	// затем ensure(X) рекурсивно вызывает ensure(I) (X реализует I), тот -
+	// ensure(X) СНОВА (I.implementors включает X) - g.generated[X] уже
+	// true, возврат БЕЗ единой написанной строки - ensureInterface(I)
+	// продолжает и пишет "rech_iface_impls_I[] = {&rech_type_meta_X}",
+	// ссылаясь на X, у которого на этот момент ещё нет НИ тентативного, НИ
+	// полного объявления. Тот же класс бага теоретически возможен и для
+	// прямого взаимного поля между двумя сущностями (X несёт поле типа Y,
+	// Y - поле типа X) - не был замечен раньше, потому что такого поля в
+	// existing examples/тестах не было; этот фикс закрывает оба случая
+	// сразу одним и тем же перемещением.
+	fmt.Fprintf(&g.code, "static const rech_type_meta_t %s;\n", reflectMetaVarFor(ir.EntityType(ent.Name)))
+
 	for _, f := range ent.Fields {
 		if err := g.ensure(f.Type); err != nil {
 			return err
@@ -692,15 +763,21 @@ func (g *reflectGen) ensure(t ir.Type) error {
 			}
 		}
 	}
+	// base/interfaces (docs/ROADMAP.md - "базовый_тип"/"наследует_ли"/"число_
+	// интерфейсов"/"получить_интерфейс"/"реализует_ли", паритет с C# Type.BaseType/
+	// GetInterfaces).
+	if ent.BaseName != "" {
+		if err := g.ensure(ir.EntityType(ent.BaseName)); err != nil {
+			return err
+		}
+	}
+	ifaceNames := g.ctx.entityInterfaces[t.Entity]
+	for _, name := range ifaceNames {
+		if err := g.ensure(ir.InterfaceType(name)); err != nil {
+			return err
+		}
+	}
 
-	// Опережающее объявление без инициализатора (само по себе валидное
-	// определение с внешним связыванием по умолчанию у static - "tentative
-	// definition", C99 6.9.2) - структура-обёртка/геттеры/сеттеры/инвокеры/
-	// конструктор ниже берут адрес &rech_type_meta_<Имя> ДО того, как
-	// typeDescriptorCode напишет настоящий инициализатор (который сам, в
-	// свою очередь, ссылается на их адреса) - разрывает иначе неразрешимый
-	// взаимный цикл вперёд.
-	fmt.Fprintf(&g.code, "static const rech_type_meta_t %s;\n", reflectMetaVarFor(ir.EntityType(ent.Name)))
 	if !g.ctx.entityIsRef(ent.Name) {
 		g.code.WriteString(g.structBoxFuncCode(ent))
 	}
@@ -716,7 +793,7 @@ func (g *reflectGen) ensure(t ir.Type) error {
 		g.code.WriteString(g.methodInvokerCode(em))
 	}
 	g.code.WriteString(g.ctorInvokerCode(ent))
-	g.code.WriteString(g.typeDescriptorCode(ent, ems))
+	g.code.WriteString(g.typeDescriptorCode(ent, ems, ifaceNames))
 	return nil
 }
 
@@ -739,7 +816,7 @@ func (g *reflectGen) ensureGeneric(t ir.Type, gi ir.GenericInstantiation) error 
 			return err
 		}
 	}
-	fmt.Fprintf(&g.code, "static const rech_type_meta_t %s = {\"%s\", NULL, 0, NULL, 0, NULL, 0};\n",
+	fmt.Fprintf(&g.code, "static const rech_type_meta_t %s = {\"%s\", NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0};\n",
 		reflectMetaVarFor(t), escapeCString(t.Entity))
 	return nil
 }
@@ -834,7 +911,15 @@ func (g *reflectGen) interfaceTypeDescriptorCode(iface *ir.Interface) string {
 		sb.WriteString("};\n")
 	}
 
-	fmt.Fprintf(&sb, "static const rech_type_meta_t %s = {\"%s\", NULL, 0, %s, %d, NULL, 0};\n\n",
+	// base/interfaces/interface_count - всегда NULL/NULL/0 у дескриптора
+	// САМОГО интерфейса: "базовый_тип"/"наследует_ли"/"число_интерфейсов"/
+	// "получить_интерфейс"/"реализует_ли" (docs/ROADMAP.md) действуют только на
+	// сущность/структуру - интерфейс не "наследует" сущность и не
+	// "реализует" другой интерфейс тем же словом (у самого интерфейса есть
+	// только "наследует" МЕЖДУ интерфейсами, уже полностью отражённое
+	// плоским списком iface.Methods выше, отдельного смысла в этих трёх
+	// полях для интерфейса нет).
+	fmt.Fprintf(&sb, "static const rech_type_meta_t %s = {\"%s\", NULL, 0, %s, %d, NULL, 0, NULL, NULL, 0};\n\n",
 		metaName, escapeCString(iface.Name), methodsArr, len(iface.Methods))
 	return sb.String()
 }
@@ -976,8 +1061,13 @@ func (g *reflectGen) ctorInvokerCode(ent *ir.Entity) string {
 // typeDescriptorCode - сам дескриптор ent целиком: статические массивы
 // метаданных полей/методов (и, на каждый метод с параметрами - отдельный
 // статический массив указателей на дескрипторы типов параметров) плюс
-// сама struct rech_type_meta.
-func (g *reflectGen) typeDescriptorCode(ent *ir.Entity, ems []effectiveReflectMethod) string {
+// сама struct rech_type_meta. ifaceNames - g.ctx.entityInterfaces[ent.Name]
+// (ir.Program.EntityInterfaces, транзитивно через entitySatisfies) -
+// уже посчитан вызывающей стороной (ensure выше, там же обеспечены и их
+// дескрипторы) - "базовый_тип"/"наследует_ли"/"число_интерфейсов"/
+// "получить_интерфейс"/"реализует_ли" (docs/ROADMAP.md, паритет с C# Type.BaseType/
+// GetInterfaces).
+func (g *reflectGen) typeDescriptorCode(ent *ir.Entity, ems []effectiveReflectMethod, ifaceNames []string) string {
 	metaName := reflectMetaVarFor(ir.EntityType(ent.Name))
 	var sb strings.Builder
 
@@ -1025,7 +1115,23 @@ func (g *reflectGen) typeDescriptorCode(ent *ir.Entity, ems []effectiveReflectMe
 	if ent.Ctor != nil {
 		ctorParamCount = len(ent.Ctor.Params)
 	}
-	fmt.Fprintf(&sb, "static const rech_type_meta_t %s = {\"%s\", %s, %d, %s, %d, %s, %d};\n\n",
-		metaName, escapeCString(ent.Name), fieldsArr, len(ent.Fields), methodsArr, len(ems), reflectCtorName(ent.Name), ctorParamCount)
+
+	base := "NULL"
+	if ent.BaseName != "" {
+		base = "&" + reflectMetaVarFor(ir.EntityType(ent.BaseName))
+	}
+	interfacesArr := "NULL"
+	if len(ifaceNames) > 0 {
+		interfacesArr = metaName + "_interfaces"
+		parts := make([]string, len(ifaceNames))
+		for i, name := range ifaceNames {
+			parts[i] = "&" + reflectMetaVarFor(ir.InterfaceType(name))
+		}
+		fmt.Fprintf(&sb, "static const rech_type_meta_t *const %s[] = {%s};\n", interfacesArr, strings.Join(parts, ", "))
+	}
+
+	fmt.Fprintf(&sb, "static const rech_type_meta_t %s = {\"%s\", %s, %d, %s, %d, %s, %d, %s, %s, %d};\n\n",
+		metaName, escapeCString(ent.Name), fieldsArr, len(ent.Fields), methodsArr, len(ems), reflectCtorName(ent.Name), ctorParamCount,
+		base, interfacesArr, len(ifaceNames))
 	return sb.String()
 }

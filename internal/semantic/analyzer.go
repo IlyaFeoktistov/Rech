@@ -1000,14 +1000,27 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	// компиляции, не отдельная параллельная реализация.
 	if len(out.Interfaces) > 0 {
 		implementors := make(map[string][]string, len(out.Interfaces))
+		// entityInterfaces - обратный индекс к implementors (имя сущности ->
+		// имена интерфейсов, которые она реализует) - см. package doc
+		// ir.Program.EntityInterfaces - строится в ТОМ ЖЕ проходе, entitySatisfies
+		// уже отвечает "да" транзитивно (и через "наследует" у сущности, и
+		// через "наследует" МЕЖДУ интерфейсами), поэтому "Кот реализует
+		// Звучащий" (Звучащий наследует Именуемый) корректно засчитывает и
+		// "Именуемый" тоже - в отличие от ent.Interfaces (AST-уровня,
+		// собственный ОДНОУРОВНЕВЫЙ список "реализует", без раскрытия цепочки
+		// "наследует" интерфейса, нужный для ДРУГИХ целей - vtable.go,
+		// computeDispatch/buildIsaTable).
+		entityInterfaces := make(map[string][]string, len(out.Entities))
 		for _, iface := range out.Interfaces {
 			for _, ent := range out.Entities {
 				if entitySatisfies(a.entities, a.interfaces, ent.Name, iface.Name) {
 					implementors[iface.Name] = append(implementors[iface.Name], ent.Name)
+					entityInterfaces[ent.Name] = append(entityInterfaces[ent.Name], iface.Name)
 				}
 			}
 		}
 		out.InterfaceImplementors = implementors
+		out.EntityInterfaces = entityInterfaces
 	}
 	out.UsesReflection = a.usesReflection
 	out.UsesDB = a.usesDB

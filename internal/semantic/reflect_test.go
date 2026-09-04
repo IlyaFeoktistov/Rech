@@ -272,3 +272,93 @@ func TestAnalyzeBoxInterfaceTypedValueRejected(t *testing.T) {
 		t.Fatalf("ожидалась ошибка про боксирование интерфейсного значения, получено: %v", err)
 	}
 }
+
+// TestAnalyzeBaseTypeAndInterfaceReflectionMethodsOK - "базовый_тип"/
+// "наследует_ли"/"число_интерфейсов"/"получить_интерфейс"/"реализует_ли"
+// (docs/ROADMAP.md, паритет с C# Type.BaseType/IsSubclassOf/GetInterfaces/
+// IsAssignableFrom) успешно анализируются - все пять принимают/возвращают
+// ожидаемые типы (Тип/Целое/Логическое).
+func TestAnalyzeBaseTypeAndInterfaceReflectionMethodsOK(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+интерфейс Звучащий
+{
+    издать_звук(): Строка
+}
+сущность Животное
+{
+    имеет:
+        имя: Строка
+}
+сущность Кот наследует Животное реализует Звучащий
+{
+    издать_звук(): Строка
+    {
+        вернуть "мяу"
+    }
+}
+функция главная
+{
+    переменная т = тип Кот
+    переменная база = т.базовый_тип()
+    вывести база.имя()
+    вывести т.наследует_ли(тип Животное)
+    вывести т.число_интерфейсов()
+    переменная интерфейс1 = т.получить_интерфейс(0)
+    вывести интерфейс1.имя()
+    вывести т.реализует_ли(тип Звучащий)
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
+// TestAnalyzeEntityInterfacesTransitiveThroughInterfaceInheritance -
+// Program.EntityInterfaces (обратный индекс к InterfaceImplementors)
+// вычисляется транзитивно тем же entitySatisfies - сущность, реализующая
+// только ПРОИЗВОДНЫЙ интерфейс ("Звучащий наследует Именуемый", сущность
+// "реализует" только "Звучащий"), всё равно засчитывается как реализующая
+// и БАЗОВЫЙ интерфейс "Именуемый" тоже.
+func TestAnalyzeEntityInterfacesTransitiveThroughInterfaceInheritance(t *testing.T) {
+	prog, err := AnalyzeSource(t, `
+интерфейс Именуемый
+{
+    имя_объекта(): Строка
+}
+интерфейс Звучащий наследует Именуемый
+{
+    издать_звук(): Строка
+}
+сущность Кот реализует Звучащий
+{
+    имя_объекта(): Строка
+    {
+        вернуть "Мурка"
+    }
+    издать_звук(): Строка
+    {
+        вернуть "мяу"
+    }
+}
+функция главная
+{
+    переменная т = тип Кот
+    вывести т.число_интерфейсов()
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	ifaces := prog.EntityInterfaces["Кот"]
+	if len(ifaces) != 2 {
+		t.Fatalf("ожидалось 2 интерфейса (Звучащий + унаследованный Именуемый) у \"Кот\", получено: %+v", ifaces)
+	}
+	var hasNamed, hasSounding bool
+	for _, name := range ifaces {
+		hasNamed = hasNamed || name == "Именуемый"
+		hasSounding = hasSounding || name == "Звучащий"
+	}
+	if !hasNamed || !hasSounding {
+		t.Fatalf("ожидались \"Именуемый\" и \"Звучащий\" среди EntityInterfaces[\"Кот\"], получено: %+v", ifaces)
+	}
+}

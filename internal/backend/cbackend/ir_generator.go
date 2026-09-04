@@ -114,6 +114,10 @@ type irGenCtx struct {
 	// (число реализующих сущностей - в rech_unbox_check_iface(...) на месте
 	// вызова, сам массив - interfaceImplementorsArrayName).
 	interfaceImplementors map[string][]string
+	// entityInterfaces - см. package doc ir.Program.EntityInterfaces - нужен
+	// reflectGen.ensure/typeDescriptorCode для дескриптора сущности (поле
+	// "interfaces"/"число_интерфейсов"/"получить_интерфейс"/"реализует_ли").
+	entityInterfaces map[string][]string
 	// dispatchSlots/dispatchParticipants/usesVtable - см. package doc
 	// vtable.go, computeDispatch.
 	dispatchSlots        map[string]int
@@ -383,6 +387,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		libMode:               libMode,
 		interfaces:            interfaces,
 		interfaceImplementors: prog.InterfaceImplementors,
+		entityInterfaces:      prog.EntityInterfaces,
 		dispatchParticipants:  participants,
 		dispatchSlots:         slots,
 		// usesVtable - хотя бы одна сущность участвует в диспетчеризации

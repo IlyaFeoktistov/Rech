@@ -57,6 +57,24 @@ var typeInfoMethodSigs = map[string]funcSig{
 	"тип_параметра_метода":    {Params: []ir.Type{ir.TypeInt, ir.TypeInt}, ReturnType: ir.TypeTypeInfo, HasReturn: true},
 	"тип_результата_метода":   {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeTypeInfo, HasReturn: true},
 	"создать":                 {Params: []ir.Type{listOfAnyType}, ReturnType: ir.TypeAny, HasReturn: true},
+	// "базовый_тип"/"наследует_ли"/"число_интерфейсов"/"получить_интерфейс"/
+	// "реализует_ли" - docs/ROADMAP.md, паритет с C# Type.BaseType/
+	// IsSubclassOf/GetInterfaces/IsAssignableFrom - тем же принципом
+	// раздельных отношений, что уже есть у самого языка ("наследует" у
+	// сущности, "реализует" у интерфейса), не единый общий
+	// IsAssignableFrom. "_ли" - "наследует"/"реализует" САМИ ПО СЕБЕ уже
+	// зарезервированы лексером (KwInherits/KwImplements, объявление
+	// сущности/интерфейса) - "после '.' ожидался IDENT" без суффикса.
+	// Действуют ТОЛЬКО на сущность/структуру - у примитива и у интерфейса
+	// (сам интерфейс не наследует сущность и не реализует другой интерфейс
+	// тем же словом - "наследует" у интерфейса расширяет контракт, не эта
+	// категория) базовый_тип - "Пусто", число_интерфейсов - 0, наследует_
+	// ли/реализует_ли - всегда "ложь".
+	"базовый_тип":        {Params: nil, ReturnType: ir.TypeTypeInfo, HasReturn: true},
+	"наследует_ли":       {Params: []ir.Type{ir.TypeTypeInfo}, ReturnType: ir.TypeBool, HasReturn: true},
+	"число_интерфейсов":  {Params: nil, ReturnType: ir.TypeInt, HasReturn: true},
+	"получить_интерфейс": {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeTypeInfo, HasReturn: true},
+	"реализует_ли":       {Params: []ir.Type{ir.TypeTypeInfo}, ReturnType: ir.TypeBool, HasReturn: true},
 }
 
 // analyzeTypeOfExpr разбирает "тип <Имя>" - дескриптор типа Имя, известного

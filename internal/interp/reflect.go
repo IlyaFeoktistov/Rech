@@ -190,6 +190,45 @@ func (in *Interp) evalTypeInfoMethod(recv Value, e *ir.MethodCallExpr, env *Env,
 		return typeInfoValue(m.ReturnType), nil
 	case "создать":
 		return in.reflectCreate(recv.S, args[0], env, cc)
+	// "базовый_тип"/"наследует_ли"/"число_интерфейсов"/"получить_интерфейс"/"реализует_ли" -
+	// docs/ROADMAP.md, паритет с C# Type.BaseType/IsSubclassOf/GetInterfaces/
+	// IsAssignableFrom - действуют только на сущность/структуру (ent !=
+	// nil); примитив/интерфейс (ent == nil) - базовый_тип "Пусто", число_
+	// интерфейсов 0, наследует/реализует всегда "ложь", тем же принципом,
+	// что у число_полей/число_методов выше.
+	case "базовый_тип":
+		if ent == nil || ent.BaseName == "" {
+			return Value{Type: ir.TypeTypeInfo, S: "Пусто"}, nil
+		}
+		return typeInfoValue(ir.EntityType(ent.BaseName)), nil
+	case "наследует_ли":
+		if ent == nil {
+			return boolValue(false), nil
+		}
+		for n := ent.BaseName; n != ""; {
+			if n == args[0].S {
+				return boolValue(true), nil
+			}
+			base, ok := in.entities[n]
+			if !ok {
+				break
+			}
+			n = base.BaseName
+		}
+		return boolValue(false), nil
+	case "число_интерфейсов":
+		if ent == nil {
+			return intValue(0), nil
+		}
+		return intValue(int64(len(in.entityInterfaces[recv.S]))), nil
+	case "получить_интерфейс":
+		names := in.entityInterfaces[recv.S]
+		if args[0].I < 0 || args[0].I >= int64(len(names)) {
+			panicRuntime("%s", rtmsg.ReflectIndexOutOfRangeFormat("интерфейс", recv.S))
+		}
+		return typeInfoValue(ir.InterfaceType(names[args[0].I])), nil
+	case "реализует_ли":
+		return boolValue(in.entityImplementsInterface(ir.EntityType(recv.S), args[0].S)), nil
 	default:
 		return Value{}, fmt.Errorf("у \"Тип\" нет метода %q", e.Method)
 	}
