@@ -51,6 +51,7 @@ func (s *server) handleRequest(msg *Message) {
 				"hoverProvider":          true,
 				"definitionProvider":     true,
 				"implementationProvider": true,
+				"codeActionProvider":     true,
 				"completionProvider": map[string]any{
 					"triggerCharacters": []string{"."},
 				},
@@ -64,6 +65,8 @@ func (s *server) handleRequest(msg *Message) {
 		s.handleDefinition(msg)
 	case "textDocument/implementation":
 		s.handleImplementation(msg)
+	case "textDocument/codeAction":
+		s.handleCodeAction(msg)
 	case "textDocument/completion":
 		s.handleCompletion(msg)
 	default:
@@ -262,6 +265,50 @@ func (s *server) handleImplementation(msg *Message) {
 		}
 	}
 	_ = s.rpc.Reply(msg.ID, locations, nil)
+}
+
+// handleCodeAction отвечает на "textDocument/codeAction" - сейчас
+// единственный вид quick fix - автоимпорт (см. codeaction.go): не
+// зависит от диапазона/списка диагностик запроса (LSP это разрешает,
+// context.diagnostics - лишь ПОДСКАЗКА клиента, не обязательное условие) -
+// решает по d.diagnostic целиком, у документа он всегда один.
+func (s *server) handleCodeAction(msg *Message) {
+	var p struct {
+		TextDocument struct {
+			URI string `json:"uri"`
+		} `json:"textDocument"`
+	}
+	if err := json.Unmarshal(msg.Params, &p); err != nil {
+		_ = s.rpc.Reply(msg.ID, nil, err)
+		return
+	}
+	d := s.getDoc(p.TextDocument.URI)
+	if d == nil {
+		_ = s.rpc.Reply(msg.ID, []any{}, nil)
+		return
+	}
+	actions := d.codeActions()
+	out := make([]any, len(actions))
+	for i, a := range actions {
+		out[i] = map[string]any{
+			"title": a.Title,
+			"kind":  "quickfix",
+			"edit": map[string]any{
+				"changes": map[string]any{
+					p.TextDocument.URI: []any{
+						map[string]any{
+							"range": map[string]any{
+								"start": map[string]any{"line": a.NewLine - 1, "character": 0},
+								"end":   map[string]any{"line": a.NewLine - 1, "character": 0},
+							},
+							"newText": a.NewText,
+						},
+					},
+				},
+			},
+		}
+	}
+	_ = s.rpc.Reply(msg.ID, out, nil)
 }
 
 func (s *server) handleCompletion(msg *Message) {

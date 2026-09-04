@@ -129,6 +129,15 @@ func (d *doc) update(text string) {
 		return
 	}
 	ast.StampFile(astProg, d.uri)
+	// astProg/tokens - валидны сами по себе (синтаксис уже прошёл), даже
+	// если семантика/линковка ниже провалятся - codeActions (автоимпорт,
+	// codeaction.go - нужен d.astProg.Uses, чтобы найти место вставки) и
+	// прочий позиционный код (tokenIndexAt и т. п.) должны видеть их и в
+	// этом случае, не только при полностью успешном разборе.
+	d.astProg = astProg
+	d.tokens = toks
+	d.foreignTokenCache = map[string][]lexer.Token{}
+
 	irProg, semErr := semantic.Analyze(astProg)
 	linked, linkOK, linkErr := tryLink(d.path)
 	if semErr != nil && !linkOK {
@@ -142,11 +151,7 @@ func (d *doc) update(text string) {
 		return
 	}
 	d.diagnostic = nil
-
 	d.goodText = text
-	d.astProg = astProg
-	d.tokens = toks
-	d.foreignTokenCache = map[string][]lexer.Token{}
 
 	if linkOK {
 		d.applyLink(linked)
