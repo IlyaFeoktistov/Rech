@@ -126,6 +126,11 @@ func (in *Interp) evalCastExpr(e *ir.CastExpr, env *Env, cc *callCtx) (Value, er
 			return stringValue(formatFloatForPrint(v.F)), nil
 		case from.Kind == ir.KindChar:
 			return stringValue(string(rune(v.I))), nil
+		case from.Kind == ir.KindBool:
+			if v.B {
+				return stringValue("истина"), nil
+			}
+			return stringValue("ложь"), nil
 		}
 	case ir.KindChar:
 		switch {
@@ -137,6 +142,20 @@ func (in *Interp) evalCastExpr(e *ir.CastExpr, env *Env, cc *callCtx) (Value, er
 				panicRuntime("%s", rtmsg.CastStrToCharFailedFormat(v.S))
 			}
 			return charValue(r), nil
+		}
+	case ir.KindBool:
+		if from.Kind == ir.KindString {
+			// Только буквальные "истина"/"ложь" (тот же текст, что и вывод
+			// "вывести"/"показать" для Логическое) - симметричный round-trip,
+			// не парсер произвольных "правдоподобных" слов ("true"/"1" и
+			// т. п.).
+			switch v.S {
+			case "истина":
+				return boolValue(true), nil
+			case "ложь":
+				return boolValue(false), nil
+			}
+			panicRuntime("%s", rtmsg.CastStrToBoolFailedFormat(v.S))
 		}
 	}
 	return Value{}, fmt.Errorf("каст: неподдерживаемое приведение %s -> %s", from, to)

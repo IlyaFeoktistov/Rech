@@ -65,6 +65,27 @@ func TestRunCastStringRoundTrip(t *testing.T) {
 	}
 }
 
+// TestRunCastBoolStringRoundTrip - найденный пробел: "(Строка) булево" не
+// поддерживался вовсе (allowedCasts не содержал Логическое ни в одну
+// сторону) - "текст + (Строка) отладка" не работал, обнаружено при
+// добавлении шаблонных строк (интерполяция ${булево}). "истина"/"ложь" -
+// тот же текст, что и вывод "вывести"/"показать".
+func TestRunCastBoolStringRoundTrip(t *testing.T) {
+	got := runSrc(t, `
+функция главная
+{
+    вывести (Строка) истина
+    вывести (Строка) ложь
+    вывести (Логическое) "истина"
+    вывести (Логическое) "ложь"
+}
+`)
+	want := "истина\nложь\nистина\nложь\n"
+	if got != want {
+		t.Fatalf("хотели %q, получили %q", want, got)
+	}
+}
+
 func TestRunCastCharAndByte(t *testing.T) {
 	got := runSrc(t, `
 функция главная
@@ -102,6 +123,18 @@ func TestRunCastStringToFloatInvalidFormatFails(t *testing.T) {
 }
 `)
 	if err == nil || !strings.Contains(err.Error(), `каст (Действительное): "abc" не является числом`) {
+		t.Fatalf("ожидалась ошибка про некорректный формат каста, получено: %v", err)
+	}
+}
+
+func TestRunCastStringToBoolInvalidFormatFails(t *testing.T) {
+	err := runSrcExpectRuntimeError(t, `
+функция главная
+{
+    вывести (Логическое) "true"
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), `каст (Логическое): "true" не является "истина" или "ложь"`) {
 		t.Fatalf("ожидалась ошибка про некорректный формат каста, получено: %v", err)
 	}
 }

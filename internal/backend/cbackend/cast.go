@@ -32,6 +32,8 @@ func generateIRCastExpr(ctx *irGenCtx, e *ir.CastExpr) (string, valueType, error
 		ctx.usesCast = true
 		ctx.usesPanic = true // разбор строки может провалиться
 		switch {
+		case to == typeBool:
+			return fmt.Sprintf("rech_cast_str_to_bool(%s)", code), typeBool, nil
 		case to == typeChar:
 			return fmt.Sprintf("rech_cast_str_to_char(%s)", code), typeChar, nil
 		case to == typeFloat || to == typeFloat32:
@@ -44,6 +46,12 @@ func generateIRCastExpr(ctx *irGenCtx, e *ir.CastExpr) (string, valueType, error
 	}
 	if to == typeString && from != typeString {
 		ctx.usesCast = true
+		if from == typeBool {
+			// Не через rech_cast_alloc/malloc - "истина"/"ложь" уже статические
+			// C-строковые литералы (тот же текст, что format.go/show.go), не
+			// нужно ни аллоцировать, ни экранировать.
+			return fmt.Sprintf("((%s) ? \"истина\" : \"ложь\")", code), typeString, nil
+		}
 		if from == typeChar {
 			return fmt.Sprintf("rech_cast_char_to_str(%s)", code), typeString, nil
 		}
@@ -141,6 +149,24 @@ static char *rech_cast_float_to_str(double v) {
     char buf[64];
     snprintf(buf, sizeof(buf), "%g", v);
     return rech_cast_alloc(buf, strlen(buf));
+}
+
+/* rech_cast_str_to_bool - обратное к "истина"/"ложь" ниже (format.go/
+   show.go) - только эти два буквальных написания, ничего снисходительнее
+   ("true"/"1" и т. п. не распознаются - симметричный round-trip со
+   строковым представлением, не парсер произвольных "правдоподобных"
+   слов). */
+static bool rech_cast_str_to_bool(const char *s) {
+    if (strcmp(s, "истина") == 0) {
+        return true;
+    }
+    if (strcmp(s, "ложь") == 0) {
+        return false;
+    }
+    char msg[256];
+    snprintf(msg, sizeof(msg), "каст (Логическое): \"%s\" не является \"истина\" или \"ложь\"", s);
+    rech_panic(msg);
+    return false;
 }
 
 /* rech_cast_char_to_str - Символ (кодовая точка Unicode) -> Строка (UTF-8) */
