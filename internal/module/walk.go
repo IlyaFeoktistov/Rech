@@ -273,6 +273,19 @@ type rewriter struct {
 	// видимости при случайном совпадении имени) безопаснее
 	// ложноотрицательного (сломанный вызов значения).
 	locals map[string]bool
+	// allEnums/allConsts - имена ВСЕХ перечислений/констант уровня модуля,
+	// объявленных хоть где-то в ЦЕЛОЙ программе (across p.Modules, не
+	// только в m/её импортах) - строятся один раз в Link(), общие для всех
+	// rewriter'ов прохода. Нужны ТОЛЬКО чтобы отличить "имя ссылается на
+	// перечисление/константу, объявленные в другом файле, но не
+	// импортированные (или приватные) здесь - ошибка видимости" от "имя не
+	// найдено вообще нигде - не наша забота, пусть разбирается
+	// internal/semantic (голая необъявленная переменная, ссылка на
+	// встроенное перечисление вроде HTTPКод/ДеньНедели/Месяц - см.
+	// standardEnumNames, или тип сущности/интерфейса в паттерне "выбрать/
+	// когда")" - см. rewriteExpr, case *ast.Identifier/*ast.FieldAccess.
+	allEnums  map[string]bool
+	allConsts map[string]bool
 }
 
 func (r *rewriter) addLocal(name string) {
@@ -370,6 +383,22 @@ func (r *rewriter) rewriteStmt(s ast.Stmt) error {
 	case *ast.ConstDecl:
 		r.addLocal(s.Name)
 		return r.rewriteExpr(s.Value)
+	case *ast.ParentCallStmt:
+		// НАЙДЕННЫЙ БАГ (исправлен здесь, попутно с паритетом Enum/Const,
+		// не связан с ним): "родитель(<арг>, ...)" (docs/ROADMAP.md,
+		// явный конструктор с "наследует") вообще не входил ни в один
+		// case этого switch - падал в default ("внутренняя ошибка:
+		// неизвестная инструкция") при ЛЮБОМ прогоне через настоящий
+		// "rech build"/"rech run" (compiler.Compile всегда вызывает
+		// module.Link() - см. её package doc), даже в ОДНОМ файле без
+		// единого "использовать" - тот же класс пробела, что уже был у
+		// EntityDecl.Ctor (см. её комментарий выше по этому файлу), не
+		// пойманный existing тестами интерпретатора (парсер+semantic
+		// напрямую, минуя internal/module целиком - package doc
+		// internal/interp.TestRunAllExamplesMatchCompiledOutput). Аргументы
+		// вызова родительского конструктора нуждаются в той же резолюции
+		// имён, что и любой другой вызов.
+		return r.rewriteExprs(s.Args)
 	case *ast.Assign:
 		return r.rewriteExpr(s.Value)
 	case *ast.NullCoalesceAssign:
@@ -499,7 +528,42 @@ func (r *rewriter) rewriteExprs(exprs []ast.Expr) error {
 
 func (r *rewriter) rewriteExpr(e ast.Expr) error {
 	switch e := e.(type) {
-	case *ast.StringLiteral, *ast.IntLiteral, *ast.FloatLiteral, *ast.BoolLiteral, *ast.CharLiteral, *ast.NullLiteral, *ast.Identifier, *ast.ThisExpr, *ast.IncDecExpr:
+	case *ast.StringLiteral, *ast.IntLiteral, *ast.FloatLiteral, *ast.BoolLiteral, *ast.CharLiteral, *ast.NullLiteral, *ast.ThisExpr, *ast.IncDecExpr:
+		return nil
+	case *ast.Identifier:
+		// Голое имя как ЗНАЧЕНИЕ - подавляющее большинство случаев (локальная
+		// переменная/параметр) НЕ файловая декларация вовсе, r.locals
+		// проверяется первым, тем же приоритетом, что у затенения в
+		// internal/semantic (sc.lookup смотрит переменные раньше константы
+		// уровня модуля). Иначе имя может называть КОНСТАНТУ уровня модуля -
+		// единственную категорию объявлений, у которой голое имя (без "."/
+		// "::") само по себе - файловая декларация (функции/сущности идут
+		// через CallExpr/NewExpr/типовые позиции, не бывают голым значением
+		// напрямую) - r.names уже включает свои/импортированные константы
+		// (module.go, declaredNames), резолюция - тот же resolveBareName,
+		// что и у CallExpr.Callee ниже. r.allConsts - имя КОНСТАНТЫ,
+		// объявленной ГДЕ-ТО в целой программе (docs/ROADMAP.md - паритет с
+		// уже существующей приватностью функций/сущностей/интерфейсов), но
+		// не найденной в r.names ИМЕННО ЭТОГО файла - настоящая ошибка
+		// видимости (приватная в другом файле или просто не импортирована
+		// здесь), в отличие от ЛЮБОГО другого нерезолвленного имени
+		// (необъявленная переменная, встроенное перечисление вроде
+		// HTTPКод.ОК - его ИМЯ здесь не встречается голым, "тип.член" идёт
+		// через FieldAccess ниже, голое имя типа сущности/интерфейса в
+		// паттерне "выбрать/когда" - см. package doc SwitchCase.Values) - те
+		// оставляются как есть, тем же принципом, что и раньше (либо дальше
+		// разберётся internal/semantic с более точным сообщением, либо это
+		// осознанно некатегоризированный здесь случай).
+		if r.locals[e.Name] {
+			return nil
+		}
+		if resolved, err := resolveBareName(e.Name, r.names); err == nil {
+			e.Name = resolved
+			return nil
+		}
+		if r.allConsts[e.Name] {
+			return fmt.Errorf("строка %d: константа %q не объявлена в этом файле и не импортирована", e.Line, e.Name)
+		}
 		return nil
 	case *ast.CallExpr:
 		// Callee здесь может называть либо объявленную функцию (обычный
@@ -533,6 +597,40 @@ func (r *rewriter) rewriteExpr(e ast.Expr) error {
 		e.Type = resolved
 		return r.rewriteExprs(e.Args)
 	case *ast.FieldAccess:
+		// Receiver - Identifier покрывает ТРИ разных случая одной и той же
+		// формой AST, различить их можно только по имени (без типов на этой
+		// стадии): (1) обычный доступ к полю/методу через "." у ЗНАЧЕНИЯ
+		// (локальная переменная/параметр слева) - самый частый случай,
+		// r.locals проверяется первым, тем же приоритетом, что и у
+		// *ast.Identifier выше; (2) "Перечисление.Член" - r.names уже
+		// включает свои/импортированные перечисления (module.go); (3)
+		// "Тип::статическийЧлен" (Static==true) - Receiver обязан быть
+		// именем сущности/структуры (internal/semantic.staticReceiverEntity
+		// уже отдельно отвергает переменную слева от "::"), тоже резолвится
+		// через r.names тем же путём - побочный эффект этого изменения:
+		// "Тип::член" для сущности из ДРУГОГО (импортированного) файла тоже
+		// начинает резолвиться корректно (раньше не резолвилось никак,
+		// отдельный, не пересматриваемый здесь пробел). r.allEnums - имя
+		// ПЕРЕЧИСЛЕНИЯ, объявленного ГДЕ-ТО в целой программе, но не
+		// найденного в r.names этого файла - настоящая ошибка видимости
+		// (docs/ROADMAP.md - паритет с уже существующей приватностью
+		// функций/сущностей/интерфейсов). Встроенные перечисления
+		// (HTTPКод/ДеньНедели/Месяц, internal/semantic.standardEnums) не
+		// объявлены ни в одном .rech-файле программы - не входят ни в
+		// r.names, ни в r.allEnums, поэтому проходят молча, как и раньше.
+		if ident, ok := e.Receiver.(*ast.Identifier); ok {
+			if r.locals[ident.Name] {
+				return nil
+			}
+			if resolved, err := resolveBareName(ident.Name, r.names); err == nil {
+				ident.Name = resolved
+				return nil
+			}
+			if r.allEnums[ident.Name] {
+				return fmt.Errorf("строка %d: перечисление %q не объявлено в этом файле и не импортировано", e.Line, ident.Name)
+			}
+			return nil
+		}
 		return r.rewriteExpr(e.Receiver)
 	case *ast.IndexExpr:
 		if err := r.rewriteExpr(e.Receiver); err != nil {

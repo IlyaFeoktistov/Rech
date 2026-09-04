@@ -709,3 +709,152 @@ func TestLinkResolvesEntityInsideDictValueArgument(t *testing.T) {
 		t.Fatalf("ожидался тип результата \"Словарь<Строка, Утилиты_Товар>\", получено %q", fn.ReturnType)
 	}
 }
+
+// TestLinkResolvesParentCallArgs - найденный баг (docs/ROADMAP.md, попутно
+// с паритетом Enum/Const): "родитель(<арг>, ...)" (ast.ParentCallStmt) не
+// входил ни в один case rewriteStmt - падал "внутренняя ошибка: неизвестная
+// инструкция" при ЛЮБОМ прогоне через настоящую сборку (compiler.Compile
+// всегда вызывает Link()), даже без единого "использовать" - не поймано
+// раньше, потому что internal/interp.TestRunAllExamplesMatchCompiledOutput
+// гоняет parser+semantic напрямую, минуя internal/module. Здесь аргумент
+// "родитель(...)" - вызов функции из ДРУГОГО файла, проверяет, что
+// резолюция реально происходит, не только что нет паники.
+func TestLinkResolvesParentCallArgs(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "утилиты.rech", "функция значение_по_умолчанию(): Строка\n{\n    вернуть \"базовое\"\n}\n")
+	entry := writeFile(t, dir, "главный.rech", `использовать значение_по_умолчанию из "утилиты"
+
+сущность Базовый
+{
+    имеет:
+        имя: Строка
+
+    конструктор(имя: Строка)
+    {
+        этот.имя = имя
+    }
+}
+
+сущность Производный наследует Базовый
+{
+    конструктор()
+    {
+        родитель(значение_по_умолчанию())
+    }
+}
+
+функция главная
+{
+    переменная о = новый Производный()
+    вывести о.имя
+}
+`)
+
+	prog, err := Load(entry, testFrontend{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	merged, err := prog.Link()
+	if err != nil {
+		t.Fatalf("Link: %v", err)
+	}
+	var derived *ast.EntityDecl
+	for _, e := range merged.Entities {
+		if e.Name == "Производный" {
+			derived = e
+		}
+	}
+	if derived == nil || derived.Ctor == nil || len(derived.Ctor.Body) == 0 {
+		t.Fatalf("не нашлось тело конструктора \"Производный\"")
+	}
+	call, ok := derived.Ctor.Body[0].(*ast.ParentCallStmt)
+	if !ok {
+		t.Fatalf("ожидался ParentCallStmt первой инструкцией, получено %T", derived.Ctor.Body[0])
+	}
+	callee, ok := call.Args[0].(*ast.CallExpr)
+	if !ok || callee.Callee != "Утилиты_значение_по_умолчанию" {
+		t.Fatalf("ожидался резолвленный вызов \"Утилиты_значение_по_умолчанию\" в аргументе \"родитель(...)\", получено %+v", call.Args)
+	}
+}
+
+// TestLinkImportsEnumByName - паритет с уже существующей приватностью
+// функций/сущностей/интерфейсов (docs/ROADMAP.md): "использовать
+// ИмяПеречисления из ..." теперь разрешён, доступ к члену через "." из
+// файла-импортёра резолвится (buildNames - bare passthrough, тем же
+// принципом, что и у интерфейсов).
+func TestLinkImportsEnumByName(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "цвета.rech", "перечисление Цвет\n{\n    Красный\n    Зелёный\n}\n")
+	entry := writeFile(t, dir, "главный.rech", "использовать Цвет из \"цвета\"\n\nфункция главная\n{\n    вывести Цвет.Красный\n}\n")
+
+	prog, err := Load(entry, testFrontend{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, err := prog.Link(); err != nil {
+		t.Fatalf("Link: %v", err)
+	}
+}
+
+// TestLinkRejectsUnimportedEnum - обратная сторона паритета: ссылка на
+// перечисление, объявленное в другом файле программы, но НЕ
+// импортированное в файле-ссылке - ошибка видимости (раньше молча
+// резолвилось - единая плоская область видимости без проверки).
+func TestLinkRejectsUnimportedEnum(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "цвета.rech", "перечисление Цвет\n{\n    Красный\n}\n\nфункция маркер(): Целое\n{\n    вернуть 1\n}\n")
+	entry := writeFile(t, dir, "главный.rech", "использовать маркер из \"цвета\"\n\nфункция главная\n{\n    маркер()\n    вывести Цвет.Красный\n}\n")
+
+	prog, err := Load(entry, testFrontend{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, err := prog.Link(); err == nil {
+		t.Fatal("ожидалась ошибка видимости - \"Цвет\" не импортирован")
+	}
+}
+
+// TestLinkRejectsPrivateEnumImport - "приватное перечисление" отклоняется
+// проверкой видимости "использовать", тем же путём, что и у приватной
+// функции/сущности (module.go, moduleVisibility).
+func TestLinkRejectsPrivateEnumImport(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "цвета.rech", "приватное перечисление Скрытый\n{\n    А\n}\n")
+	entry := writeFile(t, dir, "главный.rech", "использовать Скрытый из \"цвета\"\n\nфункция главная\n{\n}\n")
+
+	if _, err := Load(entry, testFrontend{}); err == nil {
+		t.Fatal("ожидалась ошибка - \"Скрытый\" приватное")
+	} else if !strings.Contains(err.Error(), "приватное") {
+		t.Fatalf("неожиданный текст ошибки: %v", err)
+	}
+}
+
+// TestLinkImportsConstByName/TestLinkRejectsUnimportedConst - те же две
+// проверки, что и у Enum выше, для константы уровня модуля.
+func TestLinkImportsConstByName(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "настройки.rech", "константа Порог = 10\n")
+	entry := writeFile(t, dir, "главный.rech", "использовать Порог из \"настройки\"\n\nфункция главная\n{\n    вывести Порог\n}\n")
+
+	prog, err := Load(entry, testFrontend{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, err := prog.Link(); err != nil {
+		t.Fatalf("Link: %v", err)
+	}
+}
+
+func TestLinkRejectsUnimportedConst(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "настройки.rech", "константа Порог = 10\n\nфункция маркер(): Целое\n{\n    вернуть 1\n}\n")
+	entry := writeFile(t, dir, "главный.rech", "использовать маркер из \"настройки\"\n\nфункция главная\n{\n    маркер()\n    вывести Порог\n}\n")
+
+	prog, err := Load(entry, testFrontend{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, err := prog.Link(); err == nil {
+		t.Fatal("ожидалась ошибка видимости - \"Порог\" не импортирован")
+	}
+}

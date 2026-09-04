@@ -43,22 +43,23 @@ func mangledName(m, entry *Module, name string) string {
 // единого "использовать" вообще). Интерфейсы поэтому исключены из
 // mangledName здесь - разрешаются в СВОЁ СОБСТВЕННОЕ bare-имя, ровно как
 // они и оказываются в merged.Interfaces. Тот же принцип применён ниже к
-// ИМПОРТИРОВАННЫМ интерфейсам - "использовать ИмяИнтерфейса из ..." теперь
-// разрешён (docs/ROADMAP.md, находка "использовать не умеет импортировать
-// интерфейс"), но раз merged.Interfaces никогда не манглит их, alias в
-// файле-импортёре должен указывать на то же самое bare-имя, а не на
-// mangledName(imp.Source, ...) - иначе точно тот же класс несовпадения.
+// ИМПОРТИРОВАННЫМ интерфейсам, а также к перечислениям и константам уровня
+// модуля (docs/ROADMAP.md - паритет с уже существующей приватностью
+// функций/сущностей) - у всех трёх категорий merge (см. Link ниже) не
+// манглит собственное имя, значит и buildNames обязана разрешать
+// ссылку/alias в то же bare-имя, а не в mangledName(...) - иначе тот же
+// класс несовпадения.
 func buildNames(m, entry *Module) map[string]string {
 	names := map[string]string{}
 	for name := range localTypeNames(m.AST) {
-		if isInterfaceName(m.AST, name) {
+		if unmangledCategoryName(m.AST, name) {
 			names[name] = name
 			continue
 		}
 		names[name] = mangledName(m, entry, name)
 	}
 	for _, imp := range m.Imports {
-		if isInterfaceName(imp.Source.AST, imp.Name) {
+		if unmangledCategoryName(imp.Source.AST, imp.Name) {
 			names[imp.Alias] = imp.Name
 			continue
 		}
@@ -67,12 +68,24 @@ func buildNames(m, entry *Module) map[string]string {
 	return names
 }
 
-// isInterfaceName сообщает, объявлен ли name как интерфейс именно в prog
-// (а не как функция/сущность) - используется buildNames выше, чтобы решить,
-// нужно ли имени mangledName (интерфейсы - нет, см. её комментарий).
-func isInterfaceName(prog *ast.Program, name string) bool {
+// unmangledCategoryName сообщает, объявлен ли name в prog как интерфейс,
+// перечисление или константа уровня модуля (а не как функция/сущность) -
+// используется buildNames выше, чтобы решить, нужно ли имени mangledName
+// (этим трём категориям - нет, см. её комментарий: Link() сливает их без
+// переименования, единая плоская область видимости на всю программу).
+func unmangledCategoryName(prog *ast.Program, name string) bool {
 	for _, iface := range prog.Interfaces {
 		if iface.Name == name {
+			return true
+		}
+	}
+	for _, e := range prog.Enums {
+		if e.Name == name {
+			return true
+		}
+	}
+	for _, c := range prog.Consts {
+		if c.Name == name {
 			return true
 		}
 	}
@@ -89,9 +102,26 @@ func isInterfaceName(prog *ast.Program, name string) bool {
 // уже глобально уникальны (переименование по mangledName) и синтаксически
 // корректны в изначальном, невозможном для коллизии виде.
 func (p *Program) Link() (*ast.Program, error) {
+	// allEnums/allConsts - имена ВСЕХ перечислений/констант, объявленных
+	// хоть где-то в целой программе (across p.Modules) - см. package doc
+	// rewriter.allEnums. Строятся один раз, общие для rewriter'а каждого
+	// модуля ниже - только так rewriteExpr одного файла может отличить
+	// "ссылается на перечисление/константу другого файла, но не
+	// импортировал(а)" (ошибка видимости) от "имя не найдено вообще нигде"
+	// (не наша забота, см. её же комментарий).
+	allEnums := map[string]bool{}
+	allConsts := map[string]bool{}
+	for _, m := range p.Modules {
+		for _, e := range m.AST.Enums {
+			allEnums[e.Name] = true
+		}
+		for _, c := range m.AST.Consts {
+			allConsts[c.Name] = true
+		}
+	}
 	for _, m := range p.Modules {
 		names := buildNames(m, p.Entry)
-		r := &rewriter{names: names}
+		r := &rewriter{names: names, allEnums: allEnums, allConsts: allConsts}
 		for _, fn := range m.AST.Functions {
 			r.locals = nil
 			if err := r.rewriteTypeParams(fn.TypeParams); err != nil {
@@ -205,29 +235,25 @@ func (p *Program) Link() (*ast.Program, error) {
 		merged.Entities = append(merged.Entities, m.AST.Entities...)
 		merged.ExternFuncs = append(merged.ExternFuncs, m.AST.ExternFuncs...)
 		merged.ExternEntities = append(merged.ExternEntities, m.AST.ExternEntities...)
-		// Enums - без мангла при импорте (в отличие от функций/
-		// сущностей/внешних функций выше) - перечисления через
-		// "использовать" пока не поддержаны (см. package doc
-		// internal/semantic.collectEnums): именно поэтому одноимённое
-		// перечисление в двух файлах, слитых в одну программу, поймает
-		// только collectEnums (менее подробное сообщение, чем у мангла
-		// выше) - осознанный, а не забытый пробел этого среза.
+		// Enums/Interfaces/Consts - без мангла при слиянии (в отличие от
+		// функций/сущностей/внешних функций выше) - ЕДИНАЯ плоская область
+		// видимости на всю программу: internal/semantic.collectEnums/
+		// collectModuleConsts видят все перечисления/константы всех слитых
+		// файлов сразу, по голому bare-имени, независимо от того, из какого
+		// файла они пришли. "использовать" умеет импортировать все три
+		// категории по имени, с приватностью (docs/ROADMAP.md - паритет с
+		// уже существующей приватностью функций/сущностей) - buildNames
+		// выше отражает это разрешением собственного/импортированного
+		// alias в то же bare-имя, rewriteExpr (walk.go, case
+		// *ast.Identifier/*ast.FieldAccess) отказывает в резолюции
+		// приватному/неимпортированному имени, найденному в r.allEnums/
+		// r.allConsts. Само имя при этом по-прежнему не различается по
+		// файлу-источнику В МЕРЖЕ - два НЕСВЯЗАННЫХ файла с одноимённым
+		// перечислением/интерфейсом/константой столкнутся здесь (collectEnums/
+		// collectModuleConsts поймают коллизию, менее подробное сообщение,
+		// чем у мангла выше) - осознанный, а не забытый пробел этого среза.
 		merged.Enums = append(merged.Enums, m.AST.Enums...)
-		// Interfaces - без мангла, ЕДИНАЯ плоская область видимости на всю
-		// программу (тем же принципом, что и у Enums выше) - "использовать"
-		// умеет их импортировать (buildNames выше отражает это разрешением
-		// импортированного alias в то же bare-имя), но само имя интерфейса
-		// в merged.Program по-прежнему не различается по файлу-источнику:
-		// два НЕСВЯЗАННЫХ файла с интерфейсом одного имени столкнутся здесь
-		// точно так же, как два одноимённых Enum - осознанный, а не
-		// забытый пробел этого среза.
 		merged.Interfaces = append(merged.Interfaces, m.AST.Interfaces...)
-		// Consts - константы уровня модуля (ast.Program.Consts) - тот же
-		// принцип, что и у Enums/Interfaces: без мангла, "использовать" не
-		// импортирует константу по имени (internal/semantic.
-		// collectModuleConsts просто видит все константы всех слитых
-		// файлов сразу - то же намеренное ослабление, что и у приватности
-		// функций/сущностей в режиме нескольких файлов, docs/ROADMAP.md).
 		merged.Consts = append(merged.Consts, m.AST.Consts...)
 	}
 	return merged, nil

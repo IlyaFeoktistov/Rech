@@ -99,11 +99,11 @@ type Module struct {
 }
 
 // declaredNames - имена, которые Module объявляет на верхнем уровне и
-// которые можно импортировать через "использовать" - функции, сущности и
-// интерфейсы. Производные типы состояний (StateDecl.TypeName) сюда не
-// входят - они пока не участвуют в системе импортов, только
-// localTypeNames ниже (для ссылок внутри того же файла, который их
-// объявил).
+// которые можно импортировать через "использовать" - функции, сущности,
+// интерфейсы, перечисления и константы уровня модуля. Производные типы
+// состояний (StateDecl.TypeName) сюда не входят - они пока не участвуют в
+// системе импортов, только localTypeNames ниже (для ссылок внутри того же
+// файла, который их объявил).
 func declaredNames(prog *ast.Program) map[string]bool {
 	names := map[string]bool{}
 	for _, fn := range prog.Functions {
@@ -121,18 +121,26 @@ func declaredNames(prog *ast.Program) map[string]bool {
 	for _, iface := range prog.Interfaces {
 		names[iface.Name] = true
 	}
+	for _, e := range prog.Enums {
+		names[e.Name] = true
+	}
+	for _, c := range prog.Consts {
+		names[c.Name] = true
+	}
 	return names
 }
 
 // moduleVisibility - то же множество имён, что и declaredNames, но с
 // видимостью каждого (ast.FunctionDecl.Visibility/ast.EntityDecl.
-// Visibility - необязательный "приватный"/"публичный" перед объявлением,
-// docs/SPEC.md, "Импорты") - используется ТОЛЬКО для проверки
-// "использовать" (в отличие от declaredNames, которая нужна и для проверки
-// коллизии ЛОКАЛЬНЫХ имён, где видимость не имеет значения - см. её вызов
-// в load ниже, declared). Внешние функции/сущности и интерфейсы не
-// поддерживают модификатор видимости (ast.InterfaceDecl не несёт
-// Visibility вовсе) - всегда Public.
+// Visibility/ast.EnumDecl.Visibility/ast.ConstDecl.Visibility -
+// необязательный "приватный"/"публичный" перед объявлением, согласованный
+// по роду с governing-словом - internal/parser/modvisibility.go) -
+// используется ТОЛЬКО для проверки "использовать" (в отличие от
+// declaredNames, которая нужна и для проверки коллизии ЛОКАЛЬНЫХ имён, где
+// видимость не имеет значения - см. её вызов в load ниже, declared).
+// Внешние функции/сущности и интерфейсы не поддерживают модификатор
+// видимости вовсе (ast.InterfaceDecl не несёт поля Visibility) - всегда
+// Public.
 func moduleVisibility(prog *ast.Program) map[string]ast.Visibility {
 	vis := map[string]ast.Visibility{}
 	for _, fn := range prog.Functions {
@@ -149,6 +157,12 @@ func moduleVisibility(prog *ast.Program) map[string]ast.Visibility {
 	}
 	for _, iface := range prog.Interfaces {
 		vis[iface.Name] = ast.Public
+	}
+	for _, e := range prog.Enums {
+		vis[e.Name] = e.Visibility
+	}
+	for _, c := range prog.Consts {
+		vis[c.Name] = c.Visibility
 	}
 	return vis
 }

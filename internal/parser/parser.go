@@ -525,6 +525,7 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 			if err != nil {
 				return nil, err
 			}
+			enum.Visibility = vis
 			prog.Enums = append(prog.Enums, enum)
 		case lexer.KwInterface:
 			iface, err := p.parseInterfaceDecl()
@@ -544,6 +545,7 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 				return nil, err
 			}
 			c.Doc = doc
+			c.Visibility = vis
 			prog.Consts = append(prog.Consts, c)
 		default:
 			stmt, err := p.parseStatement()

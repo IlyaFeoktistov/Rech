@@ -119,3 +119,84 @@ func TestParseVisibilityModifierRejectedBeforeUse(t *testing.T) {
 		t.Fatalf("ожидалась ошибка о неуместном модификаторе, получено: %v", err)
 	}
 }
+
+// TestParsePrivateEnumAgreesWithNeuterGender/TestParsePrivateConstAgreesWithFeminineGender -
+// паритет модульной видимости с уже существующей у функций/сущностей
+// (docs/ROADMAP.md): "перечисление" среднего рода ("приватное"), "константа"
+// женского ("приватная", тем же согласованием, что и checkConstVisibilityAgreement
+// у константы уровня сущности).
+func TestParsePrivateEnumAgreesWithNeuterGender(t *testing.T) {
+	prog, err := parseSource(t, `
+приватное перечисление Скрытый
+{
+    А
+}
+публичное перечисление Открытый
+{
+    Б
+}
+функция главная { вывести "ок" }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if prog.Enums[0].Visibility != ast.Private {
+		t.Fatalf("ожидалось приватное перечисление, получено %v", prog.Enums[0].Visibility)
+	}
+	if prog.Enums[1].Visibility != ast.Public {
+		t.Fatalf("ожидалось публичное перечисление, получено %v", prog.Enums[1].Visibility)
+	}
+}
+
+func TestParsePrivateEnumWrongGenderRejected(t *testing.T) {
+	_, err := parseSource(t, `
+приватная перечисление Скрытый
+{
+    А
+}
+функция главная { вывести "ок" }
+`)
+	if err == nil || !strings.Contains(err.Error(), "приватное") {
+		t.Fatalf("ожидалась ошибка о согласовании рода (\"приватное перечисление\"), получено: %v", err)
+	}
+}
+
+func TestParsePrivateConstAgreesWithFeminineGender(t *testing.T) {
+	prog, err := parseSource(t, `
+приватная константа Секрет = 1
+публичная константа Известный = 2
+функция главная { вывести "ок" }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if len(prog.Consts) != 2 || prog.Consts[0].Visibility != ast.Private || prog.Consts[1].Visibility != ast.Public {
+		t.Fatalf("ожидались приватная и публичная константы, получено %+v", prog.Consts)
+	}
+}
+
+func TestParsePrivateConstWrongGenderRejected(t *testing.T) {
+	_, err := parseSource(t, `
+приватный константа Секрет = 1
+функция главная { вывести "ок" }
+`)
+	if err == nil || !strings.Contains(err.Error(), "приватная") {
+		t.Fatalf("ожидалась ошибка о согласовании рода (\"приватная константа\"), получено: %v", err)
+	}
+}
+
+// TestParseConstDeclWithoutVisibilityStaysPublic - без модификатора
+// константа уровня модуля остаётся публичной (обратная совместимость - вся
+// программа до этой фичи писала "константа" без модификатора).
+func TestParseConstDeclWithoutVisibilityStaysPublic(t *testing.T) {
+	prog, err := parseSource(t, `
+константа Порог = 10
+функция главная { вывести "ок" }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if len(prog.Consts) != 1 || prog.Consts[0].Visibility != ast.Public {
+		t.Fatalf("ожидалась публичная константа по умолчанию, получено %+v", prog.Consts)
+	}
+}
