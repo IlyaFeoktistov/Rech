@@ -47,8 +47,7 @@ func TestGenerateFromIRLaunchAwaitEmitsThreadWrapper(t *testing.T) {
 	// Поток открепляется СРАЗУ (не остаётся ждать "дождаться") - см.
 	// package doc concurrency.go, ensureTaskWrapper: "запустить" без
 	// единого "дождаться" (фоновая задача) иначе никогда не освобождал бы
-	// дескриптор потока - именно так была найдена утечка при переводе
-	// http_сервер на поток-на-соединение (docs/ROADMAP.md).
+	// дескриптор потока.
 	for _, want := range []string{"pthread_detach(rech_thread_handle);", "CloseHandle(rech_thread_handle);"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("ожидалось открепление потока сразу при запуске (%q), получено:\n%s", want, out)
