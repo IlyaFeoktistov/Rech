@@ -904,6 +904,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// класс проблемы, что и у genericsCode/typedefs ниже.
 		sb.WriteString(reflectTypedefs)
 		sb.WriteString(primitiveReflectDescriptors())
+		sb.WriteString(nullableReflectDescriptors(prog))
 		sb.WriteString(reflectUnboxCheckHelper)
 		sb.WriteString("\n")
 		sb.WriteString(reflectUnboxCheckIfaceHelper)
@@ -1123,6 +1124,13 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	}
 
 	if len(prog.ReflectTargets) > 0 {
+		// Прототипы ДО reflectRuntimeCode - её method-таблицы зовут эти
+		// хелперы по имени раньше места, где эмитятся их тела (круговая
+		// зависимость с самими телами - см. package doc
+		// nullableReflectBoxHelperProtos в reflect.go). После typedefs/
+		// nullablesCode/nullablesAfterTypedefs выше - нужен уже видимый
+		// C-тип самой обёртки "?Тип" как тип параметра.
+		sb.WriteString(nullableReflectBoxHelperProtos(prog))
 		// После protos/ctors - геттеры/сеттеры/инвокеры полей и методов
 		// вызывают уже сгенерированные C-функции полей/методов/rech_new_<Тип>
 		// (см. package doc reflect.go).
@@ -1131,6 +1139,11 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 			return "", err
 		}
 		sb.WriteString(reflectCode)
+		// Тела хелперов - ПОСЛЕ reflectRuntimeCode: тело для "?Задача"
+		// ссылается на дескриптор сущности "Задача" (&rech_type_meta_zadacha),
+		// чьё опережающее объявление пишет именно reflectRuntimeCode (см.
+		// reflectGen.ensure) - см. package doc nullableReflectBoxHelpers.
+		sb.WriteString(nullableReflectBoxHelpers(ctx, prog))
 	}
 
 	// activeTasksCode (active_tasks.go) - ДО taskCode ниже: точка входа

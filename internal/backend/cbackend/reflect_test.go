@@ -182,6 +182,61 @@ func TestGenerateFromIREntityFieldOfGenericCollectionReflects(t *testing.T) {
 	}
 }
 
+// TestGenerateFromIRReflectMethodWithNullableReturn - НАЙДЕННЫЙ И
+// ИСПРАВЛЕННЫЙ баг: сущность среди ReflectTargets с методом, возвращающим
+// "?Тип" ("статус(id): ?Задача" - examples/проекты/http_сервер), раньше
+// падала компиляцией сгенерированного C двумя разными способами по
+// очереди - сперва "undeclared identifier" (дескриптор "?Тип" никто не
+// эмитировал, reflectMetaVarFor строит имя, но primitiveReflectDescriptors
+// не знает про nullable-инстанциации), затем "aggregate value used where
+// an integer was expected" (reflectBoxExprCode боксировала СТРУКТУРУ
+// nullable-обёртки через ".v.i = (long long)(...)", тот же путь, что и для
+// целых чисел). Живая проверка настоящим cc - examples/проекты/
+// http_сервер/исходники/контейнер.rech (DI-контейнер на рефлексии).
+func TestGenerateFromIRReflectMethodWithNullableReturn(t *testing.T) {
+	nullableName := "?Задача"
+	taskEntity := &ir.Entity{Name: "Задача", Fields: []ir.Field{{Name: "id", Type: ir.TypeString}}}
+	storeEntity := &ir.Entity{
+		Name: "Хранилище",
+		Methods: []*ir.Method{
+			{Name: "статус", Params: []ir.Param{{Name: "id", Type: ir.TypeString}},
+				ReturnType: ir.NullableType(ir.EntityType("Задача")), HasReturn: true,
+				Body: []ir.Stmt{&ir.ReturnStmt{Value: &ir.NullLiteral{Type: ir.NullableType(ir.EntityType("Задача"))}}}},
+		},
+	}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "х", Value: &ir.NewExpr{Entity: "Хранилище"}},
+		&ir.VarDecl{Name: "б", Value: &ir.CastExpr{Value: &ir.Identifier{Name: "х", Type: ir.EntityType("Хранилище")}, To: ir.TypeAny}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{
+		Entities:       []*ir.Entity{taskEntity, storeEntity},
+		Functions:      []*ir.Function{main},
+		UsesReflection: true,
+		ReflectTargets: []ir.Type{ir.EntityType("Хранилище")},
+		Nullables:      []ir.NullableInstantiation{{Name: nullableName, Inner: ir.EntityType("Задача")}},
+	})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, `static const rech_type_meta_t `+reflectMetaName(nullableName)+` = {"`+nullableName+`", NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0, ""};`) {
+		t.Fatalf("ожидался дескриптор %q, получено:\n%s", nullableName, out)
+	}
+	protoIdx := strings.Index(out, "static rech_any_t "+reflectNullableBoxHelperName(nullableName)+"(")
+	if protoIdx < 0 {
+		t.Fatalf("ожидался прототип/тело хелпера боксирования %q, получено:\n%s", nullableName, out)
+	}
+	invokerIdx := strings.Index(out, "static rech_any_t rech_reflect_invoke_hranilische_status(")
+	if invokerIdx < 0 {
+		t.Fatalf("ожидался инвокер метода статус, получено:\n%s", out)
+	}
+	if protoIdx >= invokerIdx {
+		t.Fatalf("прототип хелпера боксирования должен появляться РАНЬШЕ инвокера метода, который его вызывает")
+	}
+	if !strings.Contains(out, "if (!v.has)") {
+		t.Fatalf("ожидалось тело хелпера с проверкой v.has, получено:\n%s", out)
+	}
+}
+
 // TestGenerateFromIRReflectTypedefsBeforeGenerics - rech_any_t обязан быть
 // объявлен раньше genericsCode (Список<Значение> ссылается на него как на
 // свой C-тип элемента) - иначе "unknown type name".

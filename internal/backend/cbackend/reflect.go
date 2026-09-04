@@ -380,6 +380,36 @@ func primitiveReflectDescriptors() string {
 	return sb.String()
 }
 
+// nullableReflectDescriptors - статические дескрипторы "?Тип" (bare, как у
+// primitiveReflectDescriptors выше - нулевые поля/методы/конструктор) для
+// КАЖДОГО "?Тип", реально зарегистрированного в prog.Nullables. НАЙДЕННЫЙ
+// БАГ (не по постановке задачи, тот же класс, что и у "БД" в
+// reflectPrimitiveKinds выше): reflectMetaVarFor для метода с nullable-
+// возвратом ("статус(id: Строка): ?Задача") уже строит ИМЯ переменной
+// дескриптора корректно (t.String() у KindNullable == t.Entity == "?Задача",
+// см. internal/ir/type.go), но САМУ переменную никто не эмитировал -
+// метод-таблица рефлексии сущности (entityMethodTableCCode) ссылалась на
+// несуществующий "rech_type_meta_n_zadacha", падая "undeclared identifier"
+// при боксировании ЛЮБОЙ сущности с хотя бы одним таким методом (найдено
+// на "ХранилищеЗадач.статус" при переводе DI-контейнера http_сервера на
+// рефлексивное хранилище, examples/проекты/http_сервер/исходники/
+// контейнер.rech). prog.Nullables - уже готовый список ВСЕХ "?Тип",
+// использованных где-либо в программе (см. package doc internal/semantic,
+// registerNullableTypeName) - тот же источник, из которого genericsCode
+// строит сами C-обёртки "?Тип", просто эмитируется отдельно и раньше (bare-
+// дескриптор не ссылается на typedef обёртки, в отличие от entity/generic-
+// коллекции descriptors ниже).
+func nullableReflectDescriptors(prog *ir.Program) string {
+	var sb strings.Builder
+	for _, nb := range prog.Nullables {
+		fmt.Fprintf(&sb, "static const rech_type_meta_t %s = {\"%s\", NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0, \"\"};\n", reflectMetaName(nb.Name), escapeCString(nb.Name))
+	}
+	if len(prog.Nullables) > 0 {
+		sb.WriteString("\n")
+	}
+	return sb.String()
+}
+
 // reflectBoxExprCode строит C-выражение типа rech_any_t, боксирующее
 // значение типа t, хранящееся в cExpr. Целое8/16/32/64, Натуральное/
 // 8/16/32/64, Целое, Символ, Байт - битовый паттерн в .v.i как есть (тег
@@ -402,9 +432,73 @@ func reflectBoxExprCode(ctx *irGenCtx, t ir.Type, cExpr string) string {
 			return fmt.Sprintf("(rech_any_t){.type = &%s, .v.ptr = (void *)(%s)}", meta, cExpr)
 		}
 		return fmt.Sprintf("%s(%s)", reflectBoxStructFuncName(t.Entity), cExpr)
+	case ir.KindNullable:
+		// НАЙДЕННЫЙ БАГ: раньше падал в default ниже - "?Тип" (например,
+		// "?Задача" у "ХранилищеЗадач.статус") ЭТО СТРУКТУРА (has/value,
+		// nullable.go), не скаляр, приводить её к "(long long)" - ошибка
+		// компиляции самого сгенерированного C ("aggregate value used
+		// where an integer was expected"), найдено при боксировании
+		// ЛЮБОЙ сущности с хотя бы одним методом/полем nullable-типа
+		// (examples/проекты/http_сервер, DI-контейнер на рефлексии). cExpr
+		// может быть вызовом с побочным эффектом (сам метод) - вычислить
+		// РОВНО один раз обязана функция-хелпер (см.
+		// reflectNullableBoxHelperName), не инлайн-тернарник здесь же.
+		return fmt.Sprintf("%s(%s)", reflectNullableBoxHelperName(t.Entity), cExpr)
 	default:
 		return fmt.Sprintf("(rech_any_t){.type = &%s, .v.i = (long long)(%s)}", meta, cExpr)
 	}
+}
+
+// reflectNullableBoxHelperName - имя C-функции-хелпера (см.
+// nullableReflectBoxHelpers), боксирующей ОДНО конкретное "?Тип" (name -
+// каноническое имя с "?", тот же принцип, что у reflectMetaName).
+func reflectNullableBoxHelperName(name string) string {
+	return "rech_reflect_box_" + transliterate(name)
+}
+
+// nullableReflectBoxHelpers - одна функция-хелпер на каждый "?Тип" из
+// prog.Nullables, боксирующая его значение в rech_any_t (см. её package doc
+// в reflectBoxExprCode выше про сам баг): "Ничто" (v.has == 0) - хелпер
+// значения "Ничто" (тот же принцип, что и у SQL NULL в internal/backend/
+// cbackend/db.go - "результат.получить(колонка).тип_значения().имя() ==
+// \"Ничто\""), иначе - боксирование ВНУТРЕННЕГО типа рекурсивно через
+// reflectBoxExprCode (сама вложенность конечна - "?Тип" не может обернуть
+// сам себя, "??Тип" запрещено на этапе семантики, docs/SPEC.md).
+//
+// Круговая зависимость с reflectRuntimeCode ниже разрешена в два прохода:
+// **прототипы** (nullableReflectBoxHelperProtos) эмитятся ДО
+// reflectRuntimeCode (методы сущностей, чьи method-таблицы зовут эти
+// хелперы по имени - обязаны видеть хотя бы прототип раньше места вызова),
+// а **сами тела** (эта функция) - ПОСЛЕ (тело хелпера для "?Задача" само
+// ссылается на дескриптор сущности "Задача" - &rech_type_meta_zadacha,
+// который получает опережающее объявление только внутри reflectRuntimeCode,
+// см. reflectGen.ensure). Прототипу для этого не нужно ничего, кроме уже
+// видимого typedef самой обёртки "?Тип" (nullablesCode/
+// nullablesAfterTypedefs, ir_generator.go); телу - ещё и
+// primitiveReflectDescriptors/nullableReflectDescriptors (дескриптор
+// "Ничто") и opережающее объявление сущности-содержимого из
+// reflectRuntimeCode.
+func nullableReflectBoxHelperProtos(prog *ir.Program) string {
+	var sb strings.Builder
+	for _, nb := range prog.Nullables {
+		fmt.Fprintf(&sb, "static rech_any_t %s(%s v);\n", reflectNullableBoxHelperName(nb.Name), mangleType(nb.Name))
+	}
+	if len(prog.Nullables) > 0 {
+		sb.WriteString("\n")
+	}
+	return sb.String()
+}
+
+func nullableReflectBoxHelpers(ctx *irGenCtx, prog *ir.Program) string {
+	var sb strings.Builder
+	nichto := reflectMetaName(ir.TypeNullValue.String())
+	for _, nb := range prog.Nullables {
+		cType := mangleType(nb.Name)
+		fmt.Fprintf(&sb, "static rech_any_t %s(%s v) {\n", reflectNullableBoxHelperName(nb.Name), cType)
+		fmt.Fprintf(&sb, "    if (!v.has) {\n        return (rech_any_t){.type = &%s};\n    }\n", nichto)
+		fmt.Fprintf(&sb, "    return %s;\n}\n\n", reflectBoxExprCode(ctx, nb.Inner, "v.value"))
+	}
+	return sb.String()
 }
 
 // reflectUnboxExprCode - обратное к reflectBoxExprCode: читает значение
@@ -701,6 +795,22 @@ func reflectRuntimeCode(ctx *irGenCtx, targets []ir.Type, generics []ir.GenericI
 // только элемент/ключ, которые сами могут быть сущностями и тоже требуют
 // ensure).
 func (g *reflectGen) ensure(t ir.Type) error {
+	if t.Kind == ir.KindNullable {
+		// НАЙДЕННЫЙ БАГ: без этой ветки ensure молча возвращала nil для
+		// "?Тип" (KindNullable != KindEntity, попадала в общий отказ ниже) -
+		// внутренний тип нигде не получал ensure(), значит сущность,
+		// видимая рефлексии ТОЛЬКО как "?Тип" метода/поля (например,
+		// "Задача" - только как результат "статус(id): ?Задача", никогда
+		// не боксирована сама по себе), могла остаться БЕЗ собственного
+		// дескриптора вовсе - nullableReflectBoxHelpers (ir_generator.go)
+		// ссылалась бы на несуществующий rech_type_meta_zadacha при попытке
+		// боксировать развёрнутое значение.
+		inner, ok := g.ctx.nullableInner[t.Entity]
+		if !ok {
+			return nil
+		}
+		return g.ensure(inner)
+	}
 	if t.Kind == ir.KindInterface {
 		if g.generated[t.Entity] {
 			return nil
