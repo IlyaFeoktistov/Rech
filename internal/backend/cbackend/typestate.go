@@ -65,7 +65,7 @@ func generateIRStateCheckExpr(ctx *irGenCtx, e *ir.StateCheckExpr) (string, valu
 	msg := rtmsg.StateNotEstablishedFormat(e.Entity, e.State)
 	ctx.usesExceptions = true
 	return fmt.Sprintf("(%s)%s((void *)(%s), offsetof(%s, state_flags), 1ULL << %d, \"%s\")",
-		vt.cType(ctx), requireStateFunc, code, mangleType(e.Entity), bit, escapeCString(msg)), vt, nil
+		vt.cType(ctx), requireStateFunc, code, entityCName(ctx, e.Entity), bit, escapeCString(msg)), vt, nil
 }
 
 // generateIRHasStateExpr - см. package doc. Entity здесь - точная сущность,
@@ -85,7 +85,7 @@ func generateIRHasStateExpr(ctx *irGenCtx, e *ir.HasStateExpr) (string, valueTyp
 	if !ok {
 		return "", typeUnknown, fmt.Errorf("генерация C из IR: у сущности %q нет состояния %q", e.Entity, e.State)
 	}
-	return fmt.Sprintf("((((%s *)(%s))->state_flags & (1ULL << %d)) != 0)", mangleType(e.Entity), code, bit), typeBool, nil
+	return fmt.Sprintf("((((%s *)(%s))->state_flags & (1ULL << %d)) != 0)", entityCName(ctx, e.Entity), code, bit), typeBool, nil
 }
 
 const revokeStatesFunc = "rech_revoke_states"

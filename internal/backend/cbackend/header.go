@@ -50,17 +50,27 @@ func exportAttr(ctx *irGenCtx, exported bool) string {
 // стандартной библиотеке C).
 func generateHeader(prog *ir.Program) (string, error) {
 	entities := map[string]*ir.Entity{}
+	exportedEntityNames := map[string]bool{}
 	for _, ent := range prog.Entities {
 		entities[ent.Name] = ent
+		if ent.Exported {
+			exportedEntityNames[ent.Name] = true
+		}
 	}
-	ctx := &irGenCtx{entities: entities}
+	exportedFuncNames := map[string]bool{}
+	for _, fn := range prog.Functions {
+		if fn.Exported {
+			exportedFuncNames[fn.Name] = true
+		}
+	}
+	ctx := &irGenCtx{entities: entities, exportedEntityNames: exportedEntityNames, exportedFuncNames: exportedFuncNames}
 
 	var typedefs strings.Builder
 	for _, ent := range prog.Entities {
 		if !ent.Exported {
 			continue
 		}
-		fmt.Fprintf(&typedefs, "typedef struct %s %s;\n", mangleType(ent.Name), mangleType(ent.Name))
+		fmt.Fprintf(&typedefs, "typedef struct %s %s;\n", entityCName(ctx, ent.Name), entityCName(ctx, ent.Name))
 	}
 
 	var protos strings.Builder
@@ -68,7 +78,7 @@ func generateHeader(prog *ir.Program) (string, error) {
 		if !fn.Exported {
 			continue
 		}
-		fmt.Fprintf(&protos, "%s %s(%s);\n", cReturnTypeFor(ctx, fn.HasReturn, fn.ReturnType), mangleName(fn.Name), cParamListIR(ctx, fn.Params))
+		fmt.Fprintf(&protos, "%s %s(%s);\n", cReturnTypeFor(ctx, fn.HasReturn, fn.ReturnType), funcCName(ctx, fn.Name), cParamListIR(ctx, fn.Params))
 	}
 
 	var sb strings.Builder

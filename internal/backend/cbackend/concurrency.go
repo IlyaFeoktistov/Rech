@@ -116,7 +116,7 @@ func ensureTaskWrapper(ctx *irGenCtx, funcName string) {
 	for i, n := range argNames {
 		argRefs[i] = "t->" + n
 	}
-	fmt.Fprintf(&sb, "        t->result = %s(%s);\n", mangleName(funcName), strings.Join(argRefs, ", "))
+	fmt.Fprintf(&sb, "        t->result = %s(%s);\n", funcCName(ctx, funcName), strings.Join(argRefs, ", "))
 	fmt.Fprintf(&sb, "        %s = rech_frame.prev;\n", catchTopVar)
 	sb.WriteString("    } else {\n")
 	fmt.Fprintf(&sb, "        %s = rech_frame.prev;\n", catchTopVar)

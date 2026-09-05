@@ -262,7 +262,7 @@ func (g *jsonExtractorGen) jsonEntityExtractorCode(ent *ir.Entity) string {
 		if initList == "" {
 			initList = "0"
 		}
-		construct = fmt.Sprintf("return (%s){%s};\n", mangleType(ent.Name), initList)
+		construct = fmt.Sprintf("return (%s){%s};\n", entityCName(g.ctx, ent.Name), initList)
 	}
 
 	return fmt.Sprintf(`static %[1]s %[2]s(rech_jv v) {

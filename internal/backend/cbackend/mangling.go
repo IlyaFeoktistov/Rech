@@ -23,7 +23,17 @@ import (
 func checkManglingCollisions(prog *ir.Program) error {
 	funcMangled := map[string]string{}
 	for _, fn := range prog.Functions {
+		// Экспортированная функция - настоящее имя как есть (funcCName,
+		// mangle.go), не mangleName - коллизия транслитерации её не
+		// касается: раз она использует СВОЁ, единственное в своём роде
+		// имя буквально, столкнуться она может только с ДРУГОЙ функцией с
+		// БУКВАЛЬНО ТЕМ ЖЕ именем, что уже отдельно запрещено
+		// семантическим анализом (два верхнеуровневых объявления с одним
+		// именем).
 		mangled := mangleName(fn.Name)
+		if fn.Exported {
+			mangled = fn.Name
+		}
 		if other, exists := funcMangled[mangled]; exists {
 			return fmt.Errorf("функции %q и %q транслитерируются в одно и то же имя %q в C - переименуйте одну из них", other, fn.Name, mangled)
 		}
@@ -37,6 +47,9 @@ func checkManglingCollisions(prog *ir.Program) error {
 	entityMangled := map[string]string{}
 	for _, ent := range prog.Entities {
 		mangledType := mangleType(ent.Name)
+		if ent.Exported {
+			mangledType = ent.Name
+		}
 		if other, exists := entityMangled[mangledType]; exists {
 			return fmt.Errorf("сущности %q и %q транслитерируются в одно и то же имя %q в C - переименуйте одну из них", other, ent.Name, mangledType)
 		}

@@ -101,7 +101,7 @@ func ensureFuncRefTrampoline(ctx *irGenCtx, funcName string) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "static %s %s(%s) {\n", callableResultCType(ctx, result), name, strings.Join(params, ", "))
 	sb.WriteString("    (void)rech_env;\n")
-	call := fmt.Sprintf("%s(%s)", mangleName(funcName), strings.Join(argNames, ", "))
+	call := fmt.Sprintf("%s(%s)", funcCName(ctx, funcName), strings.Join(argNames, ", "))
 	if fn.HasReturn {
 		fmt.Fprintf(&sb, "    return %s;\n", call)
 	} else {

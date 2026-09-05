@@ -188,9 +188,9 @@ var primitiveCTypes = map[valueType]string{
 func (t valueType) cType(ctx *irGenCtx) string {
 	if t.kind == kindEntity {
 		if ctx.entityIsRef(t.entity) {
-			return mangleType(t.entity) + " *"
+			return entityCName(ctx, t.entity) + " *"
 		}
-		return mangleType(t.entity)
+		return entityCName(ctx, t.entity)
 	}
 	if t.kind == kindTask {
 		return mangleTaskType(t.entity) + " *"

@@ -128,8 +128,8 @@ func TestBuildLibProducesLibraryAndHeader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("заголовок не найден по %q: %v", hPath, err)
 	}
-	if !strings.Contains(string(header), "rech_summa") {
-		t.Fatalf("ожидался прототип rech_summa в заголовке, получено:\n%s", header)
+	if !strings.Contains(string(header), "сумма") {
+		t.Fatalf("ожидался прототип сумма (настоящее имя) в заголовке, получено:\n%s", header)
 	}
 }
 

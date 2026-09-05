@@ -57,6 +57,36 @@ func mangleName(name string) string {
 	return "rech_" + transliterate(name)
 }
 
+// funcCName - C-имя функции: настоящее имя как есть (никакой
+// транслитерации/префикса "rech_"), если функция помечена
+// "экспортировать" (docs/SPEC.md, "Экспорт в разделяемую библиотеку") -
+// потребитель разделяемой библиотеки обязан видеть тот C-символ, который
+// сам автор написал в Rech (`применить`, не `rech_primenit`), чтобы
+// подключить его буквально тем же именем ("внешняя функция применить"),
+// без переименования через "как". GCC/Clang принимают произвольный UTF-8
+// в идентификаторах без специальных флагов (проверено живьём), ELF/PE
+// динамические таблицы символов - тоже (обычная последовательность байт,
+// не только ASCII) - технических препятствий для этого нет ни на одной из
+// платформ, которые уже поддерживает internal/toolchain. Неэкспортированная
+// функция - как и раньше, mangleName (внутренняя деталь реализации, никогда
+// не видна снаружи, коллизии внутренних имён это не касается).
+func funcCName(ctx *irGenCtx, name string) string {
+	if ctx.exportedFuncNames[name] {
+		return name
+	}
+	return mangleName(name)
+}
+
+// entityCName - C-имя (typedef) сущности, тем же принципом, что и
+// funcCName выше, - настоящее имя для сущности, помеченной
+// "экспортировать", иначе mangleType.
+func entityCName(ctx *irGenCtx, name string) string {
+	if ctx.exportedEntityNames[name] {
+		return name
+	}
+	return mangleType(name)
+}
+
 func mangleVar(name string) string {
 	return "v_" + transliterate(name)
 }

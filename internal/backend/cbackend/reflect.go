@@ -1075,7 +1075,7 @@ func interfaceImplementorsArrayCode(ifaceName string, implementors []string) str
 // независимо от x дальше, тем же принципом, что и internal/interp -
 // cloneValue при боксировании) + указатель на неё в rech_any_t.v.ptr.
 func (g *reflectGen) structBoxFuncCode(ent *ir.Entity) string {
-	cType := mangleType(ent.Name)
+	cType := entityCName(g.ctx, ent.Name)
 	fn := codegen.Func(reflectBoxStructFuncName(ent.Name)).
 		Static().
 		ReturnType("rech_any_t").
@@ -1096,7 +1096,7 @@ func (g *reflectGen) structBoxFuncCode(ent *ir.Entity) string {
 // приводят его к одному и тому же mangleType(ent.Name) *, без разницы
 // ref/структура.
 func (g *reflectGen) fieldAccessorsCode(ent *ir.Entity, f ir.Field) string {
-	selfExpr := fmt.Sprintf("((%s *)self)->%s", mangleType(ent.Name), mangleField(f.Name))
+	selfExpr := fmt.Sprintf("((%s *)self)->%s", entityCName(g.ctx, ent.Name), mangleField(f.Name))
 	getter := codegen.Func(reflectGetterName(ent.Name, f.Name)).
 		Static().
 		ReturnType("rech_any_t").
@@ -1167,7 +1167,7 @@ func (g *reflectGen) ctorInvokerCode(ent *ir.Entity) string {
 		fmt.Fprintf(&sb, "    return (rech_any_t){.type = &%s, .v.ptr = (void *)%s(%s)};\n",
 			reflectMetaVarFor(ir.EntityType(ent.Name)), mangleCtor(ent.Name), strings.Join(argExprs, ", "))
 	} else {
-		cType := mangleType(ent.Name)
+		cType := entityCName(g.ctx, ent.Name)
 		parts := make([]string, len(ent.Fields))
 		for i, f := range ent.Fields {
 			parts[i] = fmt.Sprintf(".%s = %s", mangleField(f.Name), argExprs[i])

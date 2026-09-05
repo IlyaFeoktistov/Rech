@@ -21,8 +21,8 @@ func TestGenerateLibFromIRDoesNotRequireEntryPoint(t *testing.T) {
 	if strings.Contains(cSource, "int main(") {
 		t.Fatalf("библиотека без \"главная\" не должна получать main(), получено:\n%s", cSource)
 	}
-	if !strings.Contains(header, "long long rech_summa(long long v_a, long long v_b);") {
-		t.Fatalf("ожидался прототип rech_summa в заголовке, получено:\n%s", header)
+	if !strings.Contains(header, "long long сумма(long long v_a, long long v_b);") {
+		t.Fatalf("ожидался прототип сумма (настоящее имя, не транслитерация) в заголовке, получено:\n%s", header)
 	}
 }
 
@@ -35,13 +35,13 @@ func TestGenerateLibFromIRHidesNonExportedFunction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(cSource, `__attribute__((visibility("default"))) int rech_publichnaya(void) {`) {
-		t.Fatalf("экспортированная функция должна получить атрибут видимости, получено:\n%s", cSource)
+	if !strings.Contains(cSource, `__attribute__((visibility("default"))) int публичная(void) {`) {
+		t.Fatalf("экспортированная функция должна получить атрибут видимости и настоящее имя, получено:\n%s", cSource)
 	}
 	if !strings.Contains(cSource, "\nint rech_privatnaya(void) {") {
-		t.Fatalf("неэкспортированная функция не должна получать атрибут видимости, получено:\n%s", cSource)
+		t.Fatalf("неэкспортированная функция не должна получать атрибут видимости (и должна остаться транслитерированной), получено:\n%s", cSource)
 	}
-	if strings.Contains(header, "rech_privatnaya") {
+	if strings.Contains(header, "rech_privatnaya") || strings.Contains(header, "приватная") {
 		t.Fatalf("неэкспортированная функция не должна попадать в заголовок, получено:\n%s", header)
 	}
 }
@@ -75,10 +75,10 @@ func TestGenerateHeaderOpaqueEntityTypedef(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(header, "typedef struct rech_T_tochka rech_T_tochka;") {
-		t.Fatalf("ожидался непрозрачный typedef сущности, получено:\n%s", header)
+	if !strings.Contains(header, "typedef struct Точка Точка;") {
+		t.Fatalf("ожидался непрозрачный typedef сущности с настоящим именем (не rech_T_tochka), получено:\n%s", header)
 	}
-	if !strings.Contains(header, "rech_T_tochka * rech_novaya_tochka(long long v_x);") {
-		t.Fatalf("ожидался прототип, возвращающий указатель на сущность, получено:\n%s", header)
+	if !strings.Contains(header, "Точка * новая_точка(long long v_x);") {
+		t.Fatalf("ожидался прототип, возвращающий указатель на сущность по настоящему имени, получено:\n%s", header)
 	}
 }

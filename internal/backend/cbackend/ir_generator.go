@@ -109,6 +109,14 @@ type irGenCtx struct {
 	// известного KindNullable ir.Type требуется добраться до внутреннего
 	// типа без повторного разбора строки (см. generateIRShowExpr).
 	nullableInner map[string]ir.Type
+	// exportedFuncNames/exportedEntityNames - имена функций/сущностей,
+	// помеченных "экспортировать" (prog.Functions[i].Exported/
+	// prog.Entities[i].Exported) - funcCName/entityCName (mangle.go)
+	// сверяются с ними, чтобы дать C-символу настоящее (не транслитерированное)
+	// имя именно у публичного ABI разделяемой библиотеки, оставив внутренние
+	// (неэкспортированные) объявления как есть, за mangleName/mangleType.
+	exportedFuncNames   map[string]bool
+	exportedEntityNames map[string]bool
 	// pointerInner - каноническое имя "Указатель<T>" (ir.Type.Entity) -> T,
 	// из prog.Pointers - тот же принцип, что и nullableInner выше, нужен
 	// valueType.cType, чтобы построить C-тип "T *" по одному только имени.
@@ -456,6 +464,18 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	for _, sig := range prog.Callables {
 		callableSigs[sig.Name] = sig
 	}
+	exportedFuncNames := map[string]bool{}
+	for _, fn := range prog.Functions {
+		if fn.Exported {
+			exportedFuncNames[fn.Name] = true
+		}
+	}
+	exportedEntityNames := map[string]bool{}
+	for _, ent := range prog.Entities {
+		if ent.Exported {
+			exportedEntityNames[ent.Name] = true
+		}
+	}
 	usesGC := false
 	usesStateFlags := false
 	for _, ent := range prog.Entities {
@@ -509,6 +529,8 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		nullableInner:         nullableInner,
 		pointerInner:          pointerInner,
 		callableSigs:          callableSigs,
+		exportedFuncNames:     exportedFuncNames,
+		exportedEntityNames:   exportedEntityNames,
 		externCNames:          externCNames,
 		usesGC:                usesGC,
 		usesStateFlags:        usesStateFlags,
@@ -813,7 +835,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 				ctorParams = ent.Ctor.Params
 			}
 			fmt.Fprintf(&protos, "static void %s(%s);\n", mangleCtorInit(ent.Name), cMethodParamListIR(ctx, ent.Name, ctorParams))
-			fmt.Fprintf(&protos, "static %s *%s(%s);\n", mangleType(ent.Name), mangleCtor(ent.Name), cParamListIR(ctx, ctorParams))
+			fmt.Fprintf(&protos, "static %s *%s(%s);\n", entityCName(ctx, ent.Name), mangleCtor(ent.Name), cParamListIR(ctx, ctorParams))
 		}
 	}
 	hasEntryPoint := false
@@ -822,7 +844,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 			hasEntryPoint = true
 			continue
 		}
-		fmt.Fprintf(&protos, "%s%s %s(%s);\n", exportAttr(ctx, fn.Exported), cReturnTypeFor(ctx, fn.HasReturn, fn.ReturnType), mangleName(fn.Name), cParamListIR(ctx, fn.Params))
+		fmt.Fprintf(&protos, "%s%s %s(%s);\n", exportAttr(ctx, fn.Exported), cReturnTypeFor(ctx, fn.HasReturn, fn.ReturnType), funcCName(ctx, fn.Name), cParamListIR(ctx, fn.Params))
 	}
 	if !libMode && !hasEntryPoint {
 		return "", fmt.Errorf("в программе не найдена функция %q - она служит точкой входа", entryPointName)
@@ -1419,7 +1441,7 @@ func generateIREntityStruct(ctx *irGenCtx, ent *ir.Entity) string {
 	if ent.IsTransaction {
 		return dbtxTypedefCode()
 	}
-	s := codegen.Struct(mangleType(ent.Name))
+	s := codegen.Struct(entityCName(ctx, ent.Name))
 	participates := ctx.dispatchParticipants[ent.Name]
 	if participates {
 		// "vt" - первым полем и всегда (не только у собственно
@@ -1607,7 +1629,7 @@ func generateIREntityCtorInit(ctx *irGenCtx, ent *ir.Entity) (string, error) {
 // rech_init_БАЗА к моменту, когда до неё доходит очередь в этом же цикле
 // (GenerateFromIR), без отдельного прототипа и для этого случая тоже.
 func generateIREntityCtorNewWithInit(ctx *irGenCtx, ent *ir.Entity) string {
-	cType := mangleType(ent.Name)
+	cType := entityCName(ctx, ent.Name)
 	fn := codegen.Func(mangleCtor(ent.Name)).Static().ReturnType(cType + " *")
 	params := make([]codegen.Param, len(ent.Ctor.Params))
 	for i, p := range ent.Ctor.Params {
@@ -1689,7 +1711,7 @@ func externPrototypeOfIR(ctx *irGenCtx, ext *ir.ExternFuncDecl) (string, error) 
 // combineParamList не нужен отдельный случай "нет параметров -> void".
 func cMethodParamListIR(ctx *irGenCtx, entityName string, params []ir.Param) string {
 	parts := make([]string, len(params)+1)
-	parts[0] = fmt.Sprintf("%s *this_", mangleType(entityName))
+	parts[0] = fmt.Sprintf("%s *this_", entityCName(ctx, entityName))
 	for i, p := range params {
 		parts[i+1] = fmt.Sprintf("%s %s", fromIRType(p.Type).cType(ctx), mangleVar(p.Name))
 	}
@@ -1699,7 +1721,7 @@ func cMethodParamListIR(ctx *irGenCtx, entityName string, params []ir.Param) str
 func generateIRFunction(ctx *irGenCtx, fn *ir.Function) (string, error) {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "// %s\n", fn.Name)
-	cName := mangleName(fn.Name)
+	cName := funcCName(ctx, fn.Name)
 	paramList := cParamListIR(ctx, fn.Params)
 	if cName == "main" {
 		// "главная" всегда получает настоящую C-сигнатуру main(int argc,
@@ -2198,7 +2220,7 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 		if code, ok := builtinCallCode(&ctx.builtinFlags, e.Callee, argCodes); ok {
 			return code, fromIRType(e.Type), nil
 		}
-		callee := mangleName(e.Callee)
+		callee := funcCName(ctx, e.Callee)
 		if isExtern {
 			callee = cName
 		}
@@ -2682,7 +2704,7 @@ func generateIRNewExpr(ctx *irGenCtx, e *ir.NewExpr) (string, valueType, error) 
 		// GNU, не входящее в стандартный C99) - как и в AST-пути.
 		initList = "0"
 	}
-	return fmt.Sprintf("(%s){%s}", mangleType(e.Entity), initList), entityType(e.Entity), nil
+	return fmt.Sprintf("(%s){%s}", entityCName(ctx, e.Entity), initList), entityType(e.Entity), nil
 }
 
 // generateIRMethodCallExpr генерирует вызов метода - получатель по указателю

@@ -65,7 +65,7 @@ func generateIRShowExpr(ctx *irGenCtx, t ir.Type, cExpr string) string {
 // "->"/"." выбирается тем же способом.
 func generateIREntityShowFunc(ctx *irGenCtx, ent *ir.Entity) string {
 	var sb strings.Builder
-	paramType := mangleType(ent.Name)
+	paramType := entityCName(ctx, ent.Name)
 	op := "."
 	if ctx.entityIsRef(ent.Name) {
 		paramType += " *"
