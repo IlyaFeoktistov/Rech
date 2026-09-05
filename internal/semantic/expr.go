@@ -550,6 +550,16 @@ func analyzeCallExpr(sc *ctx, e *ast.CallExpr) (ir.Expr, error) {
 				}
 			}
 		}
+		if funcSigTouchesSocket(sig) || callee == "запрос" {
+			if err := registerSocketNullableOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
+				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
+			}
+		}
+		if optionalStringFuncNames[callee] {
+			if err := registerOptionalStringOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
+				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
+			}
+		}
 		args, err := checkCallArgs(sc, e.Args, sig, e.Line, fmt.Sprintf("функция %q", callee), fmt.Sprintf("вызова %q", callee))
 		if err != nil {
 			return nil, err

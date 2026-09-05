@@ -62,10 +62,18 @@ func registerCookieOptionsEntity(entities map[string]entitySig) {
 // registerCookieFuncs регистрирует "ОпцииКуки" и функции "значение_куки"/
 // "строка_куки" - тем же принципом, что и registerDateTimeFuncs (принимают/
 // возвращают сущность, не примитив, поэтому не входят в internal/
-// builtins.All). Безусловно, как Запрос/Ответ/ДатаВремя/Исключение (не
-// лениво по первому использованию) - обе nullable-инстанциации (`?Целое`/
-// `?Строка`) и сама "ОпцииКуки" дешёвы (несколько десятков строк C на
-// каждую), раз в программе и так уже есть HTTP.
+// builtins.All). "ОпцииКуки" - безусловно, как Запрос/Ответ/ДатаВремя (не
+// лениво по первому использованию) - дешева (несколько десятков строк C),
+// раз в программе и так уже есть HTTP. "?Целое" здесь НЕ регистрируется -
+// её поле "максимальный_возраст" ссылается на "?Целое" по имени, но сама
+// entitySig гарантированно уже зарегистрирована БЕЗУСЛОВНО в другом месте
+// (`internal/semantic/analyzer.go`, поле "код" у системного "Исключение") -
+// повторная регистрация здесь была мёртвым кодом. "?Строка" регистрируется
+// лениво, при первом реальном вызове "значение_куки" (см. package doc
+// registerOptionalStringOnCall, nullable.go) - см. НАЙДЕННЫЙ структурный
+// риск в docs/ROADMAP.md ("Архитектура компилятора - структурные риски"),
+// исправленный тем же принципом, что и у "принять"/"?Сокет"
+// (registerSocketNullableOnCall, network.go).
 //
 // "Expires" (второй, устаревающий способ задать срок жизни cookie) - вне
 // скоупа осознанно: современная практика предпочитает "Max-Age" (имеет
@@ -75,12 +83,6 @@ func registerCookieOptionsEntity(entities map[string]entitySig) {
 func registerCookieFuncs(entities map[string]entitySig, funcs map[string]funcSig) {
 	registerHTTPEntity(entities, "Запрос", httpRequestFields)
 	registerCookieOptionsEntity(entities)
-	if _, exists := entities["?Целое"]; !exists {
-		entities["?Целое"] = entitySig{IsNullable: true, ElemType: ir.TypeInt}
-	}
-	if _, exists := entities["?Строка"]; !exists {
-		entities["?Строка"] = entitySig{IsNullable: true, ElemType: ir.TypeString}
-	}
 	funcs["значение_куки"] = funcSig{
 		Params:     []ir.Type{ir.EntityType("Запрос"), ir.TypeString},
 		ReturnType: ir.NullableType(ir.TypeString), HasReturn: true,

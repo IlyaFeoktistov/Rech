@@ -174,6 +174,26 @@ func TestAnalyzeExplicitCastToOtherTypeUnwrapsNarrowedNullable(t *testing.T) {
 	}
 }
 
+// TestAnalyzeExplicitCastUnwrapsNullableOpaqueType - явный каст разворачивает
+// "?Сокет" (nullable-обёртка непрозрачного KindSocket, возвращаемая
+// "принять") тем же путём, что и TestAnalyzeExplicitCastUnwrapsNullable
+// выше для примитива - до этой правки "(Сокет)" не входил в
+// parser.primitiveCastTypes, синтаксис вообще не разбирался как каст.
+func TestAnalyzeExplicitCastUnwrapsNullableOpaqueType(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция главная {
+    переменная слушатель = сетевой_узел("tcp", "", 18080)
+    переменная соединение = принять(слушатель)
+    переменная развёрнутое = (Сокет) соединение
+    закрыть_сокет(развёрнутое)
+    закрыть_сокет(слушатель)
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
 // TestAnalyzeNullableNarrowedAfterEarlyReturnOnEqualNichto - НАЙДЕННОЕ И
 // ИСПРАВЛЕННОЕ ограничение (docs/ROADMAP.md, Шаг 41/44): "если а == Ничто {
 // вернуть }" (ранний выход, БЕЗ явного "иначе") должно доказывать

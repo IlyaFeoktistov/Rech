@@ -29,6 +29,37 @@ func resolveNullableTypeName(entities map[string]entitySig, methods map[string]m
 	return ir.Type{Kind: ir.KindNullable, Entity: name}, nil
 }
 
+// registerOptionalStringOnCall - регистрирует entitySig "?Строка" лениво,
+// при первом РЕАЛЬНОМ вызове одной из функций, возвращающих "?Строка"
+// (`получить_переменную_окружения`/`значение_заголовка`/`значение_куки`) -
+// общая точка для всех трёх (тем же принципом, что registerSocketNullableOnCall,
+// network.go, у "принять") вместо трёх копий одного и того же тела в
+// env.go/httpheaders.go/cookies.go. НАЙДЕННЫЙ структурный риск (docs/
+// ROADMAP.md, "Архитектура компилятора - структурные риски") - раньше все
+// три функции регистрировали "?Строка" БЕЗУСЛОВНО при настройке
+// анализатора (до разбора программы), значит "?Строка" попадал в
+// `Program.Nullables` для КАЖДОЙ программы, даже без единого вызова этих
+// функций - для "?Строка" это было безобидно (её C-представление,
+// `const char *`, никогда не эмитируется условно, в отличие от
+// `rech_socket_t`/подобных - см. registerSocketNullableOnCall), но сам
+// механизм ("по факту регистрации", не "по факту использования") -
+// потенциальный источник той же ошибки для БУДУЩЕГО builtin'а. Исправлено
+// тем же путём, что и "?Сокет".
+func registerOptionalStringOnCall(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig) error {
+	_, err := resolveTypeName(entities, methods, aliases, interfaces, "?Строка")
+	return err
+}
+
+// optionalStringFuncNames - имена всех функций, возвращающих "?Строка" через
+// registerOptionalStringOnCall (analyzeCallExpr, expr.go) - тем же принципом
+// lookup-таблицы, что и dbFuncNames (db.go), вместо трёх отдельных "if
+// callee ==".
+var optionalStringFuncNames = map[string]bool{
+	"получить_переменную_окружения": true,
+	"значение_заголовка":            true,
+	"значение_куки":                 true,
+}
+
 // nonNullState - синтетическое имя "состояния" (в смысле established, см.
 // internal/semantic/ctx.go), которым отслеживается доказанная непустота
 // nullable-переменной внутри "если а != Ничто {...}" - переиспользует
