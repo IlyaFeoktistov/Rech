@@ -396,6 +396,31 @@ func TestParseNaturalCallAnimacyDisambiguatesWhomVsWhat(t *testing.T) {
 	}
 }
 
+// TestParseNaturalCallParamAsArgument - параметр функции регистрируется как
+// существительное (registerNoun, decl.go/parseParams) так же, как и обычная
+// переменная - раньше параметры вообще не регистрировались, поэтому их
+// нельзя было передать словоформой в естественный вызов без предварительного
+// присваивания локальной переменной (docs/ROADMAP.md, Шаг 77).
+func TestParseNaturalCallParamAsArgument(t *testing.T) {
+	prog, err := parseSource(t, `
+функция сложить(что: Целое, кем: Целое): Целое { вернуть что + кем }
+функция обёртка(число: Целое): Целое { вернуть сложить число числом }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	ret := prog.Functions[1].Body[0].(*ast.ReturnStmt)
+	call, ok := ret.Value.(*ast.CallExpr)
+	if !ok || call.Callee != "сложить" || len(call.Args) != 2 {
+		t.Fatalf("неожиданный вызов: %+v", ret.Value)
+	}
+	for i, want := range []string{"число", "число"} {
+		if id, ok := call.Args[i].(*ast.Identifier); !ok || id.Name != want {
+			t.Fatalf("аргумент %d: ожидалось %q, получено %+v", i, want, call.Args[i])
+		}
+	}
+}
+
 func TestParseEntityWithFields(t *testing.T) {
 	prog, err := parseSource(t, `
 сущность Пользователь

@@ -64,6 +64,33 @@ func TestNaturalMethodCallReceiverThis(t *testing.T) {
 	}
 }
 
+// TestNaturalMethodCallParamAsArgument - параметр МЕТОДА (не локальная
+// переменная) форвардится в другой естественный вызов - тот же баг
+// (параметры не регистрировались как существительные), что и у свободных
+// функций (см. parser_test.go, TestParseNaturalCallParamAsArgument), но
+// через "этот"-вызов (docs/ROADMAP.md, Шаг 77).
+func TestNaturalMethodCallParamAsArgument(t *testing.T) {
+	prog, err := parseSource(t, `
+сущность Пользователь {
+    авторизовать(кем пароль: Строка): Логическое { вернуть истина }
+    проверить(кем пароль: Строка): Логическое {
+        вернуть этот авторизовать паролем
+    }
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	ret := prog.Entities[0].Methods[1].Body[0].(*ast.ReturnStmt)
+	call, ok := ret.Value.(*ast.MethodCallExpr)
+	if !ok || call.Method != "авторизовать" || len(call.Args) != 1 {
+		t.Fatalf("неожиданный вызов: %+v", ret.Value)
+	}
+	if id, ok := call.Args[0].(*ast.Identifier); !ok || id.Name != "пароль" {
+		t.Fatalf("ожидался аргумент \"пароль\" (параметр \"проверить\"), получено %+v", call.Args[0])
+	}
+}
+
 func TestNaturalMethodCallReceiverParamOfEnclosingMethod(t *testing.T) {
 	prog, err := parseSource(t, `
 сущность Книга {
