@@ -316,7 +316,20 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 			if elemEnt, ok := collectionRealEntityElem(entities, typ); ok {
 				return fmt.Errorf("сущность %q: поле %q имеет тип %s - встроенная коллекция с сущностью %q элементом допустима только вне полей сущностей/структур (локальная переменная, параметр, тип результата функции), не полем другой сущности/структуры", ent.Name, f.Name, typ, elemEnt)
 			}
-			if ent.IsExternStruct && !isFFIType(entities, typ) {
+			if ent.IsExternStruct && typ.Kind == ir.KindCallable {
+				// "Вызываемый(...)" полем внешней структуры (WNDPROC-в-структуре
+				// стиль, WNDCLASS.lpfnWndProc и т. п.) - НЕ реализовано (docs/
+				// ROADMAP.md, "FFI: маршалинг колбэков") - в отличие от
+				// параметра "внешняя функция" (isFFIType ниже её уже пускает,
+				// тип результата - НЕ пускает, см. collectExternFuncSigs),
+				// полю нужен голый C-указатель на функцию в самой
+				// typedef-структуре (не {fn, env} по значению - это исказило бы
+				// реальный layout C-структуры), а cbackend сегодня объявляет
+				// ЛЮБОЕ поле-Callable только как {fn, env} - отдельная, более
+				// крупная доработка IR/кодогенерации, сознательно отложена.
+				return fmt.Errorf("внешняя структура %q: поле %q - \"Вызываемый(...)\" пока допустима только параметром \"внешняя функция\", не полем внешней структуры", ent.Name, f.Name)
+			}
+			if ent.IsExternStruct && !isFFIType(entities, methods, aliases, a.interfaces, typ) {
 				return fmt.Errorf("внешняя структура %q: поле %q имеет тип %s - допустимы только примитивы (Целое/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\") и \"Указатель<T>\" над FFI-совместимым T - иначе реальный размер C-структуры был бы искажён", ent.Name, f.Name, typ)
 			}
 			if f.IsStatic {
@@ -538,8 +551,8 @@ func (a *Analyzer) collectExternFuncSigs(funcs map[string]funcSig, entities map[
 			if err != nil {
 				return nil, fmt.Errorf("%s: параметр %q: %w", label, p.Name, err)
 			}
-			if !isFFIType(entities, typ) {
-				return nil, fmt.Errorf("%s: параметр %q имеет тип %s - у внешней функции допустимы только примитивы (Целое/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\") и \"Указатель<T>\" над FFI-совместимым T", label, p.Name, typ)
+			if !isFFIType(entities, methods, aliases, a.interfaces, typ) {
+				return nil, fmt.Errorf("%s: параметр %q имеет тип %s - у внешней функции допустимы только примитивы (Целое/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\"), \"Указатель<T>\" над FFI-совместимым T и \"Вызываемый(...)\" с FFI-совместимыми параметрами/результатом", label, p.Name, typ)
 			}
 			params[i] = typ
 		}
@@ -550,7 +563,20 @@ func (a *Analyzer) collectExternFuncSigs(funcs map[string]funcSig, entities map[
 			if err != nil {
 				return nil, fmt.Errorf("%s: тип результата: %w", label, err)
 			}
-			if !isFFIType(entities, typ) {
+			if typ.Kind == ir.KindCallable {
+				// "Вызываемый(...)" ТИПОМ РЕЗУЛЬТАТА внешней функции (сырой
+				// C-указатель на функцию, приходящий ОТ C, например возврат
+				// прежнего обработчика у signal()) - НЕ реализовано (docs/
+				// ROADMAP.md, "FFI: маршалинг колбэков") - обратное
+				// направление ("превратить чужой сырой указатель в
+				// вызываемое Rech-значение") нуждается в отдельном,
+				// анмаршалинг-trampoline, не в том же регистрационном
+				// механизме, что и параметр (marshalCallbackArg,
+				// ffi_callback.go) - сознательно отложено, параметром
+				// "Вызываемый(...)" уже поддержана (ниже).
+				return nil, fmt.Errorf("%s: тип результата - \"Вызываемый(...)\" пока допустима только ПАРАМЕТРОМ внешней функции, не типом результата", label)
+			}
+			if !isFFIType(entities, methods, aliases, a.interfaces, typ) {
 				return nil, fmt.Errorf("%s: тип результата %s не поддерживается - у внешней функции допустимы только примитивы (Целое/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\") и \"Указатель<T>\" над FFI-совместимым T", label, typ)
 			}
 			decl.ReturnType = typ
@@ -1121,6 +1147,23 @@ func (a *Analyzer) collectCallables(prog *ir.Program) error {
 	for _, iface := range prog.Interfaces {
 		for _, m := range iface.Methods {
 			if err := registerFunc(m.Params, m.ReturnType, m.HasReturn); err != nil {
+				return err
+			}
+		}
+	}
+	// prog.ExternFuncs - параметр "Вызываемый(...)" (docs/ROADMAP.md, "FFI:
+	// маршалинг колбэков") обязан попасть в Program.Callables ДАЖЕ если эта
+	// внешняя функция нигде фактически не вызвана (externPrototypeOfIR,
+	// cbackend, эмитит прототип КАЖДОЙ объявленной внешней функции
+	// безусловно - ей нужна собственная сигнатура trampoline'а независимо
+	// от того, есть ли реальный вызов). ExternFuncDecl.Params - только
+	// типы, нет structuры Param{Name, Type} - registerCallable вызывается
+	// напрямую, не через registerParams/registerFunc (тип результата не
+	// регистрируется - "Вызываемый(...)" типом результата внешней функции
+	// запрещена семантикой раньше, collectExternFuncSigs).
+	for _, ext := range prog.ExternFuncs {
+		for _, p := range ext.Params {
+			if err := a.registerCallable(p); err != nil {
 				return err
 			}
 		}

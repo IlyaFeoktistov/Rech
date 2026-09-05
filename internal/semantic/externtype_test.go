@@ -89,6 +89,53 @@ func TestAnalyzeExternFuncRejectsPointerToUnsafeEntity(t *testing.T) {
 	}
 }
 
+// TestAnalyzeExternFuncAcceptsCallableParam - "Вызываемый(...)" допустима
+// параметром внешней функции (docs/ROADMAP.md, "FFI: маршалинг колбэков") -
+// маршалится в cbackend через глобальный слот + trampoline, не как {fn,
+// env} по значению.
+func TestAnalyzeExternFuncAcceptsCallableParam(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+внешняя функция atexit(f: Вызываемый())
+функция главная { atexit(функция() { вывести "выход" }) }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
+// TestAnalyzeExternFuncRejectsCallableResult - обратное направление (сырой
+// C-указатель на функцию, пришедший ОТ C, нужно превратить в вызываемое
+// Rech-значение) не реализовано - "Вызываемый(...)" типом результата
+// внешней функции отклоняется явной ошибкой, не тихой генерацией {fn, env}
+// поверх сырого указателя.
+func TestAnalyzeExternFuncRejectsCallableResult(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+внешняя функция signal(sig: Целое, h: Вызываемый(Целое)): Вызываемый(Целое)
+функция главная { вывести 1 }
+`)
+	if err == nil || !strings.Contains(err.Error(), "тип результата") {
+		t.Fatalf("ожидалась ошибка про недопустимый тип результата, получено: %v", err)
+	}
+}
+
+// TestAnalyzeExternStructRejectsCallableField - "Вызываемый(...)" полем
+// внешней структуры (WNDCLASS.lpfnWndProc и подобные) не реализовано -
+// cbackend сегодня объявляет ЛЮБОЕ поле-Callable как {fn, env} по значению,
+// что исказило бы реальный layout внешней C-структуры.
+func TestAnalyzeExternStructRejectsCallableField(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+внешняя структура wndclass как ОконныйКласс
+{
+    имеет:
+        обработчик: Вызываемый(Целое): Целое
+}
+функция главная { вывести 1 }
+`)
+	if err == nil || !strings.Contains(err.Error(), "внешняя структура") {
+		t.Fatalf("ожидалась ошибка про недопустимое поле-колбэк, получено: %v", err)
+	}
+}
+
 func TestAnalyzeExternEntityNameCollisionWithEntityRejected(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 внешняя сущность void как Точка

@@ -482,7 +482,18 @@ func isFFIScalar(t ir.Type) bool {
 // vtable) не то, что ожидает реальный сторонний C API. Обычная (не внешняя)
 // "структура" - тоже не допускается по значению - её поля не гарантированно
 // FFI-безопасны (могли бы содержать Список/сущность/интерфейс).
-func isFFIType(entities map[string]entitySig, t ir.Type) bool {
+//
+// "Вызываемый(...)" (docs/ROADMAP.md, "FFI: маршалинг колбэков") - тоже
+// допустима, если РЕКУРСИВНО FFI-безопасны и её параметры, и её результат -
+// значение такого типа, переданное аргументом внешней функции/полем внешней
+// структуры, не остаётся парой {fn, env}: cbackend маршалит его через
+// общий на сигнатуру глобальный слот + сгенерированный C-trampoline с ЕЁ
+// РЕАЛЬНОЙ (без скрытого env) сигнатурой (см. internal/backend/cbackend/
+// ffi_callback.go) - C-сторона в результате получает голый указатель на
+// функцию, ожидаемого вида. methods/aliases/interfaces нужны только для
+// этого случая - resolveCallableTypeName резолвит собственные параметры/
+// результат сигнатуры t.Entity.
+func isFFIType(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, t ir.Type) bool {
 	if isFFIScalar(t) || t.Kind == ir.KindExternEntity {
 		return true
 	}
@@ -490,7 +501,19 @@ func isFFIType(entities map[string]entitySig, t ir.Type) bool {
 		return entities[t.Entity].IsExternStruct
 	}
 	if t.Kind == ir.KindPointer {
-		return isFFIType(entities, entities[t.Entity].ElemType)
+		return isFFIType(entities, methods, aliases, interfaces, entities[t.Entity].ElemType)
+	}
+	if t.Kind == ir.KindCallable {
+		params, result, err := resolveCallableTypeName(entities, methods, aliases, interfaces, t.Entity)
+		if err != nil {
+			return false
+		}
+		for _, p := range params {
+			if !isFFIType(entities, methods, aliases, interfaces, p) {
+				return false
+			}
+		}
+		return result == nil || isFFIType(entities, methods, aliases, interfaces, *result)
 	}
 	return false
 }

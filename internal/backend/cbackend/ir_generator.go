@@ -67,6 +67,20 @@ type irGenCtx struct {
 	// числовые приведения (Целое/Дробное/Действительное/Символ/Байт между
 	// собой) - обычный C-каст, без хелперов.
 	usesCast bool
+	// includesStringH/includesStdlibH/includesMathH - взведены (один раз,
+	// после генерации ВСЕХ тел функций/методов - см. generateSource) в
+	// точности когда сама программа реально включит "#include <string.h>"/
+	// "<stdlib.h>"/"<math.h>" по СОБСТВЕННЫМ причинам (usesMemcpy/usesCast/
+	// usesMath/... - см. их же сборку ниже). externPrototypeOfIR
+	// (extern_headers.go, externPrototypeAlreadyProvided) сверяется с ними,
+	// чтобы не писать собственный extern-прототип для стандартного символа
+	// (strlen/malloc/sqrt/...), который заголовок и так уже объявляет -
+	// иначе два расходящихся по типу прототипа ОДНОГО имени - ошибка
+	// компиляции C (найдено живьём, docs/ROADMAP.md, "FFI: конфликт
+	// extern-прототипов со стандартными заголовками").
+	includesStringH bool
+	includesStdlibH bool
+	includesMathH   bool
 	// usesGC - нужен ли Boehm GC (#include <gc.h>, GC_INIT(), см.
 	// generateIREntityCtor) - только если в программе есть хотя бы одна
 	// ссылочная сущность ("сущность"/"класс", не "структура"). internal/
@@ -211,6 +225,17 @@ type irGenCtx struct {
 	funcRefTrampolines map[string]bool
 	lambdaFuncsEmitted map[string]bool
 	callableCode       strings.Builder
+
+	// callableSigs - каноническое имя сигнатуры "Вызываемый" (ir.Type.Entity)
+	// -> её разобранные Params/Result, из prog.Callables - тот же принцип,
+	// что и nullableInner/pointerInner выше, нужен ffi_callback.go
+	// (ensureCallbackTrampoline), чтобы построить голую C-сигнатуру
+	// колбэка по одному только имени типа аргумента/поля.
+	// callbackTrampolinesEmitted - дедупликация (одна сигнатура - один
+	// глобальный слот + один trampoline на всю программу), тот же принцип,
+	// что funcRefTrampolines/lambdaFuncsEmitted выше.
+	callableSigs                map[string]ir.CallableSig
+	callbackTrampolinesEmitted  map[string]bool
 	// usesMemcpy - лямбда с хотя бы одним захватом реально встретилась в
 	// программе (окружение замыкания строится через memcpy, см.
 	// generateIRLambdaExpr) - гейтит "#include <string.h>", как и
@@ -427,6 +452,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	for _, p := range prog.Pointers {
 		pointerInner[p.Name] = p.Inner
 	}
+	callableSigs := map[string]ir.CallableSig{}
+	for _, sig := range prog.Callables {
+		callableSigs[sig.Name] = sig
+	}
 	usesGC := false
 	usesStateFlags := false
 	for _, ent := range prog.Entities {
@@ -479,6 +508,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		generics:              generics,
 		nullableInner:         nullableInner,
 		pointerInner:          pointerInner,
+		callableSigs:          callableSigs,
 		externCNames:          externCNames,
 		usesGC:                usesGC,
 		usesStateFlags:        usesStateFlags,
@@ -634,6 +664,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// typedefsAfterCallables.
 	var genericsCode, genericsCodeAfterCallables, genericsCodeAfterEntities, indexSafeGetCode strings.Builder
 	usesGenerics := len(prog.Generics) > 0
+	// hasStructTargets - вычислена здесь (не там, где раньше использовалась
+	// единственный раз, ниже), потому что теперь нужна РАНЬШЕ - см. package
+	// doc ctx.includesStringH.
+	hasStructTargets := len(prog.ParseTargets) > 0 || len(prog.SerializeTargets) > 0 || len(prog.XMLParseTargets) > 0 || len(prog.XMLSerializeTargets) > 0 || len(prog.YAMLParseTargets) > 0 || len(prog.YAMLSerializeTargets) > 0
 	for _, g := range prog.Generics {
 		dest := &genericsCode
 		switch {
@@ -748,9 +782,6 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// Та же причина, что у mutexPrototypes/semaphorePrototypes выше.
 		protos.WriteString(dbtxPrototypes())
 	}
-	for _, ext := range prog.ExternFuncs {
-		protos.WriteString(externPrototypeOfIR(ctx, ext))
-	}
 	for _, ent := range prog.Entities {
 		for _, m := range ent.Methods {
 			if m.IsAbstract {
@@ -816,6 +847,30 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 			return "", fmt.Errorf("функция %q: %w", fn.Name, err)
 		}
 		body.WriteString(fnCode)
+	}
+
+	// ctx.includesStringH/includesStdlibH/includesMathH - вычислены только
+	// теперь, тела выше (ctx.usesMemcpy/usesCast/usesRandom/... - и то, что
+	// ниже собирает "#include <...>", ir_generator.go, sb) - единственное
+	// место, где эти флаги взводятся, поэтому раньше их не узнать. externPrototypeOfIR
+	// ниже (перенесённый сюда специально, НЕ рядом с mutexPrototypes/
+	// semaphorePrototypes выше, где не было бы ещё известно ни одного из
+	// них) заранее знает, войдёт ли string.h/stdlib.h/math.h в файл ПО
+	// ДРУГОЙ причине - и, если да, для известного (externSymbolHeader,
+	// extern_headers.go) стандартного символа не пишет собственный,
+	// потенциально расходящийся по типу extern-прототип поверх уже
+	// объявленного заголовком (найдено живьём - examples/основы/
+	// внешние_функции.rech, strlen + <string.h>, включённый совсем по
+	// другой причине - memcpy захваченной лямбды).
+	ctx.includesStringH = ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesPanicCatch || ctx.usesStringSplit || ctx.usesRegex || ctx.usesHTTPHeaders || hasStructTargets || prog.UsesReflection
+	ctx.includesStdlibH = ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesQueryParams || ctx.usesCookies || ctx.usesRandom || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesRegex || ctx.usesHTTPHeaders || hasStructTargets
+	ctx.includesMathH = ctx.usesMath
+	for _, ext := range prog.ExternFuncs {
+		protoStr, err := externPrototypeOfIR(ctx, ext)
+		if err != nil {
+			return "", err
+		}
+		protos.WriteString(protoStr)
 	}
 
 	// showFuncs строится только теперь, когда ctx.usesShow уже окончательно
@@ -894,8 +949,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	if ctx.usesGC || ctx.usesThreads {
 		sb.WriteString("#include <gc.h>\n")
 	}
-	hasStructTargets := len(prog.ParseTargets) > 0 || len(prog.SerializeTargets) > 0 || len(prog.XMLParseTargets) > 0 || len(prog.XMLSerializeTargets) > 0 || len(prog.YAMLParseTargets) > 0 || len(prog.YAMLSerializeTargets) > 0
-	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesPanicCatch || ctx.usesStringSplit || ctx.usesRegex || ctx.usesHTTPHeaders || hasStructTargets || prog.UsesReflection {
+	if ctx.includesStringH {
 		sb.WriteString("#include <string.h>\n")
 	}
 	if ctx.usesRandom {
@@ -903,7 +957,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// rand_s (см. randomHelpers, random.go) в MSVCRT/UCRT.
 		sb.WriteString("#ifdef _WIN32\n#define _CRT_RAND_S\n#endif\n")
 	}
-	if ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesQueryParams || ctx.usesCookies || ctx.usesRandom || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesRegex || ctx.usesHTTPHeaders || hasStructTargets {
+	if ctx.includesStdlibH {
 		sb.WriteString("#include <stdlib.h>\n")
 	}
 	// <regex.h>/<locale.h> - "регулярное" (rech_regex_find_all, regex.go) -
@@ -916,7 +970,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	if ctx.usesRegex {
 		sb.WriteString("#include <regex.h>\n#include <locale.h>\n")
 	}
-	if ctx.usesMath {
+	if ctx.includesMathH {
 		sb.WriteString("#include <math.h>\n")
 	}
 	if ctx.usesDateTime {
@@ -1603,16 +1657,30 @@ func cParamListIR(ctx *irGenCtx, params []ir.Param) string {
 // C допускает анонимные параметры в прототипе, а сами имена
 // параметров Rech после семантического анализа уже не нужны ни для чего,
 // кроме сообщений об ошибках, которые уже показаны на этапе Analyze.
-func externPrototypeOfIR(ctx *irGenCtx, ext *ir.ExternFuncDecl) string {
+func externPrototypeOfIR(ctx *irGenCtx, ext *ir.ExternFuncDecl) (string, error) {
+	if externPrototypeAlreadyProvided(ctx, ext.CName) {
+		// Стандартный символ (strlen/malloc/sqrt/...), а заголовок,
+		// объявляющий его, программа и так включает по другой причине -
+		// см. package doc extern_headers.go - НЕ дублируем прототип,
+		// полагаемся на уже видимый из заголовка.
+		return "", nil
+	}
 	cReturnType := "void"
 	if ext.HasReturn {
+		// ext.ReturnType никогда KindCallable (semantic отклоняет - см.
+		// collectExternFuncSigs) - ffiParamCType здесь ведёт себя как
+		// обычный fromIRType(...).cType(ctx).
 		cReturnType = fromIRType(ext.ReturnType).cType(ctx)
 	}
 	types := make([]string, len(ext.Params))
 	for i, p := range ext.Params {
-		types[i] = fromIRType(p).cType(ctx)
+		t, err := ffiParamCType(ctx, p)
+		if err != nil {
+			return "", err
+		}
+		types[i] = t
 	}
-	return fmt.Sprintf("extern %s %s(%s);\n", cReturnType, ext.CName, strings.Join(types, ", "))
+	return fmt.Sprintf("extern %s %s(%s);\n", cReturnType, ext.CName, strings.Join(types, ", ")), nil
 }
 
 // cMethodParamListIR - как cParamListIR, но с обязательным скрытым первым
@@ -2104,11 +2172,24 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 		return generateIRBinaryExpr(ctx, e)
 
 	case *ir.CallExpr:
+		cName, isExtern := ctx.externCNames[e.Callee]
 		argCodes := make([]string, len(e.Args))
 		for i, a := range e.Args {
 			code, _, err := generateIRExpr(ctx, a)
 			if err != nil {
 				return "", typeUnknown, err
+			}
+			// isExtern && KindCallable - "Вызываемый(...)" аргумент внешней
+			// функции (docs/ROADMAP.md, "FFI: маршалинг колбэков") - {fn, env}
+			// по значению не то, что ожидает C API (голый указатель на
+			// функцию, без слота под env) - marshalCallbackArg подменяет code
+			// на C-имя сгенерированного trampoline (см. ffi_callback.go).
+			if isExtern && ir.TypeOf(a).Kind == ir.KindCallable {
+				marshaled, err := ctx.marshalCallbackArg(ir.TypeOf(a), code)
+				if err != nil {
+					return "", typeUnknown, err
+				}
+				code = marshaled
 			}
 			argCodes[i] = code
 		}
@@ -2118,7 +2199,7 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 			return code, fromIRType(e.Type), nil
 		}
 		callee := mangleName(e.Callee)
-		if cName, ok := ctx.externCNames[e.Callee]; ok {
+		if isExtern {
 			callee = cName
 		}
 		return fmt.Sprintf("%s(%s)", callee, strings.Join(argCodes, ", ")), fromIRType(e.Type), nil
