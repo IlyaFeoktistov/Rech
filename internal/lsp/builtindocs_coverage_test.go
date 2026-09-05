@@ -5,7 +5,22 @@ import (
 	"testing"
 
 	"github.com/IlyaFeoktistov/Rech/internal/builtins"
+	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 )
+
+// TestHoverKeywordCoversAllTokenTypes - каждое ключевое слово языка (internal/
+// lexer.KeywordTokenTypes) должно иметь запись в keywordDocs - находка при
+// сборке справочника документации ("документацию тоже надо сверить, вдруг
+// что не описали"): "статический"/"выбрать"/"когда"/"YAML" не имели записи
+// вовсе, несмотря на то что все четыре - реализованные, рабочие фичи
+// (статические поля/методы, switch, сериализация YAML).
+func TestHoverKeywordCoversAllTokenTypes(t *testing.T) {
+	for _, tt := range lexer.KeywordTokenTypes() {
+		if _, ok := keywordDocs[tt]; !ok {
+			t.Errorf("нет hover-документации для ключевого слова с TokenType %v", tt)
+		}
+	}
+}
 
 // TestHoverBuiltinFuncCoversAllReservedNames - каждое имя из internal/
 // builtins.All и ReservedFuncNames должно давать непустой hover - находка

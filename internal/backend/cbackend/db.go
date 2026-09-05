@@ -126,6 +126,7 @@ extern long long sqlite3_column_int64(sqlite3_stmt *stmt, int col);
 extern double sqlite3_column_double(sqlite3_stmt *stmt, int col);
 extern const unsigned char *sqlite3_column_text(sqlite3_stmt *stmt, int col);
 extern int sqlite3_changes(sqlite3 *db);
+extern int sqlite3_busy_timeout(sqlite3 *db, int ms);
 
 `
 
@@ -158,46 +159,63 @@ extern unsigned long long mysql_affected_rows(MYSQL *mysql);
 
 `
 
-// rechDBStruct - дескриптор соединения "БД" (ir.KindDB) - один и тот же
-// C-тип для всех трёх СУБД, kind решает, какое из трёх полей handle
-// валидно (ровно одно) - решается один раз, в "подключиться_к_бд", дальше
-// каждая функция просто читает db->kind. Поля - "void *", НЕ типизированные
+// dbHandleTypedefCode - дескриптор соединения "БД" (ir.KindDB) - один и тот
+// же C-тип для всех трёх СУБД, kind решает, какие элементы conns/in_use
+// валидны - решается один раз, в "подключиться_к_бд", дальше каждая функция
+// просто читает db->kind. "conns[i]" - "void *", НЕ типизированные
 // "sqlite3 *"/"PGconn *"/"MYSQL *" - этот typedef эмитируется БЕЗУСЛОВНО и
-// РАНЬШЕ (dbHandleTypedefCode, до genericsCode/typedefs - см. её package
-// doc) для ЛЮБОЙ программы, использующей "БД" (в том числе как поле
-// сущности), а opaque-типы трёх библиотек эмитируются условно и ПОЗЖЕ,
-// только для реально нужных СУБД (см. dbRuntimeCode/internal/dbscheme) - на
-// этом, более раннем месте они бы ещё не существовали. "void *" не требует
-// приведения типа ни при записи (rech_db_connect), ни при чтении
-// (rech_db_sqlite_query и т. п. - тот код возникает уже ПОСЛЕ нужных
-// opaque-типов, там "db->sqlite" неявно конвертируется в "sqlite3 *" тем же
-// правилом C, что и для любого другого "void *").
+// РАНЬШЕ (до genericsCode/typedefs - см. её package doc) для ЛЮБОЙ
+// программы, использующей "БД" (в том числе как поле сущности), а
+// opaque-типы трёх библиотек эмитируются условно и ПОЗЖЕ, только для
+// реально нужных СУБД (см. dbRuntimeCode/internal/dbscheme) - на этом, более
+// раннем месте они бы ещё не существовали. "void *" не требует приведения
+// типа ни при записи (rech_db_connect), ни при чтении (rech_db_sqlite_query
+// и т. п. - тот код возникает уже ПОСЛЕ нужных opaque-типов, там
+// "conns[i]" неявно конвертируется в "sqlite3 *" тем же правилом C, что и
+// для любого другого "void *").
 //
-// "mutex" - одно соединение может быть разделено между несколькими
-// потоками (поле сущности/параметр функции, переданный в "запустить") -
-// ни libpq, ни libmysqlclient не допускают параллельного использования
-// ОДНОГО соединения из нескольких потоков без внешней синхронизации (не
-// просто "не гарантируют" - реальное повреждение состояния соединения),
-// SQLite - только если сама библиотека собрана в serialized-режиме, что не
-// гарантировано. rech_db_lock/rech_db_unlock (dbCommonHelperFuncs) держат
-// его ровно вокруг вызовов клиентской библиотеки - см. их package doc, где
-// именно у каждой из трёх СУБД проходит граница "нужен ли ещё живой db-
-// хендл" (rech_db_query/rech_db_exec).
-const rechDBStruct = `typedef enum { RECH_DB_SQLITE, RECH_DB_PG, RECH_DB_MYSQL } rech_db_kind;
+// "RECH_DB_POOL_SIZE" (#define, poolSize - "бд.размер_пула" файла проекта,
+// internal/semantic.DefaultDBPoolSize, если он не задан, см. package doc
+// ir.Program.DBPoolSize) - ВЕРХНЯЯ граница размера массивов conns/in_use,
+// известная уже на этапе компиляции C (обычный массив-поле структуры, не
+// malloc). Реально ОТКРЫТОЕ число соединений у КОНКРЕТНОГО db-хендла -
+// "pool_size" (может быть МЕНЬШЕ этого максимума - см. package doc
+// rech_db_connect, SQLite ":memory:").
+//
+// "mutex"/"cond" - одно соединение может быть разделено между несколькими
+// потоками (поле сущности/параметр функции, переданный в "запустить") - ни
+// libpq, ни libmysqlclient не допускают параллельного использования ОДНОГО
+// соединения из нескольких потоков без внешней синхронизации (не просто "не
+// гарантируют" - реальное повреждение состояния соединения), SQLite -
+// только если сама библиотека собрана в serialized-режиме, что не
+// гарантировано. Вместо ОДНОГО соединения под мьютексом на всю программу
+// (что сериализовало бы всю конкурентную нагрузку на БД через одну точку) -
+// пул из "pool_size" РЕАЛЬНЫХ соединений: rech_db_checkout/rech_db_checkin
+// (dbCommonHelperFuncs) выдают потоку свободное соединение (ждут на "cond",
+// если все заняты) и возвращают его в пул - конкурентные запросы из разных
+// потоков теперь используют РАЗНЫЕ физические соединения одновременно,
+// а не ждут друг друга в очереди на одно.
+func dbHandleTypedefCode(poolSize int) string {
+	return fmt.Sprintf(`#define RECH_DB_POOL_SIZE %d
+
+typedef enum { RECH_DB_SQLITE, RECH_DB_PG, RECH_DB_MYSQL } rech_db_kind;
 
 typedef struct rech_db {
     rech_db_kind kind;
-    void *sqlite;
-    void *pg;
-    void *mysql;
+    int pool_size;
+    void *conns[RECH_DB_POOL_SIZE];
+    int in_use[RECH_DB_POOL_SIZE];
 #ifdef _WIN32
     CRITICAL_SECTION mutex;
+    CONDITION_VARIABLE cond;
 #else
     pthread_mutex_t mutex;
+    pthread_cond_t cond;
 #endif
 } rech_db_t;
 
-`
+`, poolSize)
+}
 
 // dbCommonHelperFuncs - вспомогательные функции, не завязанные на
 // конкретную СУБД: rech_db_dup_str (копия текстового значения в
@@ -213,31 +231,60 @@ var dbCommonHelperFuncs = `static void rech_db_panicf(const char *tmpl, const ch
     rech_panic(msg);
 }
 
-// rech_db_lock/rech_db_unlock - вокруг вызовов клиентской библиотеки СУБД
-// на общем соединении (см. package doc "mutex" у rechDBStruct). Держат
-// мьютекс ровно до момента, когда клиентская библиотека вернула результат,
-// дальше НЕ нужный самому соединению (PGresult/MYSQL_RES - клиентские
-// копии, их разбор/PQclear/mysql_free_result идут уже разблокированными) -
-// SQLite здесь исключение, у него весь prepare/step/finalize держится под
-// мьютексом целиком, там нет отдельного "клиентского" результата. Ни один
-// вызов "rech_panic"/"rech_db_panicf" не должен происходить, пока мьютекс
-// ещё удержан этим потоком - перехваченная (docs/SPEC.md, "поймать (x:
-// Паника)") паника разворачивается через longjmp мимо парного unlock,
-// иначе оставила бы соединение заблокированным навсегда для всех
-// остальных потоков.
-static void rech_db_lock(rech_db_t *db) {
+// rech_db_checkout/rech_db_checkin - берут/возвращают ОДНО свободное
+// соединение из пула (db->conns[0..pool_size), см. package doc
+// dbHandleTypedefCode) - checkout блокирует поток (ждёт на "cond"), только
+// если ВСЕ соединения сейчас заняты другими потоками, иначе возвращается
+// немедленно с уже помеченным как занятое соединением. out_idx - индекс,
+// который нужно передать обратно в checkin (какой именно слот освободить) -
+// вызывающий код держит его в локальной переменной между checkout и
+// checkin, соединение использует МОНОПОЛЬНО до этого момента. Ни один
+// вызов "rech_panic"/"rech_db_panicf" не должен происходить, пока
+// соединение ещё не возвращено в пул (checkin) - перехваченная (docs/
+// SPEC.md, "поймать (x: Паника)") паника разворачивается через longjmp мимо
+// парного checkin, иначе оставила бы это соединение НАВСЕГДА помеченным
+// занятым, недоступным остальным потокам.
+static void *rech_db_checkout(rech_db_t *db, int *out_idx) {
 #ifdef _WIN32
     EnterCriticalSection(&db->mutex);
+    for (;;) {
+        for (int i = 0; i < db->pool_size; i++) {
+            if (!db->in_use[i]) {
+                db->in_use[i] = 1;
+                *out_idx = i;
+                LeaveCriticalSection(&db->mutex);
+                return db->conns[i];
+            }
+        }
+        SleepConditionVariableCS(&db->cond, &db->mutex, INFINITE);
+    }
 #else
     pthread_mutex_lock(&db->mutex);
+    for (;;) {
+        for (int i = 0; i < db->pool_size; i++) {
+            if (!db->in_use[i]) {
+                db->in_use[i] = 1;
+                *out_idx = i;
+                pthread_mutex_unlock(&db->mutex);
+                return db->conns[i];
+            }
+        }
+        pthread_cond_wait(&db->cond, &db->mutex);
+    }
 #endif
 }
 
-static void rech_db_unlock(rech_db_t *db) {
+static void rech_db_checkin(rech_db_t *db, int idx) {
 #ifdef _WIN32
+    EnterCriticalSection(&db->mutex);
+    db->in_use[idx] = 0;
     LeaveCriticalSection(&db->mutex);
+    WakeConditionVariable(&db->cond);
 #else
+    pthread_mutex_lock(&db->mutex);
+    db->in_use[idx] = 0;
     pthread_mutex_unlock(&db->mutex);
+    pthread_cond_signal(&db->cond);
 #endif
 }
 
@@ -347,20 +394,46 @@ static void rech_db_parse_mysql_url(const char *conn, char **user, char **pass, 
 // программа не слинковалась бы без неё, даже если эта ветка никогда не
 // выполняется (docs/ROADMAP.md, "проблема не в отсутствующем флаге
 // линковщика, а в безусловной ссылке на символ в самом сгенерированном
-// коде"). "&db->sqlite" - явный "(sqlite3 **)" (единственное место с явным
-// приведением из всего рантайма БД) - "void **" не конвертируется в
-// "T **" неявно, в отличие от одиночного "void *" (см. package doc
-// rechDBStruct).
+// коде").
+//
+// Каждая ветка открывает "pool_size" РЕАЛЬНЫХ соединений в цикле (см.
+// package doc dbHandleTypedefCode), не одно - db->conns[i]/db->in_use[i]
+// заполняются по мере открытия. "sqlite3_open(path, &h)" - h объявлена
+// локально как "sqlite3 *" (не "void *"), поэтому &h уже "sqlite3 **" без
+// приведения типа - в отличие от PQconnectdb/mysql_init, чей результат
+// присваивается в "void *" элемент массива неявно (обратное направление
+// приведения "T *" -> "void *" не требует приведения вовсе).
+//
+// SQLite ":memory:" - ЕДИНСТВЕННОЕ исключение из "pool_size соединений":
+// ровно 1, независимо от настройки - каждое физическое соединение к
+// ":memory:" открывает СВОЮ, изолированную от остальных, in-memory базу
+// (не общий файл на диске) - пул больше одного означал бы, что запись
+// через одно соединение не видна через другое (тихая потеря данных, не
+// ошибка), см. тот же принцип на стороне интерпретатора
+// (internal/interp/db.go, package doc dbConnect).
 func dbConnectCloseCode(backends dbscheme.Set) string {
 	var sb strings.Builder
 	sb.WriteString("static rech_db_t *rech_db_connect(const char *conn) {\n")
 	sb.WriteString("    rech_db_t *db = GC_MALLOC(sizeof(rech_db_t));\n")
-	sb.WriteString("#ifdef _WIN32\n    InitializeCriticalSection(&db->mutex);\n#else\n    pthread_mutex_init(&db->mutex, NULL);\n#endif\n")
+	sb.WriteString("#ifdef _WIN32\n    InitializeCriticalSection(&db->mutex);\n    InitializeConditionVariable(&db->cond);\n#else\n    pthread_mutex_init(&db->mutex, NULL);\n    pthread_cond_init(&db->cond, NULL);\n#endif\n")
 	if backends.NeedsSQLite() {
 		fmt.Fprintf(&sb, `    if (strncmp(conn, "%[1]s", %[2]d) == 0) {
         db->kind = RECH_DB_SQLITE;
-        if (sqlite3_open(conn + %[2]d, (sqlite3 **)&db->sqlite) != 0) {
-            rech_panic("%[3]s");
+        const char *path = conn + %[2]d;
+        db->pool_size = (strcmp(path, ":memory:") == 0) ? 1 : RECH_DB_POOL_SIZE;
+        for (int i = 0; i < db->pool_size; i++) {
+            sqlite3 *h;
+            if (sqlite3_open(path, &h) != 0) {
+                rech_panic("%[3]s");
+            }
+            // busy_timeout - НЕСКОЛЬКО реальных соединений (pool_size > 1)
+            // теперь могут одновременно писать в один и тот же файл - без
+            // этого второй писатель падает с SQLITE_BUSY немедленно вместо
+            // того, чтобы подождать освобождения блокировки (у ":memory:"
+            // не имеет значения - там pool_size всегда 1, см. выше).
+            sqlite3_busy_timeout(h, 5000);
+            db->conns[i] = h;
+            db->in_use[i] = 0;
         }
         return db;
     }
@@ -369,9 +442,13 @@ func dbConnectCloseCode(backends dbscheme.Set) string {
 	if backends.NeedsPostgres() {
 		fmt.Fprintf(&sb, `    if (strncmp(conn, "%[1]s", %[2]d) == 0 || strncmp(conn, "%[3]s", %[4]d) == 0) {
         db->kind = RECH_DB_PG;
-        db->pg = PQconnectdb(conn);
-        if (PQstatus(db->pg) != 0) {
-            rech_panic("%[5]s");
+        db->pool_size = RECH_DB_POOL_SIZE;
+        for (int i = 0; i < db->pool_size; i++) {
+            db->conns[i] = PQconnectdb(conn);
+            if (PQstatus(db->conns[i]) != 0) {
+                rech_panic("%[5]s");
+            }
+            db->in_use[i] = 0;
         }
         return db;
     }
@@ -380,12 +457,17 @@ func dbConnectCloseCode(backends dbscheme.Set) string {
 	if backends.NeedsMySQL() {
 		fmt.Fprintf(&sb, `    if (strncmp(conn, "%[1]s", %[2]d) == 0) {
         db->kind = RECH_DB_MYSQL;
+        db->pool_size = RECH_DB_POOL_SIZE;
         char *user, *pass, *host, *dbname;
         int port;
         rech_db_parse_mysql_url(conn, &user, &pass, &host, &port, &dbname);
-        db->mysql = mysql_init(NULL);
-        if (!mysql_real_connect(db->mysql, host, user, pass, dbname, port ? (unsigned int)port : 3306, NULL, 0)) {
-            rech_panic("%[3]s");
+        for (int i = 0; i < db->pool_size; i++) {
+            void *h = mysql_init(NULL);
+            if (!mysql_real_connect(h, host, user, pass, dbname, port ? (unsigned int)port : 3306, NULL, 0)) {
+                rech_panic("%[3]s");
+            }
+            db->conns[i] = h;
+            db->in_use[i] = 0;
         }
         return db;
     }
@@ -399,16 +481,19 @@ func dbConnectCloseCode(backends dbscheme.Set) string {
 
 	sb.WriteString("static void rech_db_close(rech_db_t *db) {\n    switch (db->kind) {\n")
 	if backends.NeedsSQLite() {
-		sb.WriteString("    case RECH_DB_SQLITE:\n        sqlite3_close(db->sqlite);\n        break;\n")
+		sb.WriteString("    case RECH_DB_SQLITE:\n        for (int i = 0; i < db->pool_size; i++) sqlite3_close(db->conns[i]);\n        break;\n")
 	}
 	if backends.NeedsPostgres() {
-		sb.WriteString("    case RECH_DB_PG:\n        PQfinish(db->pg);\n        break;\n")
+		sb.WriteString("    case RECH_DB_PG:\n        for (int i = 0; i < db->pool_size; i++) PQfinish(db->conns[i]);\n        break;\n")
 	}
 	if backends.NeedsMySQL() {
-		sb.WriteString("    case RECH_DB_MYSQL:\n        mysql_close(db->mysql);\n        break;\n")
+		sb.WriteString("    case RECH_DB_MYSQL:\n        for (int i = 0; i < db->pool_size; i++) mysql_close(db->conns[i]);\n        break;\n")
 	}
 	fmt.Fprintf(&sb, "    default:\n        rech_panic(\"%s\");\n        break;\n    }\n", escapeCString(rtmsg.DBUnreachableKind))
-	sb.WriteString("#ifdef _WIN32\n    DeleteCriticalSection(&db->mutex);\n#else\n    pthread_mutex_destroy(&db->mutex);\n#endif\n}\n\n")
+	// CONDITION_VARIABLE (Windows) не имеет функции уничтожения вовсе - нет
+	// парного вызова "DeleteConditionVariable" в WinAPI, в отличие от
+	// CRITICAL_SECTION/pthread_cond_t.
+	sb.WriteString("#ifdef _WIN32\n    DeleteCriticalSection(&db->mutex);\n#else\n    pthread_mutex_destroy(&db->mutex);\n    pthread_cond_destroy(&db->cond);\n#endif\n}\n\n")
 	return sb.String()
 }
 
@@ -478,10 +563,11 @@ func dbSubstituteCode(paramsListC string) string {
 func sqliteQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCtor string) string {
 	return fmt.Sprintf(`static %[1]s *rech_db_sqlite_query(rech_db_t *db, const char *sql) {
     %[1]s *out = %[11]s();
-    rech_db_lock(db);
+    int rech_db_idx;
+    void *conn = rech_db_checkout(db, &rech_db_idx);
     sqlite3_stmt *stmt;
-    if (sqlite3_prepare_v2(db->sqlite, sql, -1, &stmt, NULL) != 0) {
-        rech_db_unlock(db);
+    if (sqlite3_prepare_v2(conn, sql, -1, &stmt, NULL) != 0) {
+        rech_db_checkin(db, rech_db_idx);
         rech_db_panicf("%[5]s", sql);
     }
     int ncols = sqlite3_column_count(stmt);
@@ -507,23 +593,24 @@ func sqliteQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictC
     }
     if (rc != 101) {
         sqlite3_finalize(stmt);
-        rech_db_unlock(db);
+        rech_db_checkin(db, rech_db_idx);
         rech_db_panicf("%[5]s", sql);
     }
     sqlite3_finalize(stmt);
-    rech_db_unlock(db);
+    rech_db_checkin(db, rech_db_idx);
     return out;
 }
 
 static long long rech_db_sqlite_exec(rech_db_t *db, const char *sql) {
-    rech_db_lock(db);
+    int rech_db_idx;
+    void *conn = rech_db_checkout(db, &rech_db_idx);
     char *errmsg = NULL;
-    if (sqlite3_exec(db->sqlite, sql, NULL, NULL, &errmsg) != 0) {
-        rech_db_unlock(db);
+    if (sqlite3_exec(conn, sql, NULL, NULL, &errmsg) != 0) {
+        rech_db_checkin(db, rech_db_idx);
         rech_db_panicf("%[10]s", sql);
     }
-    long long changes = (long long)sqlite3_changes(db->sqlite);
-    rech_db_unlock(db);
+    long long changes = (long long)sqlite3_changes(conn);
+    rech_db_checkin(db, rech_db_idx);
     return changes;
 }
 
@@ -539,17 +626,18 @@ static long long rech_db_sqlite_exec(rech_db_t *db, const char *sql) {
 // bool=16). PGRES_COMMAND_OK=1/PGRES_TUPLES_OK=2 - тоже часть публичного,
 // стабильного ABI (enum ExecStatusType, libpq-fe.h).
 //
-// rech_db_lock/rech_db_unlock (см. package doc) держатся только вокруг
+// rech_db_checkout/rech_db_checkin (см. package doc) держатся только вокруг
 // самого PQexec - PGresult, который он возвращает, уже целиком клиентская
 // копия (PQresultStatus/PQntuples/PQgetvalue/PQclear читают только её, не
-// трогают соединение снова), поэтому дальше можно работать разблокированно
-// - включая любую панику при неуспешном статусе.
+// трогают соединение снова), поэтому дальше можно работать уже без
+// checkout'а - включая любую панику при неуспешном статусе.
 func pgQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCtor string) string {
 	return fmt.Sprintf(`static %[1]s *rech_db_pg_query(rech_db_t *db, const char *sql) {
     %[1]s *out = %[12]s();
-    rech_db_lock(db);
-    PGresult *res = PQexec(db->pg, sql);
-    rech_db_unlock(db);
+    int rech_db_idx;
+    void *conn = rech_db_checkout(db, &rech_db_idx);
+    PGresult *res = PQexec(conn, sql);
+    rech_db_checkin(db, rech_db_idx);
     int status = PQresultStatus(res);
     if (status != 1 && status != 2) {
         PQclear(res);
@@ -586,9 +674,10 @@ func pgQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCtor 
 }
 
 static long long rech_db_pg_exec(rech_db_t *db, const char *sql) {
-    rech_db_lock(db);
-    PGresult *res = PQexec(db->pg, sql);
-    rech_db_unlock(db);
+    int rech_db_idx;
+    void *conn = rech_db_checkout(db, &rech_db_idx);
+    PGresult *res = PQexec(conn, sql);
+    rech_db_checkin(db, rech_db_idx);
     int status = PQresultStatus(res);
     if (status != 1 && status != 2) {
         PQclear(res);
@@ -614,22 +703,23 @@ static long long rech_db_pg_exec(rech_db_t *db, const char *sql) {
 // INT24=9/YEAR=13 - целые; DECIMAL=0/FLOAT=4/DOUBLE=5/NEWDECIMAL=246 -
 // дробные; всё остальное - текст).
 //
-// rech_db_lock/rech_db_unlock (см. package doc rechDBStruct) держатся
-// вокруг mysql_real_query+mysql_store_result - у MySQL, в отличие от
-// PostgreSQL, ИМЕННО mysql_store_result перекладывает весь результат в
+// rech_db_checkout/rech_db_checkin (см. package doc dbHandleTypedefCode)
+// держатся вокруг mysql_real_query+mysql_store_result - у MySQL, в отличие
+// от PostgreSQL, ИМЕННО mysql_store_result перекладывает весь результат в
 // клиентскую память (MYSQL_RES), а не сам mysql_real_query - только после
 // него дальнейшие mysql_fetch_field/mysql_fetch_row/mysql_free_result уже
-// не трогают соединение и могут идти разблокированно.
+// не трогают соединение и могут идти без checkout'а.
 func mysqlQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCtor string) string {
 	return fmt.Sprintf(`static %[1]s *rech_db_mysql_query(rech_db_t *db, const char *sql) {
     %[1]s *out = %[11]s();
-    rech_db_lock(db);
-    if (mysql_real_query(db->mysql, sql, (unsigned long)strlen(sql)) != 0) {
-        rech_db_unlock(db);
+    int rech_db_idx;
+    void *conn = rech_db_checkout(db, &rech_db_idx);
+    if (mysql_real_query(conn, sql, (unsigned long)strlen(sql)) != 0) {
+        rech_db_checkin(db, rech_db_idx);
         rech_db_panicf("%[5]s", sql);
     }
-    MYSQL_RES *res = mysql_store_result(db->mysql);
-    rech_db_unlock(db);
+    MYSQL_RES *res = mysql_store_result(conn);
+    rech_db_checkin(db, rech_db_idx);
     if (!res) {
         return out;
     }
@@ -667,13 +757,14 @@ func mysqlQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCt
 }
 
 static long long rech_db_mysql_exec(rech_db_t *db, const char *sql) {
-    rech_db_lock(db);
-    if (mysql_real_query(db->mysql, sql, (unsigned long)strlen(sql)) != 0) {
-        rech_db_unlock(db);
+    int rech_db_idx;
+    void *conn = rech_db_checkout(db, &rech_db_idx);
+    if (mysql_real_query(conn, sql, (unsigned long)strlen(sql)) != 0) {
+        rech_db_checkin(db, rech_db_idx);
         rech_db_panicf("%[10]s", sql);
     }
-    long long affected = (long long)mysql_affected_rows(db->mysql);
-    rech_db_unlock(db);
+    long long affected = (long long)mysql_affected_rows(conn);
+    rech_db_checkin(db, rech_db_idx);
     return affected;
 }
 
@@ -766,9 +857,7 @@ func dbRuntimeCode(backends dbscheme.Set) string {
 	return sb.String()
 }
 
-// dbHandleTypedefCode - только объявление самого типа-дескриптора "БД"
-// (сам "rech_db_t", без единого упоминания SQLite/PostgreSQL/MySQL - поля
-// "void *", см. package doc rechDBStruct) - вынесено ИЗ dbRuntimeCode и
+// dbHandleTypedefCode (см. её определение выше) вынесена ИЗ dbRuntimeCode и
 // эмитируется РАНЬШЕ (до genericsCode/typedefs, см. место вызова в
 // generateSource), потому что сущность теперь может нести поле типа "БД"
 // (см. examples/проекты/http_сервер/контейнер.rech) - её C-структуре
@@ -781,6 +870,3 @@ func dbRuntimeCode(backends dbscheme.Set) string {
 // месте ещё нет, и УСЛОВНА по backends - в отличие от этого typedef'а,
 // нужного безусловно при UsesDB, независимо от того, какая конкретно СУБД
 // используется.
-func dbHandleTypedefCode() string {
-	return rechDBStruct
-}

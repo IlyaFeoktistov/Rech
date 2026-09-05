@@ -126,6 +126,15 @@ type Program struct {
 	// package doc dbscheme.Set) - безопасный откат к "все три", когда
 	// строка подключения хотя бы раз построена не литералом.
 	DBBackends dbscheme.Set
+	// DBPoolSize - число одновременных соединений с БД в пуле (по умолчанию
+	// internal/semantic.DefaultDBPoolSize, если файл проекта не задаёт
+	// "бд.размер_пула" - см. internal/project.File.DBPoolSize) - и cbackend
+	// (реальный пул из стольки живых соединений с СУБД - internal/backend/
+	// cbackend/db.go), и internal/interp (db.SetMaxOpenConns) читают именно
+	// это поле, не файл проекта напрямую (internal/compiler - единственное
+	// место, которое знает про .rechproj, подставляет сюда актуальное
+	// значение ПЕРЕД кодогенерацией/исполнением).
+	DBPoolSize int
 	// DBRowTargets - сущности, встретившиеся хоть раз ЭЛЕМЕНТОМ цели
 	// "запросить(...) как Список<Тип>" (DBRowsAsExpr, internal/semantic/
 	// db_rows.go), без повторов - тем же принципом, что и ParseTargets:

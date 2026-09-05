@@ -465,8 +465,10 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 	funcs["запрос"] = funcSig{Params: []ir.Type{ir.EntityType("Запрос")}, ReturnType: ir.EntityType("Ответ"), HasReturn: true}
 	registerHTTPServerFuncs(funcs)
 	registerStringSplitFunc(funcs)
+	registerRegexFunc(funcs)
 	registerDateTimeFuncs(a.entities, funcs)
 	registerCookieFuncs(a.entities, funcs)
+	registerHTTPHeaderFunc(a.entities, funcs)
 	registerEnvFuncs(a.entities, funcs)
 	registerDBFuncs(funcs)
 	registerNetworkFuncs(a.entities, funcs)
@@ -817,7 +819,7 @@ func (a *Analyzer) analyzeFunction(fn *ast.FunctionDecl) (*ir.Function, error) {
 }
 
 func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
-	out := &ir.Program{ExternFuncs: a.externFuncs}
+	out := &ir.Program{ExternFuncs: a.externFuncs, DBPoolSize: DefaultDBPoolSize}
 	for _, iface := range prog.Interfaces {
 		sig := a.interfaces[iface.Name]
 		// sig.IRMethods - уже готовые ir.InterfaceMethod, включая
@@ -973,6 +975,18 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 			// с одним аргументом (сообщением) напрямую.
 			Ctor: systemExceptionCtor(),
 		})
+	}
+	// "Совпадение" - тот же принцип лениво-условной регистрации, что и
+	// "ОшибкаРазбора"/"ОшибкаДеленияНаНоль" выше - добавлена в out.Entities,
+	// только если программа хоть раз упомянула "Совпадение" (вызовом
+	// "регулярное" или явной аннотацией типа, см. её case в
+	// resolveTypeName). Её собственное поле "группы" (Список<Строка>) не
+	// требует особого порядка относительно других typedef сущностей -
+	// generic-коллекция примитива (не сущности) эмитится в отдельный блок
+	// ДО всех typedef сущностей (genericsCode, cbackend/ir_generator.go),
+	// независимо от места regex.go в этом списке.
+	if _, ok := a.entities["Совпадение"]; ok {
+		out.Entities = append(out.Entities, &ir.Entity{Name: "Совпадение", IsStruct: true, Fields: matchFields})
 	}
 	// "Блокировка" - проверка ЗДЕСЬ (не раньше цикла по prog.Entities/
 	// prog.Functions выше), потому что она может встретиться впервые не

@@ -130,6 +130,16 @@ type builtinFlags struct {
 	// Подразумевает usesPanic (пустой разделитель - ошибка, см.
 	// rtmsg.SplitEmptySeparator).
 	usesStringSplit bool
+	// usesRegex - нужен ли rech_regex_find_all (regex.go) - встроенная
+	// функция "регулярное" (строка, шаблон): Список<Совпадение> - гейтит
+	// "#include <regex.h>"/"#include <locale.h>" (см. её package doc -
+	// setlocale(LC_ALL, "C.UTF-8") обязателен для кириллицы в "\w"/классах
+	// символов). Подразумевает usesPanic (невалидный шаблон - rech_panic).
+	usesRegex bool
+	// usesHTTPHeaders - нужен ли rech_header_value (httpheaders.go) -
+	// встроенная функция "значение_заголовка" (заголовки, имя): ?Строка -
+	// общий разбор строки заголовков Запрос/Ответ, не привязан к cookies.
+	usesHTTPHeaders bool
 }
 
 // builtinCallCode генерирует C-вызов встроенной функции (internal/builtins,
@@ -313,6 +323,10 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 		flags.usesStringSplit = true
 		flags.usesPanic = true
 		return fmt.Sprintf("rech_split_string(%s, %s)", args[0], args[1]), true
+	case "регулярное":
+		flags.usesRegex = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_regex_find_all(%s, %s)", args[0], args[1]), true
 	case "длина_строки":
 		flags.usesStringOps = true
 		return fmt.Sprintf("rech_string_length(%s)", args[0]), true
@@ -345,6 +359,9 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 	case "значение_куки":
 		flags.usesCookies = true
 		return fmt.Sprintf("rech_cookie_value((%s).%s, %s)", args[0], mangleField("заголовки"), args[1]), true
+	case "значение_заголовка":
+		flags.usesHTTPHeaders = true
+		return fmt.Sprintf("rech_header_value(%s, %s)", args[0], args[1]), true
 	case "получить_переменную_окружения":
 		flags.usesEnv = true
 		return fmt.Sprintf("rech_getenv(%s)", args[0]), true
@@ -904,9 +921,27 @@ typedef int rech_socket_t;
 // установление соединения не зависит от TLS вообще (TLS оборачивает уже
 // готовый TCP-сокет ПОСЛЕ rech_accept, см. package doc tls.go) - только
 // rech_accept/rech_send/rech_recv/rech_close_socket ниже (plainSocketOpsCode)
-// различаются между двумя вариантами. rech_socket_t сам по себе - см.
+// различаются между двумя вариантами.
+//
+// "signal(SIGPIPE, SIG_IGN)" (только POSIX - на Windows SIGPIPE не
+// существует вовсе, Winsock просто возвращает SOCKET_ERROR) - без него
+// запись ("отправить"/"отправить_http_ответ") в сокет, который ПИР уже
+// закрыл (например, HTTP keep-alive соединение, где клиент отключился
+// между запросами - examples/проекты/http_сервер) убивает ВЕСЬ процесс
+// СРАЗУ (POSIX-умолчание для SIGPIPE - завершение процесса, не просто
+// ошибка вызова) - живая находка (docs/ROADMAP.md, "HTTP keep-alive"):
+// сервер падал молча, без единой строчки паники, при закрытии клиентом
+// keep-alive-соединения. SIGPIPE - ГЛОБАЛЬНАЯ, на весь процесс, настройка
+// (не per-сокет) - одного вызова где угодно ДО первой отправки достаточно
+// на всю программу, поэтому он просто идемпотентно продублирован в каждой
+// функции создания сокета (тем же приёмом, что и rech_shutdown_requested,
+// shutdown.go - переустановка того же значения не накапливается и не
+// вредит). rech_socket_t сам по себе - см.
 // rechSocketTypedef выше, эмитируется отдельно и раньше.
 var socketTypeAndConnectCode = fmt.Sprintf(`static rech_socket_t rech_listen_tcp(long long port) {
+#ifndef _WIN32
+    signal(SIGPIPE, SIG_IGN);
+#endif
     rech_socket_t s = socket(AF_INET, SOCK_STREAM, 0);
     if (s == RECH_INVALID_SOCKET) {
         rech_panic("%[1]s");
@@ -956,6 +991,9 @@ static void rech_set_timeout(rech_socket_t s, long long ms) {
 // ПРОИЗВОЛЬНОГО отправителя (см. udpDatagramHelpers) вместо
 // rech_connect_udp ниже, который фиксирует ОДНОГО адресата через connect().
 static rech_socket_t rech_listen_udp(long long port) {
+#ifndef _WIN32
+    signal(SIGPIPE, SIG_IGN);
+#endif
     rech_socket_t s = socket(AF_INET, SOCK_DGRAM, 0);
     if (s == RECH_INVALID_SOCKET) {
         rech_panic("%[1]s");
@@ -974,6 +1012,9 @@ static rech_socket_t rech_listen_udp(long long port) {
 }
 
 static rech_socket_t rech_connect(const char *host, long long port, int type) {
+#ifndef _WIN32
+    signal(SIGPIPE, SIG_IGN);
+#endif
     struct addrinfo hints, *res;
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_INET;

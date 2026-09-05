@@ -34,11 +34,30 @@ const (
 	dbResultType = "Список<Словарь<Строка, Значение>>"
 )
 
-// dbConnect - "подключиться_к_бд(Строка): БД".
-func dbConnect(connStr string) Value {
+// dbConnect - "подключиться_к_бд(Строка): БД" - настраивает пул database/sql
+// (SetMaxOpenConns) на in.dbPoolSize, см. package doc Interp.dbPoolSize.
+// Исключение - SQLite "в памяти" (":memory:"): КАЖДОЕ физическое соединение
+// пула открывает СВОЮ, независимую от остальных, пустую in-memory базу -
+// пул больше одного соединения означал бы, что запись через одно соединение
+// не видна через другое (тихая потеря данных, не ошибка) - тот же принцип,
+// что и у cbackend (internal/backend/cbackend/db.go, rech_db_connect) -
+// для ":memory:" пул принудительно 1, независимо от dbPoolSize.
+//
+// "?_busy_timeout=5000" - добавлен к DSN файлового SQLite (modernc.org/
+// sqlite, dsnPick/"pragma busy_timeout", sqlite.go) безусловно: НЕСКОЛЬКО
+// реальных соединений пула теперь могут одновременно писать в один и тот же
+// файл - без этого второй писатель падает с SQLITE_BUSY немедленно вместо
+// того, чтобы подождать освобождения блокировки (см. тот же принцип на
+// стороне cbackend, sqlite3_busy_timeout).
+func (in *Interp) dbConnect(connStr string) Value {
 	driverName, dsn, ok := dbDriverAndDSN(connStr)
 	if !ok {
 		panicRuntime("%s", rtmsg.DBUnsupportedScheme)
+	}
+	poolSize := in.dbPoolSize
+	isSQLiteMemory := driverName == "sqlite" && dsn == ":memory:"
+	if driverName == "sqlite" {
+		dsn += "?_busy_timeout=5000"
 	}
 	db, err := sql.Open(driverName, dsn)
 	if err == nil {
@@ -47,6 +66,10 @@ func dbConnect(connStr string) Value {
 	if err != nil {
 		panicRuntime("%s", rtmsg.DBConnectFailed)
 	}
+	if isSQLiteMemory {
+		poolSize = 1
+	}
+	db.SetMaxOpenConns(poolSize)
 	return Value{Type: ir.TypeDB, DB: db}
 }
 

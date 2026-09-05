@@ -130,6 +130,7 @@ func main() {
 	var projectDeps map[string]string
 	var projectDepScopes map[string]map[string]string
 	var runEnv map[string]string
+	var dbPoolSize int
 	if !hasCode {
 		projPath := srcPath
 		if projPath == "" {
@@ -161,6 +162,10 @@ func main() {
 			}
 			outDir, projName = pf.OutputDir(), pf.Имя
 			runEnv = pf.Окружение
+			if dbPoolSize, perr = pf.DBPoolSize(); perr != nil {
+				fmt.Fprintln(os.Stderr, "ошибка:", perr)
+				os.Exit(1)
+			}
 			// Библиотеки для линковки (-l<имя>) - только из файла проекта:
 			// "внешняя функция" в .rech-коде не привязана к конкретной
 			// библиотеке (см. package doc project.File.Библиотеки), значит без
@@ -188,6 +193,7 @@ func main() {
 	comp := InitializeCompiler()
 	comp.Deps = projectDeps
 	comp.DepScopes = projectDepScopes
+	comp.DBPoolSize = dbPoolSize
 	build := func() (string, error) { return comp.Build(srcPath, keepC, extraLibs) }
 	buildLib := func() (string, string, error) { return comp.BuildLib(srcPath, keepC, extraLibs) }
 	if hasCode {

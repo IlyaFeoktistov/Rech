@@ -225,6 +225,24 @@ var keywords = map[string]TokenType{
 	"когда":          KwWhen,
 }
 
+// KeywordTokenTypes - различные TokenType из keywords, без повторов (у
+// нескольких словоформ - "новый"/"новая"/"новое"/"новые",
+// "приватный"/"приватная"/... - один и тот же TokenType) - экспортирован
+// ради internal/lsp (проверка полноты keywordDocs, тем же принципом, что
+// builtins.All/ReservedFuncNames экспортированы ради проверки полноты
+// hoverBuiltinFunc).
+func KeywordTokenTypes() []TokenType {
+	seen := make(map[TokenType]bool, len(keywords))
+	var out []TokenType
+	for _, tt := range keywords {
+		if !seen[tt] {
+			seen[tt] = true
+			out = append(out, tt)
+		}
+	}
+	return out
+}
+
 // Token - одна лексема с позицией в исходном файле (для сообщений об ошибках).
 type Token struct {
 	Type  TokenType

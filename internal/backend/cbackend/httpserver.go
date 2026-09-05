@@ -173,13 +173,18 @@ static %[7]s rech_http_accept_request(rech_socket_t s) {
     return req;
 }
 
+// "Connection: keep-alive" (не "close") - сервер всегда ГОТОВ обслужить
+// следующий запрос на этом же соединении - решает, действительно ли
+// читать следующий запрос или закрыть сокет, вызывающий Rech-код (см.
+// examples/проекты/http_сервер, "обработать_соединение" - проверяет
+// "Connection" ВХОДЯЩЕГО запроса через "значение_заголовка"), не рантайм.
 static void rech_http_send_response(rech_socket_t s, %[8]s resp) {
     size_t body_len = strlen(resp.%[6]s);
     const char *hdr_sep = resp.%[4]s[0] ? "\r\n" : "";
-    int need = snprintf(NULL, 0, "HTTP/1.1 %%lld OK\r\n%%s%%sConnection: close\r\nContent-Length: %%lld\r\n\r\n",
+    int need = snprintf(NULL, 0, "HTTP/1.1 %%lld OK\r\n%%s%%sConnection: keep-alive\r\nContent-Length: %%lld\r\n\r\n",
         (long long)resp.%[9]s, resp.%[4]s, hdr_sep, (long long)body_len);
     char *head = malloc((size_t)need + 1);
-    snprintf(head, (size_t)need + 1, "HTTP/1.1 %%lld OK\r\n%%s%%sConnection: close\r\nContent-Length: %%lld\r\n\r\n",
+    snprintf(head, (size_t)need + 1, "HTTP/1.1 %%lld OK\r\n%%s%%sConnection: keep-alive\r\nContent-Length: %%lld\r\n\r\n",
         (long long)resp.%[9]s, resp.%[4]s, hdr_sep, (long long)body_len);
     char *full = malloc((size_t)need + body_len + 1);
     memcpy(full, head, (size_t)need);

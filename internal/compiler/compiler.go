@@ -50,11 +50,17 @@ type Frontend interface {
 
 // Backend превращает AST в исходник на целевом языке (сейчас - C).
 type Backend interface {
-	Generate(prog *ast.Program) (string, error)
+	// dbPoolSize - "бд.размер_пула" файла проекта (0 - не указан, значит
+	// используй встроенное умолчание internal/semantic.DefaultDBPoolSize,
+	// см. package doc ir.Program.DBPoolSize) - единственная настройка
+	// .rechproj, влияющая на саму КОДОГЕНЕРАЦИЮ (не на процесс сборки, как
+	// extraLibs/keepC), поэтому передаётся сюда явным параметром, а не
+	// полем Compiler, которое Backend не видит.
+	Generate(prog *ast.Program, dbPoolSize int) (string, error)
 	// GenerateLib - как Generate, но для разделяемой библиотеки (`rech
 	// build --lib`): второй результат - текст C-заголовка (.h) с
 	// прототипами объявлений, помеченных "экспортировать".
-	GenerateLib(prog *ast.Program) (cSource, header string, err error)
+	GenerateLib(prog *ast.Program, dbPoolSize int) (cSource, header string, err error)
 }
 
 // Toolchain отвечает за финальную сборку сгенерированного исходника
@@ -109,19 +115,25 @@ type defaultBackend struct{}
 // удалён.
 func NewBackend() Backend { return defaultBackend{} }
 
-func (defaultBackend) Generate(prog *ast.Program) (string, error) {
+func (defaultBackend) Generate(prog *ast.Program, dbPoolSize int) (string, error) {
 	irProg, err := semantic.Analyze(prog)
 	if err != nil {
 		return "", err
+	}
+	if dbPoolSize > 0 {
+		irProg.DBPoolSize = dbPoolSize
 	}
 
 	return cbackend.GenerateFromIR(irProg)
 }
 
-func (defaultBackend) GenerateLib(prog *ast.Program) (string, string, error) {
+func (defaultBackend) GenerateLib(prog *ast.Program, dbPoolSize int) (string, string, error) {
 	irProg, err := semantic.Analyze(prog)
 	if err != nil {
 		return "", "", err
+	}
+	if dbPoolSize > 0 {
+		irProg.DBPoolSize = dbPoolSize
 	}
 
 	return cbackend.GenerateLibFromIR(irProg)
@@ -146,6 +158,10 @@ type Compiler struct {
 	// (и их зависимостей, рекурсивно). nil - как без транзитивных
 	// зависимостей вовсе (LoadWithDeps вместо LoadWithGraph по факту).
 	DepScopes map[string]map[string]string
+	// DBPoolSize - "бд.размер_пула" файла проекта (0 - нет .rechproj или
+	// поле не указано, см. Backend.Generate) - заполняется cmd/rech перед
+	// вызовом Build, тем же принципом, что и Deps/DepScopes.
+	DBPoolSize int
 }
 
 // NewCompiler - провайдер для Wire, собирающий Compiler из готовых зависимостей.
@@ -201,7 +217,7 @@ func (c *Compiler) BuildLibSource(src string, keepC bool, extraLibs []string) (l
 // пишется всегда, а не только при keepC - это часть публичного API
 // библиотеки, а не техническая заготовка вроде .c.
 func (c *Compiler) compileLibProgram(prog *ast.Program, base string, keepC bool, extraLibs []string) (libPath, hPath string, err error) {
-	cSource, header, err := c.Backend.GenerateLib(prog)
+	cSource, header, err := c.Backend.GenerateLib(prog, c.DBPoolSize)
 	if err != nil {
 		return "", "", fmt.Errorf("генерация C: %w", err)
 	}
@@ -302,7 +318,7 @@ func (c *Compiler) BuildSource(src string, keepC bool, extraLibs []string) (stri
 // compileProgram - общий хвост Build/BuildSource: генерация C, запись,
 // сборка бинарником, необязательная уборка .c.
 func (c *Compiler) compileProgram(prog *ast.Program, base string, keepC bool, extraLibs []string) (string, error) {
-	cSource, err := c.Backend.Generate(prog)
+	cSource, err := c.Backend.Generate(prog, c.DBPoolSize)
 	if err != nil {
 		return "", fmt.Errorf("генерация C: %w", err)
 	}

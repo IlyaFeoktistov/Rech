@@ -836,7 +836,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		sb.WriteString("#include <gc.h>\n")
 	}
 	hasStructTargets := len(prog.ParseTargets) > 0 || len(prog.SerializeTargets) > 0 || len(prog.XMLParseTargets) > 0 || len(prog.XMLSerializeTargets) > 0 || len(prog.YAMLParseTargets) > 0 || len(prog.YAMLSerializeTargets) > 0
-	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesPanicCatch || ctx.usesStringSplit || hasStructTargets || prog.UsesReflection {
+	if ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesPanicCatch || ctx.usesStringSplit || ctx.usesRegex || ctx.usesHTTPHeaders || hasStructTargets || prog.UsesReflection {
 		sb.WriteString("#include <string.h>\n")
 	}
 	if ctx.usesRandom {
@@ -844,8 +844,18 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// rand_s (см. randomHelpers, random.go) в MSVCRT/UCRT.
 		sb.WriteString("#ifdef _WIN32\n#define _CRT_RAND_S\n#endif\n")
 	}
-	if ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesQueryParams || ctx.usesCookies || ctx.usesRandom || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || hasStructTargets {
+	if ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesQueryParams || ctx.usesCookies || ctx.usesRandom || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesRegex || ctx.usesHTTPHeaders || hasStructTargets {
 		sb.WriteString("#include <stdlib.h>\n")
+	}
+	// <regex.h>/<locale.h> - "регулярное" (rech_regex_find_all, regex.go) -
+	// POSIX regcomp/regexec/regfree + setlocale (кириллица в "\w"/классах
+	// символов, см. package doc regexHelpers). Windows/MinGW не гарантирует
+	// POSIX regex.h из коробки (в отличие от glibc) - тот же класс
+	// ограничения переносимости, что уже принят у "Блокировка"/потоков
+	// (ctx.usesThreads, POSIX-only ветка ниже) - не решён здесь, зафиксирован
+	// как известное ограничение (docs/ROADMAP.md).
+	if ctx.usesRegex {
+		sb.WriteString("#include <regex.h>\n#include <locale.h>\n")
 	}
 	if ctx.usesMath {
 		sb.WriteString("#include <math.h>\n")
@@ -856,7 +866,11 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	if ctx.usesExceptions {
 		sb.WriteString("#include <setjmp.h>\n")
 	}
-	if ctx.usesShutdownFlag {
+	if ctx.usesShutdownFlag || ctx.usesSockets {
+		// usesSockets - "signal(SIGPIPE, SIG_IGN)" (см. package doc
+		// socketTypeAndConnectCode) - без него запись в уже закрытый
+		// пиром сокет убивает ВЕСЬ процесс (POSIX-умолчание для SIGPIPE -
+		// завершение, не просто ошибка `write`/`send`).
 		sb.WriteString("#include <signal.h>\n")
 	}
 	if ctx.usesSockets {
@@ -977,7 +991,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// ("rech_db_t") обязан быть виден раньше typedef самой сущности,
 	// раньше, чем полный dbRuntimeCode (тот эмитируется намного позже -
 	// зависит от genericsCode, которого здесь ещё нет).
-	appendCodeIf(&sb, prog.UsesDB, dbHandleTypedefCode())
+	appendCodeIf(&sb, prog.UsesDB, dbHandleTypedefCode(prog.DBPoolSize))
 
 	// Перед typedefs - сущность может нести поле generic-коллекции по
 	// значению (например, "товары: Список<Строка>"), значит её C-typedef
@@ -1086,6 +1100,14 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// зарегистрирован в prog.Generics принудительно, см. internal/semantic/
 	// stringsplit.go).
 	appendCodeIf(&sb, ctx.usesStringSplit, stringSplitHelper)
+	// После genericsCodeAfterEntities выше (не только genericsCode) -
+	// rech_regex_find_all использует typedef/метод "добавить" Список<
+	// Совпадение> (элемент - сущность "Совпадение", см. её package doc
+	// genericsCodeAfterEntities) И typedefs (само поле "текст"/"начало"/
+	// "группы" сущности "Совпадение", regexResultType/regexGroupsType
+	// зарегистрированы в prog.Generics принудительно, см. internal/semantic/
+	// regex.go).
+	appendCodeIf(&sb, ctx.usesRegex, regexHelpers)
 	// После typedefs - rech_time_to_date/rech_date_to_time/
 	// rech_date_to_string принимают/возвращают ДатаВремя по значению.
 	appendCodeIf(&sb, ctx.usesDateTime, datetimeHelpers)
@@ -1104,6 +1126,9 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// После typedefs (rech_T_n_stroka - "?Строка" - уже объявлен, тем же
 	// принципом, что и usesCookies выше).
 	appendCodeIf(&sb, ctx.usesEnv, envHelpers(mangleType("?Строка")))
+	// После typedefs (rech_T_n_stroka уже объявлен) - тем же принципом,
+	// что и usesEnv/usesCookies выше.
+	appendCodeIf(&sb, ctx.usesHTTPHeaders, headerValueHelper(mangleType("?Строка")))
 	// Не зависит от typedefs (только sig_atomic_t/int) - можно эмитировать
 	// в любом месте после panicHelper, здесь - просто рядом с остальными
 	// небольшими самодостаточными хелперами.

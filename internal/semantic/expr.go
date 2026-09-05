@@ -526,6 +526,11 @@ func analyzeCallExpr(sc *ctx, e *ast.CallExpr) (ir.Expr, error) {
 				return nil, fmt.Errorf("строка %d: встроенная функция \"разбить\": %w", e.Line, err)
 			}
 		}
+		if callee == "регулярное" {
+			if err := registerRegexTypesOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
+				return nil, fmt.Errorf("строка %d: встроенная функция \"регулярное\": %w", e.Line, err)
+			}
+		}
 		if dbFuncNames[callee] {
 			if err := registerDBTypesOnCall(sc); err != nil {
 				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)

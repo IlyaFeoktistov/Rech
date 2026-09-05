@@ -308,3 +308,18 @@ const RandomIntInvalidRange = "случайное_целое: минимум д�
 // аварийное завершение вместо молчаливого выбора одной интерпретации, тем
 // же принципом, что и ReadInvalidMax/RandomIntInvalidRange выше.
 const SplitEmptySeparator = "разбить: разделитель не может быть пустой строкой"
+
+// RegexInvalidPatternTemplate/RegexInvalidPatternFormat - "регулярное
+// (строка, шаблон)" с шаблоном, который движок регулярных выражений не
+// смог скомпилировать - detail - диагностика САМОГО движка (Go regexp у
+// интерпретатора, POSIX regcomp у cbackend) - неизбежно расходится текстом
+// между backend'ами (разные библиотеки), в отличие от самого факта паники,
+// который одинаков в обоих. Template экспортирован отдельно (тем же
+// принципом, что и AsTypeMismatchTemplate, reflect.go) - cbackend
+// встраивает его же (escapeCString) буквально в C printf-формат
+// (snprintf + rech_panic), а не дублирует текст вручную.
+const RegexInvalidPatternTemplate = "регулярное: некорректный шаблон \"%s\": %s"
+
+func RegexInvalidPatternFormat(pattern, detail string) string {
+	return fmt.Sprintf(RegexInvalidPatternTemplate, pattern, detail)
+}

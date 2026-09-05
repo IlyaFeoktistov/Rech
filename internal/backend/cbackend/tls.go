@@ -236,6 +236,15 @@ static void rech_close_socket(rech_socket_t s) {
 // старые версии требовали SSLv23_server_method()+явный SSL_library_init() -
 // не поддерживаются, современный минимум).
 var tlsListenSecureCode = fmt.Sprintf(`static rech_socket_t rech_listen_tcp_secure(long long port, const char *certfile, const char *keyfile) {
+#ifndef _WIN32
+    // SIGPIPE - см. package doc socketTypeAndConnectCode (builtins_shared.go) -
+    // тот же вызов ЕСТЬ и в rech_listen_tcp там (socketHelpersTLS несёт
+    // весь socketTypeAndConnectCode безусловно), но КОД функции - не то же
+    // самое, что её ВЫЗОВ: программа, слушающая ТОЛЬКО через "слушать_
+    // tcp_защищённо", никогда не выполнит rech_listen_tcp вообще - вызов
+    // здесь обязателен, не избыточен.
+    signal(SIGPIPE, SIG_IGN);
+#endif
     SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
     if (ctx == NULL) {
         rech_panic("%[1]s");

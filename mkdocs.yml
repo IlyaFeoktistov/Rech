@@ -41,6 +41,7 @@ nav:
   - Главная: index.md
   - Руководство: MANUAL.md
   - Спецификация: SPEC.md
+  - Справочник: REFERENCE.md
   - Грамматика (черновик): GRAMMAR.md
   - Морфологический движок: MORPHOLOGY.md
 

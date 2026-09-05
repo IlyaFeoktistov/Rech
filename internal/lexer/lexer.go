@@ -349,6 +349,30 @@ func (l *Lexer) readNumber(line, col int) Token {
 			l.advance()
 		}
 	}
+	// Экспонента ("1e10", "2.5e-3", "1.5E+10") - "e"/"E" без хотя бы одной
+	// цифры сразу за ним (пропустив необязательный знак) - НЕ экспонента
+	// ("1e" сама по себе, без цифр - число "1", "e" остаётся отдельным
+	// токеном дальше, тем же принципом, что и одинокая "." без цифры после
+	// неё выше не делает число дробным). Экспонента всегда делает литерал
+	// FLOAT, даже без десятичной точки в мантиссе ("1e10" - Действительное,
+	// не Целое) - та же семантика, что в большинстве языков со scientific
+	// notation.
+	if r := l.peek(); r == 'e' || r == 'E' {
+		digitsAt := 1
+		if next := l.peekAt(1); next == '+' || next == '-' {
+			digitsAt = 2
+		}
+		if unicode.IsDigit(l.peekAt(digitsAt)) {
+			isFloat = true
+			l.advance() // e/E
+			if sign := l.peek(); sign == '+' || sign == '-' {
+				l.advance()
+			}
+			for l.pos < len(l.src) && unicode.IsDigit(l.peek()) {
+				l.advance()
+			}
+		}
+	}
 	value := string(l.src[start:l.pos])
 	if isFloat {
 		return Token{Type: FLOAT, Value: value, Line: line, Col: col}

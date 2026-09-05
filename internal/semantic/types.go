@@ -92,6 +92,16 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 	case mutexEntityName:
 		registerMutexEntity(entities, methods)
 		return ir.EntityType(mutexEntityName), nil
+	case "Совпадение":
+		// "группы" (Список<Строка>) - зарегистрировать ДО самой "Совпадение",
+		// иначе метод вроде "м.группы.длина()" не найдёт methods["Список<
+		// Строка>"], если ничто в программе больше не заставило её
+		// зарегистрироваться (например, "разбить" ни разу не вызвана).
+		if _, err := resolveTypeName(entities, methods, aliases, interfaces, regexGroupsType); err != nil {
+			return ir.TypeUnknown, err
+		}
+		registerHTTPEntity(entities, "Совпадение", matchFields)
+		return ir.EntityType("Совпадение"), nil
 	}
 	if _, ok := interfaces[name]; ok {
 		return ir.InterfaceType(name), nil

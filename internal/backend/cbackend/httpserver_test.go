@@ -180,3 +180,52 @@ func TestGenerateFromIRWithoutHTTPServerOmitsHelpers(t *testing.T) {
 		t.Fatalf("не ожидался HTTP-сервер рантайм без принять_http/отправить_http_ответ, получено:\n%s", out)
 	}
 }
+
+// TestGenerateFromIRHTTPResponseAnnouncesKeepAlive - "отправить_http_
+// ответ" шлёт "Connection: keep-alive", не "close" (docs/ROADMAP.md, "HTTP
+// keep-alive") - сервер всегда ГОТОВ обслужить следующий запрос на этом же
+// соединении, решение продолжать ли цикл - за вызывающим Rech-кодом (см.
+// examples/проекты/http_сервер).
+func TestGenerateFromIRHTTPResponseAnnouncesKeepAlive(t *testing.T) {
+	out := generateFromSrc(t, `
+функция главная
+{
+    переменная л = сетевой_узел("tcp", "", 8080)
+    переменная клиент = принять(л)
+    если клиент != Ничто
+    {
+        переменная запрос = принять_http(клиент)
+        отправить_http_ответ(клиент, новый Ответ(200, "", "ок"))
+    }
+}
+`)
+	if !strings.Contains(out, "Connection: keep-alive") {
+		t.Fatalf("ожидался \"Connection: keep-alive\" в rech_http_send_response, получено:\n%s", out)
+	}
+	if strings.Contains(out, "Connection: close") {
+		t.Fatalf("не ожидался \"Connection: close\" в rech_http_send_response, получено:\n%s", out)
+	}
+}
+
+// TestGenerateFromIRSocketCreationIgnoresSigpipe - НАЙДЕННЫЙ ЖИВЬЁМ баг
+// (docs/ROADMAP.md, "HTTP keep-alive"): запись в сокет, который ПИР уже
+// закрыл (типичное HTTP keep-alive соединение, где клиент отключился между
+// запросами), убивала ВЕСЬ процесс через SIGPIPE (POSIX-умолчание) - без
+// единой строчки паники, silent crash. Каждая функция создания сокета
+// теперь игнорирует SIGPIPE (идемпотентно, тем же приёмом, что и
+// rech_shutdown_requested, shutdown.go).
+func TestGenerateFromIRSocketCreationIgnoresSigpipe(t *testing.T) {
+	out := generateFromSrc(t, `
+функция главная
+{
+    переменная л = сетевой_узел("tcp", "", 8080)
+    закрыть_сокет(л)
+}
+`)
+	if !strings.Contains(out, "signal(SIGPIPE, SIG_IGN)") {
+		t.Fatalf("ожидался \"signal(SIGPIPE, SIG_IGN)\" в рантайме сокетов, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "#include <signal.h>") {
+		t.Fatalf("ожидался #include <signal.h> при использовании сокетов, получено:\n%s", out)
+	}
+}

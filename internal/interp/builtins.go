@@ -200,6 +200,8 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return queryParams(args[0].S), true
 	case "разбить":
 		return stringSplit(args[0].S, args[1].S), true
+	case "регулярное":
+		return regexFindAll(args[0].S, args[1].S), true
 	case "длина_строки":
 		return intValue(stringLength(args[0].S)), true
 	case "подстрока":
@@ -228,12 +230,14 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return stringValue(dateToString(args[0])), true
 	case "значение_куки":
 		return cookieValue(args[0], args[1].S), true
+	case "значение_заголовка":
+		return headerValue(args[0].S, args[1].S), true
 	case "получить_переменную_окружения":
 		return envValue(args[0].S), true
 	case "строка_куки":
 		return stringValue(cookieString(args[0].S, args[1].S, args[2])), true
 	case "подключиться_к_бд":
-		return dbConnect(args[0].S), true
+		return in.dbConnect(args[0].S), true
 	case "запросить":
 		return in.dbQuery(args[0].DB, args[1].S, reflectListElems(args[2])), true
 	case "выполнить":

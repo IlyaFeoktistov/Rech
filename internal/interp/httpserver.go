@@ -226,6 +226,14 @@ func (in *Interp) acceptHTTPRequest(conn net.Conn) Value {
 // HTTP-ответ и отправляет на conn, тем же принципом, что и
 // cbackend.rech_http_send_response (единая фраза-причина "OK" для любого
 // кода - реальные HTTP-клиенты ориентируются на числовой код, не на неё).
+//
+// "Connection: keep-alive" (не "close") - сервер всегда ГОТОВ обслужить
+// следующий запрос на этом же соединении (keep-alive, docs/ROADMAP.md,
+// "HTTP keep-alive") - решает, действительно ли читать следующий запрос
+// или закрыть сокет, вызывающий Rech-код (после каждого "отправить_http_
+// ответ" явно проверяет заголовок "Connection" ВХОДЯЩЕГО запроса через
+// "значение_заголовка" - см. examples/проекты/http_сервер, "обработать_
+// соединение") - рантайм не решает это сам, только заявляет готовность.
 func (in *Interp) sendHTTPResponse(conn net.Conn, resp Value) {
 	f := resp.Obj.fields
 	code, headers, body := f["код"].I, f["заголовки"].S, f["тело"].S
@@ -233,7 +241,7 @@ func (in *Interp) sendHTTPResponse(conn net.Conn, resp Value) {
 	if headers != "" {
 		hdrSep = "\r\n"
 	}
-	head := fmt.Sprintf("HTTP/1.1 %d OK\r\n%s%sConnection: close\r\nContent-Length: %d\r\n\r\n", code, headers, hdrSep, len(body))
+	head := fmt.Sprintf("HTTP/1.1 %d OK\r\n%s%sConnection: keep-alive\r\nContent-Length: %d\r\n\r\n", code, headers, hdrSep, len(body))
 	if _, err := io.WriteString(conn, head+body); err != nil {
 		panicRuntime("%s", rtmsg.SocketSendFailed)
 	}

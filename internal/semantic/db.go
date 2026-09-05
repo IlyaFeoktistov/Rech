@@ -14,6 +14,15 @@ import (
 // просто из факта существования БД в языке.
 const dbResultType = "Список<Словарь<Строка, Значение>>"
 
+// DefaultDBPoolSize - число соединений с БД в пуле, если файл проекта
+// (.rechproj) не задаёт "бд.размер_пула" вовсе (internal/project.File.
+// DBPoolSize возвращает 0 в этом случае - internal/compiler тогда не
+// переопределяет ir.Program.DBPoolSize, оставляя именно это значение,
+// подставленное здесь безусловно для ЛЮБОЙ программы - включая те, что
+// анализируются в обход internal/compiler, например internal/lsp/
+// internal/testrunner). См. package doc ir.Program.DBPoolSize.
+const DefaultDBPoolSize = 4
+
 // registerDBFuncs - единый русский API поверх SQLite/PostgreSQL/MySQL
 // (docs/SPEC.md, "БД") - один и тот же "БД" (ir.TypeDB) для всех трёх,
 // схема строки подключения ("sqlite:"/"postgres://"/"mysql://") решает,

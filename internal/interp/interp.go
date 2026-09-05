@@ -483,6 +483,13 @@ type Interp struct {
 	// метода (в отличие от обычного Env, который создаётся заново на
 	// каждый вызов), см. package doc Env.staticIDs.
 	staticLocals map[int]Value
+
+	// dbPoolSize - ir.Program.DBPoolSize (внешне заданное значение
+	// "бд.размер_пула" из .rechproj, если оно было - internal/compiler
+	// подставляет его до semantic.Analyze; иначе - internal/semantic.
+	// DefaultDBPoolSize) - dbConnect передаёт его в database/sql
+	// (SetMaxOpenConns), см. package doc dbConnect в db.go.
+	dbPoolSize int
 }
 
 // Run исполняет prog: находит "главная" и выполняет её тело, печатая
@@ -543,6 +550,7 @@ func newInterp(prog *ir.Program, out io.Writer, stdin io.Reader) (*Interp, *ir.F
 		staticLocals:          map[int]Value{},
 		interfaceImplementors: prog.InterfaceImplementors,
 		entityInterfaces:      prog.EntityInterfaces,
+		dbPoolSize:            prog.DBPoolSize,
 	}
 	for _, fn := range prog.Functions {
 		in.funcs[fn.Name] = fn
@@ -582,7 +590,7 @@ func (in *Interp) initStaticFields(prog *ir.Program) error {
 		fields := map[string]Value{}
 		for _, f := range ent.StaticFields {
 			if f.Default == nil {
-				fields[f.Name] = zeroValue(f.Type)
+				fields[f.Name] = in.zeroFieldValue(f.Type)
 				continue
 			}
 			v, err := in.evalExpr(f.Default, newEnv(nil), cc)
