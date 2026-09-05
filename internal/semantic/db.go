@@ -96,6 +96,10 @@ var dbFuncNames = map[string]bool{
 	"запросить":         true,
 	"выполнить":         true,
 	"закрыть_бд":        true,
+	// "начать_транзакцию" (internal/semantic/dbtx.go) - тоже нуждается в
+	// dbResultType/listOfAnyType (её методы "запросить"/"выполнить" несут
+	// те же типы) - тем же принципом идемпотентной лишней регистрации.
+	beginTransactionFuncName: true,
 }
 
 // registerDBTypesOnCall - вызывается из analyzeCallExpr при каждом вызове

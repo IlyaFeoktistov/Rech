@@ -120,6 +120,12 @@ func (d *doc) entityCtorSignature(ent *ir.Entity) (string, bool) {
 	if ent.IsAbstract {
 		return "", false
 	}
+	if ent.IsTransaction {
+		// "Транзакция" - нет "новый" вообще (см. package doc internal/
+		// semantic/dbtx.go, IsTransaction в analyzeNewExpr) - значение
+		// получить можно только параметром колбэка "начать_транзакцию".
+		return "", false
+	}
 	name := "новый " + d.disp(ent.Name)
 	if ent.IsSemaphore {
 		// "Семафор" - единственная системная сущность (наравне с
@@ -156,6 +162,15 @@ func (d *doc) hoverMember(ent *ir.Entity, name string) (string, bool) {
 		// нужно перехватить здесь же, канонической строкой.
 		if doc, ok := mutexMethodDocs[name]; ok {
 			return withDoc(codeBlock(fmt.Sprintf("%s.%s()", entName, name)), doc), true
+		}
+	}
+	if ent.IsTransaction {
+		// "Транзакция" - тот же пробел, что у "Блокировки"/"Семафора" выше
+		// (нет ent.Methods, internal/semantic/dbtx.go), но её методы несут
+		// содержательную сигнатуру - transactionMethodDocs хранит готовую
+		// строку целиком, не только слово-описание.
+		if doc, ok := transactionMethodDocs[name]; ok {
+			return codeBlock(entName + "." + doc), true
 		}
 	}
 	for _, f := range ent.Fields {

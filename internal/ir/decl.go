@@ -295,6 +295,12 @@ type Entity struct {
 	// internal/backend/cbackend/semaphore.go. См. internal/semantic/
 	// semaphore.go.
 	IsSemaphore bool
+	// IsTransaction - системная сущность "Транзакция" (докstroка
+	// internal/semantic/dbtx.go) - тем же принципом: не объявляется
+	// пользователем, не имеет Fields/Methods/Ctor, C-представление
+	// (rech_db_tx_t) и все три метода (запросить/выполнить/откатить)
+	// целиком синтезированы internal/backend/cbackend/dbtx.go.
+	IsTransaction bool
 	// BaseName - имя базовой сущности после "наследует", "" - нет
 	// базовой сущности. Fields ниже уже включает унаследованные поля
 	// (плоский список - поля базовой сущности первыми, в её собственном

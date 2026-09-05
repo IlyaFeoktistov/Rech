@@ -95,6 +95,9 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 	case semaphoreEntityName:
 		registerSemaphoreEntity(entities, methods)
 		return ir.EntityType(semaphoreEntityName), nil
+	case transactionEntityName:
+		registerTransactionEntity(entities, methods)
+		return ir.EntityType(transactionEntityName), nil
 	case "Совпадение":
 		// "группы" (Список<Строка>) - зарегистрировать ДО самой "Совпадение",
 		// иначе метод вроде "м.группы.длина()" не найдёт methods["Список<

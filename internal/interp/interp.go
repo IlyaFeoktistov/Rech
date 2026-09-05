@@ -66,6 +66,10 @@ type entityObj struct {
 	// отдельное поле (не переиспользует mutex) - у семафора есть счётчик и
 	// condvar, не голый sync.Mutex.
 	semaphore *semaphoreState
+	// dbTx - непусто только у "Транзакция" (internal/interp/dbtx.go) -
+	// параметр колбэка "начать_транзакцию", никогда не создаётся через
+	// "новый" (internal/semantic/expr.go, analyzeNewExpr, IsTransaction).
+	dbTx *dbTxState
 	// fieldsMu - защищает fields от гонки самого Go-рантайма (не Rech-
 	// уровня "программист не защитил поле"): один и тот же ссылочный
 	// объект может быть виден из нескольких потоков ОС одновременно

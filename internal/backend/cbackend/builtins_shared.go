@@ -379,6 +379,9 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 		return fmt.Sprintf("rech_db_exec(%s, %s, %s)", args[0], args[1], args[2]), true
 	case "закрыть_бд":
 		return fmt.Sprintf("rech_db_close(%s)", args[0]), true
+	case "начать_транзакцию":
+		flags.usesPanic = true
+		return fmt.Sprintf("%s(%s, %s)", dbRunTransactionFunc, args[0], args[1]), true
 	case "стандартный_ввод":
 		flags.usesFileIO = true
 		return "stdin", true

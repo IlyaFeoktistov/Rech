@@ -59,6 +59,17 @@ func (in *Interp) evalExpr(e ir.Expr, env *Env, cc *callCtx) (Value, error) {
 			}
 			args[i] = v
 		}
+		// "начать_транзакцию" - единственный builtin, которому может
+		// понадобиться пробросить НАСТОЯЩУЮ ошибку ("выбросить" внутри
+		// колбэка - обычная error, не panic, docs internal/interp/
+		// exception.go) - evalBuiltinCall ниже возвращает только (Value,
+		// bool), без канала ошибки (ни один из остальных builtin'ов в нём
+		// не вызывает пользовательский код колбэком), поэтому обрабатывается
+		// отдельно, до него, тем же принципом сигнатуры (Value, error), что
+		// и у самого evalExpr.
+		if e.Callee == beginTransactionFuncName {
+			return in.dbBeginTransaction(args[0].DB, args[1], cc.dbg)
+		}
 		if v, ok := in.evalBuiltinCall(e.Callee, args); ok {
 			return v, nil
 		}
@@ -546,6 +557,9 @@ func (in *Interp) evalMethodCallExpr(e *ir.MethodCallExpr, env *Env, cc *callCtx
 	}
 	if recv.Obj.semaphore != nil {
 		return evalSemaphoreMethod(recv.Obj, e)
+	}
+	if recv.Obj.dbTx != nil {
+		return in.evalTransactionMethod(recv.Obj, e, env, cc)
 	}
 	if recv.Obj.coll != nil {
 		if recv.Obj.coll.template == "Словарь" {

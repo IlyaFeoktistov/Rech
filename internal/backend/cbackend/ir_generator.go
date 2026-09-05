@@ -179,6 +179,14 @@ type irGenCtx struct {
 	// наоборот).
 	usesSemaphore bool
 
+	// usesDBTransaction - хотя бы один "Транзакция" реально встретился в
+	// программе (см. internal/backend/cbackend/dbtx.go) - "начать_транзакцию"
+	// уже подразумевает prog.UsesDB (dbFuncNames, internal/semantic/db.go),
+	// но dbtx.go эмитируется отдельно, только когда реально нужен - программа
+	// с обычной "БД" без единой транзакции не должна тянуть за собой этот
+	// рантайм.
+	usesDBTransaction bool
+
 	// usesStateFlags - хотя бы одна сущность программы объявляет
 	// "состояние:" (ir.Entity.HasStateFlags - уже включает потомков без
 	// собственного "состояние:", см. package doc) - гейтит "#include
@@ -486,6 +494,17 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	if ent, ok := entities[semaphoreEntityName]; ok && ent.IsSemaphore {
 		ctx.usesSemaphore = true
 	}
+	if ent, ok := entities[transactionEntityName]; ok && ent.IsTransaction {
+		ctx.usesDBTransaction = true
+		// rech_db_run_transaction (dbtx.go) ловит и "Паника" (catch_panics-
+		// кадр - нужен panicCatchHelperCode, полное тело rech_panic,
+		// ищущее такой кадр), и "Исключение" (обычный кадр - нужен
+		// rech_throw/catchFrameType, exceptionRuntimeCode) - тем же набором
+		// флагов, что и обычное "поймать (x: Паника)" в Rech-коде
+		// (generateIRTryCatchPanicStmt).
+		ctx.usesExceptions = true
+		ctx.usesPanicCatch = true
+	}
 	if ctx.usesStateFlags {
 		// rech_require_state (typestate.go) бросает через rech_throw -
 		// сущность со "состояние:" почти всегда участвует и в
@@ -708,6 +727,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// использует.
 		protos.WriteString(semaphorePrototypes())
 	}
+	if ctx.usesDBTransaction {
+		// Та же причина, что у mutexPrototypes/semaphorePrototypes выше.
+		protos.WriteString(dbtxPrototypes())
+	}
 	for _, ext := range prog.ExternFuncs {
 		protos.WriteString(externPrototypeOfIR(ctx, ext))
 	}
@@ -731,10 +754,12 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// internal/semantic/analyzer.go), не может полагаться на текстовый
 		// порядок определений, если её конструктор вызван РАНЬШЕ по файлу -
 		// как напрямую ("новый X(...)"), так и через "родитель(...)" в
-		// конструкторе пользовательского наследника. mutex/семафор -
-		// отдельными mutexPrototypes()/semaphorePrototypes() выше, здесь не
-		// участвуют.
-		if !ent.IsStruct && !ent.IsMutex && !ent.IsSemaphore {
+		// конструкторе пользовательского наследника. mutex/семафор/транзакция -
+		// отдельными mutexPrototypes()/semaphorePrototypes()/dbtxPrototypes()
+		// выше, здесь не участвуют (у "Транзакция" вдобавок нет вообще
+		// никакого конструктора - см. internal/semantic/expr.go,
+		// analyzeNewExpr, IsTransaction).
+		if !ent.IsStruct && !ent.IsMutex && !ent.IsSemaphore && !ent.IsTransaction {
 			ctorParams := []ir.Param(nil)
 			if ent.Ctor != nil {
 				ctorParams = ent.Ctor.Params
@@ -1159,6 +1184,14 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// эмитированы к этому месту - см. package doc dbRuntimeCode/
 	// dbHandleTypedefCode (internal/backend/cbackend/db.go).
 	appendCodeIf(&sb, prog.UsesDB, dbRuntimeCode(prog.DBBackends))
+	// Транзакции БД (internal/backend/cbackend/dbtx.go) - только если
+	// реально использованы (ctx.usesDBTransaction) - после dbRuntimeCode
+	// выше (rech_db_checkout/rech_db_query/rech_db_exec, на которые
+	// dbtxRuntimeCode ссылается, уже должны существовать).
+	if ctx.usesDBTransaction {
+		appendCodeIf(&sb, true, dbtxRunSimpleCode(prog.DBBackends))
+		appendCodeIf(&sb, true, dbtxRuntimeCode(ctx))
+	}
 	appendCodeIf(&sb, protos.Len() > 0, protos.String())
 
 	// vtables (ссылается на &rech_M_... - нужны protos выше) и ctors
@@ -1312,6 +1345,9 @@ func generateIREntityStruct(ctx *irGenCtx, ent *ir.Entity) string {
 	if ent.IsSemaphore {
 		return semaphoreStructTypedef()
 	}
+	if ent.IsTransaction {
+		return dbtxTypedefCode()
+	}
 	s := codegen.Struct(mangleType(ent.Name))
 	participates := ctx.dispatchParticipants[ent.Name]
 	if participates {
@@ -1370,6 +1406,18 @@ func generateIREntityCtor(ctx *irGenCtx, ent *ir.Entity) (string, error) {
 	}
 	if ent.IsSemaphore {
 		return semaphoreRuntimeCode(), nil
+	}
+	if ent.IsTransaction {
+		// "Транзакция" не имеет ни конструктора, ни обычных полей вообще
+		// (см. internal/semantic/expr.go, analyzeNewExpr, IsTransaction -
+		// "новый" запрещён) - её C-структура (dbtxTypedefCode,
+		// generateIREntityStruct выше) устроена совсем иначе, чем обычная
+		// сущность (нет "vt", свои поля mini/real_db/real_idx/resolved) -
+		// обычный путь ниже (generateIREntityCtorInit и т. п.) писал бы код
+		// для несуществующих полей. Сам рантайм (rech_db_run_transaction +
+		// три метода) эмитируется отдельно, из GenerateFromIR, рядом с
+		// dbRuntimeCode (там доступен prog.DBBackends, здесь - нет).
+		return "", nil
 	}
 	if ent.Ctor == nil {
 		// internal/semantic держит этот инвариант (каждая ссылочная

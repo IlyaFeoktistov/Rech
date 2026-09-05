@@ -72,6 +72,7 @@ var builtinTypeBases = map[string]bool{
 	"ОшибкаДеленияНаНоль": true,
 	"Блокировка":          true,
 	"Семафор":             true,
+	"Транзакция":          true,
 	"ОпцииКуки":           true,
 	"Совпадение":          true,
 	"Целое8":              true,

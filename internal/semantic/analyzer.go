@@ -471,6 +471,7 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 	registerHTTPHeaderFunc(a.entities, funcs)
 	registerEnvFuncs(a.entities, funcs)
 	registerDBFuncs(funcs)
+	registerTransactionFuncs(funcs)
 	registerNetworkFuncs(a.entities, funcs)
 	for _, fn := range prog.Functions {
 		if _, exists := funcs[fn.Name]; exists {
@@ -1012,6 +1013,11 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	// наоборот.
 	if sig, ok := a.entities[semaphoreEntityName]; ok && sig.IsSemaphore {
 		out.Entities = append([]*ir.Entity{semaphoreIRType()}, out.Entities...)
+	}
+	// "Транзакция" - та же причина/тот же приём, что у "Семафора"/
+	// "Блокировки" выше.
+	if sig, ok := a.entities[transactionEntityName]; ok && sig.IsTransaction {
+		out.Entities = append([]*ir.Entity{transactionIRType()}, out.Entities...)
 	}
 	out.ParseTargets = a.parseTargets.order
 	out.SerializeTargets = a.serializeTargets.order

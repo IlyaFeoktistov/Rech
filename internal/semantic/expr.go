@@ -235,6 +235,9 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 	if sig.IsExternOpaque {
 		return nil, fmt.Errorf("строка %d: %q - непрозрачный внешний тип (\"внешняя сущность\") - значение можно только получить от внешней функции, не через \"новый\"", e.Line, e.Type)
 	}
+	if sig.IsTransaction {
+		return nil, fmt.Errorf("строка %d: %q - значение можно получить только параметром колбэка \"%s\", не через \"новый\"", e.Line, e.Type, beginTransactionFuncName)
+	}
 	if sig.IsAbstract {
 		return nil, fmt.Errorf("строка %d: %q - абстрактная сущность, создать экземпляр напрямую нельзя - унаследуйте её и реализуйте недостающие методы", e.Line, e.Type)
 	}
@@ -538,6 +541,13 @@ func analyzeCallExpr(sc *ctx, e *ast.CallExpr) (ir.Expr, error) {
 			if callee == "подключиться_к_бд" && len(e.Args) == 1 {
 				lit, _ := e.Args[0].(*ast.StringLiteral)
 				sc.a.markDBConnString(lit)
+			}
+			if callee == beginTransactionFuncName {
+				registerTransactionEntity(sc.entities, sc.methods)
+				txCallableType := ir.CallableType([]ir.Type{ir.EntityType(transactionEntityName)}, nil)
+				if err := sc.a.registerCallable(txCallableType); err != nil {
+					return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
+				}
 			}
 		}
 		args, err := checkCallArgs(sc, e.Args, sig, e.Line, fmt.Sprintf("функция %q", callee), fmt.Sprintf("вызова %q", callee))
