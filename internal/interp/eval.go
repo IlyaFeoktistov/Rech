@@ -434,13 +434,22 @@ func (in *Interp) evalNewExpr(e *ir.NewExpr, env *Env, cc *callCtx) (Value, erro
 		return in.constructEntity(ent, e.Entity, args, env, cc)
 	}
 	if g, ok := in.generics[e.Entity]; ok {
-		coll := &collection{template: g.Template}
-		if g.Template == "Словарь" {
-			coll.pairs = map[Value]Value{}
-		}
-		return Value{Type: ir.EntityType(e.Entity), Obj: &entityObj{typeName: e.Entity, coll: coll}}, nil
+		return in.newEmptyCollection(e.Entity, g), nil
 	}
 	return Value{}, fmt.Errorf("сущность %q не найдена во время исполнения", e.Entity)
+}
+
+// newEmptyCollection - "новый Список<T>()"/"новая Стопка<T>()"/... с пустым
+// содержимым - entName уже конкретная инстанциация ("Список<Целое>"), g -
+// её запись в in.generics (Template решает, нужна ли map для "Словарь").
+// Общий код для evalNewExpr (буквальный "новый ...()") и zeroFieldValue
+// (поле generic-коллекции без "имеет: ... = ..." - см. её package doc).
+func (in *Interp) newEmptyCollection(entName string, g ir.GenericInstantiation) Value {
+	coll := &collection{template: g.Template}
+	if g.Template == "Словарь" {
+		coll.pairs = map[Value]Value{}
+	}
+	return Value{Type: ir.EntityType(entName), Obj: &entityObj{typeName: entName, coll: coll}}
 }
 
 // constructEntity строит новый экземпляр ent (имя entName - отдельно от
@@ -476,12 +485,36 @@ func (in *Interp) constructEntity(ent *ir.Entity, entName string, args []Value, 
 			obj.setField(f.Name, in.cloneValue(v))
 			continue
 		}
-		obj.setField(f.Name, zeroValue(f.Type))
+		obj.setField(f.Name, in.zeroFieldValue(f.Type))
 	}
 	if _, err := in.callMethod(ent.Ctor, obj, args, cc.dbg); err != nil {
 		return Value{}, err
 	}
 	return Value{Type: ir.EntityType(entName), Obj: obj}, nil
+}
+
+// zeroFieldValue - нулевое значение поля БЕЗ "имеет: имя: Тип = выражение"
+// (см. package doc constructEntity) - zeroValue(t) для примитива (0/""/
+// ложь/...), НО для generic-коллекции (Список<T>/Словарь<К,В>/Стопка<T>/
+// Очередь<T>) - настоящий пустой экземпляр (newEmptyCollection), а не
+// zeroValue(t)'ин голый Value{Type: t} с Obj == nil: ЛЮБОЙ метод такого
+// поля (`.добавить`/`.длина`/...) сразу разыменовывал бы nil recv.Obj -
+// найдено живой проверкой (`сущность` с полем `Список<Целое>` без
+// значения по умолчанию падала с "invalid memory address or nil pointer
+// dereference" при первом же обращении к полю, даже до вызова метода
+// самого конструктора). Сущность/интерфейс-поле без значения по умолчанию
+// по-прежнему остаётся nil-ссылкой (Value{Type: t}, zeroValue's default) -
+// это ожидаемая, а не ошибочная семантика ("ещё не присвоено", как
+// неинициализированная ссылка в Java/C#) - падать может только НЕВЕРНОЕ
+// использование (обращение до присваивания), не сам факт существования
+// такого поля.
+func (in *Interp) zeroFieldValue(t ir.Type) Value {
+	if t.Kind == ir.KindEntity {
+		if g, ok := in.generics[t.Entity]; ok {
+			return in.newEmptyCollection(t.Entity, g)
+		}
+	}
+	return zeroValue(t)
 }
 
 // evalMethodCallExpr - "receiver.метод(...)". Receiver вычисляется без

@@ -55,8 +55,12 @@ func TestGenerateFromIRExplicitConstructorSplitsInitFromNew(t *testing.T) {
 // языках" (docs/SPEC.md, "Явные конструкторы") - internal/semantic
 // подставляет синтетический пустой Ctor (0 параметров, см. package doc
 // analyzeEntity в analyzer.go) - "новый Точка()" без аргументов, поле без
-// значения по умолчанию просто зануляется GC_MALLOC'ом, никакого
-// присваивания в теле не требуется.
+// значения по умолчанию (здесь - Целое) просто зануляется GC_MALLOC'ом,
+// никакого присваивания в теле не требуется - ТОЛЬКО для типов, у которых
+// нулевые байты - валидное нулевое значение (число/логическое/ссылка на
+// сущность) - см. TestGenerateFromIREntityWithoutCtorZeroesStringField
+// ниже про Строка/generic-коллекцию, которым нужно явное присваивание
+// (zeroFieldValueExpr, ir_generator.go).
 func TestGenerateFromIREntityWithoutCtorUnchangedBehavior(t *testing.T) {
 	ent := &ir.Entity{Name: "Точка", Fields: []ir.Field{{Name: "x", Type: ir.TypeInt}}, Ctor: &ir.Method{}}
 	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
@@ -71,6 +75,58 @@ func TestGenerateFromIREntityWithoutCtorUnchangedBehavior(t *testing.T) {
 	}
 	if !strings.Contains(out, "static rech_T_tochka *rech_new_tochka(void) {") {
 		t.Fatalf("ожидался rech_new_tochka(void), получено:\n%s", out)
+	}
+}
+
+// TestGenerateFromIREntityWithoutCtorZeroesStringField - Строка без "="
+// представлена C-указателем (const char*) - GC_MALLOC зануляет её в NULL,
+// не "" - обращение к такому полю падало сегфолтом (живая проверка) до
+// того, как zeroFieldValueExpr (ir_generator.go) стал генерировать явное
+// присваивание "" в rech_init_X для любого Строка-поля без собственного
+// значения по умолчанию.
+func TestGenerateFromIREntityWithoutCtorZeroesStringField(t *testing.T) {
+	ent := &ir.Entity{Name: "Модель", Fields: []ir.Field{{Name: "имя", Type: ir.TypeString}}, Ctor: &ir.Method{}}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "м", Value: &ir.NewExpr{Entity: "Модель"}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Entities: []*ir.Entity{ent}, Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, `(this_)->f_imya = "";`) {
+		t.Fatalf("ожидалось явное зануление Строка-поля в \"\", получено:\n%s", out)
+	}
+}
+
+// TestGenerateFromIREntityWithoutCtorZeroesGenericCollectionField -
+// generic-коллекция (Список<T> и т. п.) без "=" представлена C-структурой
+// растущего буфера - GC_MALLOC зануляет её байты, что НЕ то же самое, что
+// настоящий пустой буфер (например, указатель данных NULL при ненулевой
+// длине/ёмкости, в зависимости от представления) - первый же вызов метода
+// падал. zeroFieldValueExpr теперь генерирует "этот.поле = новый Тип()"
+// эквивалент явно, тем же путём кодогенерации, что и буквальный "новый".
+func TestGenerateFromIREntityWithoutCtorZeroesGenericCollectionField(t *testing.T) {
+	ent := &ir.Entity{Name: "Модель", Fields: []ir.Field{{Name: "числа", Type: ir.EntityType("Список<Целое>")}}, Ctor: &ir.Method{}}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "м", Value: &ir.NewExpr{Entity: "Модель"}},
+	}}
+	prog := &ir.Program{
+		Entities:  []*ir.Entity{ent},
+		Functions: []*ir.Function{main},
+		Generics:  []ir.GenericInstantiation{{Name: "Список<Целое>", Template: "Список", ElemType: ir.TypeInt}},
+	}
+	out, err := GenerateFromIR(prog)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	defStart := strings.Index(out, "static void rech_init_model(rech_T_model *this_) {")
+	defEnd := strings.Index(out, "static rech_T_model *rech_new_model(void) {")
+	if defStart < 0 || defEnd < 0 || defEnd < defStart {
+		t.Fatalf("не найдены определения rech_init_model/rech_new_model в ожидаемом порядке, получено:\n%s", out)
+	}
+	initModel := out[defStart:defEnd]
+	if !strings.Contains(initModel, "rech_new_") {
+		t.Fatalf("ожидался вызов конструктора Список<Целое> внутри rech_init_model (зануление поля), получено:\n%s", initModel)
 	}
 }
 

@@ -1353,6 +1353,29 @@ func gcAllocStmts(ctx *irGenCtx, ent *ir.Entity, cType string) []codegen.Stmt {
 	return stmts
 }
 
+// zeroFieldValueExpr - выражение для явного зануления поля БЕЗ "= выражение"
+// (см. package doc generateIREntityCtorInit) - nil, если голых нулевых
+// байт GC_MALLOC'а уже достаточно (Целое/Дробное/Действительное/
+// Логическое/Символ/Байт - всё это просто числовой 0, а также ссылка на
+// другую сущность/интерфейс, которой намеренно разрешено быть nil "ещё не
+// присвоено" - тем же принципом, что и internal/interp/eval.go,
+// zeroFieldValue). Строка - нулевые байты дают NULL char*, не то же самое,
+// что "" (segfault при первом же обращении к полю - живая проверка нашла
+// именно это); generic-коллекция (Список<T>/Стопка<T>/Очередь<T>/
+// Словарь<К,В>, ctx.generics) - нулевые байты дают несогласованную C-
+// структуру буфера/карты (например, len/cap ненулевые при указателе-NULL,
+// в зависимости от представления) - первый же вызов метода тоже падает.
+func zeroFieldValueExpr(ctx *irGenCtx, t ir.Type) ir.Expr {
+	switch {
+	case t.Kind == ir.KindString:
+		return &ir.StringLiteral{Value: ""}
+	case t.Kind == ir.KindEntity && ctx.generics[t.Entity]:
+		return &ir.NewExpr{Entity: t.Entity}
+	default:
+		return nil
+	}
+}
+
 // generateIREntityCtorInit - тело конструктора ent.Ctor (явного или
 // синтетического пустого, см. package doc generateIREntityCtor) как
 // отдельная C-функция, с тем же "Тип *this_" первым скрытым параметром, что
@@ -1373,14 +1396,23 @@ func generateIREntityCtorInit(ctx *irGenCtx, ent *ir.Entity) (string, error) {
 	defer func() { ctx.thisEntity = "" }()
 	// Поле с "имеет: имя: Тип = выражение" начинается со своего значения по
 	// умолчанию ещё до тела явного конструктора (docs/SPEC.md) - GC_MALLOC
-	// зануляет память, этого достаточно для полей без default, но не для
-	// полей с ним. Тело конструктора (ниже) может переопределить любое из
-	// них через "этот.поле = ...".
+	// зануляет память, этого достаточно для полей без default ТОЛЬКО когда
+	// нулевые байты - валидное нулевое значение типа (Целое/Дробное/
+	// Действительное/Логическое/Символ/Байт, а также ссылка на другую
+	// сущность/интерфейс - см. zeroFieldValueExpr) - Строка/generic-
+	// коллекция нуждаются в явном занулении (zeroFieldValueExpr, nil для
+	// всех остальных типов - для них ничего не генерируется, как и раньше).
+	// Тело конструктора (ниже) может переопределить любое из полей через
+	// "этот.поле = ...", включая эти явно занулённые.
 	for _, f := range ent.Fields {
-		if f.Default == nil {
+		value := f.Default
+		if value == nil {
+			value = zeroFieldValueExpr(ctx, f.Type)
+		}
+		if value == nil {
 			continue
 		}
-		assign := &ir.FieldAssign{Receiver: &ir.ThisExpr{Entity: ent.Name}, Field: f.Name, Value: f.Default}
+		assign := &ir.FieldAssign{Receiver: &ir.ThisExpr{Entity: ent.Name}, Field: f.Name, Value: value}
 		if err := generateIRStmt(&sb, ctx, assign, 1); err != nil {
 			return "", err
 		}

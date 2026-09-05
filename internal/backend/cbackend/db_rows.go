@@ -48,8 +48,26 @@ func dbRowsRuntimeCode(ctx *irGenCtx, prog *ir.Program, targets []ir.Type) (stri
 		listCtor := mangleCtor(listName)
 		listAdd := mangleMethod(listName, "добавить")
 		itemC := fromIRType(ir.EntityType(ent.Name)).cType(ctx)
-		itemCtor := mangleCtor(ent.Name)
 		fn := "rech_db_rows_to_" + transliterate(ent.Name)
+		// isRef - "сущность"/"класс" (item - указатель, GC_MALLOC'нутый
+		// через rech_new_X, поля - "item->поле") против "структура" (item -
+		// значение на стеке, у неё нет rech_new_X вовсе - структуры строятся
+		// только compound-literal'ом в месте вызова, см. package doc пакета
+		// generateIRNewExpr - зануляется "= {0}" здесь, безопасно, потому что
+		// КАЖДОЕ поле явно присваивается ниже, ни одно не остаётся нулевым
+		// байтом дольше одной строки этой функции; поля - "item.поле").
+		// dbRowEntityCompatible (internal/semantic/db_rows.go) разрешает
+		// ОБА - раньше здесь была только ветка для сущности (rech_new_X() +
+		// "->"), для структуры это компилировалось в невалидный C
+		// (несуществующий rech_new_X, "->" на значении, не указателе) - живая
+		// проверка нашла это на examples/бд/orm_легковесный.rech.
+		isRef := ctx.entityIsRef(ent.Name)
+		access := "."
+		itemInit := itemC + " item = {0};"
+		if isRef {
+			access = "->"
+			itemInit = itemC + " item = " + mangleCtor(ent.Name) + "();"
+		}
 
 		var body strings.Builder
 		for i, f := range ent.Fields {
@@ -62,10 +80,10 @@ func dbRowsRuntimeCode(ctx *irGenCtx, prog *ir.Program, targets []ir.Type) (stri
 				inner := ctx.nullableInner[f.Type.Entity]
 				valVar := fmt.Sprintf("v%d", i)
 				fmt.Fprintf(&body, "        rech_any_t %s = %s;\n", valVar, rowGet)
-				fmt.Fprintf(&body, "        item->%s = (%s.type == &%s) ? %s() : %s(%s);\n",
-					mangleField(f.Name), valVar, nullMeta, empty, wrap, reflectCheckedUnboxExprCode(ctx, inner, valVar))
+				fmt.Fprintf(&body, "        item%s%s = (%s.type == &%s) ? %s() : %s(%s);\n",
+					access, mangleField(f.Name), valVar, nullMeta, empty, wrap, reflectCheckedUnboxExprCode(ctx, inner, valVar))
 			} else {
-				fmt.Fprintf(&body, "        item->%s = %s;\n", mangleField(f.Name), reflectCheckedUnboxExprCode(ctx, f.Type, rowGet))
+				fmt.Fprintf(&body, "        item%s%s = %s;\n", access, mangleField(f.Name), reflectCheckedUnboxExprCode(ctx, f.Type, rowGet))
 			}
 		}
 
@@ -73,13 +91,13 @@ func dbRowsRuntimeCode(ctx *irGenCtx, prog *ir.Program, targets []ir.Type) (stri
     %[1]s *out = %[4]s();
     for (long long i = 0; i < rows->len; i++) {
         %[6]s *row = rows->data[i];
-        %[5]s item = %[7]s();
-%[8]s        %[9]s(out, item);
+        %[5]s
+%[7]s        %[8]s(out, item);
     }
     return out;
 }
 
-`, listC, fn, rowsC, listCtor, itemC, mangleType(dbRowType), itemCtor, body.String(), listAdd)
+`, listC, fn, rowsC, listCtor, itemInit, mangleType(dbRowType), body.String(), listAdd)
 	}
 	return sb.String(), nil
 }
