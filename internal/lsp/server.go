@@ -47,12 +47,14 @@ func (s *server) handleRequest(msg *Message) {
 	case "initialize":
 		_ = s.rpc.Reply(msg.ID, map[string]any{
 			"capabilities": map[string]any{
-				"textDocumentSync":       1, // Full - didChange несёт весь текст целиком, не диффы
-				"hoverProvider":          true,
-				"definitionProvider":     true,
-				"implementationProvider": true,
-				"codeActionProvider":     true,
-				"codeLensProvider":       map[string]any{},
+				"textDocumentSync":          1, // Full - didChange несёт весь текст целиком, не диффы
+				"hoverProvider":             true,
+				"definitionProvider":        true,
+				"implementationProvider":    true,
+				"referencesProvider":        true,
+				"documentHighlightProvider": true,
+				"codeActionProvider":        true,
+				"codeLensProvider":          map[string]any{},
 				"completionProvider": map[string]any{
 					"triggerCharacters": []string{"."},
 				},
@@ -66,6 +68,10 @@ func (s *server) handleRequest(msg *Message) {
 		s.handleDefinition(msg)
 	case "textDocument/implementation":
 		s.handleImplementation(msg)
+	case "textDocument/references":
+		s.handleReferences(msg)
+	case "textDocument/documentHighlight":
+		s.handleDocumentHighlight(msg)
 	case "textDocument/codeAction":
 		s.handleCodeAction(msg)
 	case "textDocument/codeLens":
@@ -288,6 +294,74 @@ func (s *server) handleImplementation(msg *Message) {
 		}
 	}
 	_ = s.rpc.Reply(msg.ID, locations, nil)
+}
+
+// handleReferences отвечает на "textDocument/references" - все вхождения
+// имени под курсором в ТЕКУЩЕМ документе (occurrences.go); областью
+// действия LSP-запрос допускает несколько файлов, здесь - сознательно
+// только текущий (см. package doc occurrences). context.includeDeclaration
+// запроса не читается - объявление включается всегда (самый частый выбор
+// клиентов по умолчанию), различать это не стоило ради этого среза.
+func (s *server) handleReferences(msg *Message) {
+	var p docPosition
+	if err := json.Unmarshal(msg.Params, &p); err != nil {
+		_ = s.rpc.Reply(msg.ID, nil, err)
+		return
+	}
+	d := s.getDoc(p.TextDocument.URI)
+	if d == nil {
+		_ = s.rpc.Reply(msg.ID, []any{}, nil)
+		return
+	}
+	positions, ok := d.occurrences(p.Position.Line+1, p.Position.Character+1)
+	if !ok {
+		_ = s.rpc.Reply(msg.ID, []any{}, nil)
+		return
+	}
+	locations := make([]any, len(positions))
+	for i, pos := range positions {
+		locations[i] = map[string]any{
+			"uri": p.TextDocument.URI,
+			"range": map[string]any{
+				"start": map[string]any{"line": pos.Line - 1, "character": pos.Col - 1},
+				"end":   map[string]any{"line": pos.Line - 1, "character": pos.Col - 1 + pos.Len},
+			},
+		}
+	}
+	_ = s.rpc.Reply(msg.ID, locations, nil)
+}
+
+// handleDocumentHighlight отвечает на "textDocument/documentHighlight" - то
+// же множество вхождений, что и handleReferences (occurrences.go), но без
+// "uri" (запрос по определению документа-локальный) и с "kind" - здесь
+// всегда 1 (Text), различать чтение/запись не стоило ради этого среза.
+func (s *server) handleDocumentHighlight(msg *Message) {
+	var p docPosition
+	if err := json.Unmarshal(msg.Params, &p); err != nil {
+		_ = s.rpc.Reply(msg.ID, nil, err)
+		return
+	}
+	d := s.getDoc(p.TextDocument.URI)
+	if d == nil {
+		_ = s.rpc.Reply(msg.ID, []any{}, nil)
+		return
+	}
+	positions, ok := d.occurrences(p.Position.Line+1, p.Position.Character+1)
+	if !ok {
+		_ = s.rpc.Reply(msg.ID, []any{}, nil)
+		return
+	}
+	highlights := make([]any, len(positions))
+	for i, pos := range positions {
+		highlights[i] = map[string]any{
+			"range": map[string]any{
+				"start": map[string]any{"line": pos.Line - 1, "character": pos.Col - 1},
+				"end":   map[string]any{"line": pos.Line - 1, "character": pos.Col - 1 + pos.Len},
+			},
+			"kind": 1,
+		}
+	}
+	_ = s.rpc.Reply(msg.ID, highlights, nil)
 }
 
 // handleCodeAction отвечает на "textDocument/codeAction" - сейчас

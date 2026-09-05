@@ -204,6 +204,22 @@ func startsNaturalCallArg(tok lexer.Token) bool {
 // угадывать.
 func (p *Parser) parseNaturalCall(params []ast.Param) (*ast.CallExpr, error) {
 	name := p.advance() // имя функции
+	args, err := p.matchNaturalCallArgs(name, params)
+	if err != nil {
+		return nil, err
+	}
+	return &ast.CallExpr{Callee: name.Value, Args: args, Line: name.Line}, nil
+}
+
+// matchNaturalCallArgs - падежное сопоставление аргументов естественного
+// вызова, общее для свободной функции (parseNaturalCall) и метода сущности
+// (parseNaturalMethodCall, natural_method_call.go) - subject уже
+// потреблённый токен-"глагол" вызова (имя функции или имя метода, у обоих
+// вызовов ровно одна словоформа), используется только для текста ошибок.
+// Позиция парсера на входе - на первом токене-аргументе (сразу после
+// subject).
+func (p *Parser) matchNaturalCallArgs(subject lexer.Token, params []ast.Param) ([]ast.Expr, error) {
+	name := subject
 
 	tokens := make([]lexer.Token, len(params))
 	// tokenPrep[i] - предлог, реально стоявший перед tokens[i] в исходном
@@ -307,7 +323,7 @@ func (p *Parser) parseNaturalCall(params []ast.Param) (*ast.CallExpr, error) {
 		}
 	}
 
-	return &ast.CallExpr{Callee: name.Value, Args: args, Line: name.Line}, nil
+	return args, nil
 }
 
 // naturalCallPutWord - контекстное слово "положить" в продолжении "...
@@ -341,25 +357,45 @@ const naturalCallPutWord = "положить"
 // len(params) словоформ, см. parseNaturalCall), "и" - явный маркер
 // продолжения, не часть выражения.
 func (p *Parser) parseNaturalCallContinuation(call *ast.CallExpr) (ast.Stmt, error) {
+	stmt, has, err := p.parseNaturalCallContinuationCore(call, call.Line)
+	if err != nil {
+		return nil, err
+	}
+	if has {
+		return stmt, nil
+	}
+	return &ast.ExprStmt{Call: call, Line: call.Line}, nil
+}
+
+// parseNaturalCallContinuationCore - общая часть parseNaturalCallContinuation
+// (вызов свободной функции) и parseNaturalMethodCallContinuation
+// (natural_method_call.go, вызов метода) - разбирает необязательное "и
+// <действие>" после уже разобранного вызова call (оба вида вызова
+// естественного синтаксиса продолжаются одинаково, docs/GRAMMAR.md,
+// "Естественный вызов как значение"). hasContinuation == false ("и" не
+// найдено) - вызывающая сторона сама строит ExprStmt для СВОЕГО конкретного
+// вида вызова (ast.ExprStmt.Call vs .MethodCall - разные поля, не общий
+// интерфейс), это единственное, что не обобщено здесь.
+func (p *Parser) parseNaturalCallContinuationCore(call ast.Expr, line int) (stmt ast.Stmt, hasContinuation bool, err error) {
 	if p.cur().Type != lexer.KwAnd {
-		return &ast.ExprStmt{Call: call, Line: call.Line}, nil
+		return nil, false, nil
 	}
 	p.advance() // "и"
 	if p.cur().Type == lexer.KwPrint {
 		p.advance()
-		return &ast.PrintStmt{Value: call, Line: call.Line}, nil
+		return &ast.PrintStmt{Value: call, Line: line}, true, nil
 	}
 	if p.cur().Type == lexer.IDENT && p.cur().Value == naturalCallPutWord {
 		p.advance() // "положить"
 		if _, err := p.expect(lexer.KwIn); err != nil {
-			return nil, fmt.Errorf("после %q ожидалось \"в\" и имя переменной: %w", naturalCallPutWord, err)
+			return nil, true, fmt.Errorf("после %q ожидалось \"в\" и имя переменной: %w", naturalCallPutWord, err)
 		}
 		target, err := p.expect(lexer.IDENT)
 		if err != nil {
-			return nil, fmt.Errorf("после \"в\" ожидалось имя переменной: %w", err)
+			return nil, true, fmt.Errorf("после \"в\" ожидалось имя переменной: %w", err)
 		}
-		return p.resolveAssignTarget(target, call), nil
+		return p.resolveAssignTarget(target, call), true, nil
 	}
-	return nil, fmt.Errorf("строка %d, столбец %d: после \"и\" ожидалось \"вывести\" или %q в <переменная>, получено %q",
+	return nil, true, fmt.Errorf("строка %d, столбец %d: после \"и\" ожидалось \"вывести\" или %q в <переменная>, получено %q",
 		p.cur().Line, p.cur().Col, naturalCallPutWord, p.cur().Value)
 }

@@ -216,7 +216,9 @@ func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
 	// недопустим, той же проверкой, что и вне метода вообще (у него нет
 	// получателя, см. package doc ast.MethodDecl.IsStatic).
 	p.inMethodBody = !isStatic
+	restoreVarTypes := p.beginVarTypeScope(params)
 	body, err := p.parseBlock()
+	restoreVarTypes()
 	p.inMethodBody = prevInMethod
 	if err != nil {
 		return nil, err
@@ -285,7 +287,9 @@ func (p *Parser) parseConstructor() (*ast.ConstructorDecl, error) {
 	p.skipNewlines()
 	prevInMethod, prevInCtor := p.inMethodBody, p.inConstructorBody
 	p.inMethodBody, p.inConstructorBody = true, true
+	restoreVarTypes := p.beginVarTypeScope(params)
 	body, err := p.parseBlock()
+	restoreVarTypes()
 	p.inMethodBody, p.inConstructorBody = prevInMethod, prevInCtor
 	if err != nil {
 		return nil, err

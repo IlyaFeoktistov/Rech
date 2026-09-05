@@ -49,5 +49,6 @@ func (p *Parser) tryParseTypedVarDecl() (ast.Stmt, bool, error) {
 		return nil, true, fmt.Errorf("в инициализации переменной %q: %w", name.Value, err)
 	}
 	p.registerNoun(name.Value)
+	p.registerVarEntityType(name.Value, typeName)
 	return &ast.VarDecl{Name: name.Value, Type: typeName, Value: value, Line: name.Line}, true, nil
 }

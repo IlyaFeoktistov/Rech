@@ -256,7 +256,9 @@ func (p *Parser) parseFunction() (*ast.FunctionDecl, error) {
 	}
 
 	p.skipNewlines()
+	restoreVarTypes := p.beginVarTypeScope(params)
 	body, err := p.parseBlock()
+	restoreVarTypes()
 	if err != nil {
 		return nil, err
 	}

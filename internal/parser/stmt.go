@@ -176,6 +176,13 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 			}
 			return p.parseNaturalCallContinuation(call)
 		}
+		if params, ok := p.startsNaturalMethodCall(); ok {
+			call, err := p.parseNaturalMethodCall(params)
+			if err != nil {
+				return nil, err
+			}
+			return p.parseNaturalMethodCallContinuation(call)
+		}
 		return nil, fmt.Errorf("строка %d, столбец %d: неожиданный токен %q в теле функции",
 			p.cur().Line, p.cur().Col, p.cur().Value)
 	case lexer.KwThis:
@@ -184,6 +191,13 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 		}
 		if p.peekAt(1).Type == lexer.KwBecomes {
 			return p.parseBecomeStmt()
+		}
+		if params, ok := p.startsNaturalMethodCall(); ok {
+			call, err := p.parseNaturalMethodCall(params)
+			if err != nil {
+				return nil, err
+			}
+			return p.parseNaturalMethodCallContinuation(call)
 		}
 		return nil, fmt.Errorf("строка %d, столбец %d: \"этот\" в начале инструкции допустимо только с полем, методом или переходом состояния (\"этот.поле = ...\"/\"этот.метод(...)\"/\"этот становится ...\")",
 			p.cur().Line, p.cur().Col)
@@ -346,6 +360,9 @@ func (p *Parser) parseVarDecl() (ast.Stmt, error) {
 		return nil, fmt.Errorf("в инициализации переменной %q: %w", name.Value, err)
 	}
 	p.registerNoun(name.Value)
+	if typeName != "" {
+		p.registerVarEntityType(name.Value, typeName)
+	}
 	return &ast.VarDecl{Name: name.Value, Type: typeName, Value: value, IsStatic: isStatic, Line: kw.Line}, nil
 }
 

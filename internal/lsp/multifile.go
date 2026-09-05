@@ -179,6 +179,10 @@ func (d *doc) applyLink(res linkResult) {
 	for _, e := range res.ast.Enums {
 		d.astEnums[e.Name] = e
 	}
+	d.astConsts = map[string]*ast.ConstDecl{}
+	for _, c := range res.ast.Consts {
+		d.astConsts[c.Name] = c
+	}
 	d.displayName = map[string]string{}
 	d.localNames = map[string]bool{}
 	for _, e := range res.ast.Entities {

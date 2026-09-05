@@ -87,6 +87,33 @@ type Parser struct {
 	// сразу после своего имени как начало вызова.
 	genericFuncs map[string]bool
 
+	// entityMethods - параметры всех методов каждой сущности программы,
+	// собранные тем же предварительным проходом, что и funcParams -
+	// entityMethods[имя_сущности][имя_метода] - нужен для естественного
+	// вызова метода (natural_method_call.go): получатель уже известного
+	// сущностного типа (varEntityTypes/currentEntityName) плюс имя метода
+	// сразу после него однозначно определяют список параметров, так же как
+	// funcParams делает это для имени свободной функции.
+	entityMethods map[string]map[string][]ast.Param
+
+	// varEntityTypes - переменная/параметр -> имя сущностного типа, если он
+	// указан ЯВНО (аннотация "переменная x: Тип"/типизированная форма
+	// "Тип x = ..."/тип параметра функции или метода - у параметра тип
+	// всегда явный). Заполняется по ходу разбора ТЕЛА текущей функции/
+	// метода (не предварительным проходом - тип переменной в общем случае
+	// неизвестен до места её объявления, а вывод типа из значения парсеру
+	// недоступен). Нужен для той же цели, что и entityMethods -
+	// естественный вызов метода не может, в отличие от строгого
+	// "receiver.метод(...)", отличить получателя от произвольной
+	// переменной без явного знания её типа (парсер не выводит типы).
+	varEntityTypes map[string]string
+
+	// currentEntityName - имя сущности, чьё тело сейчас разбирается
+	// (parseEntity), "" вне сущности. Вместе с inMethodBody даёт тип
+	// получателя "этот" для естественного вызова метода - тем же
+	// принципом, что и varEntityTypes для обычной переменной-получателя.
+	currentEntityName string
+
 	// pendingGT - см. expectCloseAngle/cur/advance.
 	pendingGT bool
 
@@ -133,6 +160,16 @@ func New(tokens []lexer.Token) *Parser {
 		panic(fmt.Sprintf("internal/morph.SystemVerbs: %v", err))
 	}
 	return &Parser{tokens: tokens, dict: dict}
+}
+
+// Dict возвращает морфологический словарь, накопленный по ходу разбора
+// (все переменные/типы/catch-переменные программы, зарегистрированные
+// registerNoun) - нужен внешнему коду (internal/lsp, для морфологически
+// осведомлённого "подсветить все вхождения"/"найти ссылки" - словоформа
+// вроде "паролем" должна опознаваться как ссылка на переменную "пароль")
+// без пересборки того же словаря заново.
+func (p *Parser) Dict() *morph.Dictionary {
+	return p.dict
 }
 
 // registerNoun лучшим образом пытается зарегистрировать имя (переменной,
@@ -344,9 +381,10 @@ func (p *Parser) collectFunctionSignatures() error {
 
 	sigs := map[string][]ast.Param{}
 	generics := map[string]bool{}
+	entityMethods := map[string]map[string][]ast.Param{}
 	for p.cur().Type != lexer.EOF {
 		start := p.pos
-		if err := p.collectOneSignature(sigs, generics); err != nil {
+		if err := p.collectOneSignature(sigs, generics, entityMethods); err != nil {
 			if !p.lenient {
 				return err
 			}
@@ -361,6 +399,7 @@ func (p *Parser) collectFunctionSignatures() error {
 	}
 	p.funcParams = sigs
 	p.genericFuncs = generics
+	p.entityMethods = entityMethods
 	return nil
 }
 
@@ -368,8 +407,17 @@ func (p *Parser) collectFunctionSignatures() error {
 // collectFunctionSignatures - вынесено отдельно от цикла ради
 // recoverToNextTopLevel (см. lenient-ветку выше), которому нужна позиция
 // начала объявления, а не только факт ошибки.
-func (p *Parser) collectOneSignature(sigs map[string][]ast.Param, generics map[string]bool) error {
+func (p *Parser) collectOneSignature(sigs map[string][]ast.Param, generics map[string]bool, entityMethods map[string]map[string][]ast.Param) error {
 	switch p.cur().Type {
+	case lexer.KwAbstract, lexer.KwEntity, lexer.KwClass, lexer.KwStruct:
+		return p.collectEntitySignature(entityMethods)
+	case lexer.KwExport:
+		if next := p.peekAt(1).Type; next == lexer.KwAbstract || next == lexer.KwEntity || next == lexer.KwClass || next == lexer.KwStruct {
+			p.advance() // "экспортировать"
+			return p.collectEntitySignature(entityMethods)
+		}
+		p.advance()
+		return nil
 	case lexer.KwFunction:
 		p.advance() // "функция"
 		name, err := p.expect(lexer.IDENT)
@@ -756,6 +804,10 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 	prevInAbstractEntity := p.inAbstractEntity
 	p.inAbstractEntity = abstractTok != nil
 	defer func() { p.inAbstractEntity = prevInAbstractEntity }()
+
+	prevEntityName := p.currentEntityName
+	p.currentEntityName = name.Value
+	defer func() { p.currentEntityName = prevEntityName }()
 
 	for p.cur().Type != lexer.RBRACE {
 		doc := p.consumeDoc()

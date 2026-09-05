@@ -126,3 +126,37 @@ func TestParseProgramLenientBrokenEntityKeepsFollowingEntity(t *testing.T) {
 		t.Fatalf("ожидалась ровно одна уцелевшая сущность \"Целая\", получено %+v", prog.Entities)
 	}
 }
+
+// TestParseProgramLenientBrokenMethodParamsKeepsFollowingEntity - как
+// TestParseProgramLenientBrokenEntityKeepsFollowingEntity, но поломка - в
+// списке параметров МЕТОДА (не поля) - именно то место, где предварительный
+// проход collectEntitySignature (natural_method_call.go) сам вызывает
+// parseParams (tryCollectMethodHeader), а не просто вслепую пропускает
+// токены, как для остального тела сущности - ошибка здесь должна попасть в
+// errs ОДИН раз (общий lenient-путь ParseProgram, не задвоенная тем же
+// предварительным проходом), а следующая сущность - уцелеть.
+func TestParseProgramLenientBrokenMethodParamsKeepsFollowingEntity(t *testing.T) {
+	src := `
+сущность Сломанная
+{
+    метод(параметр Строка) { }
+}
+
+сущность Целая
+{
+    имеет:
+        имя: Строка
+}
+`
+	toks, err := lexer.New(src).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, errs := New(toks).ParseProgramLenient()
+	if len(errs) != 1 {
+		t.Fatalf("ожидалась ровно одна ошибка (пропущенное \":\" у параметра метода), получено %d: %v", len(errs), errs)
+	}
+	if len(prog.Entities) != 1 || prog.Entities[0].Name != "Целая" {
+		t.Fatalf("ожидалась ровно одна уцелевшая сущность \"Целая\", получено %+v", prog.Entities)
+	}
+}

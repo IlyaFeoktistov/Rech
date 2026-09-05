@@ -6,6 +6,7 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
+	"github.com/IlyaFeoktistov/Rech/internal/morph"
 	"github.com/IlyaFeoktistov/Rech/internal/parser"
 	"github.com/IlyaFeoktistov/Rech/internal/semantic"
 )
@@ -72,6 +73,28 @@ type doc struct {
 	// не объявлены ни в одном файле, см. semantic.StandardEnums,
 	// enumhover.go.
 	astEnums map[string]*ast.EnumDecl
+
+	// astConsts - константы МОДУЛЬНОГО уровня документа (плюс
+	// импортированные через multifile.go - тем же принципом, что и
+	// astEnums: константа никогда не манглится при линковке, см.
+	// importedMergedName). Только AST, не IR - в отличие от константы
+	// СУЩНОСТИ (ir.Entity.Constants, уже резолвится семантикой в типизированный
+	// ir.Expr), модульная константа в IR не сохраняется вовсе (её значение
+	// подставляется в места использования на этапе семантического анализа,
+	// сама декларация после этого никому не нужна) - hover поэтому читает
+	// AST-значение напрямую (constanthover.go, literalTextAST).
+	astConsts map[string]*ast.ConstDecl
+
+	// dict - морфологический словарь, накопленный ЭТИМ проходом разбора
+	// (parser.Parser.Dict, тот же самый экземпляр, что разбирал astProg
+	// ниже) - нужен references.go/highlight.go, чтобы опознавать
+	// склонённую словоформу переменной ("паролем") как ссылку на её
+	// переменную ("пароль") - тем же движком, что и падежное сопоставление
+	// аргументов естественного вызова (internal/parser/call.go). Не
+	// восстанавливается заново при многофайловой линковке (multifile.go) -
+	// словарь нужен только для ИМЁН ЭТОГО файла, они видны в нём
+	// независимо от того, слинковался ли граф импортов целиком.
+	dict *morph.Dictionary
 
 	// displayName - обратное к алиасам выше: смангленное (module.Program.
 	// Link) имя сущности/функции ИЗ ДРУГОГО файла -> то самое имя (алиас),
@@ -140,7 +163,9 @@ func (d *doc) update(text string) {
 		d.setDiagnostic(err)
 		return
 	}
-	astProg, parseErrs := parser.New(toks).ParseProgramLenient()
+	prs := parser.New(toks)
+	astProg, parseErrs := prs.ParseProgramLenient()
+	d.dict = prs.Dict()
 	ast.StampFile(astProg, d.uri)
 	// astProg/tokens - весь синтаксически исправный ОСТАТОК файла, даже
 	// если часть объявлений сломана (parseErrs выше) или семантика/линковка
@@ -194,6 +219,10 @@ func (d *doc) update(text string) {
 		d.astEnums = map[string]*ast.EnumDecl{}
 		for _, e := range astProg.Enums {
 			d.astEnums[e.Name] = e
+		}
+		d.astConsts = map[string]*ast.ConstDecl{}
+		for _, c := range astProg.Consts {
+			d.astConsts[c.Name] = c
 		}
 		d.localNames = map[string]bool{}
 		for _, e := range astProg.Entities {

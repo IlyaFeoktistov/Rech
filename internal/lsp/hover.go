@@ -101,6 +101,9 @@ func (d *doc) hoverBareName(name string, line int) (string, bool) {
 	if block, ok := d.hoverEnumType(name); ok {
 		return block, true
 	}
+	if block, ok := d.hoverModuleConst(name); ok {
+		return block, true
+	}
 	return "", false
 }
 

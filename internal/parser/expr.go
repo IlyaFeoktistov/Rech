@@ -443,6 +443,14 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 			// и parseNaturalCall падал с "не хватает аргументов".
 			return p.parseNaturalCall(params)
 		}
+		if params, ok := p.startsNaturalMethodCall(); ok {
+			// Естественный вызов метода как значение - тот же принцип, что и
+			// у естественного вызова функции чуть выше: получатель уже
+			// известного сущностного типа, аргументы читаются ровно по
+			// списку параметров найденного метода, дальше управление
+			// возвращается в обычный разбор выражения.
+			return p.parseNaturalMethodCall(params)
+		}
 		p.advance()
 		return &ast.Identifier{Name: tok.Value, Line: tok.Line}, nil
 	case lexer.KwNew:
@@ -452,10 +460,14 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 	case lexer.KwAwait:
 		return p.parseAwaitExpr()
 	case lexer.KwThis:
-		p.advance()
 		if !p.inMethodBody {
+			p.advance()
 			return nil, fmt.Errorf("строка %d, столбец %d: \"этот\" валиден только внутри тела метода", tok.Line, tok.Col)
 		}
+		if params, ok := p.startsNaturalMethodCall(); ok {
+			return p.parseNaturalMethodCall(params)
+		}
+		p.advance()
 		return &ast.ThisExpr{Line: tok.Line}, nil
 	case lexer.KwFunction:
 		return p.parseLambdaExpr()
