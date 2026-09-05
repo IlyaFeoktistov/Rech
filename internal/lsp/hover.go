@@ -121,6 +121,15 @@ func (d *doc) entityCtorSignature(ent *ir.Entity) (string, bool) {
 		return "", false
 	}
 	name := "новый " + d.disp(ent.Name)
+	if ent.IsSemaphore {
+		// "Семафор" - единственная системная сущность (наравне с
+		// "Блокировкой" чуть ниже) без ast.EntityDecl/ent.Ctor, но, в
+		// отличие от "Блокировки", с ОДНИМ обязательным параметром
+		// конструктора (internal/semantic/semaphore.go) - общий путь ниже
+		// (!ent.IsStruct -> "Тип()") дал бы неверную сигнатуру без
+		// аргумента.
+		return name + "(начальное_значение: Целое)", true
+	}
 	if ent.Ctor != nil {
 		return d.functionSignature(name, ent.Ctor.Params, false, ir.Type{}), true
 	}
@@ -138,6 +147,17 @@ func (d *doc) entityCtorSignature(ent *ir.Entity) (string, bool) {
 // "receiver.поле"/"receiver.метод").
 func (d *doc) hoverMember(ent *ir.Entity, name string) (string, bool) {
 	entName := d.disp(ent.Name)
+	if ent.IsMutex || ent.IsSemaphore {
+		// "Блокировка"/"Семафор" - без ast.EntityDecl, ent.Methods у них
+		// пуст (оба метода синтезированы backend'ом напрямую по
+		// IsMutex/IsSemaphore, см. package doc internal/backend/cbackend/
+		// mutex.go/semaphore.go) - обычный цикл по ent.Methods ниже никогда
+		// не находит "захватить"/"освободить", поэтому наведение на них
+		// нужно перехватить здесь же, канонической строкой.
+		if doc, ok := mutexMethodDocs[name]; ok {
+			return withDoc(codeBlock(fmt.Sprintf("%s.%s()", entName, name)), doc), true
+		}
+	}
 	for _, f := range ent.Fields {
 		if f.Name == name {
 			block := withDoc(codeBlock(fmt.Sprintf("%s.%s: %s", entName, f.Name, d.dispType(f.Type))), f.Doc)
