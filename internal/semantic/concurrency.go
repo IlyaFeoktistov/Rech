@@ -15,6 +15,16 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
+// DefaultPoolIdleTimeoutMs - сколько миллисекунд воркер пула
+// (internal/backend/cbackend/threadpool.go) простаивает без работы, прежде
+// чем завершиться, если файл проекта включает сжатие ("потоки.сжатие_пула:
+// истина") без явного "потоки.таймаут_простоя_мс" - см. internal/
+// project.File.PoolIdleTimeoutMs/ir.Program.PoolIdleTimeoutMs. Значение "не
+// слишком агрессивно, не слишком лениво" - тот же порядок величины, что и
+// типичный keep-alive таймаут HTTP-сервера (http_сервер.rechproj), не
+// привязано к нему напрямую.
+const DefaultPoolIdleTimeoutMs = 30000
+
 // analyzeLaunchExpr - "запустить <имя>(<арг>, ...)": Callee обязан быть
 // обычной, объявленной в программе функцией - не встроенной (нет гарантии
 // потокобезопасности библиотечного C-кода) и не "внешняя функция" (та же

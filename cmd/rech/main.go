@@ -134,6 +134,15 @@ func main() {
 	var dbPoolSize int
 	var dbPoolTimeoutMs int
 	var dbSQLiteBusyTimeoutMs int
+	// poolShrinkEnabled по умолчанию true (пул воркер-потоков сжимается,
+	// см. internal/project.File.PoolShrinkEnabled/docs/ROADMAP.md, Шаг 81) -
+	// в отличие от dbPoolSize/dbPoolTimeoutMs (int, где 0 - естественный
+	// сентинел "не задано"), у bool нет такого третьего состояния, поэтому
+	// значение по умолчанию выставляется здесь явно, а не полагается на
+	// нулевое значение Go - действует и без .rechproj вовсе (только
+	// .rechproj с "потоки.сжатие_пула" ниже может его переопределить).
+	poolShrinkEnabled := true
+	var poolIdleTimeoutMs int
 	if !hasCode {
 		projPath := srcPath
 		if projPath == "" {
@@ -177,6 +186,14 @@ func main() {
 				fmt.Fprintln(os.Stderr, "ошибка:", perr)
 				os.Exit(1)
 			}
+			if poolShrinkEnabled, perr = pf.PoolShrinkEnabled(); perr != nil {
+				fmt.Fprintln(os.Stderr, "ошибка:", perr)
+				os.Exit(1)
+			}
+			if poolIdleTimeoutMs, perr = pf.PoolIdleTimeoutMs(); perr != nil {
+				fmt.Fprintln(os.Stderr, "ошибка:", perr)
+				os.Exit(1)
+			}
 			// Библиотеки для линковки (-l<имя>) - только из файла проекта:
 			// "внешняя функция" в .rech-коде не привязана к конкретной
 			// библиотеке (см. package doc project.File.Библиотеки), значит без
@@ -208,6 +225,8 @@ func main() {
 	comp.DBPoolSize = dbPoolSize
 	comp.DBPoolTimeoutMs = dbPoolTimeoutMs
 	comp.DBSQLiteBusyTimeoutMs = dbSQLiteBusyTimeoutMs
+	comp.PoolShrinkEnabled = poolShrinkEnabled
+	comp.PoolIdleTimeoutMs = poolIdleTimeoutMs
 	build := func() (string, error) { return comp.Build(srcPath, keepC, extraLibs, extraLibPaths) }
 	buildLib := func() (string, string, error) { return comp.BuildLib(srcPath, keepC, extraLibs, extraLibPaths) }
 	if hasCode {

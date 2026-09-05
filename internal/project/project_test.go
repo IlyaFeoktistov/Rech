@@ -428,3 +428,140 @@ func TestFindSingleAndAmbiguous(t *testing.T) {
 		t.Fatalf("ожидалась ошибка при нескольких файлах проекта")
 	}
 }
+
+// TestPoolShrinkEnabledDefaultIsTrue - "потоки.сжатие_пула" не указан (или
+// .rechproj не несёт секции "потоки" вовсе, или .rechproj нет вовсе) -
+// true, пул воркер-потоков сжимается по умолчанию (docs/ROADMAP.md, Шаг
+// 81) - "ложь" нужно указать явно, чтобы вернуть поведение Шага 80 (растёт
+// и никогда не сжимается).
+func TestPoolShrinkEnabledDefaultIsTrue(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := "проект:\n  имя: тест\n\nфайлы:\n  главный: исходники/главный.rech\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	pf, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	enabled, err := pf.PoolShrinkEnabled()
+	if err != nil {
+		t.Fatalf("PoolShrinkEnabled: %v", err)
+	}
+	if !enabled {
+		t.Fatalf("ожидалось true (пул сжимается по умолчанию), получено false")
+	}
+}
+
+// TestPoolShrinkEnabledParsesTrueAndFalse - явные "истина"/"ложь".
+func TestPoolShrinkEnabledParsesTrueAndFalse(t *testing.T) {
+	for _, tc := range []struct {
+		raw  string
+		want bool
+	}{
+		{"истина", true},
+		{"ложь", false},
+	} {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "тест.rechproj")
+		content := "проект:\n  имя: тест\n\nфайлы:\n  главный: исходники/главный.rech\n\nпотоки:\n  сжатие_пула: " + tc.raw + "\n"
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("запись файла проекта: %v", err)
+		}
+		pf, err := Load(path)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		got, err := pf.PoolShrinkEnabled()
+		if err != nil {
+			t.Fatalf("PoolShrinkEnabled(%q): %v", tc.raw, err)
+		}
+		if got != tc.want {
+			t.Fatalf("PoolShrinkEnabled(%q) = %v, ожидалось %v", tc.raw, got, tc.want)
+		}
+	}
+}
+
+// TestPoolShrinkEnabledRejectsGarbage - значение, отличное от
+// "истина"/"ложь" - ошибка, не молчаливое "выключено".
+func TestPoolShrinkEnabledRejectsGarbage(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := "проект:\n  имя: тест\n\nфайлы:\n  главный: исходники/главный.rech\n\nпотоки:\n  сжатие_пула: да\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	pf, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, err := pf.PoolShrinkEnabled(); err == nil {
+		t.Fatalf("ожидалась ошибка на значение, отличное от \"истина\"/\"ложь\"")
+	}
+}
+
+// TestPoolIdleTimeoutMsDefaultIsZero - не указан - 0 (internal/compiler в
+// этом случае не переопределяет ir.Program.PoolIdleTimeoutMs, остаётся
+// встроенное умолчание internal/semantic.DefaultPoolIdleTimeoutMs).
+func TestPoolIdleTimeoutMsDefaultIsZero(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := "проект:\n  имя: тест\n\nфайлы:\n  главный: исходники/главный.rech\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	pf, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	ms, err := pf.PoolIdleTimeoutMs()
+	if err != nil {
+		t.Fatalf("PoolIdleTimeoutMs: %v", err)
+	}
+	if ms != 0 {
+		t.Fatalf("ожидалось 0 (использовать встроенное умолчание), получено %d", ms)
+	}
+}
+
+// TestPoolIdleTimeoutMsParsesPositiveValue - значение указано явно.
+func TestPoolIdleTimeoutMsParsesPositiveValue(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := "проект:\n  имя: тест\n\nфайлы:\n  главный: исходники/главный.rech\n\nпотоки:\n  таймаут_простоя_мс: 5000\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	pf, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	ms, err := pf.PoolIdleTimeoutMs()
+	if err != nil {
+		t.Fatalf("PoolIdleTimeoutMs: %v", err)
+	}
+	if ms != 5000 {
+		t.Fatalf("ожидалось 5000, получено %d", ms)
+	}
+}
+
+// TestPoolIdleTimeoutMsRejectsNonPositive - ноль/отрицательное значение
+// бессмысленны как таймаут простоя (в отличие от DBPoolTimeoutMs, здесь 0 -
+// НЕ содержательное умолчание "ждать бесконечно").
+func TestPoolIdleTimeoutMsRejectsNonPositive(t *testing.T) {
+	for _, raw := range []string{"0", "-1"} {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "тест.rechproj")
+		content := "проект:\n  имя: тест\n\nфайлы:\n  главный: исходники/главный.rech\n\nпотоки:\n  таймаут_простоя_мс: " + raw + "\n"
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("запись файла проекта: %v", err)
+		}
+		pf, err := Load(path)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if _, err := pf.PoolIdleTimeoutMs(); err == nil {
+			t.Fatalf("ожидалась ошибка на значение %q", raw)
+		}
+	}
+}

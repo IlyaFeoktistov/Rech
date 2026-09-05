@@ -153,6 +153,22 @@ type Program struct {
 	// встроенное в саму SQLite ожидание файловой блокировки между
 	// независимыми процессами/соединениями.
 	DBSQLiteBusyTimeoutMs int
+	// PoolShrinkEnabled - управляет пулом воркер-потоков, обслуживающим
+	// "запустить" (internal/backend/cbackend/threadpool.go) - по умолчанию
+	// (true, файл проекта не задаёт "потоки.сжатие_пула" - см. internal/
+	// project.File.PoolShrinkEnabled) воркер, простоявший без работы дольше
+	// PoolIdleTimeoutMs, завершается сам (docs/ROADMAP.md, Шаг 81). false -
+	// пул растёт до пиковой конкурентности и НИКОГДА не сжимается обратно
+	// (поведение Шага 80, до появления этой настройки).
+	PoolShrinkEnabled bool
+	// PoolIdleTimeoutMs - сколько миллисекунд воркер пула простаивает без
+	// работы, прежде чем завершиться - имеет значение, ТОЛЬКО если
+	// PoolShrinkEnabled. По умолчанию internal/semantic.
+	// DefaultPoolIdleTimeoutMs, если файл проекта не задаёт "потоки.
+	// таймаут_простоя_мс" (см. internal/project.File.PoolIdleTimeoutMs) -
+	// тем же принципом, что DBPoolSize (0 - используй встроенное умолчание,
+	// не сентинел "ждать бесконечно", как у DBPoolTimeoutMs).
+	PoolIdleTimeoutMs int
 	// DBRowTargets - сущности, встретившиеся хоть раз ЭЛЕМЕНТОМ цели
 	// "запросить(...) как Список<Тип>" (DBRowsAsExpr, internal/semantic/
 	// db_rows.go), без повторов - тем же принципом, что и ParseTargets:

@@ -3,12 +3,24 @@
 // теперь встаёт в очередь (rech_pool_submit), которую разбирают уже
 // существующие потоки-воркеры; новый воркер создаётся только когда СВОБОДНЫХ
 // (простаивающих) воркеров в моменте нет. Пул растёт до пикового числа
-// когда-либо ОДНОВРЕМЕННО выполнявшихся задач и никогда не сжимается -
-// пиковая конкурентность программы не меняется (столько же потоков может
-// работать разом, сколько и раньше), но повторная нагрузка (после разгона)
-// переиспользует уже созданные потоки вместо create/destroy на каждое
-// соединение - именно этот накладной расход и был найденным узким местом
-// (docs/ROADMAP.md, "что ещё нужно для настоящего HTTP highload", пункт 1).
+// когда-либо ОДНОВРЕМЕННО выполнявшихся задач - пиковая конкурентность
+// программы не меняется (столько же потоков может работать разом, сколько и
+// раньше), но повторная нагрузка (после разгона) переиспользует уже
+// созданные потоки вместо create/destroy на каждое соединение - именно этот
+// накладной расход и был найденным узким местом (docs/ROADMAP.md, "что ещё
+// нужно для настоящего HTTP highload", пункт 1).
+//
+// По умолчанию пул НИКОГДА не сжимается (см. Шаг 80) - "потоки.сжатие_пула:
+// истина" файла проекта (internal/project.File.PoolShrinkEnabled,
+// ir.Program.PoolShrinkEnabled) включает сжатие: воркер, простоявший без
+// работы дольше "потоки.таймаут_простоя_мс" (ir.Program.PoolIdleTimeoutMs,
+// по умолчанию internal/semantic.DefaultPoolIdleTimeoutMs), сам завершается.
+// Оба параметра запекаются в код препроцессорными макросами
+// (RECH_POOL_SHRINK_ENABLED/RECH_POOL_IDLE_TIMEOUT_MS) - тот же приём, что и
+// RECH_DB_POOL_TIMEOUT_MS у rech_db_checkout (db.go): выбор веток решается
+// компилятором C (`#if`), не рантайм-условием, поэтому "сжатие выключено" -
+// БУКВАЛЬНО тот же код, что был до появления этой настройки, без единого
+// лишнего сравнения на горячем пути.
 //
 // НЕ параметризован по конкретной запущенной функции (в отличие от
 // per-функции rech_task_entry_<имя>, ensureTaskWrapper) - один общий пул на
@@ -30,15 +42,29 @@
 // rech_active_tasks_mutex (active_tasks.go)/rech_tls_lock (tls.go) -
 // CRITICAL_SECTION нуждается в явном InitializeCriticalSection (в отличие от
 // CONDITION_VARIABLE, у которой есть статический инициализатор).
+//
+// Гонка "воркер как раз решил завершиться по таймауту, а submit() в этот же
+// момент увидел его как простаивающего" НЕ теряет задачу: pthread_cond_
+// timedwait/SleepConditionVariableCS ВСЕГДА реацквайрят мьютекс перед
+// возвратом (даже при ETIMEDOUT/FALSE) - воркер перепроверяет
+// "rech_pool_head == NULL" уже ПОСЛЕ этого, под тем же мьютексом, что и
+// submit() использовал для постановки элемента в очередь. Если элемент
+// успел встать в очередь ДО того, как воркер перепроверил условие (а он
+// обязан был встать под тем же мьютексом раньше, чем submit() принял
+// решение не создавать новый поток) - воркер увидит его и продолжит
+// работать, а не завершится - ложного "потерянного" пробуждения нет.
 package cbackend
 
-// threadPoolCode - см. package doc выше. Воркер никогда не завершается (нет
-// пути выхода из цикла) - процесс останавливается обычным "вернуть" из
-// "главная"/выходом, ОС сама освобождает все потоки при завершении процесса,
-// отдельный graceful shutdown пула не требуется (тем же принципом, что и у
-// уже открепляемых - pthread_detach - потоков в прежней версии
-// rech_launch_...).
-var threadPoolCode = `typedef struct rech_pool_item {
+import "fmt"
+
+// threadPoolCode - см. package doc выше.
+func threadPoolCode(shrinkEnabled bool, idleTimeoutMs int) string {
+	shrinkFlag := 0
+	if shrinkEnabled {
+		shrinkFlag = 1
+	}
+	deadlineCode := timespecDeadlineCode("rech_pool_deadline", "RECH_POOL_IDLE_TIMEOUT_MS")
+	return fmt.Sprintf(`typedef struct rech_pool_item {
 #ifdef _WIN32
     LPTHREAD_START_ROUTINE fn;
 #else
@@ -51,6 +77,9 @@ var threadPoolCode = `typedef struct rech_pool_item {
 static rech_pool_item_t *rech_pool_head = NULL;
 static rech_pool_item_t *rech_pool_tail = NULL;
 static int rech_pool_idle = 0;
+
+#define RECH_POOL_SHRINK_ENABLED %[1]d
+#define RECH_POOL_IDLE_TIMEOUT_MS %[2]d
 
 #ifdef _WIN32
 static CRITICAL_SECTION rech_pool_mutex;
@@ -79,9 +108,24 @@ static void *rech_pool_worker(void *rech_unused) {
     for (;;) {
         RECH_POOL_LOCK();
         rech_pool_idle++;
+#if !defined(_WIN32) && RECH_POOL_SHRINK_ENABLED
+        struct timespec rech_pool_deadline;
+%[3]s#endif
         while (rech_pool_head == NULL) {
-#ifdef _WIN32
+#if defined(_WIN32) && RECH_POOL_SHRINK_ENABLED
+            if (!SleepConditionVariableCS(&rech_pool_cond, &rech_pool_mutex, RECH_POOL_IDLE_TIMEOUT_MS) && rech_pool_head == NULL) {
+                rech_pool_idle--;
+                RECH_POOL_UNLOCK();
+                return 0;
+            }
+#elif defined(_WIN32)
             SleepConditionVariableCS(&rech_pool_cond, &rech_pool_mutex, INFINITE);
+#elif RECH_POOL_SHRINK_ENABLED
+            if (pthread_cond_timedwait(&rech_pool_cond, &rech_pool_mutex, &rech_pool_deadline) != 0 && rech_pool_head == NULL) {
+                rech_pool_idle--;
+                RECH_POOL_UNLOCK();
+                return NULL;
+            }
 #else
             pthread_cond_wait(&rech_pool_cond, &rech_pool_mutex);
 #endif
@@ -138,4 +182,5 @@ static void rech_pool_submit(void *(*fn)(void *), void *arg) {
     }
 }
 
-`
+`, shrinkFlag, idleTimeoutMs, deadlineCode)
+}

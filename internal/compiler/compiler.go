@@ -62,11 +62,17 @@ type Backend interface {
 	// sqlite_таймаут_блокировки_мс", тем же принципом, что dbPoolSize (0 -
 	// используй встроенное умолчание internal/semantic.
 	// DefaultDBSQLiteBusyTimeoutMs).
-	Generate(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int) (string, error)
+	// poolShrinkEnabled - "потоки.сжатие_пула" файла проекта (false - пул
+	// воркер-потоков "запустить" растёт и никогда не сжимается, см.
+	// ir.Program.PoolShrinkEnabled). poolIdleTimeoutMs - "потоки.
+	// таймаут_простоя_мс", тем же принципом, что dbPoolSize (0 - используй
+	// встроенное умолчание internal/semantic.DefaultPoolIdleTimeoutMs) -
+	// имеет значение, только если poolShrinkEnabled.
+	Generate(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs int) (string, error)
 	// GenerateLib - как Generate, но для разделяемой библиотеки (`rech
 	// build --lib`): второй результат - текст C-заголовка (.h) с
 	// прототипами объявлений, помеченных "экспортировать".
-	GenerateLib(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int) (cSource, header string, err error)
+	GenerateLib(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs int) (cSource, header string, err error)
 }
 
 // Toolchain отвечает за финальную сборку сгенерированного исходника
@@ -126,7 +132,7 @@ type defaultBackend struct{}
 // удалён.
 func NewBackend() Backend { return defaultBackend{} }
 
-func (defaultBackend) Generate(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int) (string, error) {
+func (defaultBackend) Generate(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs int) (string, error) {
 	irProg, err := semantic.Analyze(prog)
 	if err != nil {
 		return "", err
@@ -138,11 +144,15 @@ func (defaultBackend) Generate(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, d
 	if dbSQLiteBusyTimeoutMs > 0 {
 		irProg.DBSQLiteBusyTimeoutMs = dbSQLiteBusyTimeoutMs
 	}
+	irProg.PoolShrinkEnabled = poolShrinkEnabled
+	if poolIdleTimeoutMs > 0 {
+		irProg.PoolIdleTimeoutMs = poolIdleTimeoutMs
+	}
 
 	return cbackend.GenerateFromIR(irProg)
 }
 
-func (defaultBackend) GenerateLib(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int) (string, string, error) {
+func (defaultBackend) GenerateLib(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs int) (string, string, error) {
 	irProg, err := semantic.Analyze(prog)
 	if err != nil {
 		return "", "", err
@@ -153,6 +163,10 @@ func (defaultBackend) GenerateLib(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs
 	irProg.DBPoolTimeoutMs = dbPoolTimeoutMs
 	if dbSQLiteBusyTimeoutMs > 0 {
 		irProg.DBSQLiteBusyTimeoutMs = dbSQLiteBusyTimeoutMs
+	}
+	irProg.PoolShrinkEnabled = poolShrinkEnabled
+	if poolIdleTimeoutMs > 0 {
+		irProg.PoolIdleTimeoutMs = poolIdleTimeoutMs
 	}
 
 	return cbackend.GenerateLibFromIR(irProg)
@@ -191,6 +205,18 @@ type Compiler struct {
 	// semantic.DefaultDBSQLiteBusyTimeoutMs), тем же принципом, что
 	// DBPoolSize.
 	DBSQLiteBusyTimeoutMs int
+	// PoolShrinkEnabled - "потоки.сжатие_пула" файла проекта (true - нет
+	// .rechproj, поле не указано, или "истина" - см. cmd/rech/main.go,
+	// значение по умолчанию выставляется там явно, поскольку у bool, в
+	// отличие от int-настроек вроде DBPoolSize, нет естественного
+	// сентинела "не задано") - заполняется cmd/rech перед вызовом Build,
+	// тем же принципом, что и Deps/DepScopes.
+	PoolShrinkEnabled bool
+	// PoolIdleTimeoutMs - "потоки.таймаут_простоя_мс" файла проекта (0 - не
+	// указан, используй встроенное умолчание internal/semantic.
+	// DefaultPoolIdleTimeoutMs), тем же принципом, что DBPoolSize. Имеет
+	// значение, только если PoolShrinkEnabled.
+	PoolIdleTimeoutMs int
 }
 
 // NewCompiler - провайдер для Wire, собирающий Compiler из готовых зависимостей.
@@ -246,7 +272,7 @@ func (c *Compiler) BuildLibSource(src string, keepC bool, extraLibs, extraLibPat
 // пишется всегда, а не только при keepC - это часть публичного API
 // библиотеки, а не техническая заготовка вроде .c.
 func (c *Compiler) compileLibProgram(prog *ast.Program, base string, keepC bool, extraLibs, extraLibPaths []string) (libPath, hPath string, err error) {
-	cSource, header, err := c.Backend.GenerateLib(prog, c.DBPoolSize, c.DBPoolTimeoutMs, c.DBSQLiteBusyTimeoutMs)
+	cSource, header, err := c.Backend.GenerateLib(prog, c.DBPoolSize, c.DBPoolTimeoutMs, c.DBSQLiteBusyTimeoutMs, c.PoolShrinkEnabled, c.PoolIdleTimeoutMs)
 	if err != nil {
 		return "", "", fmt.Errorf("генерация C: %w", err)
 	}
@@ -347,7 +373,7 @@ func (c *Compiler) BuildSource(src string, keepC bool, extraLibs, extraLibPaths 
 // compileProgram - общий хвост Build/BuildSource: генерация C, запись,
 // сборка бинарником, необязательная уборка .c.
 func (c *Compiler) compileProgram(prog *ast.Program, base string, keepC bool, extraLibs, extraLibPaths []string) (string, error) {
-	cSource, err := c.Backend.Generate(prog, c.DBPoolSize, c.DBPoolTimeoutMs, c.DBSQLiteBusyTimeoutMs)
+	cSource, err := c.Backend.Generate(prog, c.DBPoolSize, c.DBPoolTimeoutMs, c.DBSQLiteBusyTimeoutMs, c.PoolShrinkEnabled, c.PoolIdleTimeoutMs)
 	if err != nil {
 		return "", fmt.Errorf("генерация C: %w", err)
 	}
