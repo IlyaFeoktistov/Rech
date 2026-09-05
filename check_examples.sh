@@ -27,6 +27,27 @@ total=0
 failed=0
 declare -a project_dirs=()
 
+# lib_search_paths - каталоги "выход" уже собранных ".rechproj" с
+# "сборка: тип: библиотека" (не закомментированных - т. е. строка
+# начинается с "тип:", не "# тип:") - экспортируются как LIBRARY_PATH/
+# LD_LIBRARY_PATH перед КАЖДОЙ следующей проверкой, чтобы проект-потребитель
+# ("внешняя функция"/"сборка.библиотеки", docs/SPEC.md, разделы 12/12.1),
+# идущий в сортировке ПОСЛЕ своей библиотеки (см. examples/проекты/
+# экспорт_библиотеки_потребитель/), мог слинковаться против уже локально
+# собранного .so/.dylib/.dll без системной установки - cc/ld сами читают
+# оба этих переменных окружения (стандартное поведение, не Rech-специфика).
+lib_search_paths=""
+
+add_lib_search_path() {
+    if [ -z "$lib_search_paths" ]; then
+        lib_search_paths="$1"
+    else
+        lib_search_paths="$lib_search_paths:$1"
+    fi
+    export LIBRARY_PATH="$lib_search_paths"
+    export LD_LIBRARY_PATH="$lib_search_paths"
+}
+
 check() {
     local path="$1"
     total=$((total + 1))
@@ -44,7 +65,12 @@ echo
 echo "== Проекты (.rechproj) =="
 while IFS= read -r proj; do
     check "$proj"
-    project_dirs+=("$(dirname "$proj")")
+    pd="$(dirname "$proj")"
+    project_dirs+=("$pd")
+    if grep -qE '^[[:space:]]*тип:[[:space:]]*библиотека' "$proj"; then
+        outdir=$(awk -F: '/^[[:space:]]*выход:/{gsub(/^[ \t]+|[ \t]+$/,"",$2); print $2; exit}' "$proj")
+        [ -n "$outdir" ] && add_lib_search_path "$pd/$outdir"
+    fi
 done < <(find examples -iname '*.rechproj' | sort)
 
 is_in_project_dir() {
