@@ -181,3 +181,42 @@ func TestMultiFileCompletionExcludesManglesNames(t *testing.T) {
 		t.Fatalf("ожидалось \"КонсольныйЛоггер\" в автодополнении, получено %+v", items)
 	}
 }
+
+// TestMultiFileAtImportFromNonMainFileResolvesFromProjectRoot -
+// "использовать ... из "@путь"" внутри файла, который НЕ является главным
+// файлом проекта (открыт напрямую, на глубине "исходники/задачи/", как в
+// examples/проекты/http_сервер/исходники/задачи/задачи_http.rech) должен
+// резолвиться от каталога ГЛАВНОГО файла ("исходники/", из .rechproj), а
+// не от каталога САМОГО открытого файла ("исходники/задачи/") - иначе
+// "@http/хелперы" искал бы несуществующий "исходники/задачи/http/
+// хелперы.rech" (ровно так и было до появления internal/project.RootFor/
+// module.LoadWithRoot: tryLink передавал module.Load каталог d.path как
+// projectRoot).
+func TestMultiFileAtImportFromNonMainFileResolvesFromProjectRoot(t *testing.T) {
+	dir := t.TempDir()
+	srcDir := filepath.Join(dir, "исходники")
+	if err := os.MkdirAll(filepath.Join(srcDir, "http"), 0o755); err != nil {
+		t.Fatalf("не удалось создать каталог: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(srcDir, "задачи"), 0o755); err != nil {
+		t.Fatalf("не удалось создать каталог: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "тест.rechproj"), []byte("проект:\n  имя: тест\nфайлы:\n  главный: исходники/главный.rech\n"), 0o644); err != nil {
+		t.Fatalf("не удалось записать .rechproj: %v", err)
+	}
+	writeMultiFileSource(t, srcDir, "главный.rech", "функция главная\n{\n}\n")
+	writeMultiFileSource(t, filepath.Join(srcDir, "http"), "хелперы.rech", "публичная функция ответ_ошибки()\n{\n}\n")
+	const задачиSrc = `использовать ответ_ошибки из "@http/хелперы"
+
+функция обработать
+{
+    ответ_ошибки()
+}
+`
+	задачиPath := writeMultiFileSource(t, filepath.Join(srcDir, "задачи"), "задачи.rech", задачиSrc)
+
+	d := newDoc(fileURI(задачиPath), задачиSrc)
+	if d.irProg == nil {
+		t.Fatalf("ожидался успешный многофайловый разбор с \"@\"-импортом из не-главного файла, диагностика: %+v", d.diagnostics)
+	}
+}

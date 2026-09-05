@@ -57,6 +57,25 @@ func scanRoot(docDir string) string {
 func findWorkspaceDecl(docDir, docPath, name string) []workspaceCandidate {
 	root := scanRoot(docDir)
 	var out []workspaceCandidate
+	for _, path := range listRechFiles(root, docPath) {
+		if declaresName(path, name) {
+			if rel, ok := relativeImportPath(docDir, path); ok {
+				out = append(out, workspaceCandidate{ImportPath: rel})
+			}
+		}
+	}
+	return out
+}
+
+// listRechFiles перечисляет все "*.rech" файлы под root (рекурсивно,
+// пропуская скрытые каталоги вроде ".git"), кроме skip (обычно сам
+// открытый документ - искать в нём самом нет смысла, вызывающая сторона
+// уже знает о нём всё, что нужно, из собственного разбора). Общий обход
+// для findWorkspaceDecl (автоимпорт) и references.go/crossFileRefs
+// (codeLens "N ссылок" по всему проекту) - оба ищут файлы одним и тем же
+// способом, разница только в том, что́ они делают с каждым найденным путём.
+func listRechFiles(root, skip string) []string {
+	var out []string
 	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -67,14 +86,10 @@ func findWorkspaceDecl(docDir, docPath, name string) []workspaceCandidate {
 			}
 			return nil
 		}
-		if filepath.Ext(path) != ".rech" || path == docPath {
+		if filepath.Ext(path) != ".rech" || path == skip {
 			return nil
 		}
-		if declaresName(path, name) {
-			if rel, ok := relativeImportPath(docDir, path); ok {
-				out = append(out, workspaceCandidate{ImportPath: rel})
-			}
-		}
+		out = append(out, path)
 		return nil
 	})
 	return out

@@ -36,6 +36,7 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 	"github.com/IlyaFeoktistov/Rech/internal/module"
+	"github.com/IlyaFeoktistov/Rech/internal/project"
 	"github.com/IlyaFeoktistov/Rech/internal/semantic"
 )
 
@@ -86,7 +87,19 @@ func tryLink(path string) (res linkResult, ok bool, attemptErr error) {
 	if path == "" || !strings.HasSuffix(path, ".rech") {
 		return linkResult{}, false, nil
 	}
-	prog, err := module.Load(path, compiler.NewFrontend())
+	// root - каталог главного файла проекта, если path лежит под каким-то
+	// .rechproj (обычный случай для открытого документа многофайлового
+	// проекта - он редко и есть сам главный файл) - без этого
+	// "использовать ... из "@путь"" внутри path резолвился бы от каталога
+	// САМОГО path, а не от корня программы, и не находил бы файлы в
+	// соседних подкаталогах (см. internal/project.RootFor,
+	// internal/module.LoadWithRoot). "" (path вне какого-либо .rechproj) -
+	// module.LoadWithRoot ведёт себя как раньше (module.Load).
+	root, err := project.RootFor(path)
+	if err != nil {
+		return linkResult{}, false, err
+	}
+	prog, err := module.LoadWithRoot(path, compiler.NewFrontend(), nil, nil, root)
 	if err != nil {
 		return linkResult{}, false, err
 	}

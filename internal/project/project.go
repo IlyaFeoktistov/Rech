@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -70,6 +71,9 @@ type File struct {
 	// librariesRaw - "сборка.библиотеки" как есть, через запятую ("curl,
 	// ssl") - см. Библиотеки.
 	librariesRaw string
+	// dbPoolSizeRaw - "бд.размер_пула" как есть (ещё не разобрано в int) -
+	// см. DBPoolSize.
+	dbPoolSizeRaw string
 }
 
 // fields - соответствие "секция.ключ" -> адрес поля File, используется при
@@ -85,6 +89,7 @@ func (pf *File) fields() map[string]*string {
 		"сборка.платформа":  &pf.Платформа,
 		"сборка.тип":        &pf.Тип,
 		"сборка.библиотеки": &pf.librariesRaw,
+		"бд.размер_пула":    &pf.dbPoolSizeRaw,
 	}
 }
 
@@ -105,6 +110,57 @@ func Find(dir string) (string, error) {
 		return "", fmt.Errorf("в каталоге %q больше одного файла проекта: %s", dir, strings.Join(matches, ", "))
 	}
 	return matches[0], nil
+}
+
+// FindUp ищет "*.rechproj" в dir, а если там его нет - в каждом
+// родительском каталоге по очереди, вплоть до корня файловой системы (тот
+// же принцип, что и поиск ".git"/"go.mod" вверх по дереву) - в отличие от
+// Find (ровно dir, для "rech build"/"rech run" без аргумента, где текущий
+// каталог заведомо каталог проекта), нужен коду, которому дан ПРОИЗВОЛЬНЫЙ
+// файл на любой глубине дерева проекта (LSP - открытый документ, "rech
+// test" - отдельный тестовый файл) и нужно найти .rechproj, под которым он
+// лежит. "", nil - .rechproj не найден до самого корня (обычный файл вне
+// какого-либо проекта, не ошибка).
+func FindUp(dir string) (string, error) {
+	dir = filepath.Clean(dir)
+	for {
+		path, err := Find(dir)
+		if err != nil {
+			return "", err
+		}
+		if path != "" {
+			return path, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", nil
+		}
+		dir = parent
+	}
+}
+
+// RootFor находит .rechproj над srcPath (FindUp от его каталога) и
+// возвращает каталог ЕЁ главного файла - то, что internal/module.
+// LoadWithRoot называет projectRoot: точка отсчёта "использовать ... из
+// "@путь"" (package doc module/resolveImportPath) для srcPath, который сам
+// не обязательно и есть главный файл проекта ("rech build"/"rech run" без
+// аргумента этой проблемы не знают - они всегда резолвят srcPath =
+// pf.MainPath(), см. cmd/rech/main.go). "", nil - .rechproj не найден
+// (вызывающая сторона использует прежнее поведение module.LoadWithGraph -
+// каталог srcPath).
+func RootFor(srcPath string) (string, error) {
+	projPath, err := FindUp(filepath.Dir(filepath.Clean(srcPath)))
+	if err != nil {
+		return "", err
+	}
+	if projPath == "" {
+		return "", nil
+	}
+	pf, err := Load(projPath)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Dir(pf.MainPath()), nil
 }
 
 // Load читает и разбирает .rechproj по path, подставляет значения по
@@ -249,6 +305,30 @@ func (pf *File) Библиотеки() []string {
 	return out
 }
 
+// DBPoolSize разбирает "бд.размер_пула" - число одновременных соединений с
+// БД в пуле ("подключиться_к_бд" открывает СРАЗУ столько соединений, не
+// одно - запросы из разных потоков/задач идут параллельно, а не в очередь
+// друг за другом через общий мьютекс на одно соединение). 0, nil - поле не
+// указано (или .rechproj нет вовсе) - вызывающая сторона (internal/
+// compiler) в этом случае НЕ переопределяет ir.Program.DBPoolSize,
+// оставляя её собственное значение по умолчанию (internal/semantic.
+// DefaultDBPoolSize) - тем же принципом "0 - используй встроенное
+// умолчание", что и nil у Библиотеки()/Зависимости. Ошибка - значение
+// указано, но не положительное целое (отрицательный/нулевой пул или пул
+// на 1000000 соединений одинаково бессмысленны для однопроцессной
+// программы - гарантированно не то, что имел в виду программист, поэтому
+// ошибка компиляции, не молчаливое усечение).
+func (pf *File) DBPoolSize() (int, error) {
+	if pf.dbPoolSizeRaw == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(pf.dbPoolSizeRaw)
+	if err != nil || n <= 0 || n > 1000 {
+		return 0, fmt.Errorf("бд.размер_пула %q - ожидалось целое число от 1 до 1000", pf.dbPoolSizeRaw)
+	}
+	return n, nil
+}
+
 // Template - содержимое нового .rechproj (rech init). "версия: 0.1.0" и
 // "режим: отладка" - разумные значения для только что созданного проекта
 // (ещё не выпущен, полезно видеть сгенерированный .c), а не значения по
@@ -268,6 +348,11 @@ const Template = `проект:
   платформа: текущая
   # тип: библиотека (по умолчанию - "программа", обычный исполняемый файл)
   # библиотеки: curl, ssl (внешние библиотеки для линковки, через запятую)
+
+# бд:
+#   размер_пула: 8 (число одновременных соединений с БД - "подключиться_к_бд"
+#   открывает СРАЗУ столько соединений, запросы из разных потоков идут
+#   параллельно, а не в очередь через одно общее соединение; по умолчанию - 4)
 
 # окружение:
 #   RECH_HTTP_PORT: 8080 (переменные окружения для "rech run" - вместо

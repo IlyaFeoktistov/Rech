@@ -54,8 +54,8 @@ func deprecatedInfo(doc string) (message string, ok bool) {
 // свободные функции/сущности (d.funcs/d.entities - уже несут алиасы
 // импортов, см. multifile.go, поэтому работает и для устаревшего имени,
 // объявленного в ДРУГОМ файле), и методы каждой сущности этого документа.
-// Приближённо (совпадение по токену/значению, тем же принципом, что и
-// countFunctionRefs/countMethodRefs/countEntityRefs, references.go) - не
+// Приближённо (совпадение по токену/значению, теми же functionRefTokens/
+// methodRefTokens/entityRefTokens, что и references.go/codelens.go) - не
 // разрешает область видимости по-настоящему.
 func (d *doc) deprecatedDiagnostics() []Diagnostic {
 	if d.irProg == nil {
@@ -85,52 +85,6 @@ func (d *doc) deprecatedDiagnostics() []Diagnostic {
 			if msg, ok := deprecatedInfo(m.Doc); ok {
 				out = append(out, d.tokenDiagnostics(d.methodRefTokens(m.Name), msg)...)
 			}
-		}
-	}
-	return out
-}
-
-// functionRefTokens/methodRefTokens/entityRefTokens - позиционные варианты
-// countFunctionRefs/countMethodRefs/countEntityRefs (references.go, тот же
-// подсчёт токенов, только возвращает САМИ токены, не количество).
-func (d *doc) functionRefTokens(name string) []lexer.Token {
-	var out []lexer.Token
-	for i, tok := range d.tokens {
-		if tok.Type != lexer.IDENT || tok.Value != name {
-			continue
-		}
-		if i > 0 && d.tokens[i-1].Type == lexer.KwFunction {
-			continue
-		}
-		if i > 0 && d.tokens[i-1].Type == lexer.DOT {
-			continue
-		}
-		if i > 0 && d.tokens[i-1].Type == lexer.BITAND {
-			out = append(out, tok)
-			continue
-		}
-		if i+1 < len(d.tokens) && d.tokens[i+1].Type == lexer.LPAREN {
-			out = append(out, tok)
-		}
-	}
-	return out
-}
-
-func (d *doc) methodRefTokens(name string) []lexer.Token {
-	var out []lexer.Token
-	for i, tok := range d.tokens {
-		if tok.Type == lexer.IDENT && tok.Value == name && i > 0 && d.tokens[i-1].Type == lexer.DOT && i+1 < len(d.tokens) && d.tokens[i+1].Type == lexer.LPAREN {
-			out = append(out, tok)
-		}
-	}
-	return out
-}
-
-func (d *doc) entityRefTokens(name string) []lexer.Token {
-	var out []lexer.Token
-	for i, tok := range d.tokens {
-		if tok.Type == lexer.IDENT && tok.Value == name && i > 0 && d.tokens[i-1].Type == lexer.KwNew {
-			out = append(out, tok)
 		}
 	}
 	return out

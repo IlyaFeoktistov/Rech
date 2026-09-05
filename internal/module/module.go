@@ -232,13 +232,29 @@ func LoadWithDeps(entryPath string, frontend Frontend, deps map[string]string) (
 // как ..."), не общий на всю программу неймспейс. scopes == nil - как
 // LoadWithDeps (rootDeps без транзитивной части).
 func LoadWithGraph(entryPath string, frontend Frontend, rootDeps map[string]string, scopes map[string]map[string]string) (*Program, error) {
+	return LoadWithRoot(entryPath, frontend, rootDeps, scopes, "")
+}
+
+// LoadWithRoot - LoadWithGraph с явным projectRoot (точка отсчёта "@путь",
+// см. package doc resolveImportPath) вместо каталога entryPath по
+// умолчанию. "" ведёт себя как LoadWithGraph (каталог entryPath) - этим
+// пользуются Load/LoadWithDeps/LoadWithGraph, которым для "rech build
+// <главный файл>" каталог entryPath И ЕСТЬ корень программы (он же
+// каталог .rechproj/"файлы.главный"). Явный projectRoot нужен вызывающей
+// стороне, которая грузит файл, НЕ обязательно являющийся главным файлом
+// проекта (LSP - открытый документ на любой глубине дерева, internal/lsp/
+// multifile.go; "rech test" на отдельном файле, internal/testrunner) - без
+// этого "@путь" внутри такого файла резолвился бы от его СОБСТВЕННОГО
+// каталога, а не от каталога главного файла, и попадал бы не туда (module
+// сам по-прежнему не знает про .rechproj - вычислить правильный
+// projectRoot для такого файла обязана вызывающая сторона, обычно через
+// internal/project.RootFor).
+func LoadWithRoot(entryPath string, frontend Frontend, rootDeps map[string]string, scopes map[string]map[string]string, projectRoot string) (*Program, error) {
 	l := &loader{frontend: frontend, loaded: map[string]*Module{}, inProgress: map[string]bool{}, scopes: scopes}
-	// root - каталог entry-файла (не самого .rechproj - module не знает про
-	// него вовсе, см. package doc resolveImportPath про "@") - точка отсчёта
-	// для "использовать ... из "@путь"" всей ОСНОВНОЙ программы. У файла
-	// ВНУТРИ зависимости - свой собственный root (её каталог, см. load
-	// ниже, crossedInto), не этот.
-	root := filepath.Dir(filepath.Clean(entryPath))
+	root := projectRoot
+	if root == "" {
+		root = filepath.Dir(filepath.Clean(entryPath))
+	}
 	entry, err := l.load(filepath.Clean(entryPath), nil, rootDeps, root)
 	if err != nil {
 		return nil, err

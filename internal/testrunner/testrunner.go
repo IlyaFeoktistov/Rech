@@ -25,6 +25,7 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/compiler"
 	"github.com/IlyaFeoktistov/Rech/internal/interp"
 	"github.com/IlyaFeoktistov/Rech/internal/module"
+	"github.com/IlyaFeoktistov/Rech/internal/project"
 	"github.com/IlyaFeoktistov/Rech/internal/semantic"
 )
 
@@ -83,7 +84,18 @@ func Discover(root string) ([]string, error) {
 // (лексер/парсер/семантика) - тоже "тест не прошёл", не отдельная
 // категория - пользователю всё равно нужно увидеть, что не так.
 func RunFile(path string) Result {
-	loaded, err := module.Load(path, compiler.NewFrontend())
+	// root - каталог главного файла проекта, если path (тестовый файл,
+	// обычно НЕ главный файл) лежит под каким-то .rechproj - без этого
+	// "использовать ... из "@путь"" внутри теста резолвился бы от
+	// каталога САМОГО теста, а не от корня программы (см.
+	// internal/project.RootFor, internal/module.LoadWithRoot). "" (path
+	// вне какого-либо .rechproj) - module.LoadWithRoot ведёт себя как
+	// module.Load.
+	root, err := project.RootFor(path)
+	if err != nil {
+		return Result{Path: path, Err: err}
+	}
+	loaded, err := module.LoadWithRoot(path, compiler.NewFrontend(), nil, nil, root)
 	if err != nil {
 		return Result{Path: path, Err: err}
 	}

@@ -52,6 +52,7 @@ func (s *server) handleRequest(msg *Message) {
 				"definitionProvider":     true,
 				"implementationProvider": true,
 				"codeActionProvider":     true,
+				"codeLensProvider":       map[string]any{},
 				"completionProvider": map[string]any{
 					"triggerCharacters": []string{"."},
 				},
@@ -67,6 +68,8 @@ func (s *server) handleRequest(msg *Message) {
 		s.handleImplementation(msg)
 	case "textDocument/codeAction":
 		s.handleCodeAction(msg)
+	case "textDocument/codeLens":
+		s.handleCodeLens(msg)
 	case "textDocument/completion":
 		s.handleCompletion(msg)
 	default:
@@ -325,6 +328,59 @@ func (s *server) handleCodeAction(msg *Message) {
 						},
 					},
 				},
+			},
+		}
+	}
+	_ = s.rpc.Reply(msg.ID, out, nil)
+}
+
+// handleCodeLens отвечает на "textDocument/codeLens" - "N ссылок" над
+// каждым собственным объявлением документа (codelens.go), кликабельное
+// через клиентскую (встроенную в VS Code, ничего своего исполнять не
+// нужно) команду "editor.action.showReferences": ей передаются готовые
+// locations (позиции ссылок), а не URI+range для повторного запроса -
+// сервер не поддерживает codeLens/resolve вовсе (declared без
+// "resolveProvider", initialize), в этом нет необходимости, раз все данные
+// уже под рукой при самом ответе на codeLens.
+func (s *server) handleCodeLens(msg *Message) {
+	var p struct {
+		TextDocument struct {
+			URI string `json:"uri"`
+		} `json:"textDocument"`
+	}
+	if err := json.Unmarshal(msg.Params, &p); err != nil {
+		_ = s.rpc.Reply(msg.ID, nil, err)
+		return
+	}
+	d := s.getDoc(p.TextDocument.URI)
+	if d == nil {
+		_ = s.rpc.Reply(msg.ID, []any{}, nil)
+		return
+	}
+	lenses := d.codeLenses()
+	out := make([]any, len(lenses))
+	for i, cl := range lenses {
+		locations := make([]any, len(cl.Refs))
+		for j, ref := range cl.Refs {
+			uri := p.TextDocument.URI
+			if ref.File != "" {
+				uri = fileURI(ref.File)
+			}
+			locations[j] = map[string]any{
+				"uri": uri,
+				"range": map[string]any{
+					"start": map[string]any{"line": ref.Tok.Line - 1, "character": ref.Tok.Col - 1},
+					"end":   map[string]any{"line": ref.Tok.Line - 1, "character": ref.Tok.Col - 1 + len([]rune(ref.Tok.Value))},
+				},
+			}
+		}
+		lensPos := map[string]any{"line": cl.Line - 1, "character": 0}
+		out[i] = map[string]any{
+			"range": map[string]any{"start": lensPos, "end": lensPos},
+			"command": map[string]any{
+				"title":     cl.Title,
+				"command":   "editor.action.showReferences",
+				"arguments": []any{p.TextDocument.URI, lensPos, locations},
 			},
 		}
 	}

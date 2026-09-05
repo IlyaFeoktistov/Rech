@@ -108,6 +108,108 @@ func TestHoverOnLocalVariableShowsType(t *testing.T) {
 	}
 }
 
+// TestHoverOnEntityShowsExplicitCtorSignature - наведение на имя сущности
+// (не на "новый ...", а на само объявление/использование типа) должно
+// показывать сигнатуру ЕЁ конструктора рядом с "сущность/структура Имя" -
+// у "Точка" (hoverTestSrc) он явный ("конструктор(x, y)").
+func TestHoverOnEntityShowsExplicitCtorSignature(t *testing.T) {
+	d := newDoc("test://a.rech", hoverTestSrc)
+	line := lineOf(t, hoverTestSrc, "переменная т = новая Точка")
+	col := runeCol(t, "    переменная т = новая Точка(1, 2)", "Точка")
+	text, ok := d.hover(line, col)
+	if !ok {
+		t.Fatalf("ожидался hover на имени сущности Точка")
+	}
+	if !strings.Contains(text, "сущность Точка") {
+		t.Fatalf("неожиданный текст hover: %q", text)
+	}
+	if !strings.Contains(text, "новый Точка(x: Целое, y: Целое)") {
+		t.Fatalf("ожидалась сигнатура конструктора в hover: %q", text)
+	}
+}
+
+const hoverCtorEntitiesSrc = `
+структура Пара
+{
+    имеет:
+        первый: Целое
+        второй: Строка
+}
+
+сущность Счётчик
+{
+    имеет:
+        значение: Целое = 0
+}
+
+абстрактная сущность Фигура
+{
+    площадь(): Целое
+}
+
+функция главная
+{
+    переменная п = новая Пара(1, "а")
+    переменная c = новый Счётчик()
+}
+`
+
+// TestHoverOnStructWithoutCtorShowsFieldsAsPositionalArgs - структура без
+// явного "конструктор" всё равно принимает свои поля позиционно ("новый
+// Пара(1, "а")", internal/semantic/expr.go, analyzeNewExpr) - hover должен
+// показать этот единственный реально работающий вид вызова, а не молчать
+// про конструктор вовсе только потому, что тела "конструктор(...)" в
+// исходнике нет.
+func TestHoverOnStructWithoutCtorShowsFieldsAsPositionalArgs(t *testing.T) {
+	d := newDoc("test://b.rech", hoverCtorEntitiesSrc)
+	if d.irProg == nil {
+		t.Fatalf("документ не разобрался")
+	}
+	line := lineOf(t, hoverCtorEntitiesSrc, "структура Пара")
+	col := runeCol(t, "структура Пара", "Пара")
+	text, ok := d.hover(line, col)
+	if !ok {
+		t.Fatalf("ожидался hover на имени структуры Пара")
+	}
+	if !strings.Contains(text, "новый Пара(первый: Целое, второй: Строка)") {
+		t.Fatalf("ожидалась позиционная сигнатура полей в hover: %q", text)
+	}
+}
+
+// TestHoverOnClassWithoutCtorShowsEmptyCtor - у сущности/класса (в отличие
+// от структуры) без явного "конструктор" поля НЕ задаются позиционно
+// вообще ("новый Тип(...)" с аргументами - ошибка компиляции, см.
+// analyzeNewExpr, ветка !sig.IsStruct) - hover не должен ложно предлагать
+// параметры-поля, единственный правильный вызов - "новый Тип()".
+func TestHoverOnClassWithoutCtorShowsEmptyCtor(t *testing.T) {
+	d := newDoc("test://b.rech", hoverCtorEntitiesSrc)
+	line := lineOf(t, hoverCtorEntitiesSrc, "сущность Счётчик")
+	col := runeCol(t, "сущность Счётчик", "Счётчик")
+	text, ok := d.hover(line, col)
+	if !ok {
+		t.Fatalf("ожидался hover на имени сущности Счётчик")
+	}
+	if !strings.Contains(text, "новый Счётчик()") {
+		t.Fatalf("ожидался пустой конструктор в hover: %q", text)
+	}
+}
+
+// TestHoverOnAbstractEntityShowsNoCtor - абстрактную сущность нельзя
+// создать напрямую ("новый Фигура()" - ошибка компиляции) - hover не
+// должен показывать конструктор, которым в принципе нельзя воспользоваться.
+func TestHoverOnAbstractEntityShowsNoCtor(t *testing.T) {
+	d := newDoc("test://b.rech", hoverCtorEntitiesSrc)
+	line := lineOf(t, hoverCtorEntitiesSrc, "абстрактная сущность Фигура")
+	col := runeCol(t, "абстрактная сущность Фигура", "Фигура")
+	text, ok := d.hover(line, col)
+	if !ok {
+		t.Fatalf("ожидался hover на имени сущности Фигура")
+	}
+	if strings.Contains(text, "новый") {
+		t.Fatalf("абстрактная сущность не должна показывать конструктор: %q", text)
+	}
+}
+
 // runeCol - позиция (1-индексная, как lexer.Token.Col - лексер считает
 // РУНЫ, не байты) needle внутри line - strings.Index сам по себе даёт
 // байтовое смещение, для кириллицы (2 байта на руну в UTF-8) это не то же

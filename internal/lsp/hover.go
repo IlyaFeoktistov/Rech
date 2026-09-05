@@ -75,7 +75,7 @@ func (d *doc) hoverBareName(name string, line int) (string, bool) {
 	}
 	if fn, ok := d.funcs[name]; ok {
 		block := withDoc(codeBlock(d.functionSignature(d.disp(fn.Name), fn.Params, fn.HasReturn, fn.ReturnType)), fn.Doc)
-		return withRefCount(block, d.countFunctionRefs(name)), true
+		return block, true
 	}
 	if ent, ok := d.entities[name]; ok {
 		kind := "сущность"
@@ -85,8 +85,12 @@ func (d *doc) hoverBareName(name string, line int) (string, bool) {
 		if ent.IsAbstract {
 			kind = "абстрактная " + kind
 		}
-		block := withDoc(codeBlock(fmt.Sprintf("%s %s", kind, d.disp(ent.Name))), ent.Doc)
-		return withRefCount(block, d.countEntityRefs(name)), true
+		header := fmt.Sprintf("%s %s", kind, d.disp(ent.Name))
+		if ctor, ok := d.entityCtorSignature(ent); ok {
+			header += "\n" + ctor
+		}
+		block := withDoc(codeBlock(header), ent.Doc)
+		return block, true
 	}
 	if doc, ok := builtinTypeDocs[name]; ok {
 		return codeBlock(name) + "\n\n" + doc, true
@@ -100,6 +104,36 @@ func (d *doc) hoverBareName(name string, line int) (string, bool) {
 	return "", false
 }
 
+// entityCtorSignature - "новый Тип(параметры)" для ent, показываемое рядом
+// с самим объявлением при наведении на имя сущности - явный конструктор
+// (ent.Ctor), если он есть; иначе, у структуры без ctor - её поля
+// позиционно (единственная форма, которую неявный конструктор структуры
+// принимает, см. internal/semantic/expr.go, analyzeNewExpr, ветка
+// !sig.HasCtor && sig.IsStruct); иначе (сущность/класс без ctor) - "новый
+// Тип()" совсем без аргументов (та же функция, ветка !sig.IsStruct - у
+// класса без явного "конструктор" поля не задаются позиционно вообще, HasCtor
+// НИКОГДА не наследуется от базовой сущности - internal/semantic/
+// inheritance.go, applyInheritance - ent.Ctor == nil здесь означает ровно
+// это, а не "проверить базовую"). "", false - абстрактная сущность (нельзя
+// создать напрямую, показывать нечего).
+func (d *doc) entityCtorSignature(ent *ir.Entity) (string, bool) {
+	if ent.IsAbstract {
+		return "", false
+	}
+	name := "новый " + d.disp(ent.Name)
+	if ent.Ctor != nil {
+		return d.functionSignature(name, ent.Ctor.Params, false, ir.Type{}), true
+	}
+	if !ent.IsStruct {
+		return name + "()", true
+	}
+	params := make([]ir.Param, len(ent.Fields))
+	for i, f := range ent.Fields {
+		params[i] = ir.Param{Name: f.Name, Type: f.Type}
+	}
+	return d.functionSignature(name, params, false, ir.Type{}), true
+}
+
 // hoverMember - name - поле/метод/константа ent (последний элемент цепочки
 // "receiver.поле"/"receiver.метод").
 func (d *doc) hoverMember(ent *ir.Entity, name string) (string, bool) {
@@ -107,7 +141,7 @@ func (d *doc) hoverMember(ent *ir.Entity, name string) (string, bool) {
 	for _, f := range ent.Fields {
 		if f.Name == name {
 			block := withDoc(codeBlock(fmt.Sprintf("%s.%s: %s", entName, f.Name, d.dispType(f.Type))), f.Doc)
-			return withRefCount(block, d.countMemberRefs(name)), true
+			return block, true
 		}
 	}
 	for _, c := range ent.Constants {
@@ -117,14 +151,14 @@ func (d *doc) hoverMember(ent *ir.Entity, name string) (string, bool) {
 				block += fmt.Sprintf("\n\nЗначение: `%s`", lit)
 			}
 			block = withDoc(block, c.Doc)
-			return withRefCount(block, d.countMemberRefs(name)), true
+			return block, true
 		}
 	}
 	for _, m := range ent.Methods {
 		if m.Name == name {
 			doc := d.resolvedMethodDoc(ent, name, m.Doc)
 			block := withDoc(codeBlock(d.functionSignature(entName+"."+m.Name, m.Params, m.HasReturn, m.ReturnType)), doc)
-			return withRefCount(block, d.countMethodRefs(name)), true
+			return block, true
 		}
 	}
 	return "", false
