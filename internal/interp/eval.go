@@ -422,6 +422,13 @@ func (in *Interp) evalNewExpr(e *ir.NewExpr, env *Env, cc *callCtx) (Value, erro
 	if e.Entity == mutexEntityName {
 		return newMutexValue(), nil
 	}
+	if e.Entity == semaphoreEntityName {
+		n, err := in.evalExpr(e.Args[0], env, cc)
+		if err != nil {
+			return Value{}, err
+		}
+		return newSemaphoreValue(n.I), nil
+	}
 	if ent, ok := in.entities[e.Entity]; ok {
 		args := make([]Value, len(e.Args))
 		for i, a := range e.Args {
@@ -536,6 +543,9 @@ func (in *Interp) evalMethodCallExpr(e *ir.MethodCallExpr, env *Env, cc *callCtx
 	}
 	if recv.Obj.mutex != nil {
 		return evalMutexMethod(recv.Obj, e)
+	}
+	if recv.Obj.semaphore != nil {
+		return evalSemaphoreMethod(recv.Obj, e)
 	}
 	if recv.Obj.coll != nil {
 		if recv.Obj.coll.template == "Словарь" {

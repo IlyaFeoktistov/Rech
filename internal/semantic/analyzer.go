@@ -1006,6 +1006,13 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	if sig, ok := a.entities[mutexEntityName]; ok && sig.IsMutex {
 		out.Entities = append([]*ir.Entity{mutexIRType()}, out.Entities...)
 	}
+	// "Семафор" - та же причина/тот же приём, что у "Блокировки" чуть выше
+	// (см. её комментарий) - собственная проверка, отдельная от неё, чтобы
+	// программа с ОДНОЙ только "Блокировкой" не платила бы за "Семафор" и
+	// наоборот.
+	if sig, ok := a.entities[semaphoreEntityName]; ok && sig.IsSemaphore {
+		out.Entities = append([]*ir.Entity{semaphoreIRType()}, out.Entities...)
+	}
 	out.ParseTargets = a.parseTargets.order
 	out.SerializeTargets = a.serializeTargets.order
 	out.XMLParseTargets = a.xmlParseTargets.order

@@ -61,6 +61,11 @@ type entityObj struct {
 	fields   map[string]Value
 	coll     *collection
 	mutex    *sync.Mutex
+	// semaphore - непусто только у "Семафор" (см. package doc
+	// internal/interp/semaphore.go) - тот же принцип, что mutex выше,
+	// отдельное поле (не переиспользует mutex) - у семафора есть счётчик и
+	// condvar, не голый sync.Mutex.
+	semaphore *semaphoreState
 	// fieldsMu - защищает fields от гонки самого Go-рантайма (не Rech-
 	// уровня "программист не защитил поле"): один и тот же ссылочный
 	// объект может быть виден из нескольких потоков ОС одновременно

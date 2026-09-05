@@ -295,6 +295,7 @@ var ReservedEntityNames = map[string]bool{
 	"Вызываемый":  true,
 	"ДатаВремя":   true,
 	"Блокировка":  true,
+	"Семафор":     true,
 	"ОпцииКуки":   true,
 	"Дейтаграмма": true,
 	"Совпадение":  true,

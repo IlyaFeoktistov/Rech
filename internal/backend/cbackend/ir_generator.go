@@ -172,6 +172,13 @@ type irGenCtx struct {
 	// сам блок mutexRuntimeCode.
 	usesMutex bool
 
+	// usesSemaphore - хотя бы один "Семафор" реально встретился в
+	// программе (см. internal/backend/cbackend/semaphore.go) - тот же
+	// принцип, что usesMutex выше, отдельный флаг (программа с ОДНОЙ
+	// "Блокировкой" не должна тянуть за собой semaphoreRuntimeCode и
+	// наоборот).
+	usesSemaphore bool
+
 	// usesStateFlags - хотя бы одна сущность программы объявляет
 	// "состояние:" (ir.Entity.HasStateFlags - уже включает потомков без
 	// собственного "состояние:", см. package doc) - гейтит "#include
@@ -476,6 +483,9 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	if ent, ok := entities[mutexEntityName]; ok && ent.IsMutex {
 		ctx.usesMutex = true
 	}
+	if ent, ok := entities[semaphoreEntityName]; ok && ent.IsSemaphore {
+		ctx.usesSemaphore = true
+	}
 	if ctx.usesStateFlags {
 		// rech_require_state (typestate.go) бросает через rech_throw -
 		// сущность со "состояние:" почти всегда участвует и в
@@ -692,6 +702,12 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// как обычные сущности - только на эти прототипы.
 		protos.WriteString(mutexPrototypes())
 	}
+	if ctx.usesSemaphore {
+		// Та же причина, что у mutexPrototypes выше - "Семафор" тоже может
+		// добавиться в out.Entities поздно относительно кода, который её
+		// использует.
+		protos.WriteString(semaphorePrototypes())
+	}
 	for _, ext := range prog.ExternFuncs {
 		protos.WriteString(externPrototypeOfIR(ctx, ext))
 	}
@@ -715,9 +731,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// internal/semantic/analyzer.go), не может полагаться на текстовый
 		// порядок определений, если её конструктор вызван РАНЬШЕ по файлу -
 		// как напрямую ("новый X(...)"), так и через "родитель(...)" в
-		// конструкторе пользовательского наследника. mutex - отдельным
-		// mutexPrototypes() выше, здесь не участвует.
-		if !ent.IsStruct && !ent.IsMutex {
+		// конструкторе пользовательского наследника. mutex/семафор -
+		// отдельными mutexPrototypes()/semaphorePrototypes() выше, здесь не
+		// участвуют.
+		if !ent.IsStruct && !ent.IsMutex && !ent.IsSemaphore {
 			ctorParams := []ir.Param(nil)
 			if ent.Ctor != nil {
 				ctorParams = ent.Ctor.Params
@@ -903,7 +920,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// угодно в программе - её собственная блокировка защищает ЭТО
 	// соединение, независимо от того, как именно программа организует
 	// свою многопоточность.
-	if ctx.usesThreads || ctx.usesMutex || ctx.usesTLS || prog.UsesDB || ctx.usesActiveTaskWait {
+	if ctx.usesThreads || ctx.usesMutex || ctx.usesSemaphore || ctx.usesTLS || prog.UsesDB || ctx.usesActiveTaskWait {
 		sb.WriteString("#ifndef _WIN32\n#include <pthread.h>\n#endif\n")
 	}
 	sb.WriteString("\n")
@@ -1292,6 +1309,9 @@ func generateIREntityStruct(ctx *irGenCtx, ent *ir.Entity) string {
 	if ent.IsMutex {
 		return mutexStructTypedef()
 	}
+	if ent.IsSemaphore {
+		return semaphoreStructTypedef()
+	}
 	s := codegen.Struct(mangleType(ent.Name))
 	participates := ctx.dispatchParticipants[ent.Name]
 	if participates {
@@ -1347,6 +1367,9 @@ func generateIREntityStruct(ctx *irGenCtx, ent *ir.Entity) string {
 func generateIREntityCtor(ctx *irGenCtx, ent *ir.Entity) (string, error) {
 	if ent.IsMutex {
 		return mutexRuntimeCode(), nil
+	}
+	if ent.IsSemaphore {
+		return semaphoreRuntimeCode(), nil
 	}
 	if ent.Ctor == nil {
 		// internal/semantic держит этот инвариант (каждая ссылочная

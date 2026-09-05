@@ -249,6 +249,10 @@ type entitySig struct {
 	// "Блокировка", регистрируется лениво при первой встрече имени типа,
 	// тем же принципом, что IsList/IsDict/IsNullable/IsPointer выше.
 	IsMutex bool
+	// IsSemaphore - см. internal/semantic/semaphore.go - системная
+	// сущность "Семафор", регистрируется лениво при первой встрече имени
+	// типа, тем же принципом, что IsMutex выше.
+	IsSemaphore bool
 	// BaseName - имя базовой сущности ("наследует"), "" - нет
 	// базовой. FieldNames/FieldTypes/... выше уже включают унаследованные
 	// поля (плоский список, база первой) - см. collectEntities.
