@@ -1381,6 +1381,11 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		sb.WriteString(nullableReflectBoxHelpers(ctx, prog))
 	}
 
+	// threadPoolCode (threadpool.go) - ДО activeTasksCode/taskCode ниже:
+	// rech_launch_... (concurrency.go, ensureTaskWrapper) зовёт
+	// rech_pool_submit текстом, объявление должно предшествовать
+	// использованию - тот же принцип, что и у activeTasksCode ниже.
+	appendCodeIf(&sb, ctx.usesThreads, threadPoolCode)
 	// activeTasksCode (active_tasks.go) - ДО taskCode ниже: точка входа
 	// потока (concurrency.go, ensureTaskWrapper) зовёт rech_active_tasks_dec
 	// текстом, объявление должно предшествовать использованию.

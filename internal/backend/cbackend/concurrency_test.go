@@ -44,13 +44,18 @@ func TestGenerateFromIRLaunchAwaitEmitsThreadWrapper(t *testing.T) {
 	if strings.Contains(out, "GC_register_my_thread") || strings.Contains(out, "GC_unregister_my_thread") {
 		t.Fatalf("ручная регистрация потока в GC не нужна (автоматическая через GC_THREADS-редирект) - получено:\n%s", out)
 	}
-	// Поток открепляется СРАЗУ (не остаётся ждать "дождаться") - см.
-	// package doc concurrency.go, ensureTaskWrapper: "запустить" без
-	// единого "дождаться" (фоновая задача) иначе никогда не освобождал бы
-	// дескриптор потока.
-	for _, want := range []string{"pthread_detach(rech_thread_handle);", "CloseHandle(rech_thread_handle);"} {
+	// "запустить" ставит задачу в очередь общего пула воркеров
+	// (rech_pool_submit, threadpool.go), не создаёт поток ОС напрямую -
+	// pthread_create/CreateThread (и открепление сразу при создании, тем же
+	// принципом, что и раньше - "запустить" без единого "дождаться",
+	// фоновая задача, иначе никогда не освобождал бы дескриптор потока)
+	// живут ТОЛЬКО внутри пула, не в rech_launch_poschitat.
+	if !strings.Contains(out, "rech_pool_submit(rech_task_entry_poschitat, t);") {
+		t.Fatalf("ожидалась постановка задачи в очередь пула воркеров, получено:\n%s", out)
+	}
+	for _, want := range []string{"pthread_detach(rech_worker_handle);", "CloseHandle(rech_worker_handle);"} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("ожидалось открепление потока сразу при запуске (%q), получено:\n%s", want, out)
+			t.Fatalf("ожидалось открепление воркера пула сразу при создании (%q), получено:\n%s", want, out)
 		}
 	}
 	if strings.Contains(out, "t->thread") {
@@ -78,8 +83,8 @@ func TestGenerateFromIRLaunchWithoutAwaitStillCompilesCleanly(t *testing.T) {
 	if !strings.Contains(out, "rech_launch_porabotat(void)") {
 		t.Fatalf("ожидался rech_launch_porabotat, получено:\n%s", out)
 	}
-	if !strings.Contains(out, "rech_catch_frame rech_frame;") {
-		t.Fatalf("ожидался catch-frame вокруг тела потока, получено:\n%s", out)
+	if !strings.Contains(out, "rech_catch_frame rech_frame = {0};") {
+		t.Fatalf("ожидался обнулённый catch-frame вокруг тела потока (catch_panics обязан быть гарантированным false, см. package doc ensureTaskWrapper), получено:\n%s", out)
 	}
 }
 
