@@ -135,6 +135,24 @@ type Program struct {
 	// место, которое знает про .rechproj, подставляет сюда актуальное
 	// значение ПЕРЕД кодогенерацией/исполнением).
 	DBPoolSize int
+	// DBPoolTimeoutMs - сколько миллисекунд "запросить"/"выполнить" ждут
+	// свободное соединение из пула, прежде чем сдаться (rtmsg.
+	// DBCheckoutTimeout) - 0 (умолчание, если файл проекта не задаёт "бд.
+	// таймаут_пула_мс" - см. internal/project.File.DBPoolTimeoutMs) значит
+	// ждать бесконечно, тем же поведением, что и до появления этого поля.
+	// В отличие от DBPoolSize выше - 0 здесь не сентинел "не задано", а сам
+	// содержательный умолчательный результат.
+	DBPoolTimeoutMs int
+	// DBSQLiteBusyTimeoutMs - сколько миллисекунд SQLite сама ждёт снятия
+	// блокировки файла ДРУГИМ соединением/процессом (sqlite3_busy_timeout/
+	// DSN "?_busy_timeout=") - по умолчанию internal/semantic.
+	// DefaultDBSQLiteBusyTimeoutMs, если файл проекта не задаёт "бд.
+	// sqlite_таймаут_блокировки_мс" (см. internal/project.File.
+	// DBSQLiteBusyTimeoutMs). Не то же самое, что DBPoolTimeoutMs выше - то
+	// ожидание СОБСТВЕННОГО пула соединений этого рантайма, это -
+	// встроенное в саму SQLite ожидание файловой блокировки между
+	// независимыми процессами/соединениями.
+	DBSQLiteBusyTimeoutMs int
 	// DBRowTargets - сущности, встретившиеся хоть раз ЭЛЕМЕНТОМ цели
 	// "запросить(...) как Список<Тип>" (DBRowsAsExpr, internal/semantic/
 	// db_rows.go), без повторов - тем же принципом, что и ParseTargets:

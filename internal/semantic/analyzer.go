@@ -819,7 +819,7 @@ func (a *Analyzer) analyzeFunction(fn *ast.FunctionDecl) (*ir.Function, error) {
 }
 
 func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
-	out := &ir.Program{ExternFuncs: a.externFuncs, DBPoolSize: DefaultDBPoolSize}
+	out := &ir.Program{ExternFuncs: a.externFuncs, DBPoolSize: DefaultDBPoolSize, DBSQLiteBusyTimeoutMs: DefaultDBSQLiteBusyTimeoutMs}
 	for _, iface := range prog.Interfaces {
 		sig := a.interfaces[iface.Name]
 		// sig.IRMethods - уже готовые ir.InterfaceMethod, включая

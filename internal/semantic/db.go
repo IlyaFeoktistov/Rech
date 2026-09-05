@@ -23,6 +23,17 @@ const dbResultType = "Список<Словарь<Строка, Значение
 // internal/testrunner). См. package doc ir.Program.DBPoolSize.
 const DefaultDBPoolSize = 4
 
+// DefaultDBSQLiteBusyTimeoutMs - сколько миллисекунд SQLite сама ждёт
+// снятия блокировки файла ДРУГИМ соединением/процессом (sqlite3_busy_timeout/
+// "?_busy_timeout=" в DSN), если файл проекта не задаёт "бд.
+// sqlite_таймаут_блокировки_мс" - тем же принципом, что DefaultDBPoolSize
+// выше (подставляется здесь безусловно, internal/compiler переопределяет
+// только при явном значении > 0). Не путать с ir.Program.DBPoolTimeoutMs -
+// то ожидание СОБСТВЕННОГО пула этого рантайма (rech_db_checkout), это -
+// ожидание, встроенное в саму SQLite, для файловой блокировки между
+// НЕЗАВИСИМЫМИ процессами/соединениями, разные понятия.
+const DefaultDBSQLiteBusyTimeoutMs = 5000
+
 // registerDBFuncs - единый русский API поверх SQLite/PostgreSQL/MySQL
 // (docs/SPEC.md, "БД") - один и тот же "БД" (ir.TypeDB) для всех трёх,
 // схема строки подключения ("sqlite:"/"postgres://"/"mysql://") решает,

@@ -10,11 +10,14 @@
 package interp
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 	pqdrv "github.com/lib/pq"
@@ -57,7 +60,7 @@ func (in *Interp) dbConnect(connStr string) Value {
 	poolSize := in.dbPoolSize
 	isSQLiteMemory := driverName == "sqlite" && dsn == ":memory:"
 	if driverName == "sqlite" {
-		dsn += "?_busy_timeout=5000"
+		dsn += fmt.Sprintf("?_busy_timeout=%d", in.dbSQLiteBusyTimeoutMs)
 	}
 	db, err := sql.Open(driverName, dsn)
 	if err == nil {
@@ -139,6 +142,29 @@ func dbRewritePlaceholders(db *sql.DB, sqlText string) string {
 	return sb.String()
 }
 
+// dbCheckoutContext - context.Background() без ограничения (in.dbPoolTimeoutMs
+// <= 0 - "бд.таймаут_пула_мс" не задан в .rechproj, ждать бесконечно, тем же
+// поведением, что и до появления этой настройки), либо контекст с дедлайном
+// в in.dbPoolTimeoutMs миллисекунд. Вызывающий код ОБЯЗАН звать cancel()
+// (defer) сразу после получения - иначе context.WithTimeout течёт таймер
+// до истечения самого дедлайна, даже если запрос уже давно завершился.
+//
+// Известная асимметрия с cbackend (internal/backend/cbackend/db.go,
+// rech_db_checkout): у database/sql нет отдельного примитива "подождать
+// свободное соединение из пула" - QueryContext/ExecContext кладут под ОДИН
+// контекст и ожидание слота пула, и время выполнения самого запроса, тогда
+// как cbackend таймаутит РОВНО ожидание слота, отдельно от запроса. Здесь
+// таймаут строже задуманного - может сработать и на честно медленном
+// запросе, не только на занятости пула. Не блокирует фичу (тот же класс
+// принятого различия бэкендов, что и SIGPIPE/ленивое TLS-рукопожатие), но
+// не должен быть спрятан.
+func (in *Interp) dbCheckoutContext() (context.Context, context.CancelFunc) {
+	if in.dbPoolTimeoutMs <= 0 {
+		return context.Background(), func() {}
+	}
+	return context.WithTimeout(context.Background(), time.Duration(in.dbPoolTimeoutMs)*time.Millisecond)
+}
+
 // dbQuery - "запросить(БД, Строка, Список<Значение>): Список<Словарь<Строка,
 // Значение>>".
 func (in *Interp) dbQuery(db *sql.DB, sqlText string, params []Value) Value {
@@ -146,8 +172,13 @@ func (in *Interp) dbQuery(db *sql.DB, sqlText string, params []Value) Value {
 	for i, p := range params {
 		args[i] = dbParamValue(p.Boxed)
 	}
-	rows, err := db.Query(dbRewritePlaceholders(db, sqlText), args...)
+	ctx, cancel := in.dbCheckoutContext()
+	defer cancel()
+	rows, err := db.QueryContext(ctx, dbRewritePlaceholders(db, sqlText), args...)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			panicRuntime("%s", rtmsg.DBCheckoutTimeout)
+		}
 		panicRuntime("%s", rtmsg.DBQueryFailedFormat(sqlText))
 	}
 	defer rows.Close()
@@ -190,8 +221,13 @@ func (in *Interp) dbExec(db *sql.DB, sqlText string, params []Value) Value {
 	for i, p := range params {
 		args[i] = dbParamValue(p.Boxed)
 	}
-	result, err := db.Exec(dbRewritePlaceholders(db, sqlText), args...)
+	ctx, cancel := in.dbCheckoutContext()
+	defer cancel()
+	result, err := db.ExecContext(ctx, dbRewritePlaceholders(db, sqlText), args...)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			panicRuntime("%s", rtmsg.DBCheckoutTimeout)
+		}
 		panicRuntime("%s", rtmsg.DBExecFailedFormat(sqlText))
 	}
 	affected, err := result.RowsAffected()

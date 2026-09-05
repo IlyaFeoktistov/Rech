@@ -42,6 +42,134 @@ func TestLoadDefaultsAndPaths(t *testing.T) {
 	}
 }
 
+// TestDBPoolTimeoutMsDefaultIsZero - "бд.таймаут_пула_мс" не указан (или
+// .rechproj не несёт секции "бд" вовсе) - 0, без ошибки (в отличие от
+// DBPoolSize, здесь 0 - содержательное умолчание "ждать бесконечно", не
+// сентинел "не задано").
+func TestDBPoolTimeoutMsDefaultIsZero(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := "проект:\n  имя: тест\n\nфайлы:\n  главный: исходники/главный.rech\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	pf, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	ms, err := pf.DBPoolTimeoutMs()
+	if err != nil {
+		t.Fatalf("DBPoolTimeoutMs: %v", err)
+	}
+	if ms != 0 {
+		t.Fatalf("ожидалось 0 (ждать бесконечно), получено %d", ms)
+	}
+}
+
+// TestDBPoolTimeoutMsParsesPositiveValue - значение указано явно.
+func TestDBPoolTimeoutMsParsesPositiveValue(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := "проект:\n  имя: тест\n\nфайлы:\n  главный: исходники/главный.rech\n\nбд:\n  таймаут_пула_мс: 500\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	pf, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	ms, err := pf.DBPoolTimeoutMs()
+	if err != nil {
+		t.Fatalf("DBPoolTimeoutMs: %v", err)
+	}
+	if ms != 500 {
+		t.Fatalf("ожидалось 500, получено %d", ms)
+	}
+}
+
+// TestDBPoolTimeoutMsRejectsNegative - отрицательное значение бессмысленно
+// как таймаут.
+func TestDBPoolTimeoutMsRejectsNegative(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := "проект:\n  имя: тест\n\nфайлы:\n  главный: исходники/главный.rech\n\nбд:\n  таймаут_пула_мс: -1\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	pf, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, err := pf.DBPoolTimeoutMs(); err == nil {
+		t.Fatalf("ожидалась ошибка на отрицательное значение таймаута")
+	}
+}
+
+// TestDBSQLiteBusyTimeoutMsDefaultIsZero - не указан - 0 (internal/compiler
+// в этом случае не переопределяет ir.Program.DBSQLiteBusyTimeoutMs,
+// остаётся встроенное умолчание internal/semantic.
+// DefaultDBSQLiteBusyTimeoutMs = 5000).
+func TestDBSQLiteBusyTimeoutMsDefaultIsZero(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := "проект:\n  имя: тест\n\nфайлы:\n  главный: исходники/главный.rech\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	pf, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	ms, err := pf.DBSQLiteBusyTimeoutMs()
+	if err != nil {
+		t.Fatalf("DBSQLiteBusyTimeoutMs: %v", err)
+	}
+	if ms != 0 {
+		t.Fatalf("ожидалось 0 (использовать встроенное умолчание), получено %d", ms)
+	}
+}
+
+// TestDBSQLiteBusyTimeoutMsParsesPositiveValue - значение указано явно.
+func TestDBSQLiteBusyTimeoutMsParsesPositiveValue(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := "проект:\n  имя: тест\n\nфайлы:\n  главный: исходники/главный.rech\n\nбд:\n  sqlite_таймаут_блокировки_мс: 2000\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	pf, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	ms, err := pf.DBSQLiteBusyTimeoutMs()
+	if err != nil {
+		t.Fatalf("DBSQLiteBusyTimeoutMs: %v", err)
+	}
+	if ms != 2000 {
+		t.Fatalf("ожидалось 2000, получено %d", ms)
+	}
+}
+
+// TestDBSQLiteBusyTimeoutMsRejectsNonPositive - 0/отрицательное не
+// поддержаны как явное значение (см. package doc DBSQLiteBusyTimeoutMs).
+func TestDBSQLiteBusyTimeoutMsRejectsNonPositive(t *testing.T) {
+	for _, v := range []string{"0", "-1"} {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "тест.rechproj")
+		content := "проект:\n  имя: тест\n\nфайлы:\n  главный: исходники/главный.rech\n\nбд:\n  sqlite_таймаут_блокировки_мс: " + v + "\n"
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("запись файла проекта: %v", err)
+		}
+		pf, err := Load(path)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if _, err := pf.DBSQLiteBusyTimeoutMs(); err == nil {
+			t.Fatalf("ожидалась ошибка на значение %q", v)
+		}
+	}
+}
+
 func TestLoadLibraryType(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "тест.rechproj")

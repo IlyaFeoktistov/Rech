@@ -38,6 +38,11 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
+// dbPanicMsgMax - размер буфера "rech_db_panicf" (RECH_DB_PANIC_MSG_MAX,
+// dbHandleTypedefCode) - с запасом на сформированный snprintf текст ошибки
+// БД (сообщение rtmsg + текст SQL-запроса пользователя, см. её вызовы).
+const dbPanicMsgMax = 1024
+
 // dbRowType/dbResultType - те же канонические имена generic-инстанциаций,
 // что строит internal/semantic/db.go (dbResultType) - typedef/методы уже
 // эмитированы общим циклом по prog.Generics раньше этого блока (см. место
@@ -195,8 +200,11 @@ extern unsigned long long mysql_affected_rows(MYSQL *mysql);
 // если все заняты) и возвращают его в пул - конкурентные запросы из разных
 // потоков теперь используют РАЗНЫЕ физические соединения одновременно,
 // а не ждут друг друга в очереди на одно.
-func dbHandleTypedefCode(poolSize int) string {
+func dbHandleTypedefCode(poolSize, poolTimeoutMs, sqliteBusyTimeoutMs int) string {
 	return fmt.Sprintf(`#define RECH_DB_POOL_SIZE %d
+#define RECH_DB_POOL_TIMEOUT_MS %d
+#define RECH_DB_PANIC_MSG_MAX %d
+#define RECH_DB_SQLITE_BUSY_TIMEOUT_MS %d
 
 typedef enum { RECH_DB_SQLITE, RECH_DB_PG, RECH_DB_MYSQL } rech_db_kind;
 
@@ -214,7 +222,7 @@ typedef struct rech_db {
 #endif
 } rech_db_t;
 
-`, poolSize)
+`, poolSize, poolTimeoutMs, dbPanicMsgMax, sqliteBusyTimeoutMs)
 }
 
 // dbCommonHelperFuncs - вспомогательные функции, не завязанные на
@@ -225,8 +233,20 @@ typedef struct rech_db {
 // переиспользует rech_json_sb - тот эмитится только вместе с JSON, здесь не
 // гарантирован) для rech_db_substitute - эмитируются безусловно, для ЛЮБОЙ
 // СУБД (в отличие от dbMySQLURLHelperFuncs ниже - тот нужен только MySQL).
-var dbCommonHelperFuncs = `static void rech_db_panicf(const char *tmpl, const char *arg) {
-    char msg[1024];
+// dbCommonHelperFuncsCode - dbCommonHelperFuncs как функция, а не var,
+// потому что RECH_DB_POOL_TIMEOUT_MS-ветка rech_db_checkout (ниже) вставляет
+// rtmsg.DBCheckoutTimeout - единственное место в этом куске кода, которому
+// нужен параметр вообще (остальной текст - const).
+func dbCommonHelperFuncsCode() string {
+	// timeoutPanic - изолированный fmt.Sprintf ровно на одну подстановку
+	// (сообщение rtmsg), а не единый Sprintf на весь текст функции целиком -
+	// timespecDeadlineCode ниже сама уже возвращает готовый C-текст с
+	// настоящими "%" (деление по модулю), которые сломались бы, пройдя ЕЩЁ
+	// раз через внешний fmt.Sprintf (интерпретировались бы как чужие
+	// verb'ы) - конкатенация строк, не вложенные форматирования.
+	timeoutPanic := fmt.Sprintf(`rech_panic("%s");`, escapeCString(rtmsg.DBCheckoutTimeout))
+	return `static void rech_db_panicf(const char *tmpl, const char *arg) {
+    char msg[RECH_DB_PANIC_MSG_MAX];
     snprintf(msg, sizeof msg, tmpl, arg);
     rech_panic(msg);
 }
@@ -244,6 +264,20 @@ var dbCommonHelperFuncs = `static void rech_db_panicf(const char *tmpl, const ch
 // SPEC.md, "поймать (x: Паника)") паника разворачивается через longjmp мимо
 // парного checkin, иначе оставила бы это соединение НАВСЕГДА помеченным
 // занятым, недоступным остальным потокам.
+//
+// RECH_DB_POOL_TIMEOUT_MS ("бд.таймаут_пула_мс" файла проекта,
+// dbHandleTypedefCode) - 0 (умолчание) означает ждать бесконечно, тем же
+// кодом, что и до появления этой настройки (#if сворачивает лишнюю ветку
+// целиком, а не проверяет её условием в рантайме - тот же приём, что и у
+// ctx.usesTLS в другом месте этого backend'а). Не дождался за отведённое
+// время - "rech_panic(rtmsg.DBCheckoutTimeout)" вместо возврата: вызывающий
+// код (rech_db_query/rech_db_exec) и так ничего не проверяет после
+// checkout, паника просто не даёт дойти до использования несуществующего
+// соединения. Абсолютный дедлайн (не относительный таймаут на каждой
+// итерации цикла) - тем же приёмом, что и rech_wait_all_tasks
+// (active_tasks.go) на POSIX; на Windows SleepConditionVariableCS всё равно
+// принимает только относительный интервал (то же ограничение уже принято
+// там же).
 static void *rech_db_checkout(rech_db_t *db, int *out_idx) {
 #ifdef _WIN32
     EnterCriticalSection(&db->mutex);
@@ -256,10 +290,20 @@ static void *rech_db_checkout(rech_db_t *db, int *out_idx) {
                 return db->conns[i];
             }
         }
+#if RECH_DB_POOL_TIMEOUT_MS > 0
+        if (!SleepConditionVariableCS(&db->cond, &db->mutex, RECH_DB_POOL_TIMEOUT_MS)) {
+            LeaveCriticalSection(&db->mutex);
+            ` + timeoutPanic + `
+        }
+#else
         SleepConditionVariableCS(&db->cond, &db->mutex, INFINITE);
+#endif
     }
 #else
     pthread_mutex_lock(&db->mutex);
+#if RECH_DB_POOL_TIMEOUT_MS > 0
+    struct timespec rech_db_deadline;
+` + timespecDeadlineCode("rech_db_deadline", "RECH_DB_POOL_TIMEOUT_MS") + `#endif
     for (;;) {
         for (int i = 0; i < db->pool_size; i++) {
             if (!db->in_use[i]) {
@@ -269,7 +313,14 @@ static void *rech_db_checkout(rech_db_t *db, int *out_idx) {
                 return db->conns[i];
             }
         }
+#if RECH_DB_POOL_TIMEOUT_MS > 0
+        if (pthread_cond_timedwait(&db->cond, &db->mutex, &rech_db_deadline) != 0) {
+            pthread_mutex_unlock(&db->mutex);
+            ` + timeoutPanic + `
+        }
+#else
         pthread_cond_wait(&db->cond, &db->mutex);
+#endif
     }
 #endif
 }
@@ -327,6 +378,7 @@ static void rech_db_sb_puts(rech_db_sb *sb, const char *s) {
 }
 
 `
+}
 
 // dbMySQLURLHelperFuncs - разбор "mysql://" (единственная из трёх схем без
 // готового URL-парсера в своей библиотеке - PostgreSQL принимает URL в
@@ -431,7 +483,9 @@ func dbConnectCloseCode(backends dbscheme.Set) string {
             // этого второй писатель падает с SQLITE_BUSY немедленно вместо
             // того, чтобы подождать освобождения блокировки (у ":memory:"
             // не имеет значения - там pool_size всегда 1, см. выше).
-            sqlite3_busy_timeout(h, 5000);
+            // RECH_DB_SQLITE_BUSY_TIMEOUT_MS - "бд.sqlite_таймаут_блокировки_мс"
+            // файла проекта (dbHandleTypedefCode), по умолчанию 5000.
+            sqlite3_busy_timeout(h, RECH_DB_SQLITE_BUSY_TIMEOUT_MS);
             db->conns[i] = h;
             db->in_use[i] = 0;
         }
@@ -827,7 +881,7 @@ func dbRuntimeCode(backends dbscheme.Set) string {
 	listAdd := mangleMethod(dbResultType, "добавить")
 
 	var sb strings.Builder
-	sb.WriteString(dbCommonHelperFuncs)
+	sb.WriteString(dbCommonHelperFuncsCode())
 	if backends.NeedsSQLite() {
 		sb.WriteString(sqliteOpaqueTypedefs)
 		sb.WriteString(sqliteExternDecls)

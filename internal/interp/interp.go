@@ -495,6 +495,16 @@ type Interp struct {
 	// DefaultDBPoolSize) - dbConnect передаёт его в database/sql
 	// (SetMaxOpenConns), см. package doc dbConnect в db.go.
 	dbPoolSize int
+	// dbPoolTimeoutMs - ir.Program.DBPoolTimeoutMs ("бд.таймаут_пула_мс" из
+	// .rechproj, 0 - ждать бесконечно, тем же принципом, что и до появления
+	// этой настройки) - dbQuery/dbExec читают его, см. их package doc в
+	// db.go про известную асимметрию с cbackend.
+	dbPoolTimeoutMs int
+	// dbSQLiteBusyTimeoutMs - ir.Program.DBSQLiteBusyTimeoutMs ("бд.
+	// sqlite_таймаут_блокировки_мс" из .rechproj, по умолчанию internal/
+	// semantic.DefaultDBSQLiteBusyTimeoutMs) - dbConnect передаёт его в DSN
+	// SQLite ("?_busy_timeout=") - см. её package doc в db.go.
+	dbSQLiteBusyTimeoutMs int
 }
 
 // Run исполняет prog: находит "главная" и выполняет её тело, печатая
@@ -556,6 +566,8 @@ func newInterp(prog *ir.Program, out io.Writer, stdin io.Reader) (*Interp, *ir.F
 		interfaceImplementors: prog.InterfaceImplementors,
 		entityInterfaces:      prog.EntityInterfaces,
 		dbPoolSize:            prog.DBPoolSize,
+		dbPoolTimeoutMs:       prog.DBPoolTimeoutMs,
+		dbSQLiteBusyTimeoutMs: prog.DBSQLiteBusyTimeoutMs,
 	}
 	for _, fn := range prog.Functions {
 		in.funcs[fn.Name] = fn

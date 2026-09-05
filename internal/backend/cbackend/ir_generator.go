@@ -1008,7 +1008,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// ("rech_db_t") обязан быть виден раньше typedef самой сущности,
 	// раньше, чем полный dbRuntimeCode (тот эмитируется намного позже -
 	// зависит от genericsCode, которого здесь ещё нет).
-	appendCodeIf(&sb, prog.UsesDB, dbHandleTypedefCode(prog.DBPoolSize))
+	appendCodeIf(&sb, prog.UsesDB, dbHandleTypedefCode(prog.DBPoolSize, prog.DBPoolTimeoutMs, prog.DBSQLiteBusyTimeoutMs))
 
 	// Перед typedefs - сущность может нести поле generic-коллекции по
 	// значению (например, "товары: Список<Строка>"), значит её C-typedef

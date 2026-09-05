@@ -19,7 +19,7 @@ package cbackend
 // busy-poll - "дождаться_всех_задач" просыпается СРАЗУ, как только счётчик
 // досчитывается до нуля, не по истечении таймаута впустую, если все задачи
 // управились раньше.
-const activeTasksCode = `static long long rech_active_tasks_count = 0;
+var activeTasksCode = `static long long rech_active_tasks_count = 0;
 #ifdef _WIN32
 static CRITICAL_SECTION rech_active_tasks_mutex;
 static volatile LONG rech_active_tasks_mutex_ready = 0;
@@ -74,13 +74,7 @@ static int rech_wait_all_tasks(long long ms) {
 #else
     if (rech_active_tasks_count > 0 && ms > 0) {
         struct timespec ts;
-        clock_gettime(CLOCK_REALTIME, &ts);
-        ts.tv_sec += ms / 1000;
-        ts.tv_nsec += (ms % 1000) * 1000000;
-        if (ts.tv_nsec >= 1000000000) {
-            ts.tv_sec++;
-            ts.tv_nsec -= 1000000000;
-        }
+` + timespecDeadlineCode("ts", "ms") + `
         while (rech_active_tasks_count > 0) {
             if (pthread_cond_timedwait(&rech_active_tasks_cond, &rech_active_tasks_mutex, &ts) != 0) {
                 break;

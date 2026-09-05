@@ -131,6 +131,8 @@ func main() {
 	var projectDepScopes map[string]map[string]string
 	var runEnv map[string]string
 	var dbPoolSize int
+	var dbPoolTimeoutMs int
+	var dbSQLiteBusyTimeoutMs int
 	if !hasCode {
 		projPath := srcPath
 		if projPath == "" {
@@ -166,6 +168,14 @@ func main() {
 				fmt.Fprintln(os.Stderr, "ошибка:", perr)
 				os.Exit(1)
 			}
+			if dbPoolTimeoutMs, perr = pf.DBPoolTimeoutMs(); perr != nil {
+				fmt.Fprintln(os.Stderr, "ошибка:", perr)
+				os.Exit(1)
+			}
+			if dbSQLiteBusyTimeoutMs, perr = pf.DBSQLiteBusyTimeoutMs(); perr != nil {
+				fmt.Fprintln(os.Stderr, "ошибка:", perr)
+				os.Exit(1)
+			}
 			// Библиотеки для линковки (-l<имя>) - только из файла проекта:
 			// "внешняя функция" в .rech-коде не привязана к конкретной
 			// библиотеке (см. package doc project.File.Библиотеки), значит без
@@ -194,6 +204,8 @@ func main() {
 	comp.Deps = projectDeps
 	comp.DepScopes = projectDepScopes
 	comp.DBPoolSize = dbPoolSize
+	comp.DBPoolTimeoutMs = dbPoolTimeoutMs
+	comp.DBSQLiteBusyTimeoutMs = dbSQLiteBusyTimeoutMs
 	build := func() (string, error) { return comp.Build(srcPath, keepC, extraLibs) }
 	buildLib := func() (string, string, error) { return comp.BuildLib(srcPath, keepC, extraLibs) }
 	if hasCode {
