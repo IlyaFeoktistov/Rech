@@ -117,11 +117,13 @@ func TestParseTryCatchPanic(t *testing.T) {
 	}
 }
 
-// TestParseTryCatchPanicRejectsUnionWithOtherType - "Паника" обязана быть
-// единственным элементом списка типов - "поймать(x: Паника|Исключение)"
-// должен быть явной ошибкой разбора, не тихим падением дальше в семантику.
-func TestParseTryCatchPanicRejectsUnionWithOtherType(t *testing.T) {
-	_, err := parseSource(t, `
+// TestParseTryCatchPanicUnionWithOtherType - "Паника" МОЖЕТ сочетаться с
+// обычными типами через "|" (package doc ast.TryStmt.CatchPanic) -
+// "поймать(x: Паника|Исключение)" - валидный смешанный обработчик: "Паника"
+// вырезается из CatchTypes (не заносится в него буквально), CatchPanic
+// становится true, остальные типы списка остаются в CatchTypes как обычно.
+func TestParseTryCatchPanicUnionWithOtherType(t *testing.T) {
+	prog, err := parseSource(t, `
 функция главная
 {
     попытаться {
@@ -131,8 +133,34 @@ func TestParseTryCatchPanicRejectsUnionWithOtherType(t *testing.T) {
     }
 }
 `)
-	if err == nil || !strings.Contains(err.Error(), "не может сочетаться") {
-		t.Fatalf("ожидалась ошибка о несовместимости \"Паника\" с другими типами, получено: %v", err)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	try := prog.Functions[0].Body[0].(*ast.TryStmt)
+	if !try.CatchPanic {
+		t.Fatalf("ожидался CatchPanic == true")
+	}
+	if len(try.CatchTypes) != 1 || try.CatchTypes[0] != "Исключение" {
+		t.Fatalf("ожидался CatchTypes [Исключение] (без \"Паника\"), получено %+v", try.CatchTypes)
+	}
+}
+
+// TestParseTryCatchPanicRejectsDuplicatePanic - "Паника" перечисленная в
+// списке типов более одного раза - явная ошибка разбора, как и дубликат
+// любого другого типа.
+func TestParseTryCatchPanicRejectsDuplicatePanic(t *testing.T) {
+	_, err := parseSource(t, `
+функция главная
+{
+    попытаться {
+        вывести "тело"
+    } поймать(сообщение: Паника|Паника) {
+        вывести "поймано"
+    }
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "перечислена более одного раза") {
+		t.Fatalf("ожидалась ошибка о дубликате \"Паника\", получено: %v", err)
 	}
 }
 

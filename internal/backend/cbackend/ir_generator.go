@@ -231,6 +231,23 @@ type irGenCtx struct {
 	// активному, а полностью его временно заменять на время своего тела).
 	capturedRedirect map[string]string
 
+	// cleanupStack - действия, которые обязан выполнить "вернуть" ПЕРЕД
+	// настоящим C `return`, если он встретился лексически внутри
+	// охватывающего "попытаться" (внутри его Body/CatchBody - см.
+	// exceptions.go, generateIRReturnStmt/emitCleanupUnwind) - каждый узел
+	// "попытаться" добавляет сюда одно действие (восстановление
+	// rech_catch_top до значения ДО себя, плюс запуск "окончательно", если
+	// оно есть у узла) на время генерации своего Body/CatchBody и снимает
+	// его после (append/срез, обычный стек). При возврате действия
+	// прогоняются в ОБРАТНОМ порядке (LIFO - самый внутренний "попытаться"
+	// первым), потому что raw C `return`, в отличие от "выбросить"/паники
+	// (setjmp/longjmp, восстанавливается самим рантаймом), никак не
+	// взаимодействует с rech_catch_top сам по себе. Сохраняется/
+	// восстанавливается вокруг тела лямбды тем же принципом, что и
+	// capturedRedirect выше - "вернуть" внутри лямбды принадлежит ЕЁ
+	// собственной C-функции, не может видеть кадры внешнего попытаться.
+	cleanupStack []cleanupAction
+
 	// chainTmpCounter/chainTmpPreamble/curIndent - материализация получателя
 	// вызова метода/присваивания полю, когда получатель ("структура",
 	// значение) - не адресуемое выражение (результат вызова, а не
@@ -1845,6 +1862,15 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 
 	case *ir.ReturnStmt:
 		if s.Value == nil {
+			if len(ctx.cleanupStack) > 0 {
+				fmt.Fprintf(sb, "%s{\n", ind)
+				if err := emitCleanupUnwind(sb, ctx, depth+1); err != nil {
+					return err
+				}
+				fmt.Fprintf(sb, "%s    %sreturn 0;\n", ind, tracePop)
+				fmt.Fprintf(sb, "%s}\n", ind)
+				return nil
+			}
 			fmt.Fprintf(sb, "%s%s%sreturn 0;\n", ind, tracePop, ind)
 			return nil
 		}
@@ -1862,6 +1888,9 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 		// одного раза (разные ветки "если").
 		fmt.Fprintf(sb, "%s{\n", ind)
 		fmt.Fprintf(sb, "%s    %s %s = %s;\n", ind, typ.cType(ctx), returnTmpVar, code)
+		if err := emitCleanupUnwind(sb, ctx, depth+1); err != nil {
+			return err
+		}
 		fmt.Fprintf(sb, "%s    %s%s    return %s;\n", ind, tracePop, ind, returnTmpVar)
 		fmt.Fprintf(sb, "%s}\n", ind)
 		return nil

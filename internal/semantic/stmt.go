@@ -9,14 +9,23 @@ import (
 
 // endsWithReturnValue - true, если body гарантированно заканчивается
 // "вернуть <значение>": либо это сама последняя инструкция, либо
-// последняя инструкция - "попытаться {...} поймать (...) {...}", У КОТОРОГО
-// заканчивается возвратом значения И тело попытки, И тело обработчика (obe
-// ветки покрывают все пути исполнения - других способов try/catch
-// завершиться, кроме исключения ВНУТРИ catch, здесь нет). Не анализ всех
-// путей исполнения программы в общем виде (если/иначе не разворачивается) -
-// узкое расширение именно под try/catch, единственную конструкцию, для
-// которой раньше приходилось городить накопление в переменную ради этой
-// проверки.
+// последняя инструкция - "попытаться {...} поймать (...) {...}
+// [окончательно {...}]", У КОТОРОГО заканчивается возвратом значения И тело
+// попытки, И тело обработчика (обе ветки покрывают все пути исполнения -
+// других способов try/catch завершиться, кроме исключения ВНУТРИ catch,
+// здесь нет), ЛИБО "окончательно" само заканчивается возвратом значения -
+// оно исполняется на КАЖДОМ пути (нормальное завершение, пойманное,
+// непойманное - см. ir.TryStmt.Finally) и его "вернуть", если есть,
+// ПЕРЕОПРЕДЕЛЯЕТ результат (docs/SPEC.md), поэтому одного этого достаточно,
+// независимо от Body/CatchBody. NoCatch (нет ни одного "поймать" - см.
+// ir.TryStmt.NoCatch) - CatchBody не существует, проверяется только Body
+// (непойманное исключение/паника в этом случае покидает функцию целиком, а
+// не проваливается к тому, что после "попытаться", так же, как и обычный
+// поймать(Тип), не покрывающий фактически брошенный тип, - уже принятое
+// послабление этой проверки, см. ниже). Не анализ всех путей исполнения
+// программы в общем виде (если/иначе не разворачивается) - узкое
+// расширение именно под try/catch, единственную конструкцию, для которой
+// раньше приходилось городить накопление в переменную ради этой проверки.
 func endsWithReturnValue(body []ir.Stmt) bool {
 	if len(body) == 0 {
 		return false
@@ -25,6 +34,12 @@ func endsWithReturnValue(body []ir.Stmt) bool {
 	case *ir.ReturnStmt:
 		return last.Value != nil
 	case *ir.TryStmt:
+		if len(last.Finally) > 0 && endsWithReturnValue(last.Finally) {
+			return true
+		}
+		if last.NoCatch {
+			return endsWithReturnValue(last.Body)
+		}
 		return endsWithReturnValue(last.Body) && endsWithReturnValue(last.CatchBody)
 	default:
 		return false
@@ -51,6 +66,12 @@ func blockDiverges(body []ir.Stmt) bool {
 	case *ir.ThrowStmt:
 		return true
 	case *ir.TryStmt:
+		if len(last.Finally) > 0 && blockDiverges(last.Finally) {
+			return true
+		}
+		if last.NoCatch {
+			return blockDiverges(last.Body)
+		}
 		return blockDiverges(last.Body) && blockDiverges(last.CatchBody)
 	case *ir.IfStmt:
 		return last.Else != nil && blockDiverges(last.Then) && blockDiverges(last.Else)

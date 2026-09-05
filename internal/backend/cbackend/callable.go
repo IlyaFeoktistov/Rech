@@ -176,6 +176,11 @@ func ensureLambdaFunc(ctx *irGenCtx, e *ir.LambdaExpr) error {
 	} else {
 		ctx.capturedRedirect = nil
 	}
+	// prevCleanupStack - см. package doc irGenCtx.cleanupStack: тело лямбды -
+	// СОБСТВЕННАЯ C-функция, "вернуть" внутри неё не обязан (и не может)
+	// видеть кадры попытаться, охватывающего саму лямбду СНАРУЖИ.
+	prevCleanupStack := ctx.cleanupStack
+	ctx.cleanupStack = nil
 	var bodyErr error
 	for _, s := range e.Body {
 		if err := generateIRStmt(&sb, ctx, s, 1); err != nil {
@@ -184,6 +189,7 @@ func ensureLambdaFunc(ctx *irGenCtx, e *ir.LambdaExpr) error {
 		}
 	}
 	ctx.capturedRedirect = prevRedirect
+	ctx.cleanupStack = prevCleanupStack
 	if bodyErr != nil {
 		return fmt.Errorf("лямбда: %w", bodyErr)
 	}

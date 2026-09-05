@@ -24,6 +24,7 @@ package cbackend
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -102,6 +103,47 @@ const (
 	catchTopVar    = "rech_catch_top"
 	throwFunc      = "rech_throw"
 )
+
+// cleanupAction - действие, которое должен выполнить "вернуть" ПЕРЕД
+// настоящим C `return`, если он лексически встретился внутри Body/CatchBody
+// охватывающего "попытаться" (см. package doc irGenCtx.cleanupStack,
+// ir_generator.go) - raw C `return`, в отличие от "выбросить"/паники
+// (setjmp/longjmp, восстанавливается самим рантаймом на месте кадра), сам
+// по себе никак не взаимодействует с rech_catch_top.
+type cleanupAction func(sb *strings.Builder, ctx *irGenCtx, depth int) error
+
+// pushFrameRestoreCleanup регистрирует восстановление rech_catch_top до
+// значения "до этого кадра" (frameVar.prev) как cleanup-действие - для
+// узлов "попытаться" БЕЗ "окончательно" (generateIRTryStmt/
+// generateIRTryCatchPanicStmt/generateIRTryCatchMixedStmt) им больше нечего
+// делать при раннем возврате (у generateIRTryWithFinallyStmt действие
+// сложнее - собирается на месте, не через эту функцию, там ЕЩЁ нужно
+// запустить "окончательно"). Возвращает pop-функцию, которую вызывающая
+// сторона обязана вызвать РОВНО ОДИН РАЗ, после того как Body/CatchBody
+// узла уже сгенерированы.
+func pushFrameRestoreCleanup(ctx *irGenCtx, frameVar string) func() {
+	prev := ctx.cleanupStack
+	action := cleanupAction(func(sb *strings.Builder, actx *irGenCtx, depth int) error {
+		fmt.Fprintf(sb, "%s%s = %s.prev;\n", indent(depth), catchTopVar, frameVar)
+		return nil
+	})
+	ctx.cleanupStack = append(append([]cleanupAction{}, prev...), action)
+	return func() {
+		ctx.cleanupStack = prev
+	}
+}
+
+// emitCleanupUnwind прогоняет ctx.cleanupStack в ОБРАТНОМ порядке (LIFO -
+// самый внутренний "попытаться" первым) - единственная точка, которая
+// вообще читает cleanupStack (generateIRReturnStmt, ir_generator.go).
+func emitCleanupUnwind(sb *strings.Builder, ctx *irGenCtx, depth int) error {
+	for _, action := range slices.Backward(ctx.cleanupStack) {
+		if err := action(sb, ctx, depth); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // exceptionRuntimeCode - стек кадров "попытаться" (односвязный список,
 // растёт с каждым вложенным "попытаться" и не требует заранее известной
@@ -275,7 +317,13 @@ func generateIRThrowStmt(sb *strings.Builder, ctx *irGenCtx, s *ir.ThrowStmt, de
 // ctx.tryCounter гарантирует уникальное C-имя у вложенных) - см. package
 // doc про сам механизм setjmp/longjmp.
 func generateIRTryStmt(sb *strings.Builder, ctx *irGenCtx, s *ir.TryStmt, depth int) error {
+	if s.NoCatch || len(s.Finally) > 0 {
+		return generateIRTryWithFinallyStmt(sb, ctx, s, depth)
+	}
 	if s.CatchPanic {
+		if len(s.CatchTypes) > 0 {
+			return generateIRTryCatchMixedStmt(sb, ctx, s, depth)
+		}
 		return generateIRTryCatchPanicStmt(sb, ctx, s, depth)
 	}
 	ctx.usesExceptions = true
@@ -302,6 +350,12 @@ func generateIRTryStmt(sb *strings.Builder, ctx *irGenCtx, s *ir.TryStmt, depth 
 	fmt.Fprintf(sb, "%s%s %s = {0};\n", in1, catchFrameType, frame)
 	fmt.Fprintf(sb, "%s%s.prev = %s;\n", in1, frame, catchTopVar)
 	fmt.Fprintf(sb, "%s%s = &%s;\n", in1, catchTopVar, frame)
+	// pushFrameCleanup/pop - см. package doc cleanupAction: "вернуть"
+	// внутри Body/CatchBody ниже - голый C return, не проходит через
+	// setjmp/longjmp, поэтому обязан восстановить rech_catch_top сам
+	// (иначе он остаётся висеть на frame - локальной переменной, которая
+	// вот-вот перестанет существовать при возврате из C-функции).
+	popCleanup := pushFrameRestoreCleanup(ctx, frame)
 	fmt.Fprintf(sb, "%sif (setjmp(%s.buf) == 0) {\n", in1, frame)
 	for _, st := range s.Body {
 		if err := generateIRStmt(sb, ctx, st, depth+2); err != nil {
@@ -334,6 +388,7 @@ func generateIRTryStmt(sb *strings.Builder, ctx *irGenCtx, s *ir.TryStmt, depth 
 		if err := writeCatchBody(sb, depth+2); err != nil {
 			return err
 		}
+		popCleanup()
 		fmt.Fprintf(sb, "%s}\n%s}\n", in1, ind)
 		return nil
 	}
@@ -355,6 +410,7 @@ func generateIRTryStmt(sb *strings.Builder, ctx *irGenCtx, s *ir.TryStmt, depth 
 	fmt.Fprintf(sb, "%s} else {\n", in2)
 	fmt.Fprintf(sb, "%s%s(%s_exc, %s[%s]);\n", in3, throwFunc, frame, typeNamesVar, tid)
 	fmt.Fprintf(sb, "%s}\n", in2)
+	popCleanup()
 	fmt.Fprintf(sb, "%s}\n%s}\n", in1, ind)
 	return nil
 }
@@ -382,6 +438,7 @@ func generateIRTryCatchPanicStmt(sb *strings.Builder, ctx *irGenCtx, s *ir.TrySt
 	fmt.Fprintf(sb, "%s%s.prev = %s;\n", in1, frame, catchTopVar)
 	fmt.Fprintf(sb, "%s%s.catch_panics = true;\n", in1, frame)
 	fmt.Fprintf(sb, "%s%s = &%s;\n", in1, catchTopVar, frame)
+	popCleanup := pushFrameRestoreCleanup(ctx, frame)
 	fmt.Fprintf(sb, "%sif (setjmp(%s.buf) == 0) {\n", in1, frame)
 	for _, st := range s.Body {
 		if err := generateIRStmt(sb, ctx, st, depth+2); err != nil {
@@ -400,7 +457,263 @@ func generateIRTryCatchPanicStmt(sb *strings.Builder, ctx *irGenCtx, s *ir.TrySt
 			return err
 		}
 	}
+	popCleanup()
 	fmt.Fprintf(sb, "%s}\n%s}\n", in1, ind)
+	return nil
+}
+
+// generateIRTryCatchMixedStmt - "попытаться { ... } поймать (<CatchVar>: Паника|<Тип>[|<Тип>...]) { ... }"
+// (docs/ROADMAP.md, "интерфейс Выбрасываемое" - реализовано без него, тем же
+// поймать(...) с "|", см. package doc ir.TryStmt.CatchPanic) - ОДИН
+// обработчик и на панику, и на перечисленные исключения сразу. Два
+// вложенных кадра перехвата (тот же принцип, что и rech_db_run_transaction,
+// dbtx.go: внешний - catch_panics, внутренний - обычный кадр, диспетчеризуя
+// по s.CatchTypes так же, как generateIRTryStmt выше), сходящиеся в ОДИН
+// вызов CatchBody (не два раза подряд - frame_caught/frame_msg копят
+// результат любой из двух ветвей, CatchBody генерируется единожды ПОСЛЕ
+// обеих). CatchVar везде "Строка" (сообщение) - у исключения это его
+// собственное поле "сообщение", у паники - panic_msg как есть.
+func generateIRTryCatchMixedStmt(sb *strings.Builder, ctx *irGenCtx, s *ir.TryStmt, depth int) error {
+	ctx.usesExceptions = true
+	ctx.usesPanicCatch = true
+	ctx.tryCounter++
+	frame := fmt.Sprintf("rech_frame_%d", ctx.tryCounter)
+	ind := indent(depth)
+	in1 := indent(depth + 1)
+	in2 := indent(depth + 2)
+	in3 := indent(depth + 3)
+	in4 := indent(depth + 4)
+
+	panicFrame := frame + "_panic"
+	excFrame := frame + "_exc"
+	excPtr := frame + "_excptr"
+	traceVar := frame + "_trace"
+	caughtVar := frame + "_caught"
+	msgVar := frame + "_msg"
+
+	fmt.Fprintf(sb, "%s{\n", ind)
+	fmt.Fprintf(sb, "%sint %s = rech_trace_top;\n", in1, traceVar)
+	fmt.Fprintf(sb, "%s%s %s = {0};\n", in1, catchFrameType, panicFrame)
+	fmt.Fprintf(sb, "%s%s.prev = %s;\n", in1, panicFrame, catchTopVar)
+	fmt.Fprintf(sb, "%s%s.catch_panics = true;\n", in1, panicFrame)
+	fmt.Fprintf(sb, "%s%s = &%s;\n", in1, catchTopVar, panicFrame)
+	fmt.Fprintf(sb, "%sbool %s = false;\n", in1, caughtVar)
+	fmt.Fprintf(sb, "%sconst char *%s = NULL;\n", in1, msgVar)
+	popCleanup := pushFrameRestoreCleanup(ctx, panicFrame)
+	fmt.Fprintf(sb, "%sif (setjmp(%s.buf) == 0) {\n", in1, panicFrame)
+	fmt.Fprintf(sb, "%s%s %s = {0};\n", in2, catchFrameType, excFrame)
+	fmt.Fprintf(sb, "%s%s.prev = %s;\n", in2, excFrame, catchTopVar)
+	fmt.Fprintf(sb, "%s%s = &%s;\n", in2, catchTopVar, excFrame)
+	fmt.Fprintf(sb, "%sif (setjmp(%s.buf) == 0) {\n", in2, excFrame)
+	for _, st := range s.Body {
+		if err := generateIRStmt(sb, ctx, st, depth+3); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintf(sb, "%s%s = %s.prev;\n", in3, catchTopVar, excFrame)
+	fmt.Fprintf(sb, "%s} else {\n", in2)
+	fmt.Fprintf(sb, "%s%s = %s.prev;\n", in3, catchTopVar, excFrame)
+	fmt.Fprintf(sb, "%srech_trace_top = %s;\n", in3, traceVar)
+	fmt.Fprintf(sb, "%svoid *%s = %s.exc;\n", in3, excPtr, excFrame)
+
+	msgField := fmt.Sprintf("((const %s *)%s)->%s", mangleType(systemExceptionEntity), excPtr, mangleField("сообщение"))
+	if !ctx.exceptionsUseDispatch() {
+		fmt.Fprintf(sb, "%s%s = %s;\n", in3, msgVar, msgField)
+		fmt.Fprintf(sb, "%s%s = true;\n", in3, caughtVar)
+	} else {
+		tid := frame + "_tid"
+		fmt.Fprintf(sb, "%sint %s = ((const %s *)%s)->vt->type_id;\n", in3, tid, vtableHeaderType, excPtr)
+		conds := make([]string, len(s.CatchTypes))
+		for i, t := range s.CatchTypes {
+			id, ok := ctx.excTypeIDs[t]
+			if !ok {
+				return fmt.Errorf("генерация C из IR: тип %q поймать(...) не найден в таблице rech_isa", t)
+			}
+			conds[i] = fmt.Sprintf("%s[%s][%d]", isaTableVar, tid, id)
+		}
+		fmt.Fprintf(sb, "%sif (%s) {\n", in3, strings.Join(conds, " || "))
+		fmt.Fprintf(sb, "%s%s = %s;\n", in4, msgVar, msgField)
+		fmt.Fprintf(sb, "%s%s = true;\n", in4, caughtVar)
+		fmt.Fprintf(sb, "%s} else {\n", in3)
+		fmt.Fprintf(sb, "%s%s(%s, %s[%s]);\n", in4, throwFunc, excPtr, typeNamesVar, tid)
+		fmt.Fprintf(sb, "%s}\n", in3)
+	}
+	fmt.Fprintf(sb, "%s}\n", in2)
+	fmt.Fprintf(sb, "%s%s = %s.prev;\n", in2, catchTopVar, panicFrame)
+	fmt.Fprintf(sb, "%s} else {\n", in1)
+	fmt.Fprintf(sb, "%s%s = %s.prev;\n", in2, catchTopVar, panicFrame)
+	fmt.Fprintf(sb, "%srech_trace_top = %s;\n", in2, traceVar)
+	fmt.Fprintf(sb, "%s%s = %s.panic_msg;\n", in2, msgVar, panicFrame)
+	fmt.Fprintf(sb, "%s%s = true;\n", in2, caughtVar)
+	fmt.Fprintf(sb, "%s}\n", in1)
+
+	fmt.Fprintf(sb, "%sif (%s) {\n", in1, caughtVar)
+	catchVarC := fromIRType(s.CatchVarType).cType(ctx)
+	catchVar := mangleVar(s.CatchVar)
+	fmt.Fprintf(sb, "%s%s %s = %s;\n", in2, catchVarC, catchVar, msgVar)
+	for _, st := range s.CatchBody {
+		if err := generateIRStmt(sb, ctx, st, depth+2); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintf(sb, "%s}\n", in1)
+	popCleanup()
+	fmt.Fprintf(sb, "%s}\n", ind)
+	return nil
+}
+
+// generateIRTryWithFinallyStmt - узел цепочки с "окончательно" (package doc
+// ast.TryStmt.Finally/NoCatch) - либо вовсе без "поймать" (s.NoCatch), либо
+// один из трёх обычных видов (CatchTypes/CatchPanic/оба сразу) с довеском
+// "окончательно". В отличие от трёх функций выше, устанавливает ОБА кадра
+// перехвата БЕЗУСЛОВНО, даже если сам узел не просит ловить один из двух
+// классов ошибок - "окончательно" обязан увидеть ЛЮБОЙ сквозной проход
+// (панику ИЛИ исключение, которые этот конкретный "поймать" не перехватывает)
+// и всё равно выполниться ПЕРЕД тем, как пробросить их дальше (frame_outcome
+// 2/3 ниже). CatchBody (если есть) генерируется РОВНО ОДИН РАЗ, уже после
+// того как обе ветки (паника/исключение) сошлись в frame_outcome - тот же
+// приём, что и в generateIRTryCatchMixedStmt, только с добавленным "не
+// поймано, но окончательно всё равно нужно выполнить" исходом.
+func generateIRTryWithFinallyStmt(sb *strings.Builder, ctx *irGenCtx, s *ir.TryStmt, depth int) error {
+	ctx.usesExceptions = true
+	ctx.usesPanicCatch = true
+	ctx.tryCounter++
+	frame := fmt.Sprintf("rech_frame_%d", ctx.tryCounter)
+	ind := indent(depth)
+	in1 := indent(depth + 1)
+	in2 := indent(depth + 2)
+	in3 := indent(depth + 3)
+	in4 := indent(depth + 4)
+
+	panicFrame := frame + "_panic"
+	excFrame := frame + "_exc"
+	excPtr := frame + "_excptr"
+	traceVar := frame + "_trace"
+	outcomeVar := frame + "_outcome" // 0 обычное завершение, 1 - свой поймать сработал, 2 - паника прошла насквозь, 3 - исключение прошло насквозь (не подошёл ни один тип)
+	msgVar := frame + "_msg"
+
+	fmt.Fprintf(sb, "%s{\n", ind)
+	fmt.Fprintf(sb, "%sint %s = rech_trace_top;\n", in1, traceVar)
+	fmt.Fprintf(sb, "%s%s %s = {0};\n", in1, catchFrameType, panicFrame)
+	fmt.Fprintf(sb, "%s%s.prev = %s;\n", in1, panicFrame, catchTopVar)
+	fmt.Fprintf(sb, "%s%s.catch_panics = true;\n", in1, panicFrame)
+	fmt.Fprintf(sb, "%s%s = &%s;\n", in1, catchTopVar, panicFrame)
+	fmt.Fprintf(sb, "%sint %s = 0;\n", in1, outcomeVar)
+	fmt.Fprintf(sb, "%sconst char *%s = NULL;\n", in1, msgVar)
+	fmt.Fprintf(sb, "%svoid *%s = NULL;\n", in1, excPtr)
+
+	// prevStack/action - см. package doc cleanupAction: раннее "вернуть"
+	// внутри Body/CatchBody обязано и восстановить rech_catch_top (одной
+	// строкой, до panicFrame.prev - пропускает разом оба кадра, excFrame
+	// вложен ПОСЛЕ panicFrame, восстанавливать его отдельно не нужно), и
+	// прогнать "окончательно" (temp-переключение actx.cleanupStack на
+	// prevStack на время его генерации - вложенное "вернуть" внутри самого
+	// Finally обязано видеть только ВНЕШНИЕ по отношению к этому узлу
+	// кадры, не крутиться на этом же действии повторно).
+	prevStack := ctx.cleanupStack
+	action := cleanupAction(func(asb *strings.Builder, actx *irGenCtx, adepth int) error {
+		aind := indent(adepth)
+		fmt.Fprintf(asb, "%s%s = %s.prev;\n", aind, catchTopVar, panicFrame)
+		saved := actx.cleanupStack
+		actx.cleanupStack = prevStack
+		var ferr error
+		for _, st := range s.Finally {
+			if err := generateIRStmt(asb, actx, st, adepth); err != nil {
+				ferr = err
+				break
+			}
+		}
+		actx.cleanupStack = saved
+		return ferr
+	})
+	ctx.cleanupStack = append(append([]cleanupAction{}, prevStack...), action)
+
+	fmt.Fprintf(sb, "%sif (setjmp(%s.buf) == 0) {\n", in1, panicFrame)
+	fmt.Fprintf(sb, "%s%s %s = {0};\n", in2, catchFrameType, excFrame)
+	fmt.Fprintf(sb, "%s%s.prev = %s;\n", in2, excFrame, catchTopVar)
+	fmt.Fprintf(sb, "%s%s = &%s;\n", in2, catchTopVar, excFrame)
+	fmt.Fprintf(sb, "%sif (setjmp(%s.buf) == 0) {\n", in2, excFrame)
+	for _, st := range s.Body {
+		if err := generateIRStmt(sb, ctx, st, depth+3); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintf(sb, "%s%s = %s.prev;\n", in3, catchTopVar, excFrame)
+	fmt.Fprintf(sb, "%s} else {\n", in2)
+	fmt.Fprintf(sb, "%s%s = %s.prev;\n", in3, catchTopVar, excFrame)
+	fmt.Fprintf(sb, "%srech_trace_top = %s;\n", in3, traceVar)
+	fmt.Fprintf(sb, "%s%s = %s.exc;\n", in3, excPtr, excFrame)
+	fmt.Fprintf(sb, "%s%s = ((const %s *)%s)->%s;\n", in3, msgVar, mangleType(systemExceptionEntity), excPtr, mangleField("сообщение"))
+
+	switch {
+	case s.NoCatch || len(s.CatchTypes) == 0:
+		// Ни одного своего типа исключения (NoCatch - вовсе без "поймать",
+		// либо чистый "поймать(Паника)" с довеском "окончательно") -
+		// исключение всегда проходит насквозь.
+		fmt.Fprintf(sb, "%s%s = 3;\n", in3, outcomeVar)
+	case !ctx.exceptionsUseDispatch():
+		fmt.Fprintf(sb, "%s%s = 1;\n", in3, outcomeVar)
+	default:
+		tid := frame + "_tid"
+		fmt.Fprintf(sb, "%sint %s = ((const %s *)%s)->vt->type_id;\n", in3, tid, vtableHeaderType, excPtr)
+		conds := make([]string, len(s.CatchTypes))
+		for i, t := range s.CatchTypes {
+			id, ok := ctx.excTypeIDs[t]
+			if !ok {
+				return fmt.Errorf("генерация C из IR: тип %q поймать(...) не найден в таблице rech_isa", t)
+			}
+			conds[i] = fmt.Sprintf("%s[%s][%d]", isaTableVar, tid, id)
+		}
+		fmt.Fprintf(sb, "%sif (%s) {\n", in3, strings.Join(conds, " || "))
+		fmt.Fprintf(sb, "%s%s = 1;\n", in4, outcomeVar)
+		fmt.Fprintf(sb, "%s} else {\n", in3)
+		fmt.Fprintf(sb, "%s%s = 3;\n", in4, outcomeVar)
+		fmt.Fprintf(sb, "%s}\n", in3)
+	}
+	fmt.Fprintf(sb, "%s}\n", in2)
+	fmt.Fprintf(sb, "%s%s = %s.prev;\n", in2, catchTopVar, panicFrame)
+	fmt.Fprintf(sb, "%s} else {\n", in1)
+	fmt.Fprintf(sb, "%s%s = %s.prev;\n", in2, catchTopVar, panicFrame)
+	fmt.Fprintf(sb, "%srech_trace_top = %s;\n", in2, traceVar)
+	fmt.Fprintf(sb, "%s%s = %s.panic_msg;\n", in2, msgVar, panicFrame)
+	if s.CatchPanic {
+		fmt.Fprintf(sb, "%s%s = 1;\n", in2, outcomeVar)
+	} else {
+		fmt.Fprintf(sb, "%s%s = 2;\n", in2, outcomeVar)
+	}
+	fmt.Fprintf(sb, "%s}\n", in1)
+
+	ctx.cleanupStack = prevStack // Body/CatchBody сгенерированы - см. package doc выше.
+
+	if !s.NoCatch {
+		fmt.Fprintf(sb, "%sif (%s == 1) {\n", in1, outcomeVar)
+		catchVarC := fromIRType(s.CatchVarType).cType(ctx)
+		catchVar := mangleVar(s.CatchVar)
+		if s.CatchVarType.Kind == ir.KindString {
+			fmt.Fprintf(sb, "%s%s %s = %s;\n", in2, catchVarC, catchVar, msgVar)
+		} else {
+			fmt.Fprintf(sb, "%s%s %s = (%s)%s;\n", in2, catchVarC, catchVar, catchVarC, excPtr)
+		}
+		for _, st := range s.CatchBody {
+			if err := generateIRStmt(sb, ctx, st, depth+2); err != nil {
+				return err
+			}
+		}
+		fmt.Fprintf(sb, "%s}\n", in1)
+	}
+
+	for _, st := range s.Finally {
+		if err := generateIRStmt(sb, ctx, st, depth+1); err != nil {
+			return err
+		}
+	}
+
+	fmt.Fprintf(sb, "%sif (%s == 2) {\n", in1, outcomeVar)
+	fmt.Fprintf(sb, "%srech_panic(%s);\n", in2, msgVar)
+	fmt.Fprintf(sb, "%s} else if (%s == 3) {\n", in1, outcomeVar)
+	fmt.Fprintf(sb, "%s%s(%s, %s);\n", in2, throwFunc, excPtr, throwTypeNameExpr(ctx, excPtr, systemExceptionEntity))
+	fmt.Fprintf(sb, "%s}\n", in1)
+	fmt.Fprintf(sb, "%s}\n", ind)
 	return nil
 }
 

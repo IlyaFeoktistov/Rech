@@ -57,6 +57,38 @@ func TestAnalyzeExternStructRejectsUnsafeFieldType(t *testing.T) {
 	}
 }
 
+// TestAnalyzeExternFuncAcceptsPointerParam - "Указатель<T>" над примитивом
+// допустима в сигнатуре внешней функции (docs/ROADMAP.md, "FFI: указатели
+// в внешняя структура/внешняя функция") - типичный out-параметр C API.
+func TestAnalyzeExternFuncAcceptsPointerParam(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+внешняя функция modf как разбить_на_части(x: Действительное, целая: Указатель<Действительное>): Действительное
+функция главная { переменная ц = 0.0; вывести разбить_на_части(3.5, &ц) }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
+// TestAnalyzeExternFuncRejectsPointerToUnsafeEntity - "Указатель<T>" сама
+// FFI-безопасна, только если T тоже FFI-безопасен - обычная (не внешняя)
+// сущность внутри "Указатель<...>" по-прежнему отклоняется, её C-
+// представление (GC-структура с vtable) не то, что ожидает сторонний C API.
+func TestAnalyzeExternFuncRejectsPointerToUnsafeEntity(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+сущность Штука
+{
+    имеет:
+        поле: Целое
+}
+внешняя функция что_то(п: Указатель<Штука>)
+функция главная { вывести 1 }
+`)
+	if err == nil || !strings.Contains(err.Error(), "внешней функции") {
+		t.Fatalf("ожидалась ошибка про недопустимый тип параметра, получено: %v", err)
+	}
+}
+
 func TestAnalyzeExternEntityNameCollisionWithEntityRejected(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 внешняя сущность void как Точка

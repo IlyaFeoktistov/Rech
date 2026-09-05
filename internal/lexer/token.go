@@ -104,6 +104,7 @@ const (
 	KwParent      // родитель (вызов конструктора базовой сущности)
 	KwTry         // попытаться
 	KwCatch       // поймать
+	KwFinally     // окончательно (блок "попытаться", исполняемый всегда последним)
 	KwThrow       // выбросить
 	KwRelates     // относится (проверка "относится к <Тип>")
 	KwToward      // к (предлог дательного падежа после "относится")
@@ -204,6 +205,7 @@ var keywords = map[string]TokenType{
 	"родитель":       KwParent,
 	"попытаться":     KwTry,
 	"поймать":        KwCatch,
+	"окончательно":   KwFinally,
 	"выбросить":      KwThrow,
 	"относится":      KwRelates,
 	"к":              KwToward,
@@ -437,6 +439,8 @@ func (t TokenType) String() string {
 		return "попытаться"
 	case KwCatch:
 		return "поймать"
+	case KwFinally:
+		return "окончательно"
 	case KwThrow:
 		return "выбросить"
 	case KwRelates:

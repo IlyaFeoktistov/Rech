@@ -21,13 +21,27 @@ type TryStmt struct {
 	CatchVar   string
 	CatchTypes []string
 	// CatchPanic - см. ast.TryStmt.CatchPanic (docs/ROADMAP.md, изоляция
-	// паники) - "поймать (<CatchVar>: Паника)": CatchTypes пуст,
-	// CatchVarType всегда TypeString, ловит "rech_panic"-класс ошибок, не
-	// "выбросить"-исключения (совершенно отдельный, не пересекающийся с
-	// CatchTypes/rech_throw путь и в cbackend, и в interp).
+	// паники) - "Паника" была в списке типов - CatchVarType всегда
+	// TypeString, ловит "rech_panic"-класс ошибок. CatchTypes пуст -
+	// "поймать (x: Паника)" в одиночку (не пересекается с rech_throw вовсе).
+	// CatchTypes непуст - смешанный "поймать (x: Паника|Тип|...)": ловит И
+	// панику, И перечисленные исключения ОДНИМ обработчиком (см. cbackend/
+	// exceptions.go, generateIRTryCatchMixedStmt; internal/interp/
+	// exception.go, execTryCatchMixed).
 	CatchPanic   bool
 	CatchVarType Type
 	CatchBody    []Stmt
+	// NoCatch - см. ast.TryStmt.NoCatch: "попытаться { ... } окончательно
+	// { ... }" без единого "поймать" - CatchVar/CatchTypes/CatchPanic/
+	// CatchVarType/CatchBody не имеют смысла, Finally обязан быть непустым.
+	NoCatch bool
+	// Finally - см. ast.TryStmt.Finally: непусто только у самого внешнего
+	// узла цепочки "поймать" (или у единственного узла, если NoCatch) -
+	// исполняется ровно один раз после конструкции целиком, независимо от
+	// того, какой путь сработал (см. cbackend/exceptions.go,
+	// generateIRTryWithFinallyStmt; internal/interp/exception.go,
+	// execTryWithFinally).
+	Finally []Stmt
 }
 
 func (*TryStmt) stmt() {}

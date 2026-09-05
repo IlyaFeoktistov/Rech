@@ -109,6 +109,31 @@ func analyzeThrowStmt(sc *ctx, s *ast.ThrowStmt) (ir.Stmt, error) {
 	return &ir.ThrowStmt{Value: value, Line: s.Line}, nil
 }
 
+// checkCatchTypesAreExceptions проверяет, что каждое имя из "поймать(...)"
+// (кроме "Паника" - вырезанной парсером ещё до этого места, см. package doc
+// ast.TryStmt.CatchPanic) резолвится в "Исключение" саму или наследника, и
+// что список без дубликатов - общая проверка и для обычного поймать(Тип),
+// и для смешанного поймать(Паника|Тип) (analyzeTryStmt, обе ветки ниже).
+// Пустой names - нет ошибки (единственная точка вызова, где это возможно, -
+// смешанная ветка с одной лишь "Паника" в списке, т. е. otherTypes пуст).
+func checkCatchTypesAreExceptions(sc *ctx, names []string) error {
+	seen := map[string]bool{}
+	for _, name := range names {
+		typ, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, name)
+		if err != nil {
+			return fmt.Errorf("\"поймать(...)\": %w", err)
+		}
+		if typ.Kind != ir.KindEntity || !entityIsOrExtends(sc.entities, typ.Entity, systemExceptionEntity) {
+			return fmt.Errorf("\"поймать(...)\" ожидает сущность %q или наследника, получено %s", systemExceptionEntity, typ)
+		}
+		if seen[typ.Entity] {
+			return fmt.Errorf("\"поймать(...)\": тип %q перечислен более одного раза", typ.Entity)
+		}
+		seen[typ.Entity] = true
+	}
+	return nil
+}
+
 // analyzeTryStmt - "попытаться { ... } поймать(<имя>: <Тип>[|<Тип>...]) { ... }".
 // Established (шаг 4.1/6.4 typestate) внутри Body/CatchBody не гарантирован
 // после всей конструкции целиком - "выбросить" может прервать тело
@@ -127,12 +152,30 @@ func analyzeTryStmt(sc *ctx, s *ast.TryStmt) (ir.Stmt, error) {
 	}
 	sc.established = preTry
 
-	// CatchPanic - "поймать (<имя>: Паника)" (docs/ROADMAP.md, изоляция
-	// паники) - совершенно отдельная от обычного поймать(Тип) ветка:
-	// CatchVar несёт "Строка" (сообщение rech_panic), не сущность-
-	// исключение, поэтому ниже её типовая проверка/entityIsOrExtends не
-	// применяется вовсе.
+	// NoCatch - "попытаться { ... } окончательно { ... }" без единого
+	// "поймать" (package doc ast.TryStmt.NoCatch) - CatchVar/CatchTypes и
+	// остальные поля поймать не существуют для этого узла вовсе.
+	if s.NoCatch {
+		finally, err := analyzeFinally(sc, s, preTry)
+		if err != nil {
+			return nil, err
+		}
+		return &ir.TryStmt{Body: body, NoCatch: true, Finally: finally}, nil
+	}
+
+	// CatchPanic - "Паника" была в списке типов (docs/ROADMAP.md, изоляция
+	// паники) - CatchVar несёт "Строка" (сообщение), не сущность-исключение,
+	// её типовая проверка/entityIsOrExtends ниже к ней не применяется. Если
+	// s.CatchTypes при этом непусто ("поймать (x: Паника|Исключение)" и
+	// подобные, см. package doc ast.TryStmt.CatchPanic) - остальные типы
+	// списка ВСЁ РАВНО проверяются как настоящие типы исключений (та же
+	// проверка, что и в обычной ветке ниже), просто CatchVarType остаётся
+	// "Строка" в любом случае - смешение с "Паника" уже не оставляет общего
+	// типа шире неё.
 	if s.CatchPanic {
+		if err := checkCatchTypesAreExceptions(sc, s.CatchTypes); err != nil {
+			return nil, fmt.Errorf("строка %d: %w", s.Line, err)
+		}
 		sc.push()
 		if err := sc.declare(s.CatchVar, ir.TypeString); err != nil {
 			sc.pop()
@@ -144,27 +187,20 @@ func analyzeTryStmt(sc *ctx, s *ast.TryStmt) (ir.Stmt, error) {
 			return nil, err
 		}
 		sc.established = preTry
+		finally, err := analyzeFinally(sc, s, preTry)
+		if err != nil {
+			return nil, err
+		}
 		return &ir.TryStmt{
-			Body: body, CatchVar: s.CatchVar, CatchPanic: true, CatchVarType: ir.TypeString, CatchBody: catchBody,
+			Body: body, CatchVar: s.CatchVar, CatchPanic: true, CatchTypes: s.CatchTypes, CatchVarType: ir.TypeString, CatchBody: catchBody, Finally: finally,
 		}, nil
 	}
 
 	if len(s.CatchTypes) == 0 {
 		return nil, fmt.Errorf("строка %d: \"поймать(...)\" должно перечислять хотя бы один тип исключения", s.Line)
 	}
-	seen := map[string]bool{}
-	for _, name := range s.CatchTypes {
-		typ, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, name)
-		if err != nil {
-			return nil, fmt.Errorf("строка %d: \"поймать(...)\": %w", s.Line, err)
-		}
-		if typ.Kind != ir.KindEntity || !entityIsOrExtends(sc.entities, typ.Entity, systemExceptionEntity) {
-			return nil, fmt.Errorf("строка %d: \"поймать(...)\" ожидает сущность %q или наследника, получено %s", s.Line, systemExceptionEntity, typ)
-		}
-		if seen[typ.Entity] {
-			return nil, fmt.Errorf("строка %d: \"поймать(...)\": тип %q перечислен более одного раза", s.Line, typ.Entity)
-		}
-		seen[typ.Entity] = true
+	if err := checkCatchTypesAreExceptions(sc, s.CatchTypes); err != nil {
+		return nil, fmt.Errorf("строка %d: %w", s.Line, err)
 	}
 
 	// CatchVarType - единственный перечисленный тип, если он один (полный
@@ -189,10 +225,36 @@ func analyzeTryStmt(sc *ctx, s *ast.TryStmt) (ir.Stmt, error) {
 		return nil, err
 	}
 	sc.established = preTry
+	finally, err := analyzeFinally(sc, s, preTry)
+	if err != nil {
+		return nil, err
+	}
 
 	return &ir.TryStmt{
-		Body: body, CatchVar: s.CatchVar, CatchTypes: s.CatchTypes, CatchVarType: catchVarType, CatchBody: catchBody,
+		Body: body, CatchVar: s.CatchVar, CatchTypes: s.CatchTypes, CatchVarType: catchVarType, CatchBody: catchBody, Finally: finally,
 	}, nil
+}
+
+// analyzeFinally анализирует "окончательно { ... }" узла s (nil, если его
+// нет - непусто только у самого внешнего узла цепочки "поймать", см.
+// package doc ast.TryStmt.Finally) в собственной, отдельной от CatchBody
+// области видимости (никакого CatchVar внутри - окончательно не привязан
+// ни к какому конкретному "поймать"). established сбрасывается к preTry
+// после (тот же консервативный принцип, что и у Body/CatchBody выше -
+// "окончательно" не гарантированно исполнится ПОСЛЕ какого-то конкретного
+// перехода состояния, доказанного только в одной из веток).
+func analyzeFinally(sc *ctx, s *ast.TryStmt, preTry []map[string]map[string]bool) ([]ir.Stmt, error) {
+	if len(s.Finally) == 0 {
+		return nil, nil
+	}
+	sc.push()
+	finally, err := analyzeBlock(sc, s.Finally)
+	sc.pop()
+	if err != nil {
+		return nil, err
+	}
+	sc.established = preTry
+	return finally, nil
 }
 
 // analyzeIsExpr - "<выражение> относится к <Тип>": допустимо между

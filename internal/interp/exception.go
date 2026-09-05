@@ -99,9 +99,23 @@ func (in *Interp) execThrowStmt(s *ir.ThrowStmt, env *Env, cc *callCtx) (ctrl, e
 // как есть дальше, до ближайшего охватывающего "попытаться" или до самого
 // верха.
 func (in *Interp) execTryStmt(s *ir.TryStmt, env *Env, cc *callCtx) (ctrl, error) {
+	if s.NoCatch || len(s.Finally) > 0 {
+		return in.execTryWithFinally(s, env, cc)
+	}
 	if s.CatchPanic {
+		if len(s.CatchTypes) > 0 {
+			return in.execTryCatchMixed(s, env, cc)
+		}
 		return in.execTryCatchPanic(s, env, cc)
 	}
+	return in.execTryCatchTypes(s, env, cc)
+}
+
+// execTryCatchTypes - обычный "поймать(Тип[|Тип...])" без "Паника" в
+// списке - вынесено из execTryStmt в отдельную функцию, чтобы
+// execTryWithFinally ниже могла переиспользовать её целиком (см. package
+// doc там же), не копируя диспетчеризацию по CatchTypes ещё раз.
+func (in *Interp) execTryCatchTypes(s *ir.TryStmt, env *Env, cc *callCtx) (ctrl, error) {
 	c, err := in.execBlock(s.Body, newEnv(env), cc)
 	if err == nil {
 		return c, nil
@@ -123,6 +137,48 @@ func (in *Interp) execTryStmt(s *ir.TryStmt, env *Env, cc *callCtx) (ctrl, error
 	catchEnv := newEnv(env)
 	catchEnv.declare(s.CatchVar, in.cloneValue(thrown.value))
 	return in.execBlock(s.CatchBody, catchEnv, cc)
+}
+
+// execTryWithFinally - узел цепочки с "окончательно" (package doc
+// ast.TryStmt.Finally) - либо вовсе без "поймать" (s.NoCatch), либо один
+// из трёх обычных видов (CatchTypes/CatchPanic/оба сразу) с довеском
+// "окончательно". Диспетчеризация тела/поймать НЕ ОТЛИЧАЕТСЯ ни строчкой
+// от версии без "окончательно" (execTryCatchTypes/execTryCatchPanic/
+// execTryCatchMixed переиспользуются целиком) - единственная разница, defer
+// ниже, запускающий Finally, оборачивает их СНАРУЖИ: Go defer срабатывает
+// на ЛЮБОМ выходе из этой функции - обычный возврат, возврат ошибки
+// (thrownException или любая другая) и ПРОБРОС паники дальше без recover
+// здесь (Go продолжает разматывать стек через уже сработавший defer точно
+// так же, как через любой другой) - "окончательно" в результате исполняется
+// РОВНО ОДИН РАЗ, что бы ни случилось внутри, без отдельного кода на
+// каждый случай.
+//
+// "вернуть" внутри самого Finally ПЕРЕОПРЕДЕЛЯЕТ результат (та же семантика,
+// что и в Java/C# - известный сюрприз языка, но наименее удивительный из
+// возможных вариантов, раз оба независимо пришли к нему же).
+func (in *Interp) execTryWithFinally(s *ir.TryStmt, env *Env, cc *callCtx) (c ctrl, err error) {
+	defer func() {
+		fc, ferr := in.execBlock(s.Finally, newEnv(env), cc)
+		if ferr != nil {
+			err = ferr
+			return
+		}
+		if fc.kind == ctrlReturn {
+			c = fc
+			err = nil
+		}
+	}()
+
+	if s.NoCatch {
+		return in.execBlock(s.Body, newEnv(env), cc)
+	}
+	if s.CatchPanic {
+		if len(s.CatchTypes) > 0 {
+			return in.execTryCatchMixed(s, env, cc)
+		}
+		return in.execTryCatchPanic(s, env, cc)
+	}
+	return in.execTryCatchTypes(s, env, cc)
 }
 
 // execTryCatchPanic - "попытаться { ... } поймать (<CatchVar>: Паника) { ... }"
@@ -155,6 +211,55 @@ func (in *Interp) execTryCatchPanic(s *ir.TryStmt, env *Env, cc *callCtx) (c ctr
 		c, err = in.execBlock(s.CatchBody, catchEnv, cc)
 	}()
 	return in.execBlock(s.Body, newEnv(env), cc)
+}
+
+// execTryCatchMixed - "попытаться { ... } поймать (<CatchVar>: Паника|<Тип>[|<Тип>...]) { ... }"
+// (docs/ROADMAP.md, "интерфейс Выбрасываемое" - реализовано без него, тем же
+// поймать(...) с "|", см. package doc ir.TryStmt.CatchPanic) - ОДИН
+// обработчик и на панику (execTryCatchPanic), и на перечисленные исключения
+// (execTryStmt) сразу; CatchVar в обоих случаях несёт только "Строка"
+// (сообщение) - у паники другого и не бывает, а раз она в списке, общий тип
+// уже не шире строки (см. package doc ast.TryStmt.CatchPanic). Устроено как
+// execTryCatchPanic (defer/recover вокруг тела), но recover-ветка НЕ
+// единственный источник обработки - обычное thrownException, вернувшееся
+// без паники, проверяется после него тем же isA-перебором, что и в
+// execTryStmt.
+func (in *Interp) execTryCatchMixed(s *ir.TryStmt, env *Env, cc *callCtx) (c ctrl, err error) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			return
+		}
+		re, ok := r.(*runtimeError)
+		if !ok {
+			panic(r)
+		}
+		msg := strings.TrimPrefix(re.msg, rtmsg.PanicPrefix)
+		catchEnv := newEnv(env)
+		catchEnv.declare(s.CatchVar, stringValue(msg))
+		c, err = in.execBlock(s.CatchBody, catchEnv, cc)
+	}()
+	bc, berr := in.execBlock(s.Body, newEnv(env), cc)
+	if berr == nil {
+		return bc, nil
+	}
+	thrown, ok := berr.(*thrownException)
+	if !ok {
+		return ctrl{}, berr
+	}
+	matched := false
+	for _, t := range s.CatchTypes {
+		if in.isA(thrown.value.Obj.typeName, t) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return ctrl{}, berr
+	}
+	catchEnv := newEnv(env)
+	catchEnv.declare(s.CatchVar, stringValue(thrown.value.Obj.getField("сообщение").S))
+	return in.execBlock(s.CatchBody, catchEnv, cc)
 }
 
 // evalIsExpr - "<выражение> относится к <Тип>" - см. isA.
