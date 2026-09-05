@@ -12,11 +12,11 @@ import (
 // того, установлен ли системный компилятор).
 type fakeToolchain struct{}
 
-func (fakeToolchain) CompileC(cPath, binPath string, extraLibs []string) error {
+func (fakeToolchain) CompileC(cPath, binPath string, extraLibs, extraLibPaths []string) error {
 	return os.WriteFile(binPath, []byte{}, 0o755)
 }
 
-func (fakeToolchain) CompileLib(cPath, libPath string, extraLibs []string) error {
+func (fakeToolchain) CompileLib(cPath, libPath string, extraLibs, extraLibPaths []string) error {
 	return os.WriteFile(libPath, []byte{}, 0o755)
 }
 
@@ -26,20 +26,27 @@ func newTestCompiler() *Compiler {
 	return NewCompiler(NewFrontend(), NewBackend(), fakeToolchain{})
 }
 
-// capturingToolchain записывает extraLibs, переданный CompileC/CompileLib -
-// проверяет, что Compiler действительно прокидывает список библиотек до
-// Toolchain, а не теряет его по дороге.
+// capturingToolchain записывает extraLibs/extraLibPaths, переданные
+// CompileC/CompileLib - проверяет, что Compiler действительно прокидывает
+// оба списка до Toolchain, а не теряет их по дороге.
 type capturingToolchain struct {
-	gotLibs *[]string
+	gotLibs     *[]string
+	gotLibPaths *[]string
 }
 
-func (c capturingToolchain) CompileC(cPath, binPath string, extraLibs []string) error {
+func (c capturingToolchain) CompileC(cPath, binPath string, extraLibs, extraLibPaths []string) error {
 	*c.gotLibs = extraLibs
+	if c.gotLibPaths != nil {
+		*c.gotLibPaths = extraLibPaths
+	}
 	return os.WriteFile(binPath, []byte{}, 0o755)
 }
 
-func (c capturingToolchain) CompileLib(cPath, libPath string, extraLibs []string) error {
+func (c capturingToolchain) CompileLib(cPath, libPath string, extraLibs, extraLibPaths []string) error {
 	*c.gotLibs = extraLibs
+	if c.gotLibPaths != nil {
+		*c.gotLibPaths = extraLibPaths
+	}
 	return os.WriteFile(libPath, []byte{}, 0o755)
 }
 
@@ -49,11 +56,11 @@ func (capturingToolchain) LibExtension() string { return ".so" }
 // ".exe" к выходному файлу, даже если -o дан без расширения.
 type exeAppendingToolchain struct{}
 
-func (exeAppendingToolchain) CompileC(cPath, binPath string, extraLibs []string) error {
+func (exeAppendingToolchain) CompileC(cPath, binPath string, extraLibs, extraLibPaths []string) error {
 	return os.WriteFile(binPath+".exe", []byte{}, 0o755)
 }
 
-func (exeAppendingToolchain) CompileLib(cPath, libPath string, extraLibs []string) error {
+func (exeAppendingToolchain) CompileLib(cPath, libPath string, extraLibs, extraLibPaths []string) error {
 	return os.WriteFile(libPath, []byte{}, 0o755)
 }
 
@@ -78,7 +85,7 @@ func TestBuildDeletesCByDefault(t *testing.T) {
 	dir := t.TempDir()
 	srcPath := writeSource(t, dir, "прог.rech", helloSource)
 
-	if _, err := newTestCompiler().Build(srcPath, false, nil); err != nil {
+	if _, err := newTestCompiler().Build(srcPath, false, nil, nil); err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 	cPath := filepath.Join(dir, "прог.c")
@@ -96,7 +103,7 @@ func TestBuildPassesExtraLibsToToolchain(t *testing.T) {
 
 	var gotLibs []string
 	comp := NewCompiler(NewFrontend(), NewBackend(), capturingToolchain{gotLibs: &gotLibs})
-	if _, err := comp.Build(srcPath, false, []string{"curl", "ssl"}); err != nil {
+	if _, err := comp.Build(srcPath, false, []string{"curl", "ssl"}, nil); err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 	if len(gotLibs) != 2 || gotLibs[0] != "curl" || gotLibs[1] != "ssl" {
@@ -114,7 +121,7 @@ func TestBuildLibProducesLibraryAndHeader(t *testing.T) {
 	dir := t.TempDir()
 	srcPath := writeSource(t, dir, "либа.rech", libSource)
 
-	libPath, hPath, err := newTestCompiler().BuildLib(srcPath, false, nil)
+	libPath, hPath, err := newTestCompiler().BuildLib(srcPath, false, nil, nil)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
@@ -144,7 +151,7 @@ func TestBuildProducesExecutableBinaryAtSourcePath(t *testing.T) {
 	dir := t.TempDir()
 	srcPath := writeSource(t, dir, "программа.rech", helloSource)
 
-	binPath, err := newTestCompiler().Build(srcPath, false, nil)
+	binPath, err := newTestCompiler().Build(srcPath, false, nil, nil)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
@@ -175,7 +182,7 @@ func TestBuildPreservesExeSuffixFromToolchain(t *testing.T) {
 	dir := t.TempDir()
 	srcPath := writeSource(t, dir, "прог.rech", helloSource)
 
-	binPath, err := newExeAppendingTestCompiler().Build(srcPath, false, nil)
+	binPath, err := newExeAppendingTestCompiler().Build(srcPath, false, nil, nil)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
@@ -192,7 +199,7 @@ func TestBuildKeepsCWhenRequested(t *testing.T) {
 	dir := t.TempDir()
 	srcPath := writeSource(t, dir, "прог.rech", helloSource)
 
-	if _, err := newTestCompiler().Build(srcPath, true, nil); err != nil {
+	if _, err := newTestCompiler().Build(srcPath, true, nil, nil); err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 	cPath := filepath.Join(dir, "прог.c")
@@ -209,7 +216,7 @@ func TestBuildDirMergesAllRechFiles(t *testing.T) {
 	writeSource(t, dir, "помощник.rech", "функция подсказка(): Строка\n{\n    вернуть \"привет из другого файла\"\n}\n")
 	writeSource(t, dir, "главный.rech", "функция главная\n{\n    вывести подсказка()\n}\n")
 
-	binPath, err := newTestCompiler().Build(dir, true, nil)
+	binPath, err := newTestCompiler().Build(dir, true, nil, nil)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
@@ -236,7 +243,7 @@ func TestBuildDirMergesEnums(t *testing.T) {
 	writeSource(t, dir, "цвета.rech", "перечисление Цвет { Красный, Зелёный }\n")
 	writeSource(t, dir, "главный.rech", "функция главная\n{\n    вывести Цвет.Зелёный\n}\n")
 
-	binPath, err := newTestCompiler().Build(dir, true, nil)
+	binPath, err := newTestCompiler().Build(dir, true, nil, nil)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
@@ -251,7 +258,7 @@ func TestBuildDirMergesEnums(t *testing.T) {
 
 func TestBuildDirNoRechFilesFails(t *testing.T) {
 	dir := t.TempDir()
-	if _, err := newTestCompiler().Build(dir, false, nil); err == nil {
+	if _, err := newTestCompiler().Build(dir, false, nil, nil); err == nil {
 		t.Fatal("ожидалась ошибка - в каталоге нет ни одного .rech файла")
 	}
 }
@@ -265,7 +272,7 @@ func TestBuildFileWithUseImportsFunction(t *testing.T) {
 	writeSource(t, dir, "помощник.rech", "функция подсказка(): Строка\n{\n    вернуть \"привет\"\n}\n")
 	entry := writeSource(t, dir, "главный.rech", "использовать подсказка из \"помощник\"\n\nфункция главная\n{\n    вывести подсказка()\n}\n")
 
-	binPath, err := newTestCompiler().Build(entry, true, nil)
+	binPath, err := newTestCompiler().Build(entry, true, nil, nil)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
@@ -286,7 +293,7 @@ func TestBuildFileWithUseRejectsUnimportedName(t *testing.T) {
 	writeSource(t, dir, "помощник.rech", "функция подсказка(): Строка\n{\n    вернуть \"привет\"\n}\nфункция другая(): Строка\n{\n    вернуть \"другая\"\n}\n")
 	entry := writeSource(t, dir, "главный.rech", "использовать подсказка из \"помощник\"\n\nфункция главная\n{\n    вывести другая()\n}\n")
 
-	if _, err := newTestCompiler().Build(entry, false, nil); err == nil {
+	if _, err := newTestCompiler().Build(entry, false, nil, nil); err == nil {
 		t.Fatal("ожидалась ошибка видимости - \"другая\" не импортирована")
 	}
 }
@@ -298,7 +305,7 @@ func TestBuildDirRejectsUse(t *testing.T) {
 	writeSource(t, dir, "помощник.rech", "функция подсказка(): Строка\n{\n    вернуть \"привет\"\n}\n")
 	writeSource(t, dir, "главный.rech", "использовать подсказка из \"помощник\"\n\nфункция главная\n{\n    вывести подсказка()\n}\n")
 
-	_, err := newTestCompiler().Build(dir, false, nil)
+	_, err := newTestCompiler().Build(dir, false, nil, nil)
 	if err == nil {
 		t.Fatal("ожидалась ошибка - \"использовать\" не поддерживается в режиме каталога")
 	}

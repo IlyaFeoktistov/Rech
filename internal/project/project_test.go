@@ -235,6 +235,54 @@ func TestLoadWithoutLibrariesReturnsNil(t *testing.T) {
 	}
 }
 
+// TestLoadLibraryPathsResolvesRelativeToProjectDir - "сборка.путь_библиотек"
+// разрешается относительно каталога САМОГО .rechproj, не текущего рабочего
+// каталога процесса - тем же принципом, что "файлы.главный"/"файлы.выход".
+func TestLoadLibraryPathsResolvesRelativeToProjectDir(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := `проект:
+  имя: тест
+
+файлы:
+  главный: исходники/главный.rech
+
+сборка:
+  путь_библиотек: ../экспорт_библиотеки/сборка, /абсолютный/путь
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	pf, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	got := pf.ПутиБиблиотек()
+	want := []string{
+		filepath.Join(dir, "../экспорт_библиотеки/сборка"),
+		"/абсолютный/путь",
+	}
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("ПутиБиблиотек() = %v, ожидалось %v", got, want)
+	}
+}
+
+func TestLoadWithoutLibraryPathsReturnsNil(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := "проект:\n  имя: тест\nфайлы:\n  главный: а.rech\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	pf, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := pf.ПутиБиблиотек(); got != nil {
+		t.Fatalf("ПутиБиблиотек() = %v, ожидался nil", got)
+	}
+}
+
 func TestLoadDependencies(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "тест.rechproj")

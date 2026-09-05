@@ -54,7 +54,7 @@ func TestCompileCLinksGCOnlyWhenSourceUsesIt(t *testing.T) {
 
 	cc := &CC{}
 	binWith := filepath.Join(dir, "bin_with")
-	if err := cc.CompileC(withGC, binWith, nil); err != nil {
+	if err := cc.CompileC(withGC, binWith, nil, nil); err != nil {
 		t.Fatalf("CompileC: %v", err)
 	}
 	argsWith, err := os.ReadFile(script + ".args")
@@ -66,7 +66,7 @@ func TestCompileCLinksGCOnlyWhenSourceUsesIt(t *testing.T) {
 	}
 
 	binWithout := filepath.Join(dir, "bin_without")
-	if err := cc.CompileC(withoutGC, binWithout, nil); err != nil {
+	if err := cc.CompileC(withoutGC, binWithout, nil, nil); err != nil {
 		t.Fatalf("CompileC: %v", err)
 	}
 	argsWithout, err := os.ReadFile(script + ".args")
@@ -78,6 +78,42 @@ func TestCompileCLinksGCOnlyWhenSourceUsesIt(t *testing.T) {
 	}
 	if !strings.Contains(string(argsWithout), "-lm") {
 		t.Fatalf("-lm должен передаваться всегда, аргументы: %q", argsWithout)
+	}
+}
+
+// TestCompileCPassesLibraryPathFlags - "сборка.путь_библиотек" (internal/
+// project.File.ПутиБиблиотек) должен дойти до cc как "-L<путь>" (сама
+// линковка ищет "-l<имя>" не только в системных путях) и, на не-Windows,
+// дополнительно "-Wl,-rpath,<путь>" (чтобы собранный бинарник САМ нашёл
+// разделяемую библиотеку в момент запуска, без ручного LD_LIBRARY_PATH).
+func TestCompileCPassesLibraryPathFlags(t *testing.T) {
+	script := fakeCC(t)
+	t.Setenv("CC", script)
+
+	dir := t.TempDir()
+	src := filepath.Join(dir, "прог.c")
+	if err := os.WriteFile(src, []byte("int main(void){return 0;}\n"), 0o644); err != nil {
+		t.Fatalf("запись исходника: %v", err)
+	}
+
+	cc := &CC{}
+	bin := filepath.Join(dir, "бин")
+	if err := cc.CompileC(src, bin, []string{"myrechlib"}, []string{"/некий/путь"}); err != nil {
+		t.Fatalf("CompileC: %v", err)
+	}
+	args, err := os.ReadFile(script + ".args")
+	if err != nil {
+		t.Fatalf("чтение записанных аргументов: %v", err)
+	}
+	got := string(args)
+	if !strings.Contains(got, "-L/некий/путь") {
+		t.Fatalf("ожидался флаг -L/некий/путь, аргументы: %q", got)
+	}
+	if runtime.GOOS != "windows" && !strings.Contains(got, "-Wl,-rpath,/некий/путь") {
+		t.Fatalf("ожидался флаг -Wl,-rpath,/некий/путь, аргументы: %q", got)
+	}
+	if !strings.Contains(got, "-lmyrechlib") {
+		t.Fatalf("ожидался флаг -lmyrechlib, аргументы: %q", got)
 	}
 }
 
@@ -102,7 +138,7 @@ func TestCompileCLinksSSLOnlyWhenSourceUsesTLS(t *testing.T) {
 
 	cc := &CC{}
 	binWith := filepath.Join(dir, "bin_with")
-	if err := cc.CompileC(withTLS, binWith, nil); err != nil {
+	if err := cc.CompileC(withTLS, binWith, nil, nil); err != nil {
 		t.Fatalf("CompileC: %v", err)
 	}
 	argsWith, err := os.ReadFile(script + ".args")
@@ -114,7 +150,7 @@ func TestCompileCLinksSSLOnlyWhenSourceUsesTLS(t *testing.T) {
 	}
 
 	binWithout := filepath.Join(dir, "bin_without")
-	if err := cc.CompileC(withoutTLS, binWithout, nil); err != nil {
+	if err := cc.CompileC(withoutTLS, binWithout, nil, nil); err != nil {
 		t.Fatalf("CompileC: %v", err)
 	}
 	argsWithout, err := os.ReadFile(script + ".args")
@@ -181,7 +217,7 @@ func TestCompileCLinksDBLibrariesOnlyWhenSourceUsesThem(t *testing.T) {
 		if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 			t.Fatalf("запись исходника: %v", err)
 		}
-		if err := cc.CompileC(path, filepath.Join(dir, "bin_"+name), nil); err != nil {
+		if err := cc.CompileC(path, filepath.Join(dir, "bin_"+name), nil, nil); err != nil {
 			t.Fatalf("CompileC: %v", err)
 		}
 		args, err := os.ReadFile(script + ".args")

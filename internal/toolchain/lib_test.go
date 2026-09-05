@@ -30,7 +30,7 @@ func TestCompileLibPassesSharedFlag(t *testing.T) {
 
 	cc := &CC{}
 	libPath := filepath.Join(dir, "либа"+cc.LibExtension())
-	if err := cc.CompileLib(src, libPath, nil); err != nil {
+	if err := cc.CompileLib(src, libPath, nil, nil); err != nil {
 		t.Fatalf("CompileLib: %v", err)
 	}
 	args, err := os.ReadFile(script + ".args")
@@ -64,7 +64,7 @@ func TestCompileCAndCompileLibPassExtraLibs(t *testing.T) {
 	}
 	cc := &CC{}
 
-	if err := cc.CompileC(src, filepath.Join(dir, "бин"), []string{"curl", "ssl"}); err != nil {
+	if err := cc.CompileC(src, filepath.Join(dir, "бин"), []string{"curl", "ssl"}, nil); err != nil {
 		t.Fatalf("CompileC: %v", err)
 	}
 	args, err := os.ReadFile(script + ".args")
@@ -76,7 +76,7 @@ func TestCompileCAndCompileLibPassExtraLibs(t *testing.T) {
 	}
 
 	libPath := filepath.Join(dir, "либа"+cc.LibExtension())
-	if err := cc.CompileLib(src, libPath, []string{"curl"}); err != nil {
+	if err := cc.CompileLib(src, libPath, []string{"curl"}, nil); err != nil {
 		t.Fatalf("CompileLib: %v", err)
 	}
 	args, err = os.ReadFile(script + ".args")

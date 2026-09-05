@@ -39,7 +39,7 @@ func (*CC) LibExtension() string {
 // "экспортировать" тоже - не проблема корректности (заголовок .h всё равно
 // объявляет только помеченные "экспортировать" - лишние символы не мешают,
 // если потребитель просто не знает их имён).
-func (*CC) CompileLib(cPath, libPath string, extraLibs []string) error {
+func (*CC) CompileLib(cPath, libPath string, extraLibs, extraLibPaths []string) error {
 	src, err := os.ReadFile(cPath)
 	if err != nil {
 		return fmt.Errorf("не удалось прочитать сгенерированный файл %q: %w", cPath, err)
@@ -54,6 +54,7 @@ func (*CC) CompileLib(cPath, libPath string, extraLibs []string) error {
 		args = []string{cPath, "-o", libPath, "-shared", "-fPIC", "-fvisibility=hidden"}
 	}
 	args = append(args, commonLinkFlags(src)...)
+	args = append(args, libPathFlags(extraLibPaths)...)
 	args = append(args, libFlags(extraLibs)...)
 	return runCC(args)
 }

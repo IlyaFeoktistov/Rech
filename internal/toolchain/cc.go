@@ -23,12 +23,14 @@ func NewCC() compiler.Toolchain { return &CC{} }
 // CompileC компилирует cPath в исполняемый файл binPath. extraLibs -
 // внешние библиотеки для линковки (см. package doc CompileLib) - "" (или
 // nil), если проект их не объявил (сборка.библиотеки, internal/project).
-func (*CC) CompileC(cPath, binPath string, extraLibs []string) error {
+// extraLibPaths - см. libPathFlags.
+func (*CC) CompileC(cPath, binPath string, extraLibs, extraLibPaths []string) error {
 	src, err := os.ReadFile(cPath)
 	if err != nil {
 		return fmt.Errorf("не удалось прочитать сгенерированный файл %q: %w", cPath, err)
 	}
 	args := append([]string{cPath, "-o", binPath}, commonLinkFlags(src)...)
+	args = append(args, libPathFlags(extraLibPaths)...)
 	args = append(args, libFlags(extraLibs)...)
 	return runCC(args)
 }
@@ -43,6 +45,28 @@ func libFlags(names []string) []string {
 	flags := make([]string, len(names))
 	for i, name := range names {
 		flags[i] = "-l" + name
+	}
+	return flags
+}
+
+// libPathFlags превращает локальные каталоги ("сборка.путь_библиотек"
+// файла проекта, уже абсолютные - internal/project.File.ПутиБиблиотек) в
+// флаги линковщика: "-L<путь>" (сама линковка ищет "-l<имя>" не только в
+// системных путях) и, на Linux/macOS, дополнительно "-Wl,-rpath,<путь>" -
+// чтобы уже СОБРАННЫЙ бинарник САМ нашёл разделяемую библиотеку в момент
+// ЗАПУСКА, без ручного LD_LIBRARY_PATH (тот же принцип, которым настоящие
+// C/C++-проекты решают "зависимость лежит рядом, не установлена в
+// систему"). На Windows у DLL нет аналога rpath - только "-L" помогает
+// самой линковке, поиск .dll при запуске - PATH/каталог рядом с .exe
+// (известное ограничение, тот же класс, что и у остального FFI на
+// Windows, docs/SPEC.md).
+func libPathFlags(paths []string) []string {
+	flags := make([]string, 0, len(paths)*2)
+	for _, p := range paths {
+		flags = append(flags, "-L"+p)
+		if runtime.GOOS != "windows" {
+			flags = append(flags, "-Wl,-rpath,"+p)
+		}
 	}
 	return flags
 }
