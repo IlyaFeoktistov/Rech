@@ -7,6 +7,28 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
+// TestGenerateHeaderPropagatesDocComment - Doc экспортированной функции
+// (уже очищенный normalizeDoc текст, без "/**"/"*/") попадает в .h как
+// настоящий C doc-комментарий (cDocComment) - потребитель библиотеки видит
+// документацию автора, не только голую сигнатуру.
+func TestGenerateHeaderPropagatesDocComment(t *testing.T) {
+	prog := &ir.Program{Functions: []*ir.Function{
+		{Name: "сумма", Exported: true, Doc: "Складывает два числа.\nВторая строка.",
+			Params: []ir.Param{{Name: "а", Type: ir.TypeInt}, {Name: "б", Type: ir.TypeInt}},
+			ReturnType: ir.TypeInt, HasReturn: true,
+			Body: []ir.Stmt{&ir.ReturnStmt{Value: &ir.BinaryExpr{Op: "+", Left: &ir.Identifier{Name: "а", Type: ir.TypeInt}, Right: &ir.Identifier{Name: "б", Type: ir.TypeInt}, Type: ir.TypeInt}}},
+		},
+	}}
+	header, err := generateHeader(prog)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	want := "/**\n * Складывает два числа.\n * Вторая строка.\n */\nlong long сумма(long long v_a, long long v_b);"
+	if !strings.Contains(header, want) {
+		t.Fatalf("ожидался doc-комментарий перед прототипом, получено:\n%s", header)
+	}
+}
+
 func TestGenerateLibFromIRDoesNotRequireEntryPoint(t *testing.T) {
 	prog := &ir.Program{Functions: []*ir.Function{
 		{Name: "сумма", Exported: true, Params: []ir.Param{{Name: "а", Type: ir.TypeInt}, {Name: "б", Type: ir.TypeInt}},

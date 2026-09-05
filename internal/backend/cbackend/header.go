@@ -27,6 +27,30 @@ func exportAttr(ctx *irGenCtx, exported bool) string {
 	return `__attribute__((visibility("default"))) `
 }
 
+// cDocComment - Doc сущности/функции (уже очищенный от "/**"/"*/"/
+// ведущих "*" текст, см. internal/parser.normalizeDoc) в виде настоящего
+// C doc-комментария (Javadoc-стиль - тот же, что пользователь и так пишет
+// в исходнике на Rech, просто восстановленный после normalizeDoc) - перед
+// typedef/прототипом в сгенерированном .h, чтобы потребитель библиотеки
+// увидел исходную документацию автора, не только голую сигнатуру. ""
+// (пустой Doc - объявление без doc-комментария) - ничего не добавляется.
+func cDocComment(doc string) string {
+	if doc == "" {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("/**\n")
+	for line := range strings.SplitSeq(doc, "\n") {
+		if line == "" {
+			sb.WriteString(" *\n")
+		} else {
+			fmt.Fprintf(&sb, " * %s\n", line)
+		}
+	}
+	sb.WriteString(" */\n")
+	return sb.String()
+}
+
 // generateHeader строит текст C-заголовка (.h) для prog - непрозрачные
 // typedef сущностей и прототипы функций, помеченных "экспортировать".
 // Прототипы построены теми же cReturnTypeFor/cParamListIR, что и настоящие
@@ -70,6 +94,7 @@ func generateHeader(prog *ir.Program) (string, error) {
 		if !ent.Exported {
 			continue
 		}
+		typedefs.WriteString(cDocComment(ent.Doc))
 		fmt.Fprintf(&typedefs, "typedef struct %s %s;\n", entityCName(ctx, ent.Name), entityCName(ctx, ent.Name))
 	}
 
@@ -78,6 +103,7 @@ func generateHeader(prog *ir.Program) (string, error) {
 		if !fn.Exported {
 			continue
 		}
+		protos.WriteString(cDocComment(fn.Doc))
 		fmt.Fprintf(&protos, "%s %s(%s);\n", cReturnTypeFor(ctx, fn.HasReturn, fn.ReturnType), funcCName(ctx, fn.Name), cParamListIR(ctx, fn.Params))
 	}
 
