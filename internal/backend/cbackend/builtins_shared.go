@@ -88,6 +88,33 @@ type builtinFlags struct {
 	// "параметры_пути" - разбор query-строки в Словарь<Строка, Строка>, см.
 	// httpserver.go, queryParamsHelper).
 	usesQueryParams bool
+	// usesBytesIO - нужны ли rech_read_bytes/rech_write_bytes/
+	// rech_read_whole_file_bytes/rech_write_file_bytes (internal/semantic/
+	// bytesio.go, "Список<Байт>"-варианты файлового ввода-вывода) -
+	// подразумевает usesFileIO (те же rech_file_t/rech_open_mode) и
+	// usesByteListWrap (rech_bytes_wrap).
+	usesBytesIO bool
+	// usesByteListWrap - нужна ли rech_bytes_wrap (bytesio.go,
+	// bytesWrapHelper) - и usesBytesIO (файловый ввод-вывод), и
+	// usesHTTPBytes (сетевой, httpbytes.go) нуждаются в ней независимо
+	// друг от друга, поэтому отдельный флаг, не завязанный ни на один из
+	// них конкретно.
+	usesByteListWrap bool
+	// usesHTTPBytes - нужны ли rech_http_accept_request_bytes/
+	// rech_http_send_response_bytes (internal/semantic/httpbytes.go,
+	// "принять_http_байты"/"отправить_http_ответ_байты") - подразумевает
+	// usesHTTPServer (тот же rech_recv_http_request/rech_http_parse_head,
+	// httpserver.go) и usesByteListWrap.
+	usesHTTPBytes bool
+	// usesByteStringConv - нужны ли rech_string_from_bytes/rech_bytes_
+	// from_string (internal/semantic/bytesio.go, "строка_из_байт"/"байты_
+	// из_строки") - подразумевает usesByteListWrap (rech_bytes_wrap), но
+	// не usesBytesIO/usesHTTPBytes (не нужны ни rech_file_t, ни сокеты).
+	usesByteStringConv bool
+	// usesMultipart - нужен ли rech_parse_multipart (internal/semantic/
+	// multipart.go, "разобрать_multipart") - подразумевает usesByteListWrap
+	// (rech_bytes_wrap) и rech_dup (см. её условие ниже).
+	usesMultipart bool
 	// usesDateTime - нужны ли rech_time_now/rech_time_to_date/
 	// rech_date_to_time/rech_date_to_string (datetime.go) - встроенные
 	// функции "время"/"время_как_дата"/"дата_как_время"/"дату_в_строку".
@@ -254,6 +281,57 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 		flags.usesFileIO = true
 		flags.usesPanic = true
 		return fmt.Sprintf("rech_write_file(%s, %s)", args[0], args[1]), true
+	case "прочитать_байты":
+		flags.usesFileIO = true
+		flags.usesBytesIO = true
+		flags.usesByteListWrap = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_read_bytes(%s, %s)", args[0], args[1]), true
+	case "записать_байты":
+		flags.usesFileIO = true
+		flags.usesBytesIO = true
+		flags.usesByteListWrap = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_write_bytes(%s, %s)", args[0], args[1]), true
+	case "прочитать_файл_байты":
+		flags.usesFileIO = true
+		flags.usesBytesIO = true
+		flags.usesByteListWrap = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_read_whole_file_bytes(%s)", args[0]), true
+	case "записать_в_файл_байты":
+		flags.usesFileIO = true
+		flags.usesBytesIO = true
+		flags.usesByteListWrap = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_write_file_bytes(%s, %s)", args[0], args[1]), true
+	case "строка_из_байт":
+		flags.usesByteListWrap = true
+		flags.usesByteStringConv = true
+		return fmt.Sprintf("rech_string_from_bytes(%s)", args[0]), true
+	case "байты_из_строки":
+		flags.usesByteListWrap = true
+		flags.usesByteStringConv = true
+		return fmt.Sprintf("rech_bytes_from_string(%s)", args[0]), true
+	case "разобрать_multipart":
+		flags.usesByteListWrap = true
+		flags.usesMultipart = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_parse_multipart(%s, %s)", args[0], args[1]), true
+	case "принять_http_байты":
+		flags.usesHTTPServer = true
+		flags.usesHTTPBytes = true
+		flags.usesByteListWrap = true
+		flags.usesSockets = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_http_accept_request_bytes(%s)", args[0]), true
+	case "отправить_http_ответ_байты":
+		flags.usesHTTPServer = true
+		flags.usesHTTPBytes = true
+		flags.usesByteListWrap = true
+		flags.usesSockets = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_http_send_response_bytes(%s, %s)", args[0], args[1]), true
 	case "дописать_в_файл":
 		flags.usesFileIO = true
 		flags.usesPanic = true
@@ -1104,16 +1182,23 @@ var plainSocketOpsCode = fmt.Sprintf(`static %[5]s rech_accept(rech_socket_t s) 
     return %[5]s_wrap(c);
 }
 
-static void rech_send(rech_socket_t s, const char *data) {
-    size_t len = strlen(data);
-    size_t sent = 0;
+// rech_send_raw - как rech_send, но по явной длине, не strlen(data) - для
+// содержимого, которое может нести нулевые байты (docs/ROADMAP.md, HTTP
+// highload - бинарно-безопасный HTTP-ответ, internal/backend/cbackend/
+// httpbytes.go). "rech_send" сама - тонкая обёртка над ней (len = strlen).
+static void rech_send_raw(rech_socket_t s, const char *data, long long len) {
+    long long sent = 0;
     while (sent < len) {
         long long n = send(s, data + sent, (int)(len - sent), 0);
         if (n <= 0) {
             rech_panic("%[2]s");
         }
-        sent += (size_t)n;
+        sent += n;
     }
+}
+
+static void rech_send(rech_socket_t s, const char *data) {
+    rech_send_raw(s, data, (long long)strlen(data));
 }
 
 // rech_socket_read_raw - ЕДИНСТВЕННАЯ точка настоящего чтения байт из

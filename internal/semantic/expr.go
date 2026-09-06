@@ -534,6 +534,21 @@ func analyzeCallExpr(sc *ctx, e *ast.CallExpr) (ir.Expr, error) {
 				return nil, fmt.Errorf("строка %d: встроенная функция \"регулярное\": %w", e.Line, err)
 			}
 		}
+		if bytesIOFuncNames[callee] {
+			if err := registerByteListTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
+				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
+			}
+		}
+		if callee == "принять_http_байты" || callee == "отправить_http_ответ_байты" {
+			if err := registerHTTPBytesTypesOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
+				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
+			}
+		}
+		if callee == "разобрать_multipart" {
+			if err := registerMultipartTypesOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
+				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
+			}
+		}
 		if dbFuncNames[callee] {
 			if err := registerDBTypesOnCall(sc); err != nil {
 				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)

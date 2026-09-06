@@ -119,6 +119,41 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 	case "дописать_в_файл":
 		in.writeWholeFile(name, args[0].S, args[1].S, os.O_WRONLY|os.O_CREATE|os.O_APPEND)
 		return Value{}, true
+	case "прочитать_байты":
+		max := args[1].I
+		if max <= 0 {
+			panicRuntime("%s", rtmsg.ReadBytesInvalidMax)
+		}
+		buf := make([]byte, max)
+		n, err := args[0].File.Read(buf)
+		if err != nil && err != io.EOF {
+			panicRuntime("%s", rtmsg.ReadBytesIOFailed)
+		}
+		return bytesValue(buf[:n]), true
+	case "записать_байты":
+		data := bytesFromValue(args[1])
+		n, err := args[0].File.Write(data)
+		if err != nil || n != len(data) {
+			panicRuntime("%s", rtmsg.WriteBytesIOFailed)
+		}
+		return Value{}, true
+	case "прочитать_файл_байты":
+		f := in.openFile(name, args[0].S, os.O_RDONLY, 0).File
+		data, err := io.ReadAll(f)
+		f.Close()
+		if err != nil {
+			panicRuntime("%s", rtmsg.ReadBytesIOFailed)
+		}
+		return bytesValue(data), true
+	case "записать_в_файл_байты":
+		f := in.openFile(name, args[0].S, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644).File
+		data := bytesFromValue(args[1])
+		n, err := f.Write(data)
+		f.Close()
+		if err != nil || n != len(data) {
+			panicRuntime("%s", rtmsg.WriteBytesIOFailed)
+		}
+		return Value{}, true
 	case "стандартный_ввод":
 		// os.Stdin напрямую, не через in.stdin (bufio.Reader, которым уже
 		// читают прочитать_строку/прочитать_целое/прочитать_число) -
@@ -196,6 +231,23 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 			panicRuntime("%s", rtmsg.SocketWrongKind)
 		}
 		in.sendHTTPResponse(args[0].Conn, args[1])
+		return Value{}, true
+	case "разобрать_multipart":
+		return parseMultipart(bytesFromValue(args[0]), args[1].S), true
+	case "строка_из_байт":
+		return stringValue(string(bytesFromValue(args[0]))), true
+	case "байты_из_строки":
+		return bytesValue([]byte(args[0].S)), true
+	case "принять_http_байты":
+		if args[0].Conn == nil {
+			panicRuntime("%s", rtmsg.SocketWrongKind)
+		}
+		return in.acceptHTTPRequestBytes(args[0].Conn), true
+	case "отправить_http_ответ_байты":
+		if args[0].Conn == nil {
+			panicRuntime("%s", rtmsg.SocketWrongKind)
+		}
+		in.sendHTTPResponseBytes(args[0].Conn, args[1])
 		return Value{}, true
 	case "параметры_пути":
 		return queryParams(args[0].S), true

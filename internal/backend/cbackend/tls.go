@@ -165,10 +165,12 @@ var tlsSocketOpsCode = fmt.Sprintf(`static %[6]s rech_accept(rech_socket_t s) {
     return %[6]s_wrap(c);
 }
 
-static void rech_send(rech_socket_t s, const char *data) {
+// rech_send_raw - см. package doc её же в plainSocketOpsCode
+// (builtins_shared.go) - та же явная длина вместо strlen(data), только
+// SSL_write вместо send(), когда s зарегистрирован как TLS-соединение.
+static void rech_send_raw(rech_socket_t s, const char *data, long long len) {
     SSL *ssl = rech_tls_conn(s);
-    size_t len = strlen(data);
-    size_t sent = 0;
+    long long sent = 0;
     while (sent < len) {
         long long n = ssl != NULL
             ? SSL_write(ssl, data + sent, (int)(len - sent))
@@ -176,8 +178,12 @@ static void rech_send(rech_socket_t s, const char *data) {
         if (n <= 0) {
             rech_panic("%[3]s");
         }
-        sent += (size_t)n;
+        sent += n;
     }
+}
+
+static void rech_send(rech_socket_t s, const char *data) {
+    rech_send_raw(s, data, (long long)strlen(data));
 }
 
 // rech_socket_read_raw - см. package doc её же в plainSocketOpsCode

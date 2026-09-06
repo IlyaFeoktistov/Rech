@@ -94,7 +94,7 @@ static char *rech_path_url_decode(const char *s, size_t len) {
     return out;
 }
 
-static char *rech_recv_http_request(rech_socket_t s) {
+static char *rech_recv_http_request(rech_socket_t s, long long *out_len) {
     size_t cap = 4096, len = 0;
     char *buf = malloc(cap);
     char *body_start = NULL;
@@ -193,31 +193,41 @@ static char *rech_recv_http_request(rech_socket_t s) {
         combined[header_part_len + dechunked_len] = '\0';
         free(buf);
         free(dechunked);
+        *out_len = (long long)(header_part_len + (size_t)dechunked_len);
         return combined;
     }
+    *out_len = (long long)len;
     return buf;
 }
 
-static %[7]s rech_http_accept_request(rech_socket_t s) {
-    char *raw = rech_recv_http_request(s);
-    %[7]s req;
-    req.%[3]s = rech_dup("");
-    req.%[5]s = 0;
-    req.%[1]s = rech_dup("");
-    req.%[2]s = rech_dup("");
-    req.%[4]s = rech_dup("");
-    req.%[6]s = rech_dup("");
+// rech_http_parse_head - разбирает СТРОКУ запроса (метод, путь - с
+// процент-декодированием сегмента до "?") и блок заголовков из raw - общая
+// часть rech_http_accept_request/rech_http_accept_request_bytes
+// (httpbytes.go), различающихся только тем, КАК получить "тело" из
+// *out_body_sep + 4 (Строка через rech_dup против Список<Байт> через
+// rech_bytes_wrap с точной длиной, недоступной иначе). *out_method/
+// *out_path/*out_headers - уже готовые Rech-Строки (rech_dup(""), если не
+// нашлось - тот же принцип умолчаний, что был раньше в самой
+// rech_http_accept_request). *out_body_sep - NULL, если "\r\n\r\n" не
+// нашёлся (нет заголовков вовсе - в норме недостижимо для настоящего
+// HTTP-запроса, но rech_recv_http_request не гарантирует это сама).
+static void rech_http_parse_head(const char *raw, char **out_method, char **out_path, char **out_headers, const char **out_body_sep) {
+    *out_method = rech_dup("");
+    *out_path = rech_dup("");
+    *out_headers = rech_dup("");
+    *out_body_sep = NULL;
 
-    char *line_end = strstr(raw, "\r\n");
-    char *sp1 = strchr(raw, ' ');
+    const char *line_end = strstr(raw, "\r\n");
+    const char *sp1 = strchr(raw, ' ');
     if (sp1 && line_end && sp1 < line_end) {
         size_t method_len = (size_t)(sp1 - raw);
         char *method = malloc(method_len + 1);
         memcpy(method, raw, method_len);
         method[method_len] = '\0';
-        req.%[1]s = method;
+        free(*out_method);
+        *out_method = method;
 
-        char *sp2 = strchr(sp1 + 1, ' ');
+        const char *sp2 = strchr(sp1 + 1, ' ');
         if (sp2 && sp2 < line_end) {
             size_t path_len = (size_t)(sp2 - (sp1 + 1));
             char *raw_path = malloc(path_len + 1);
@@ -230,6 +240,7 @@ static %[7]s rech_http_accept_request(rech_socket_t s) {
             char *q = strchr(raw_path, '?');
             size_t seg_len = q ? (size_t)(q - raw_path) : path_len;
             char *decoded_seg = rech_path_url_decode(raw_path, seg_len);
+            free(*out_path);
             if (q) {
                 size_t decoded_len = strlen(decoded_seg);
                 size_t suffix_len = strlen(q);
@@ -238,22 +249,39 @@ static %[7]s rech_http_accept_request(rech_socket_t s) {
                 memcpy(combined + decoded_len, q, suffix_len + 1);
                 free(decoded_seg);
                 free(raw_path);
-                req.%[2]s = combined;
+                *out_path = combined;
             } else {
                 free(raw_path);
-                req.%[2]s = decoded_seg;
+                *out_path = decoded_seg;
             }
         }
     }
 
-    char *hdr_start = line_end ? line_end + 2 : raw;
-    char *body_sep = strstr(raw, "\r\n\r\n");
+    const char *hdr_start = line_end ? line_end + 2 : raw;
+    const char *body_sep = strstr(raw, "\r\n\r\n");
     if (body_sep && body_sep >= hdr_start) {
         size_t header_len = (size_t)(body_sep - hdr_start);
         char *headers = malloc(header_len + 1);
         memcpy(headers, hdr_start, header_len);
         headers[header_len] = '\0';
-        req.%[4]s = headers;
+        free(*out_headers);
+        *out_headers = headers;
+        *out_body_sep = body_sep;
+    }
+}
+
+static %[7]s rech_http_accept_request(rech_socket_t s) {
+    long long raw_len = 0;
+    char *raw = rech_recv_http_request(s, &raw_len);
+    %[7]s req;
+    req.%[3]s = rech_dup("");
+    req.%[5]s = 0;
+    req.%[6]s = rech_dup("");
+
+    const char *body_sep = NULL;
+    rech_http_parse_head(raw, &req.%[1]s, &req.%[2]s, &req.%[4]s, &body_sep);
+    if (body_sep) {
+        free(req.%[6]s);
         req.%[6]s = rech_dup(body_sep + 4);
     }
     free(raw);

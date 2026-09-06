@@ -242,8 +242,8 @@ type irGenCtx struct {
 	// callbackTrampolinesEmitted - дедупликация (одна сигнатура - один
 	// глобальный слот + один trampoline на всю программу), тот же принцип,
 	// что funcRefTrampolines/lambdaFuncsEmitted выше.
-	callableSigs                map[string]ir.CallableSig
-	callbackTrampolinesEmitted  map[string]bool
+	callableSigs               map[string]ir.CallableSig
+	callbackTrampolinesEmitted map[string]bool
 	// usesMemcpy - лямбда с хотя бы одним захватом реально встретилась в
 	// программе (окружение замыкания строится через memcpy, см.
 	// generateIRLambdaExpr) - гейтит "#include <string.h>", как и
@@ -1214,7 +1214,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// rech_dup - общий для HTTP-клиента/сервера и получить_от (адрес
 	// отправителя UDP-датаграммы копируется через rech_dup) - эмитится
 	// один раз перед всеми тремя (см. rechDupHelper).
-	appendCodeIf(&sb, ctx.usesHTTP || ctx.usesHTTPServer || ctx.usesUDPDatagram, rechDupHelper)
+	appendCodeIf(&sb, ctx.usesHTTP || ctx.usesHTTPServer || ctx.usesUDPDatagram || ctx.usesMultipart, rechDupHelper)
 	// chunkedHelpers - разбор chunked transfer encoding (docs/ROADMAP.md,
 	// HTTP highload пункт 4), нужен и клиенту (httpHelpers), и серверу
 	// (httpServerHelpers) - эмитится один раз перед обоими, тем же
@@ -1235,6 +1235,30 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// (queryParamsDictType зарегистрирован в prog.Generics принудительно,
 	// см. internal/semantic/httpserver.go).
 	appendCodeIf(&sb, ctx.usesQueryParams, queryParamsHelper)
+	// После genericsCode выше - rech_bytes_wrap (bytesio.go, bytesWrapHelper)
+	// использует typedef Список<Байт> (зарегистрирован в prog.Generics
+	// принудительно, internal/semantic/bytesio.go). Нужна и bytesIOHelpers
+	// ниже (файловый ввод-вывод), и httpBytesHelpers (сетевой) - общий
+	// флаг, эмитится РОВНО один раз для программы, использующей и то, и
+	// другое сразу.
+	appendCodeIf(&sb, ctx.usesByteListWrap, bytesWrapHelper())
+	// После bytesWrapHelper выше - rech_bytes_from_string зовёт
+	// rech_bytes_wrap напрямую.
+	appendCodeIf(&sb, ctx.usesByteStringConv, byteStringConvHelpers())
+	// После bytesWrapHelper (rech_bytes_wrap) И rechDupHelper (rech_dup)
+	// выше - rech_parse_multipart (multipart.go) использует обе.
+	appendCodeIf(&sb, ctx.usesMultipart, multipartHelpers())
+	// После genericsCode выше И после fileHelpers (usesFileIO, эмитирована
+	// намного раньше) - rech_read_bytes и соседи (internal/backend/
+	// cbackend/bytesio.go) используют typedef/методы Список<Байт>
+	// (зарегистрирован в prog.Generics принудительно, internal/semantic/
+	// bytesio.go) и rech_file_t/rech_open_mode из fileHelpers.
+	appendCodeIf(&sb, ctx.usesBytesIO, bytesIOHelpers())
+	// После genericsCode/bytesWrapHelper выше И после httpServerHelpersCode
+	// (usesHTTPServer, эмитирована раньше - rech_recv_http_request/
+	// rech_http_parse_head) - rech_http_accept_request_bytes/rech_http_
+	// send_response_bytes (httpbytes.go) используют и то, и другое.
+	appendCodeIf(&sb, ctx.usesHTTPBytes, httpBytesHelpers())
 	// После genericsCode выше - rech_split_string использует typedef/метод
 	// "добавить" Список<Строка>, уже эмитированные там (splitResultType
 	// зарегистрирован в prog.Generics принудительно, см. internal/semantic/

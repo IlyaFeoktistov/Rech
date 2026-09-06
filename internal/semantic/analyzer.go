@@ -486,6 +486,9 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 	registerDBFuncs(funcs)
 	registerTransactionFuncs(funcs)
 	registerNetworkFuncs(a.entities, funcs)
+	registerBytesIOFuncs(funcs)
+	registerHTTPBytesFuncs(funcs)
+	registerMultipartFunc(funcs)
 	for _, fn := range prog.Functions {
 		if _, exists := funcs[fn.Name]; exists {
 			if builtins.IsReservedName(fn.Name) {
@@ -1014,6 +1017,19 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	// независимо от места regex.go в этом списке.
 	if _, ok := a.entities["Совпадение"]; ok {
 		out.Entities = append(out.Entities, &ir.Entity{Name: "Совпадение", IsStruct: true, Fields: matchFields})
+	}
+	// "ЧастьФормы" - тот же принцип, что "Совпадение" выше.
+	if _, ok := a.entities[formPartType]; ok {
+		out.Entities = append(out.Entities, &ir.Entity{Name: formPartType, IsStruct: true, Fields: formPartFields})
+	}
+	// "ЗапросБайты"/"ОтветБайты" - тот же принцип, что "Совпадение" выше -
+	// см. package doc httpbytes.go про то, почему это отдельные сущности, а
+	// не поле в уже существующих Запрос/Ответ.
+	if _, ok := a.entities[httpBytesRequestType]; ok {
+		out.Entities = append(out.Entities, &ir.Entity{Name: httpBytesRequestType, IsStruct: true, Fields: httpBytesRequestFields})
+	}
+	if _, ok := a.entities[httpBytesResponseType]; ok {
+		out.Entities = append(out.Entities, &ir.Entity{Name: httpBytesResponseType, IsStruct: true, Fields: httpBytesResponseFields})
 	}
 	// "Блокировка" - проверка ЗДЕСЬ (не раньше цикла по prog.Entities/
 	// prog.Functions выше), потому что она может встретиться впервые не

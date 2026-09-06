@@ -233,14 +233,14 @@ func httpContentLength(headers []byte) int64 {
 	return 0
 }
 
-// acceptHTTPRequest - "принять_http" - разбирает сырые байты запроса
-// (recvHTTPRequest) в "Запрос" (метод/путь/заголовки/тело) - "адрес"/"порт"
-// (поля клиентского назначения) остаются пустыми, тем же принципом, что и
-// cbackend.rech_http_accept_request.
-func (in *Interp) acceptHTTPRequest(conn net.Conn) Value {
-	raw := recvHTTPRequest(conn, in.httpMaxRequestBytes)
-	method, path, headers, body := "", "", "", ""
-
+// parseHTTPHead разбирает СТРОКУ запроса (метод, путь - с процент-
+// декодированием сегмента до "?") и блок заголовков из raw - общая часть
+// acceptHTTPRequest/acceptHTTPRequestBytes, различающихся только тем, КАК
+// получить "тело" из raw[bodySep+4:] (Строка против Список<Байт>) - тем же
+// принципом, что и cbackend.rech_http_parse_head. bodySep < 0 - "\r\n\r\n"
+// не нашёлся (нет заголовков вовсе - в норме недостижимо для настоящего
+// HTTP-запроса, но recvHTTPRequest не гарантирует это сама).
+func parseHTTPHead(raw []byte) (method, path, headers string, bodySep int) {
 	lineEnd := bytes.Index(raw, []byte("\r\n"))
 	sp1 := bytes.IndexByte(raw, ' ')
 	if sp1 >= 0 && lineEnd >= 0 && sp1 < lineEnd {
@@ -253,14 +253,47 @@ func (in *Interp) acceptHTTPRequest(conn net.Conn) Value {
 	if lineEnd >= 0 {
 		hdrStart = lineEnd + 2
 	}
-	if bodySep := bytes.Index(raw, []byte("\r\n\r\n")); bodySep >= 0 && bodySep >= hdrStart {
-		headers = string(raw[hdrStart:bodySep])
+	bodySep = -1
+	if sep := bytes.Index(raw, []byte("\r\n\r\n")); sep >= 0 && sep >= hdrStart {
+		headers = string(raw[hdrStart:sep])
+		bodySep = sep
+	}
+	return method, path, headers, bodySep
+}
+
+// acceptHTTPRequest - "принять_http" - разбирает сырые байты запроса
+// (recvHTTPRequest) в "Запрос" (метод/путь/заголовки/тело) - "адрес"/"порт"
+// (поля клиентского назначения) остаются пустыми, тем же принципом, что и
+// cbackend.rech_http_accept_request.
+func (in *Interp) acceptHTTPRequest(conn net.Conn) Value {
+	raw := recvHTTPRequest(conn, in.httpMaxRequestBytes)
+	method, path, headers, bodySep := parseHTTPHead(raw)
+	body := ""
+	if bodySep >= 0 {
 		body = string(raw[bodySep+4:])
 	}
 
 	return Value{Type: ir.EntityType("Запрос"), Obj: &entityObj{typeName: "Запрос", fields: map[string]Value{
 		"метод": stringValue(method), "адрес": stringValue(""), "порт": intValue(0),
 		"путь": stringValue(path), "заголовки": stringValue(headers), "тело": stringValue(body),
+	}}}
+}
+
+// acceptHTTPRequestBytes - "принять_http_байты" (internal/semantic/
+// httpbytes.go) - как acceptHTTPRequest, но "тело" - "Список<Байт>", не
+// "Строка" (бинарно-безопасно) - тем же принципом, что и
+// cbackend.rech_http_accept_request_bytes.
+func (in *Interp) acceptHTTPRequestBytes(conn net.Conn) Value {
+	raw := recvHTTPRequest(conn, in.httpMaxRequestBytes)
+	method, path, headers, bodySep := parseHTTPHead(raw)
+	body := []byte(nil)
+	if bodySep >= 0 {
+		body = raw[bodySep+4:]
+	}
+
+	return Value{Type: ir.EntityType(httpBytesRequestType), Obj: &entityObj{typeName: httpBytesRequestType, fields: map[string]Value{
+		"метод": stringValue(method), "адрес": stringValue(""), "порт": intValue(0),
+		"путь": stringValue(path), "заголовки": stringValue(headers), "тело": bytesValue(body),
 	}}}
 }
 
@@ -285,6 +318,27 @@ func (in *Interp) sendHTTPResponse(conn net.Conn, resp Value) {
 	}
 	head := fmt.Sprintf("HTTP/1.1 %d OK\r\n%s%sConnection: keep-alive\r\nContent-Length: %d\r\n\r\n", code, headers, hdrSep, len(body))
 	if _, err := io.WriteString(conn, head+body); err != nil {
+		panicRuntime("%s", rtmsg.SocketSendFailed)
+	}
+}
+
+// sendHTTPResponseBytes - "отправить_http_ответ_байты" (internal/semantic/
+// httpbytes.go) - как sendHTTPResponse, но "тело" - "Список<Байт>", не
+// "Строка" (бинарно-безопасно, тело шлётся через conn.Write([]byte), не
+// строковую конкатенацию) - тем же принципом, что и cbackend.rech_http_
+// send_response_bytes.
+func (in *Interp) sendHTTPResponseBytes(conn net.Conn, resp Value) {
+	f := resp.Obj.fields
+	code, headers, body := f["код"].I, f["заголовки"].S, bytesFromValue(f["тело"])
+	hdrSep := ""
+	if headers != "" {
+		hdrSep = "\r\n"
+	}
+	head := fmt.Sprintf("HTTP/1.1 %d OK\r\n%s%sConnection: keep-alive\r\nContent-Length: %d\r\n\r\n", code, headers, hdrSep, len(body))
+	if _, err := io.WriteString(conn, head); err != nil {
+		panicRuntime("%s", rtmsg.SocketSendFailed)
+	}
+	if _, err := conn.Write(body); err != nil {
 		panicRuntime("%s", rtmsg.SocketSendFailed)
 	}
 }

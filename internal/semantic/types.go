@@ -98,6 +98,24 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 	case transactionEntityName:
 		registerTransactionEntity(entities, methods)
 		return ir.EntityType(transactionEntityName), nil
+	case httpBytesRequestType:
+		if _, err := resolveTypeName(entities, methods, aliases, interfaces, byteListType); err != nil {
+			return ir.TypeUnknown, err
+		}
+		registerHTTPEntity(entities, httpBytesRequestType, httpBytesRequestFields)
+		return ir.EntityType(httpBytesRequestType), nil
+	case httpBytesResponseType:
+		if _, err := resolveTypeName(entities, methods, aliases, interfaces, byteListType); err != nil {
+			return ir.TypeUnknown, err
+		}
+		registerHTTPEntity(entities, httpBytesResponseType, httpBytesResponseFields)
+		return ir.EntityType(httpBytesResponseType), nil
+	case formPartType:
+		if _, err := resolveTypeName(entities, methods, aliases, interfaces, byteListType); err != nil {
+			return ir.TypeUnknown, err
+		}
+		registerHTTPEntity(entities, formPartType, formPartFields)
+		return ir.EntityType(formPartType), nil
 	case "Совпадение":
 		// "группы" (Список<Строка>) - зарегистрировать ДО самой "Совпадение",
 		// иначе метод вроде "м.группы.длина()" не найдёт methods["Список<
