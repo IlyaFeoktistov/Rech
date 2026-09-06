@@ -156,6 +156,14 @@ func (d *doc) entityCtorSignature(ent *ir.Entity) (string, bool) {
 // "receiver.поле"/"receiver.метод").
 func (d *doc) hoverMember(ent *ir.Entity, name string) (string, bool) {
 	entName := d.disp(ent.Name)
+	if ent.IsSemaphore && name == "захватить" {
+		// "Семафор.захватить" - единственный из четырёх методов Блокировки/
+		// Семафора с необязательным параметром (таймаут_мс, docs/ROADMAP.md,
+		// HTTP highload пункт 3) - общий путь ниже (mutexMethodDocs, "()"
+		// без аргументов) дал бы неверную сигнатуру, поэтому перехватывается
+		// раньше него, отдельной готовой строкой (semaphoreAcquireDoc).
+		return codeBlock(entName + "." + semaphoreAcquireDoc), true
+	}
 	if ent.IsMutex || ent.IsSemaphore {
 		// "Блокировка"/"Семафор" - без ast.EntityDecl, ent.Methods у них
 		// пуст (оба метода синтезированы backend'ом напрямую по

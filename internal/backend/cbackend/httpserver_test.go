@@ -229,3 +229,31 @@ func TestGenerateFromIRSocketCreationIgnoresSigpipe(t *testing.T) {
 		t.Fatalf("ожидался #include <signal.h> при использовании сокетов, получено:\n%s", out)
 	}
 }
+
+// TestGenerateFromIRWiresHTTPMaxRequestBytes - "docs/ROADMAP.md", HTTP
+// highload пункт 2 - prog.HTTPMaxRequestBytes проброшен в сгенерированный C
+// (internal/compiler подставляет его из ir.Program перед кодогенерацией,
+// тем же принципом, что и TestGenerateFromIRWiresPoolShrinkSettings,
+// threadpool_test.go).
+func TestGenerateFromIRWiresHTTPMaxRequestBytes(t *testing.T) {
+	prog := &ir.Program{
+		Entities: []*ir.Entity{
+			{Name: "Запрос", Fields: []ir.Field{
+				{Name: "метод", Type: ir.TypeString}, {Name: "адрес", Type: ir.TypeString},
+				{Name: "порт", Type: ir.TypeInt}, {Name: "путь", Type: ir.TypeString},
+				{Name: "заголовки", Type: ir.TypeString}, {Name: "тело", Type: ir.TypeString},
+			}},
+		},
+		Functions: []*ir.Function{{Name: "главная", Body: []ir.Stmt{
+			&ir.VarDecl{Name: "с", Value: &ir.CallExpr{Callee: "принять_http", Args: []ir.Expr{&ir.IntLiteral{Value: 0}}, Type: ir.EntityType("Запрос"), HasReturn: true}},
+		}}},
+		HTTPMaxRequestBytes: 4096,
+	}
+	out, err := GenerateFromIR(prog)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "#define RECH_HTTP_MAX_REQUEST_BYTES 4096") {
+		t.Fatalf("ожидался RECH_HTTP_MAX_REQUEST_BYTES 4096, получено:\n%s", out)
+	}
+}

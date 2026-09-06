@@ -45,7 +45,7 @@ func TestHoverOnSemaphoreAcquireReleaseShowsDoc(t *testing.T) {
 	if !ok {
 		t.Fatalf("ожидался hover на методе захватить")
 	}
-	if !strings.Contains(text, "Семафор.захватить()") {
+	if !strings.Contains(text, "Семафор.захватить(таймаут_мс: Целое = -1)") {
 		t.Fatalf("неожиданный текст hover: %q", text)
 	}
 

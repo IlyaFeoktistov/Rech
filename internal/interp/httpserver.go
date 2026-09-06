@@ -121,21 +121,57 @@ func hexDigit(c byte) (int, bool) {
 // закрытия соединения (клиент держит его открытым, ожидая ответ, в отличие
 // от httpRequest выше, где сервер закрывает соединение сам), а до конца
 // заголовков ("\r\n\r\n") плюс ровно Content-Length байт тела (0, если
-// заголовка Content-Length нет).
-func recvHTTPRequest(conn net.Conn) []byte {
+// заголовка Content-Length нет). maxRequestBytes - ir.Program.
+// HTTPMaxRequestBytes (Interp.httpMaxRequestBytes) - запрос (заголовки и
+// тело вместе, тот же буфер buf) сверх этого предела аварийно завершает
+// чтение (rtmsg.HTTPServerRequestTooLarge), тем же приёмом, что и
+// cbackend.rech_recv_http_request: как только известна Content-Length,
+// сравнивается СУММА "уже прочитанные заголовки + заявленное тело" с
+// пределом (не одна Content-Length - огромные заголовки сами по себе,
+// без всякого тела, тоже обязаны быть отклонены), не читая тело вовсе,
+// если сумма уже больше предела; и на каждой итерации накопления
+// заголовков ДО терминатора (клиент, никогда не заканчивающий заголовки,
+// иначе рос бы в памяти без предела тем же самым буфером).
+func recvHTTPRequest(conn net.Conn, maxRequestBytes int) []byte {
 	var buf []byte
 	chunk := make([]byte, 4096)
 	bodyStart := -1
 	var contentLength int64
+	isChunked := false
 	for {
 		if bodyStart < 0 {
 			if idx := bytes.Index(buf, []byte("\r\n\r\n")); idx >= 0 {
 				bodyStart = idx + 4
-				contentLength = httpContentLength(buf[:idx])
+				isChunked = isChunkedHeaders(buf[:idx])
+				if !isChunked {
+					contentLength = httpContentLength(buf[:idx])
+					// Заголовки + тело ВМЕСТЕ против предела, тем же
+					// принципом, что cbackend.rech_recv_http_request - см.
+					// её комментарий. Chunked-путь сюда не входит - общая
+					// проверка len(buf) ниже страхует оба пути одинаково.
+					if int64(bodyStart)+contentLength > int64(maxRequestBytes) {
+						panicRuntime("%s", rtmsg.HTTPServerRequestTooLarge)
+					}
+				}
+			} else if len(buf) >= maxRequestBytes {
+				panicRuntime("%s", rtmsg.HTTPServerRequestTooLarge)
 			}
 		}
-		if bodyStart >= 0 && int64(len(buf)-bodyStart) >= contentLength {
-			break
+		if bodyStart >= 0 {
+			if isChunked {
+				if decoded, complete := tryDechunk(buf[bodyStart:]); complete {
+					return append(append([]byte{}, buf[:bodyStart]...), decoded...)
+				}
+			} else if int64(len(buf)-bodyStart) >= contentLength {
+				break
+			}
+		}
+		// Общий предел на ВЕСЬ принятый буфер - для content_length-пути он
+		// избыточен (уже проверен выше), для chunked-пути - единственная
+		// защита от неограниченного роста (заранее известной длины тела
+		// нет), тем же принципом, что и cbackend.rech_recv_http_request.
+		if len(buf) >= maxRequestBytes {
+			panicRuntime("%s", rtmsg.HTTPServerRequestTooLarge)
 		}
 		applyDeadline(conn, conn)
 		n, err := conn.Read(chunk)
@@ -148,6 +184,12 @@ func recvHTTPRequest(conn net.Conn) []byte {
 			}
 			break
 		}
+	}
+	if isChunked && bodyStart >= 0 {
+		// Соединение оборвалось раньше терминирующего чанка - best-effort,
+		// тем же принципом, что и ранний EOF на content_length-пути.
+		decoded, _ := tryDechunk(buf[bodyStart:])
+		return append(append([]byte{}, buf[:bodyStart]...), decoded...)
 	}
 	return buf
 }
@@ -196,7 +238,7 @@ func httpContentLength(headers []byte) int64 {
 // (поля клиентского назначения) остаются пустыми, тем же принципом, что и
 // cbackend.rech_http_accept_request.
 func (in *Interp) acceptHTTPRequest(conn net.Conn) Value {
-	raw := recvHTTPRequest(conn)
+	raw := recvHTTPRequest(conn, in.httpMaxRequestBytes)
 	method, path, headers, body := "", "", "", ""
 
 	lineEnd := bytes.Index(raw, []byte("\r\n"))

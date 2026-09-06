@@ -90,6 +90,9 @@ type File struct {
 	// poolIdleTimeoutMsRaw - "потоки.таймаут_простоя_мс" как есть - см.
 	// PoolIdleTimeoutMs.
 	poolIdleTimeoutMsRaw string
+	// httpMaxRequestBytesRaw - "http.макс_размер_запроса_байт" как есть - см.
+	// HTTPMaxRequestBytes.
+	httpMaxRequestBytesRaw string
 }
 
 // fields - соответствие "секция.ключ" -> адрес поля File, используется при
@@ -111,6 +114,7 @@ func (pf *File) fields() map[string]*string {
 		"бд.sqlite_таймаут_блокировки_мс": &pf.dbSQLiteBusyTimeoutMsRaw,
 		"потоки.сжатие_пула":              &pf.poolShrinkRaw,
 		"потоки.таймаут_простоя_мс":       &pf.poolIdleTimeoutMsRaw,
+		"http.макс_размер_запроса_байт":   &pf.httpMaxRequestBytesRaw,
 	}
 }
 
@@ -483,6 +487,30 @@ func (pf *File) PoolIdleTimeoutMs() (int, error) {
 	return n, nil
 }
 
+// HTTPMaxRequestBytes разбирает "http.макс_размер_запроса_байт" - предел
+// размера входящего HTTP-запроса ("принять_http"), заголовки и тело вместе
+// (rtmsg.HTTPServerRequestTooLarge, вместо буферизации сколь угодно
+// большого запроса в памяти без предела). 0, nil - поле не указано (или
+// .rechproj нет вовсе) - вызывающая сторона (internal/compiler) в этом
+// случае НЕ переопределяет ir.Program.HTTPMaxRequestBytes, оставляя
+// встроенное умолчание (internal/semantic.DefaultHTTPMaxRequestBytes), тем
+// же принципом "0 - используй встроенное умолчание", что и у DBPoolSize.
+// Ошибка - значение указано, но не положительное целое (явный "0" здесь не
+// поддержан как отдельное значение "без предела" - неотличим от "поле не
+// указано", тем же осознанным упрощением, что и у DBPoolSize; если
+// программе действительно нужен очень большой предел, можно указать
+// большое число явно).
+func (pf *File) HTTPMaxRequestBytes() (int, error) {
+	if pf.httpMaxRequestBytesRaw == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(pf.httpMaxRequestBytesRaw)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("http.макс_размер_запроса_байт %q - ожидалось положительное целое число", pf.httpMaxRequestBytesRaw)
+	}
+	return n, nil
+}
+
 // Template - содержимое нового .rechproj (rech init). "версия: 0.1.0" и
 // "режим: отладка" - разумные значения для только что созданного проекта
 // (ещё не выпущен, полезно видеть сгенерированный .c), а не значения по
@@ -525,6 +553,12 @@ const Template = `проект:
 #   таймаут_простоя_мс: 30000 (сколько миллисекунд воркер простаивает без
 #   работы, прежде чем завершиться - только пока сжатие не выключено,
 #   по умолчанию 30000)
+
+# http:
+#   макс_размер_запроса_байт: 1048576 (предел размера входящего HTTP-
+#   запроса - "принять_http", заголовки и тело вместе - по умолчанию 10
+#   МиБ; запрос сверх предела аварийно завершает "принять_http", вместо
+#   буферизации сколь угодно большого запроса в памяти без предела)
 
 # окружение:
 #   RECH_HTTP_PORT: 8080 (переменные окружения для "rech run" - вместо

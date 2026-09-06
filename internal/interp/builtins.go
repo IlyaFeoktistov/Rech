@@ -1,6 +1,7 @@
 package interp
 
 import (
+	"crypto/tls"
 	"fmt"
 	"io"
 	"math"
@@ -307,18 +308,46 @@ func (in *Interp) readLine() string {
 // httpRequest - "запрос" (шаг 9, HTTP-клиент типа curl) - тот же простой
 // протокол, что и cbackend.rech_http_request (см. package doc там):
 // "Connection: close" в каждом запросе, ответ читается до закрытия
-// соединения (io.ReadAll), не по Content-Length/chunked - оба backend'а
-// должны разбирать ответ одинаково (в т.ч. одинаково НЕ уметь chunked),
-// иначе интерпретатор был бы незаметно "умнее" собранной программы для
-// одного и того же Rech-кода.
+// соединения (io.ReadAll), не по Content-Length - простой способ получить
+// ВСЕ байты ответа целиком. Chunked transfer encoding - РАЗБИРАЕТСЯ
+// (docs/ROADMAP.md, HTTP highload пункт 4, chunked.go) - раз io.ReadAll уже
+// дочитал весь чанкованный поток целиком (до закрытия соединения),
+// достаточно раскодировать его одним проходом (dechunk) уже после приёма.
 func (in *Interp) httpRequest(req Value) Value {
 	f := req.Obj.fields
 	method, host, path, headers, body := f["метод"].S, f["адрес"].S, f["путь"].S, f["заголовки"].S, f["тело"].S
 	port := f["порт"].I
 
-	conn, err := net.Dial("tcp", net.JoinHostPort(host, strconv.FormatInt(port, 10)))
-	if err != nil {
-		panicRuntime("%s", rtmsg.SocketConnectFailed)
+	// "https://"/"http://" в начале "адреса" - тем же принципом, что и
+	// cbackend.rech_http_request (см. её package doc) - обе схемы
+	// отрезаются перед подключением/заголовком "Host:".
+	isHTTPS := false
+	if rest, ok := strings.CutPrefix(host, "https://"); ok {
+		isHTTPS = true
+		host = rest
+	} else if rest, ok := strings.CutPrefix(host, "http://"); ok {
+		host = rest
+	}
+
+	addr := net.JoinHostPort(host, strconv.FormatInt(port, 10))
+	var conn net.Conn
+	var err error
+	if isHTTPS {
+		// tls.Dial - TCP-соединение + рукопожатие ОДНИМ вызовом (в отличие
+		// от cbackend, где это два раздельных шага, rech_connect_tcp +
+		// SSL_connect, - здесь их незачем разделять, у Go нет отдельного
+		// "голого" TCP-соединения, которое нужно было бы регистрировать в
+		// каком-то реестре, как в cbackend, tlsConnectCode) - ServerName
+		// для проверки сертификата берётся из host (SNI).
+		conn, err = tls.Dial("tcp", addr, &tls.Config{ServerName: host})
+		if err != nil {
+			panicRuntime("%s", rtmsg.TLSClientHandshakeFailed)
+		}
+	} else {
+		conn, err = net.Dial("tcp", addr)
+		if err != nil {
+			panicRuntime("%s", rtmsg.SocketConnectFailed)
+		}
 	}
 	defer conn.Close()
 
@@ -344,6 +373,8 @@ func (in *Interp) httpRequest(req Value) Value {
 	respHeaders, respBody, ok := strings.Cut(rawS, "\r\n\r\n")
 	if !ok {
 		respHeaders, respBody = "", ""
+	} else if isChunkedHeaders([]byte(respHeaders)) {
+		respBody = string(dechunk([]byte(respBody)))
 	}
 	return Value{Type: ir.EntityType("Ответ"), Obj: &entityObj{typeName: "Ответ", fields: map[string]Value{
 		"код":       intValue(code),

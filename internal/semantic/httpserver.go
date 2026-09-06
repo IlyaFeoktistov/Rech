@@ -13,6 +13,17 @@ import "github.com/IlyaFeoktistov/Rech/internal/ir"
 // в языке (тот же принцип, что и у "ОшибкаРазбора", см. parse.go).
 const queryParamsDictType = "Словарь<Строка, Строка>"
 
+// DefaultHTTPMaxRequestBytes - предел размера входящего HTTP-запроса
+// ("принять_http"), если файл проекта не задаёт "http.
+// макс_размер_запроса_байт" (internal/project.File.HTTPMaxRequestBytes
+// возвращает 0 в этом случае - internal/compiler тогда не переопределяет
+// ir.Program.HTTPMaxRequestBytes, оставляя именно это значение, тем же
+// принципом, что DefaultDBPoolSize). 10 МиБ - достаточно с запасом для
+// типичного JSON/form-запроса, но далеко от того, что позволило бы одному
+// клиенту исчерпать память процесса телом запроса без всякого предела (см.
+// package doc ir.Program.HTTPMaxRequestBytes).
+const DefaultHTTPMaxRequestBytes = 10 << 20
+
 // registerHTTPServerFuncs - минимальный HTTP-СЕРВЕР поверх уже
 // существующих сетевых примитивов (слушать_tcp/принять) и уже
 // существующих сущностей "Запрос"/"Ответ" (registerHTTPEntity, вызывается

@@ -10,9 +10,25 @@
 // здесь. Ожидание/сигнал устроены тем же приёмом, что и rech_db_checkout/
 // rech_db_checkin (db.go) - мьютекс+condvar вокруг цикла ожидания вместо
 // массива слотов, счётчик разрешений вместо массива занятости.
+//
+// "захватить" принимает необязательный "таймаут_мс" (internal/semantic/
+// semaphore.go, значение по умолчанию -1 - ждать бесконечно, тем же
+// принципом default-параметров, что и у обычных функций/методов, Шаг 38) -
+// docs/ROADMAP.md, HTTP highload пункт 3 (admission control): явный
+// неотрицательный аргумент ограничивает ожидание сверху, паникуя
+// (rtmsg.SemaphoreAcquireTimeout), если разрешение не появилось вовремя (0
+// - не ждать вовсе). POSIX-ветка - абсолютный дедлайн (pthread_cond_
+// timedwait), тем же приёмом, что и rech_db_checkout (db.go); Windows-ветка
+// - относительный таймаут, переиздаваемый заново на каждой итерации цикла
+// (та же осознанная неточность при ложных пробуждениях, что и у
+// rech_db_checkout - не новое допущение).
 package cbackend
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
+)
 
 const semaphoreEntityName = "Семафор"
 
@@ -34,7 +50,7 @@ func semaphoreStructTypedef() string {
 func semaphorePrototypes() string {
 	cType := mangleType(semaphoreEntityName)
 	return fmt.Sprintf(
-		"static %[1]s *%[2]s(long long начальное_значение);\nstatic void %[3]s(%[1]s *this_);\nstatic void %[4]s(%[1]s *this_);\n",
+		"static %[1]s *%[2]s(long long начальное_значение);\nstatic void %[3]s(%[1]s *this_, long long таймаут_мс);\nstatic void %[4]s(%[1]s *this_);\n",
 		cType, mangleCtor(semaphoreEntityName), mangleMethod(semaphoreEntityName, "захватить"), mangleMethod(semaphoreEntityName, "освободить"),
 	)
 }
@@ -53,6 +69,15 @@ func semaphoreRuntimeCode() string {
 	ctor := mangleCtor(semaphoreEntityName)
 	acquire := mangleMethod(semaphoreEntityName, "захватить")
 	release := mangleMethod(semaphoreEntityName, "освободить")
+	// timeoutPanic/deadlineCode - изолированные fmt.Sprintf каждый ровно на
+	// свою подстановку, а не единый Sprintf на весь текст функции целиком
+	// (тем же приёмом и по той же причине, что dbCommonHelperFuncsCode,
+	// db.go) - оба уже несут настоящие "%" (rtmsg-сообщение может
+	// содержать его, timespecDeadlineCode - C-оператор деления по модулю),
+	// которые сломались бы, пройдя ЕЩЁ раз через внешний Sprintf ниже
+	// (интерпретировались бы как чужие verb'ы).
+	timeoutPanic := fmt.Sprintf(`rech_panic("%s");`, escapeCString(rtmsg.SemaphoreAcquireTimeout))
+	deadlineCode := timespecDeadlineCode("rech_sem_deadline", "таймаут_мс")
 	return fmt.Sprintf(`static %[1]s *%[2]s(long long начальное_значение) {
     %[1]s *p = GC_MALLOC(sizeof(%[1]s));
     p->count = начальное_значение;
@@ -66,25 +91,46 @@ func semaphoreRuntimeCode() string {
     return p;
 }
 
-static void %[3]s(%[1]s *this_) {
+`, cType, ctor) +
+		fmt.Sprintf(`static void %[1]s(%[2]s *this_, long long таймаут_мс) {
 #ifdef _WIN32
     EnterCriticalSection(&this_->mutex);
-    while (this_->count == 0) {
-        SleepConditionVariableCS(&this_->cond, &this_->mutex, INFINITE);
+    if (таймаут_мс < 0) {
+        while (this_->count == 0) {
+            SleepConditionVariableCS(&this_->cond, &this_->mutex, INFINITE);
+        }
+    } else {
+        DWORD ждать_мс = (DWORD)таймаут_мс;
+        while (this_->count == 0) {
+            if (!SleepConditionVariableCS(&this_->cond, &this_->mutex, ждать_мс)) {
+                LeaveCriticalSection(&this_->mutex);
+                `, acquire, cType) + timeoutPanic + `
+            }
+        }
     }
     this_->count--;
     LeaveCriticalSection(&this_->mutex);
 #else
     pthread_mutex_lock(&this_->mutex);
-    while (this_->count == 0) {
-        pthread_cond_wait(&this_->cond, &this_->mutex);
+    if (таймаут_мс < 0) {
+        while (this_->count == 0) {
+            pthread_cond_wait(&this_->cond, &this_->mutex);
+        }
+    } else {
+        struct timespec rech_sem_deadline;
+` + deadlineCode + `        while (this_->count == 0) {
+            if (pthread_cond_timedwait(&this_->cond, &this_->mutex, &rech_sem_deadline) != 0) {
+                pthread_mutex_unlock(&this_->mutex);
+                ` + timeoutPanic + `
+            }
+        }
     }
     this_->count--;
     pthread_mutex_unlock(&this_->mutex);
 #endif
 }
 
-static void %[4]s(%[1]s *this_) {
+` + fmt.Sprintf(`static void %[1]s(%[2]s *this_) {
 #ifdef _WIN32
     EnterCriticalSection(&this_->mutex);
     this_->count++;
@@ -98,5 +144,5 @@ static void %[4]s(%[1]s *this_) {
 #endif
 }
 
-`, cType, ctor, acquire, release)
+`, release, cType)
 }

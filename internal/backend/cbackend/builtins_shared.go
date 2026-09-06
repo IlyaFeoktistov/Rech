@@ -305,6 +305,12 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 		flags.usesHTTP = true
 		flags.usesSockets = true
 		flags.usesPanic = true
+		// usesTLS - "адрес" запроса решается только в РАНТАЙМЕ ("https://"
+		// префикс - обычная Строка, не литерал, известный на этапе
+		// компиляции), значит rech_http_request обязана уметь TLS
+		// безусловно, как только программа хоть раз вызывает "запрос" -
+		// см. package doc tls.go, tlsConnectCode (HTTP highload пункт 5).
+		flags.usesTLS = true
 		return fmt.Sprintf("rech_http_request(%s)", args[0]), true
 	case "принять_http":
 		flags.usesHTTPServer = true
@@ -1171,12 +1177,15 @@ var socketHelpers = socketTypeAndConnectCode + plainSocketOpsCode
 // Program.Entities раньше этого блока - здесь только ссылки на их
 // mangleType/mangleField имена (вычисленные, не написанные вручную -
 // исключает ошибку транслитерации). "Connection: close" в каждом запросе -
-// вместо keep-alive/chunked transfer encoding, которые этот срез не
-// разбирает: ответ читается до закрытия соединения сервером
-// (rech_recv_until_close), не до предполагаемой длины - известное текущее
-// ограничение (см. package doc internal/builtins.ReservedFuncNames и
-// docs/ROADMAP.md) - сервер, отвечающий chunked без Content-Length,
-// распарсится неверно (тело останется как есть, без де-чанкинга).
+// не keep-alive: ответ читается до закрытия соединения сервером
+// (rech_recv_until_close), не до предполагаемой длины - простой способ
+// получить ВСЕ байты ответа целиком, не разбирая Content-Length вовсе.
+// Chunked transfer encoding (сервер отвечает без Content-Length, вместо
+// него "Transfer-Encoding: chunked") - РАЗБИРАЕТСЯ (docs/ROADMAP.md, HTTP
+// highload пункт 4, chunked.go, rech_http_is_chunked/rech_http_dechunk) -
+// поскольку rech_recv_until_close уже дочитал весь чанкованный поток
+// целиком (до закрытия соединения), достаточно раскодировать его ОДНИМ
+// проходом уже после приёма, не по мере чтения.
 // rechDupHelper - rech_dup (копия C-строки в новый malloc-буфер) - общий
 // для HTTP-клиента (httpHelpers) и HTTP-сервера (httpServerHelpers,
 // httpserver.go) - эмитится один раз, когда нужен хотя бы один из них
@@ -1213,14 +1222,33 @@ var httpHelpers = fmt.Sprintf(`static char *rech_recv_until_close(rech_socket_t 
 }
 
 static %[7]s rech_http_request(%[8]s req) {
-    rech_socket_t s = rech_connect_tcp(req.%[3]s, req.%[5]s);
+    // "https://" в начале "адреса" - TLS (docs/ROADMAP.md, HTTP highload
+    // пункт 5); "http://" - тот же принцип для симметрии/явности, хотя
+    // поведение и без него не меняется (обычное соединение) - обе схемы
+    // отрезаются перед подключением/заголовком "Host:", реальный TCP-хост
+    // ("адрес") никогда сам не несёт схему. Известное упрощение - схема
+    // определяется ЛИТЕРАЛЬНЫМ вызовом strncmp во время выполнения, не на
+    // этапе компиляции (адрес - обычная Строка, не литерал) - именно
+    // поэтому "запрос" безусловно тянет TLS-осведомлённый socketHelpersTLS
+    // (builtins_shared.go, usesTLS), даже если конкретный вызов окажется
+    // обычным http.
+    static const char https_prefix[] = "https://";
+    static const char http_prefix[] = "http://";
+    int is_https = strncmp(req.%[3]s, https_prefix, sizeof(https_prefix) - 1) == 0;
+    const char *host = req.%[3]s;
+    if (is_https) {
+        host += sizeof(https_prefix) - 1;
+    } else if (strncmp(host, http_prefix, sizeof(http_prefix) - 1) == 0) {
+        host += sizeof(http_prefix) - 1;
+    }
+    rech_socket_t s = is_https ? rech_connect_tcp_tls(host, req.%[5]s) : rech_connect_tcp(host, req.%[5]s);
     size_t body_len = strlen(req.%[6]s);
     const char *hdr_sep = req.%[4]s[0] ? "\r\n" : "";
     int need = snprintf(NULL, 0, "%%s %%s HTTP/1.1\r\nHost: %%s\r\n%%s%%sConnection: close\r\nContent-Length: %%lld\r\n\r\n",
-        req.%[1]s, req.%[2]s, req.%[3]s, req.%[4]s, hdr_sep, (long long)body_len);
+        req.%[1]s, req.%[2]s, host, req.%[4]s, hdr_sep, (long long)body_len);
     char *head = malloc((size_t)need + 1);
     snprintf(head, (size_t)need + 1, "%%s %%s HTTP/1.1\r\nHost: %%s\r\n%%s%%sConnection: close\r\nContent-Length: %%lld\r\n\r\n",
-        req.%[1]s, req.%[2]s, req.%[3]s, req.%[4]s, hdr_sep, (long long)body_len);
+        req.%[1]s, req.%[2]s, host, req.%[4]s, hdr_sep, (long long)body_len);
     char *full = malloc((size_t)need + body_len + 1);
     memcpy(full, head, (size_t)need);
     memcpy(full + need, req.%[6]s, body_len);
@@ -1246,7 +1274,11 @@ static %[7]s rech_http_request(%[8]s req) {
         memcpy(headers, raw, header_len);
         headers[header_len] = '\0';
         resp.%[4]s = headers;
-        resp.%[6]s = rech_dup(body_sep + 4);
+        if (rech_http_is_chunked(raw, body_sep)) {
+            resp.%[6]s = rech_http_dechunk(body_sep + 4);
+        } else {
+            resp.%[6]s = rech_dup(body_sep + 4);
+        }
     } else {
         resp.%[4]s = rech_dup("");
         resp.%[6]s = rech_dup("");

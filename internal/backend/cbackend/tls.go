@@ -1,10 +1,10 @@
-// TLS для "слушать_tcp_защищённо" (docs/ROADMAP.md, изоляция паники сделала
-// сервер устойчивым к плохому запросу - TLS делает его пригодным для
-// настоящего прода) - биндинг к OpenSSL (libssl/libcrypto), НЕ собственная
-// реализация: в отличие от SHA-256/HMAC (crypto.go - самостоятельный C,
-// принцип "не тянуть внешнюю библиотеку туда, где хватает стандартного
-// алгоритма") настоящий TLS 1.2/1.3 стек с нуля - риск для безопасности,
-// не место для этого принципа.
+// TLS для "слушать_tcp_защищённо" (сервер) и "запрос" по адресу с
+// "https://" (клиент, docs/ROADMAP.md, HTTP highload пункт 5) - биндинг к
+// OpenSSL (libssl/libcrypto), НЕ собственная реализация: в отличие от
+// SHA-256/HMAC (crypto.go - самостоятельный C, принцип "не тянуть внешнюю
+// библиотеку туда, где хватает стандартного алгоритма") настоящий TLS
+// 1.2/1.3 стек с нуля - риск для безопасности, не место для этого
+// принципа.
 //
 // Дизайн: rech_socket_t НЕ меняет представление (остаётся тем же голым
 // int/SOCKET, что и в builtins_shared.go) - TLS-состояние живёт в
@@ -260,6 +260,49 @@ var tlsListenSecureCode = fmt.Sprintf(`static rech_socket_t rech_listen_tcp_secu
 }
 `, rtmsg.TLSCertLoadFailed)
 
+// tlsConnectCode - "запрос" по адресу с "https://" (docs/ROADMAP.md, HTTP
+// highload пункт 5) - обычный rech_connect_tcp (TCP-часть, TLS тут ни при
+// чём) + клиентское TLS-рукопожатие поверх уже установленного соединения,
+// зарегистрированное в том же реестре, что и серверные TLS-соединения
+// (rech_tls_register(s, NULL, ssl) - listen_ctx=NULL отличает клиентское
+// соединение от записи СЛУШАТЕЛЯ, ssl!=NULL - от обычного, не-TLS,
+// соединения) - rech_send/rech_socket_read_raw/rech_close_socket (выше в
+// этом файле) уже находят его через rech_tls_conn, ни единой правки им не
+// нужно. SSL_CTX_free(ctx) СРАЗУ после SSL_new(ctx) - не преждевременное
+// освобождение: SSL_new увеличивает счётчик ссылок ctx изнутри (обычный
+// приём OpenSSL для клиентского соединения, где CTX нужен только на
+// момент создания SSL - в отличие от серверного слушателя, чей CTX живёт,
+// пока жив сам слушатель, и хранится в реестре явно, tlsListenSecureCode
+// выше). TLS_client_method() - тот же современный минимум OpenSSL >=
+// 1.1.0, что и TLS_server_method() там же.
+var tlsConnectCode = fmt.Sprintf(`static rech_socket_t rech_connect_tcp_tls(const char *host, long long port) {
+    rech_socket_t s = rech_connect_tcp(host, port);
+    SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());
+    if (ctx == NULL) {
+        rech_panic("%[1]s");
+    }
+    SSL *ssl = SSL_new(ctx);
+    SSL_CTX_free(ctx);
+    if (ssl == NULL) {
+        rech_panic("%[1]s");
+    }
+    SSL_set_fd(ssl, (int)s);
+    if (SSL_connect(ssl) <= 0) {
+        SSL_free(ssl);
+#ifdef _WIN32
+        closesocket(s);
+#else
+        close(s);
+#endif
+        rech_panic("%[1]s");
+    }
+    rech_tls_register(s, NULL, ssl);
+    return s;
+}
+`, rtmsg.TLSClientHandshakeFailed)
+
 // socketHelpersTLS - вариант socketHelpers (builtins_shared.go) для
-// программы, использующей "слушать_tcp_защищённо" - см. package doc выше.
-var socketHelpersTLS = socketTypeAndConnectCode + tlsRegistryCode + tlsSocketOpsCode + tlsListenSecureCode
+// программы, использующей "слушать_tcp_защищённо" ИЛИ "запрос" (HTTP-
+// клиент теперь тоже TLS-осведомлён, см. package doc tlsConnectCode) - см.
+// package doc выше.
+var socketHelpersTLS = socketTypeAndConnectCode + tlsRegistryCode + tlsSocketOpsCode + tlsListenSecureCode + tlsConnectCode

@@ -565,3 +565,67 @@ func TestPoolIdleTimeoutMsRejectsNonPositive(t *testing.T) {
 		}
 	}
 }
+
+// TestHTTPMaxRequestBytesDefaultIsZero - поле не указано - 0, "используй
+// встроенное умолчание" (тем же принципом, что DBPoolSize).
+func TestHTTPMaxRequestBytesDefaultIsZero(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := "проект:\n  имя: тест\n\nфайлы:\n  главный: исходники/главный.rech\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	pf, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	n, err := pf.HTTPMaxRequestBytes()
+	if err != nil {
+		t.Fatalf("HTTPMaxRequestBytes: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("ожидалось 0 (использовать встроенное умолчание), получено %d", n)
+	}
+}
+
+// TestHTTPMaxRequestBytesParsesPositiveValue - значение указано явно.
+func TestHTTPMaxRequestBytesParsesPositiveValue(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := "проект:\n  имя: тест\n\nфайлы:\n  главный: исходники/главный.rech\n\nhttp:\n  макс_размер_запроса_байт: 65536\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	pf, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	n, err := pf.HTTPMaxRequestBytes()
+	if err != nil {
+		t.Fatalf("HTTPMaxRequestBytes: %v", err)
+	}
+	if n != 65536 {
+		t.Fatalf("ожидалось 65536, получено %d", n)
+	}
+}
+
+// TestHTTPMaxRequestBytesRejectsNonPositive - ноль/отрицательное значение
+// бессмысленны как предел размера ("0" неотличим от "поле не указано" - см.
+// package doc HTTPMaxRequestBytes).
+func TestHTTPMaxRequestBytesRejectsNonPositive(t *testing.T) {
+	for _, raw := range []string{"0", "-1"} {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "тест.rechproj")
+		content := "проект:\n  имя: тест\n\nфайлы:\n  главный: исходники/главный.rech\n\nhttp:\n  макс_размер_запроса_байт: " + raw + "\n"
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("запись файла проекта: %v", err)
+		}
+		pf, err := Load(path)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if _, err := pf.HTTPMaxRequestBytes(); err == nil {
+			t.Fatalf("ожидалась ошибка на значение %q", raw)
+		}
+	}
+}

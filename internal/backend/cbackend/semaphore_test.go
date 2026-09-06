@@ -27,6 +27,11 @@ func TestGenerateFromIRSemaphoreEmitsNativeStructCtorAndMethods(t *testing.T) {
 		&ir.ExprStmt{MethodCall: &ir.MethodCallExpr{
 			Receiver: &ir.FieldAccess{Receiver: &ir.Identifier{Name: "пул", Type: ir.EntityType("Пул")}, Field: "семафор", Type: ir.EntityType("Семафор")},
 			Entity:   "Семафор", Method: "захватить",
+			// -1 - как реальный вызывающий код после разрешения значения по
+			// умолчанию ("сем.захватить()" без аргумента, internal/semantic/
+			// semaphore.go, semaphoreWaitForeverDefault) - этот тест строит IR
+			// вручную, минуя semantic.Analyze, поэтому подставляет его сам.
+			Args: []ir.Expr{&ir.IntLiteral{Value: -1}},
 		}},
 	}}
 	out, err := GenerateFromIR(&ir.Program{Entities: []*ir.Entity{semaphore, pool}, Functions: []*ir.Function{main}})
@@ -37,7 +42,7 @@ func TestGenerateFromIRSemaphoreEmitsNativeStructCtorAndMethods(t *testing.T) {
 		"#ifndef _WIN32\n#include <pthread.h>\n#endif\n",
 		"long long count;\n#ifdef _WIN32\n    CRITICAL_SECTION mutex;\n    CONDITION_VARIABLE cond;\n#else\n    pthread_mutex_t mutex;\n    pthread_cond_t cond;\n#endif\n} rech_T_semafor;",
 		"static rech_T_semafor *rech_new_semafor(long long начальное_значение);",
-		"static void rech_M_semafor_zahvatit(rech_T_semafor *this_);",
+		"static void rech_M_semafor_zahvatit(rech_T_semafor *this_, long long таймаут_мс);",
 		"static void rech_M_semafor_osvobodit(rech_T_semafor *this_);",
 		"p->count = начальное_значение;",
 		"pthread_mutex_init(&p->mutex, NULL);",
@@ -47,7 +52,7 @@ func TestGenerateFromIRSemaphoreEmitsNativeStructCtorAndMethods(t *testing.T) {
 		"this_->count++;",
 		"pthread_cond_signal(&this_->cond);",
 		"WakeConditionVariable(&this_->cond);",
-		"rech_M_semafor_zahvatit(((v_pul)->f_semafor));",
+		"rech_M_semafor_zahvatit(((v_pul)->f_semafor), -1LL);",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("ожидался фрагмент %q, получено:\n%s", want, out)

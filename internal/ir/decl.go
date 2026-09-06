@@ -169,6 +169,17 @@ type Program struct {
 	// тем же принципом, что DBPoolSize (0 - используй встроенное умолчание,
 	// не сентинел "ждать бесконечно", как у DBPoolTimeoutMs).
 	PoolIdleTimeoutMs int
+	// HTTPMaxRequestBytes - предел размера входящего HTTP-запроса
+	// ("принять_http"), заголовки и тело вместе (по умолчанию internal/
+	// semantic.DefaultHTTPMaxRequestBytes, если файл проекта не задаёт
+	// "http.макс_размер_запроса_байт" - см. internal/project.File.
+	// HTTPMaxRequestBytes) - и cbackend (rech_recv_http_request), и
+	// internal/interp (recvHTTPRequest) читают именно это поле, не файл
+	// проекта напрямую, тем же принципом, что DBPoolSize. Запрос сверх
+	// предела аварийно завершает "принять_http" (rtmsg.
+	// HTTPServerRequestTooLarge), вместо буферизации сколь угодно большого
+	// запроса в памяти без предела.
+	HTTPMaxRequestBytes int
 	// DBRowTargets - сущности, встретившиеся хоть раз ЭЛЕМЕНТОМ цели
 	// "запросить(...) как Список<Тип>" (DBRowsAsExpr, internal/semantic/
 	// db_rows.go), без повторов - тем же принципом, что и ParseTargets:

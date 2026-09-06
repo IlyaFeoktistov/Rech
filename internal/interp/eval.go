@@ -556,7 +556,7 @@ func (in *Interp) evalMethodCallExpr(e *ir.MethodCallExpr, env *Env, cc *callCtx
 		return evalMutexMethod(recv.Obj, e)
 	}
 	if recv.Obj.semaphore != nil {
-		return evalSemaphoreMethod(recv.Obj, e)
+		return in.evalSemaphoreMethod(recv.Obj, e, env, cc)
 	}
 	if recv.Obj.dbTx != nil {
 		return in.evalTransactionMethod(recv.Obj, e, env, cc)

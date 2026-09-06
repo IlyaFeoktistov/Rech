@@ -1,6 +1,11 @@
 package interp
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
+)
 
 // TestRunSemaphoreBoundsConcurrentTasks - "Семафор" реально ограничивает
 // число ОДНОВРЕМЕННО исполняющихся "запустить"-задач: 5 задач, семафор с 2
@@ -123,5 +128,58 @@ func TestRunSemaphoreSerializesWithInitialValueOne(t *testing.T) {
 `)
 	if out != "6000\n" {
 		t.Fatalf("ожидалось \"6000\" (3 задачи * 2000 - без потерь), получено %q", out)
+	}
+}
+
+// TestRunSemaphoreAcquireWithTimeoutSucceedsWhenAvailable - "захватить(N)" с
+// доступным разрешением ведёт себя как обычное "захватить()", просто с
+// явным (не бесконечным) таймаутом - паника не должна случиться.
+func TestRunSemaphoreAcquireWithTimeoutSucceedsWhenAvailable(t *testing.T) {
+	out := runSrc(t, `
+функция главная
+{
+    переменная сем = новый Семафор(1)
+    сем.захватить(500)
+    вывести "получено"
+    сем.освободить()
+}
+`)
+	if out != "получено\n" {
+		t.Fatalf("получено %q, хотели \"получено\\n\"", out)
+	}
+}
+
+// TestRunSemaphoreAcquireWithZeroTimeoutFailsImmediatelyWhenUnavailable -
+// docs/ROADMAP.md, HTTP highload пункт 3 (admission control): "захватить(0)"
+// на уже занятом семафоре не ждёт вовсе - немедленная паника (rtmsg.
+// SemaphoreAcquireTimeout), а не бесконечное ожидание/зависание теста.
+func TestRunSemaphoreAcquireWithZeroTimeoutFailsImmediatelyWhenUnavailable(t *testing.T) {
+	err := runSrcExpectRuntimeError(t, `
+функция главная
+{
+    переменная сем = новый Семафор(1)
+    сем.захватить()
+    сем.захватить(0)
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), rtmsg.SemaphoreAcquireTimeout) {
+		t.Fatalf("ожидалась ошибка %q, получено: %v", rtmsg.SemaphoreAcquireTimeout, err)
+	}
+}
+
+// TestRunSemaphoreAcquireWithPositiveTimeoutFailsAfterDeadline - "захватить
+// (N)" на занятом семафоре, который не освобождается вовремя - паника
+// ПОСЛЕ примерно N мс, не раньше и не бесконечно.
+func TestRunSemaphoreAcquireWithPositiveTimeoutFailsAfterDeadline(t *testing.T) {
+	err := runSrcExpectRuntimeError(t, `
+функция главная
+{
+    переменная сем = новый Семафор(1)
+    сем.захватить()
+    сем.захватить(50)
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), rtmsg.SemaphoreAcquireTimeout) {
+		t.Fatalf("ожидалась ошибка %q, получено: %v", rtmsg.SemaphoreAcquireTimeout, err)
 	}
 }

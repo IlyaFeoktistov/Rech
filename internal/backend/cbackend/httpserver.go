@@ -15,12 +15,33 @@ import (
 // читает до закрытия соединения СЕРВЕРОМ), сервер не может ждать закрытия
 // соединения КЛИЕНТОМ - клиент (браузер/curl) держит соединение открытым,
 // ожидая ответ. rech_recv_http_request поэтому читает по-другому: сначала
-// байты заголовков (до "\r\n\r\n"), затем ровно Content-Length байт тела
-// (0, если заголовка Content-Length нет - обычный случай для GET без
-// тела) - rech_http_content_length ищет "content-length" в уже полученных
-// байтах регистронезависимо вручную (без <ctype.h> - однократный ручной
+// байты заголовков (до "\r\n\r\n"), затем либо ровно Content-Length байт
+// тела (0, если заголовка Content-Length нет - обычный случай для GET без
+// тела), либо, если вместо него "Transfer-Encoding: chunked" - чанки до
+// терминирующего (нулевого) чанка включительно (docs/ROADMAP.md, HTTP
+// highload пункт 4, chunked.go) - rech_http_content_length/
+// rech_http_is_chunked ищут нужный заголовок в уже полученных байтах
+// регистронезависимо вручную (без <ctype.h> - однократный ручной
 // case-fold дешевле нового заголовка ради одной функции).
-var httpServerHelpers = fmt.Sprintf(`static long long rech_http_content_length(const char *buf, const char *end) {
+//
+// httpServerHelpersCode - была константой, стала функцией параметром
+// maxRequestBytes (ir.Program.HTTPMaxRequestBytes, "http.
+// макс_размер_запроса_байт" файла проекта) - тот же приём, что и
+// threadPoolCode (threadpool.go): значение запекается препроцессорным
+// макросом (RECH_HTTP_MAX_REQUEST_BYTES), а не читается как переменная
+// рантайма, потому что для одной программы оно ровно одно и известно уже
+// на этапе кодогенерации. rech_recv_http_request проверяет его дважды: как
+// только известна Content-Length - сравнивается СУММА "уже прочитанные
+// заголовки + заявленное тело" с пределом (не одна Content-Length -
+// огромные заголовки сами по себе, без всякого тела, тоже обязаны быть
+// отклонены), не читая тело вовсе, если сумма уже больше предела; и на
+// каждой итерации накопления заголовков ДО "\r\n\r\n" - клиент, никогда не
+// заканчивающий заголовки, иначе рос бы в памяти без предела тем же самым
+// буфером, что и настоящее тело.
+func httpServerHelpersCode(maxRequestBytes int) string {
+	return fmt.Sprintf(`#define RECH_HTTP_MAX_REQUEST_BYTES %[11]d
+
+static long long rech_http_content_length(const char *buf, const char *end) {
     static const char want[] = "content-length";
     for (const char *p = buf; p + 14 <= end; p++) {
         int match = 1;
@@ -78,20 +99,60 @@ static char *rech_recv_http_request(rech_socket_t s) {
     char *buf = malloc(cap);
     char *body_start = NULL;
     long long content_length = 0;
+    int is_chunked = 0;
+    char *dechunked = NULL;
+    long long dechunked_len = 0;
     for (;;) {
         buf[len] = '\0';
         if (body_start == NULL) {
             char *sep = strstr(buf, "\r\n\r\n");
             if (sep) {
                 body_start = sep + 4;
-                content_length = rech_http_content_length(buf, sep);
+                is_chunked = rech_http_is_chunked(buf, sep);
+                if (!is_chunked) {
+                    content_length = rech_http_content_length(buf, sep);
+                    // Заголовки + тело ВМЕСТЕ против предела - не только
+                    // content_length: заголовки САМИ ПО СЕБЕ уже могут
+                    // превышать предел (огромные cookie/токены в
+                    // заголовках, Content-Length при этом мал или
+                    // отсутствует вовсе) - без этого слагаемого такой
+                    // запрос прошёл бы мимо проверки ниже целиком.
+                    // Chunked-путь (is_chunked) сюда не входит - заранее
+                    // заявленной длины тела нет вовсе (чанки сами решают,
+                    // сколько их будет), общая проверка len ниже страхует
+                    // ОБА пути одинаково.
+                    long long header_bytes = (long long)(body_start - buf);
+                    if (header_bytes + content_length > RECH_HTTP_MAX_REQUEST_BYTES) {
+                        free(buf);
+                        rech_panic("%[12]s");
+                    }
+                }
+            } else if ((long long)len >= RECH_HTTP_MAX_REQUEST_BYTES) {
+                free(buf);
+                rech_panic("%[12]s");
             }
         }
         if (body_start != NULL) {
-            long long have = (long long)(len - (size_t)(body_start - buf));
-            if (have >= content_length) {
-                break;
+            if (is_chunked) {
+                long long avail = (long long)(len - (size_t)(body_start - buf));
+                if (rech_http_try_dechunk(body_start, avail, &dechunked, &dechunked_len)) {
+                    break;
+                }
+            } else {
+                long long have = (long long)(len - (size_t)(body_start - buf));
+                if (have >= content_length) {
+                    break;
+                }
             }
+        }
+        // Общий предел на ВЕСЬ принятый буфер (заголовки + тело, чанковано
+        // оно или нет) - для content_length-пути он избыточен (уже
+        // проверен выше при разборе заголовков), для chunked-пути - это
+        // ЕДИНСТВЕННАЯ защита от неограниченного роста (заранее известной
+        // длины тела нет).
+        if ((long long)len >= RECH_HTTP_MAX_REQUEST_BYTES) {
+            free(buf);
+            rech_panic("%[12]s");
         }
         if (len + 1 >= cap) {
             cap *= 2;
@@ -108,6 +169,32 @@ static char *rech_recv_http_request(rech_socket_t s) {
         len += (size_t)n;
     }
     buf[len] = '\0';
+    if (is_chunked) {
+        if (dechunked == NULL) {
+            // Соединение оборвалось/закрылось раньше терминирующего
+            // (нулевого) чанка - тем же best-effort принципом, что и
+            // ранний обрыв на content_length-пути (n == 0 просто
+            // прерывает цикл без паники) - берём то, что успело
+            // разобраться к этому моменту, а не паникуем повторно.
+            long long avail = (long long)(len - (size_t)(body_start - buf));
+            if (!rech_http_try_dechunk(body_start, avail, &dechunked, &dechunked_len)) {
+                dechunked = rech_dup("");
+                dechunked_len = 0;
+            }
+        }
+        // Пересобрать буфер так, чтобы rech_http_accept_request (которая
+        // ищет "\r\n\r\n" и берёт всё после нЕГО как тело) увидела уже
+        // ДЕКОДИРОВАННОЕ тело вместо чанкованного потока - заголовки (до
+        // body_start) остаются как есть, хвост заменяется целиком.
+        size_t header_part_len = (size_t)(body_start - buf);
+        char *combined = malloc(header_part_len + (size_t)dechunked_len + 1);
+        memcpy(combined, buf, header_part_len);
+        memcpy(combined + header_part_len, dechunked, (size_t)dechunked_len);
+        combined[header_part_len + dechunked_len] = '\0';
+        free(buf);
+        free(dechunked);
+        return combined;
+    }
     return buf;
 }
 
@@ -194,8 +281,9 @@ static void rech_http_send_response(rech_socket_t s, %[8]s resp) {
     free(full);
 }
 `, mangleField("метод"), mangleField("путь"), mangleField("адрес"), mangleField("заголовки"),
-	mangleField("порт"), mangleField("тело"), mangleType("Запрос"), mangleType("Ответ"),
-	mangleField("код"), rtmsg.HTTPServerRecvFailed)
+		mangleField("порт"), mangleField("тело"), mangleType("Запрос"), mangleType("Ответ"),
+		mangleField("код"), rtmsg.HTTPServerRecvFailed, maxRequestBytes, rtmsg.HTTPServerRequestTooLarge)
+}
 
 // queryParamsDictType - см. internal/semantic/httpserver.go,
 // registerHTTPServerFuncs - имя generic-инстанциации, принудительно

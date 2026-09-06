@@ -84,18 +84,44 @@ func TestAnalyzeSemaphoreUnknownMethodFails(t *testing.T) {
 	}
 }
 
-// TestAnalyzeSemaphoreMethodsRejectArguments - "захватить"/"освободить" не
-// принимают аргументов.
-func TestAnalyzeSemaphoreMethodsRejectArguments(t *testing.T) {
-	_, err := AnalyzeSource(t, `
+// TestAnalyzeSemaphoreAcquireAcceptsOptionalTimeout - "захватить" принимает
+// НЕОБЯЗАТЕЛЬНЫЙ таймаут_мс (docs/ROADMAP.md, HTTP highload пункт 3), но не
+// больше одного аргумента; "освободить" по-прежнему не принимает аргументов
+// вовсе.
+func TestAnalyzeSemaphoreAcquireAcceptsOptionalTimeout(t *testing.T) {
+	if _, err := AnalyzeSource(t, `
 функция главная
 {
     переменная сем = новый Семафор(1)
-    сем.захватить(1)
+    сем.захватить()
+    сем.захватить(500)
 }
-`)
-	if err == nil {
-		t.Fatalf("ожидалась ошибка - \"захватить\" не принимает аргументов")
+`); err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
+// TestAnalyzeSemaphoreMethodsRejectExtraArguments - "захватить" не
+// принимает больше одного аргумента, "освободить" - ни одного.
+func TestAnalyzeSemaphoreMethodsRejectExtraArguments(t *testing.T) {
+	for _, src := range []string{
+		`
+функция главная
+{
+    переменная сем = новый Семафор(1)
+    сем.захватить(1, 2)
+}
+`, `
+функция главная
+{
+    переменная сем = новый Семафор(1)
+    сем.освободить(1)
+}
+`,
+	} {
+		if _, err := AnalyzeSource(t, src); err == nil {
+			t.Fatalf("ожидалась ошибка лишнего аргумента для %q", src)
+		}
 	}
 }
 

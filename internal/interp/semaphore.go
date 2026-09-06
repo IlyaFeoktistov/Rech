@@ -10,8 +10,10 @@ package interp
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
+	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
 const semaphoreEntityName = "Семафор"
@@ -32,18 +34,47 @@ func newSemaphoreValue(n int64) Value {
 	return Value{Type: ir.EntityType(semaphoreEntityName), Obj: &entityObj{typeName: semaphoreEntityName, semaphore: s}}
 }
 
-// evalSemaphoreMethod - "захватить"/"освободить" на значении "Семафор" -
-// recv.Obj.semaphore != nil отличает эту ветку от обычного метода/generic-
-// коллекции/"Блокировки" (см. evalMethodCallExpr). Оба метода без
-// результата, как и в cbackend (funcSig без ReturnType, internal/semantic/
-// semaphore.go).
-func evalSemaphoreMethod(obj *entityObj, e *ir.MethodCallExpr) (Value, error) {
+// evalSemaphoreMethod - "захватить(таймаут_мс)"/"освободить" на значении
+// "Семафор" - recv.Obj.semaphore != nil отличает эту ветку от обычного
+// метода/generic-коллекции/"Блокировки" (см. evalMethodCallExpr). Оба
+// метода без результата, как и в cbackend (funcSig без ReturnType,
+// internal/semantic/semaphore.go). "захватить" - таймаут_мс < 0 (умолчание
+// -1, см. semaphoreWaitForeverDefault) ждёт бесконечно (s.cond.Wait() в
+// цикле, как раньше); неотрицательный - ограничивает ожидание таймаутом
+// через time.AfterFunc + s.cond.Broadcast (sync.Cond не умеет ждать с
+// таймаутом сам по себе, в отличие от pthread_cond_timedwait/
+// SleepConditionVariableCS в cbackend) - будит ВСЕХ ожидающих по истечении
+// (не только этого одного - Broadcast, не Signal), каждый сам перепроверяет
+// своё условие/дедлайн в цикле, ложные пробуждения остальных безвредны
+// (тот же цикл "for count == 0"). Не дождался - паника (rtmsg.
+// SemaphoreAcquireTimeout), тем же принципом, что и cbackend.
+func (in *Interp) evalSemaphoreMethod(obj *entityObj, e *ir.MethodCallExpr, env *Env, cc *callCtx) (Value, error) {
 	s := obj.semaphore
 	switch e.Method {
 	case "захватить":
+		timeoutArg, err := in.evalExpr(e.Args[0], env, cc)
+		if err != nil {
+			return Value{}, err
+		}
+		timeoutMs := timeoutArg.I
 		s.mu.Lock()
-		for s.count == 0 {
+		if timeoutMs < 0 {
+			for s.count == 0 {
+				s.cond.Wait()
+			}
+			s.count--
+			s.mu.Unlock()
+			return Value{}, nil
+		}
+		deadline := time.Now().Add(time.Duration(timeoutMs) * time.Millisecond)
+		timer := time.AfterFunc(time.Duration(timeoutMs)*time.Millisecond, s.cond.Broadcast)
+		for s.count == 0 && time.Now().Before(deadline) {
 			s.cond.Wait()
+		}
+		timer.Stop()
+		if s.count == 0 {
+			s.mu.Unlock()
+			panicRuntime("%s", rtmsg.SemaphoreAcquireTimeout)
 		}
 		s.count--
 		s.mu.Unlock()

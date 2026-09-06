@@ -509,6 +509,11 @@ type Interp struct {
 	// semantic.DefaultDBSQLiteBusyTimeoutMs) - dbConnect передаёт его в DSN
 	// SQLite ("?_busy_timeout=") - см. её package doc в db.go.
 	dbSQLiteBusyTimeoutMs int
+	// httpMaxRequestBytes - ir.Program.HTTPMaxRequestBytes ("http.
+	// макс_размер_запроса_байт" из .rechproj, по умолчанию internal/
+	// semantic.DefaultHTTPMaxRequestBytes) - recvHTTPRequest сверяет с ним
+	// накопленный буфер запроса, см. её package doc в httpserver.go.
+	httpMaxRequestBytes int
 }
 
 // Run исполняет prog: находит "главная" и выполняет её тело, печатая
@@ -572,6 +577,7 @@ func newInterp(prog *ir.Program, out io.Writer, stdin io.Reader) (*Interp, *ir.F
 		dbPoolSize:            prog.DBPoolSize,
 		dbPoolTimeoutMs:       prog.DBPoolTimeoutMs,
 		dbSQLiteBusyTimeoutMs: prog.DBSQLiteBusyTimeoutMs,
+		httpMaxRequestBytes:   prog.HTTPMaxRequestBytes,
 	}
 	for _, fn := range prog.Functions {
 		in.funcs[fn.Name] = fn

@@ -1215,12 +1215,17 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// отправителя UDP-датаграммы копируется через rech_dup) - эмитится
 	// один раз перед всеми тремя (см. rechDupHelper).
 	appendCodeIf(&sb, ctx.usesHTTP || ctx.usesHTTPServer || ctx.usesUDPDatagram, rechDupHelper)
+	// chunkedHelpers - разбор chunked transfer encoding (docs/ROADMAP.md,
+	// HTTP highload пункт 4), нужен и клиенту (httpHelpers), и серверу
+	// (httpServerHelpers) - эмитится один раз перед обоими, тем же
+	// принципом, что и rechDupHelper выше.
+	appendCodeIf(&sb, ctx.usesHTTP || ctx.usesHTTPServer, chunkedHelpers)
 
 	// После typedefs - rech_http_request принимает/возвращает Запрос/
 	// Ответ по значению, их typedef должен быть уже виден.
 	appendCodeIf(&sb, ctx.usesHTTP, httpHelpers)
 	// После typedefs, тем же принципом, что и usesHTTP выше.
-	appendCodeIf(&sb, ctx.usesHTTPServer, httpServerHelpers)
+	appendCodeIf(&sb, ctx.usesHTTPServer, httpServerHelpersCode(prog.HTTPMaxRequestBytes))
 	// После typedefs и rechDupHelper выше - rech_recv_from возвращает
 	// "Дейтаграмма" по значению (её typedef уже должен быть виден) и
 	// зовёт rech_dup для адреса отправителя.
