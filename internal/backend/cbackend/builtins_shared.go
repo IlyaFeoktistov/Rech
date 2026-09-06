@@ -145,6 +145,9 @@ type builtinFlags struct {
 	// SIGINT/SIGTERM лениво, при первом использовании программой (см. её
 	// package doc).
 	usesShutdownFlag bool
+	// usesSignals - нужен ли rech_got_signal (signals.go) - встроенная
+	// функция "получен_сигнал" (докстрока там же).
+	usesSignals bool
 	// usesActiveTaskWait - нужен ли rech_wait_all_tasks (active_tasks.go) -
 	// встроенная функция "дождаться_всех_задач" - отдельный от usesThreads
 	// флаг (irGenCtx, не builtinFlags - builtinCallCode не видит ctx
@@ -350,6 +353,10 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 	case "запрошена_остановка":
 		flags.usesShutdownFlag = true
 		return "rech_shutdown_requested()", true
+	case "получен_сигнал":
+		flags.usesSignals = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_got_signal(%s)", args[0]), true
 	case "дождаться_всех_задач":
 		flags.usesActiveTaskWait = true
 		return fmt.Sprintf("rech_wait_all_tasks(%s)", args[0]), true

@@ -1037,7 +1037,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	if ctx.usesExceptions {
 		sb.WriteString("#include <setjmp.h>\n")
 	}
-	if ctx.usesShutdownFlag || ctx.usesSockets {
+	if ctx.usesShutdownFlag || ctx.usesSockets || ctx.usesSignals {
 		// usesSockets - "signal(SIGPIPE, SIG_IGN)" (см. package doc
 		// socketTypeAndConnectCode) - без него запись в уже закрытый
 		// пиром сокет убивает ВЕСЬ процесс (POSIX-умолчание для SIGPIPE -
@@ -1335,6 +1335,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// в любом месте после panicHelper, здесь - просто рядом с остальными
 	// небольшими самодостаточными хелперами.
 	appendCodeIf(&sb, ctx.usesShutdownFlag, shutdownFlagCode)
+	appendCodeIf(&sb, ctx.usesSignals, signalRuntimeCode())
 	// "rech_db_t" сам уже виден (dbHandleTypedefCode, эмитирован раньше
 	// typedefs/genericsCode выше) - здесь только остальной рантайм БД
 	// (подключение/запросы/подстановка параметров), который ссылается на
