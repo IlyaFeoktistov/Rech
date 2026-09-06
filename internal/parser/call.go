@@ -24,6 +24,11 @@ func (p *Parser) parseCallExpr() (*ast.CallExpr, error) {
 // парсера на входе - на "(".
 func (p *Parser) parseArgList() ([]ast.Expr, error) {
 	p.advance() // "("
+	// Перенос строки после "(" и после каждой "," допустим - тот же приём,
+	// что и у списка параметров объявления (parseParams)/списка имён
+	// "использовать" (parseUseDecl) - длинный список аргументов можно
+	// разбить на несколько строк.
+	p.skipNewlines()
 	var args []ast.Expr
 	if p.cur().Type != lexer.RPAREN {
 		for {
@@ -36,8 +41,16 @@ func (p *Parser) parseArgList() ([]ast.Expr, error) {
 				break
 			}
 			p.advance() // ","
+			atClose, err := p.skipNewlinesAfterListComma(lexer.RPAREN)
+			if err != nil {
+				return nil, err
+			}
+			if atClose {
+				break // висячая запятая перед ")"
+			}
 		}
 	}
+	p.skipNewlines()
 	if _, err := p.expect(lexer.RPAREN); err != nil {
 		return nil, err
 	}
@@ -69,6 +82,7 @@ func (p *Parser) parseNewExpr() (ast.Expr, error) {
 		return nil, fmt.Errorf("строка %d, столбец %d: после имени сущности %q ожидалось \"(\"", p.cur().Line, p.cur().Col, typeName)
 	}
 	p.advance() // "("
+	p.skipNewlines()
 
 	var args []ast.Expr
 	var fieldNames []string
@@ -103,8 +117,16 @@ func (p *Parser) parseNewExpr() (ast.Expr, error) {
 				break
 			}
 			p.advance() // ","
+			atClose, err := p.skipNewlinesAfterListComma(lexer.RPAREN)
+			if err != nil {
+				return nil, err
+			}
+			if atClose {
+				break // висячая запятая перед ")"
+			}
 		}
 	}
+	p.skipNewlines()
 	if _, err := p.expect(lexer.RPAREN); err != nil {
 		return nil, err
 	}

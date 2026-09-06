@@ -592,9 +592,25 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// какую из двух групп typedefs/typedefsAfterCallables попадёт сущность,
 	// несущая такую коллекцию полем по значению (см. их package doc).
 	callableCollections := map[string]bool{}
+	// entityCollections - имена generic-инстанциаций, чей ЭЛЕМЕНТ -
+	// настоящая пользовательская сущность (тот же признак, что решает
+	// genericsCodeAfterEntities ниже) - сигнатура "Вызываемый", несущая
+	// такую коллекцию ПАРАМЕТРОМ/РЕЗУЛЬТАТОМ (не полем сущности - для этого
+	// уже есть typedefsAfterCallables/genericsCodeAfterCallables), нуждается
+	// в её typedef заранее (`fn` - указатель на функцию, принимающую
+	// `rech_T_...коллекция *` - C проверяет полноту типа под указателем
+	// внутри структуры-члена, forward declaration недостаточно без
+	// отдельного `typedef struct ... rech_T_...;` до тела) - собрана здесь
+	// же, до callableTypedefs ниже, чтобы решить, в какую из ДВУХ групп
+	// (callableTypedefs/callableTypedefsAfterEntities) попадёт каждая
+	// сигнатура.
+	entityCollections := map[string]bool{}
 	for _, g := range prog.Generics {
 		if g.ElemType.Kind == ir.KindCallable || g.KeyType.Kind == ir.KindCallable {
 			callableCollections[g.Name] = true
+		}
+		if g.ElemType.Kind == ir.KindEntity && entities[g.ElemType.Entity] != nil {
+			entityCollections[g.Name] = true
 		}
 	}
 
@@ -774,9 +790,29 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// internal/semantic, без ленивого "по первому использованию", в
 	// отличие от funcRefTrampolines/lambdaFuncsEmitted ниже) - см.
 	// internal/backend/cbackend/callable.go.
-	var callableTypedefs strings.Builder
+	//
+	// callableTypedefsAfterEntities - ОТДЕЛЬНАЯ группа для сигнатуры,
+	// параметр/результат которой сам - generic-коллекция с сущностью-
+	// элементом (entityCollections выше, например "Вызываемый(Список<T>)" у
+	// generic-функции чанкования БД, examples/бд/чанкование.rech): `fn`
+	// принимает указатель на её C-структуру, значит typedef коллекции
+	// обязан существовать РАНЬШЕ - обратный порядок относительно обычных
+	// callableTypedefs (примитив/сама сущность параметром не заставляет
+	// сигнатуру ждать ничего, кроме себя самой) - эмитится позже, после
+	// genericsCodeAfterEntities (см. её появление в sb ниже).
+	var callableTypedefs, callableTypedefsAfterEntities strings.Builder
 	for _, sig := range prog.Callables {
-		callableTypedefs.WriteString(callableStructTypedef(ctx, sig))
+		dest := &callableTypedefs
+		for _, p := range sig.Params {
+			if entityCollections[p.Entity] {
+				dest = &callableTypedefsAfterEntities
+				break
+			}
+		}
+		if dest == &callableTypedefs && sig.Result != nil && entityCollections[sig.Result.Entity] {
+			dest = &callableTypedefsAfterEntities
+		}
+		dest.WriteString(callableStructTypedef(ctx, sig))
 	}
 
 	// showFuncs - функции показа ("показать") для каждой сущности и
@@ -1210,6 +1246,8 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// выше. До showFuncs ниже - её третий проход зовёт rech_show_<такая
 	// коллекция>, функция должна быть уже объявлена.
 	appendCodeIf(&sb, genericsCodeAfterEntities.Len() > 0, genericsCodeAfterEntities.String())
+	// После genericsCodeAfterEntities - см. package doc callableTypedefsAfterEntities выше.
+	appendCodeIf(&sb, callableTypedefsAfterEntities.Len() > 0, callableTypedefsAfterEntities.String())
 	appendCodeIf(&sb, ctx.usesShow && showFuncs.Len() > 0, showFuncs.String())
 	// rech_dup - общий для HTTP-клиента/сервера и получить_от (адрес
 	// отправителя UDP-датаграммы копируется через rech_dup) - эмитится

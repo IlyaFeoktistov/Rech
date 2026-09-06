@@ -269,6 +269,11 @@ func (p *Parser) parseFunction() (*ast.FunctionDecl, error) {
 // на входе - на "(".
 func (p *Parser) parseParams() ([]ast.Param, error) {
 	p.advance() // "("
+	// Перенос строки допустим сразу после "(" и после каждой "," - тот же
+	// приём, что и у списка имён "использовать" (parseUseDecl) - длинный
+	// список параметров можно разбить на несколько строк, каждая со своим
+	// параметром.
+	p.skipNewlines()
 	var params []ast.Param
 	seenCases := map[morph.Case]string{}
 	if p.cur().Type != lexer.RPAREN {
@@ -298,8 +303,16 @@ func (p *Parser) parseParams() ([]ast.Param, error) {
 				break
 			}
 			p.advance() // ","
+			atClose, err := p.skipNewlinesAfterListComma(lexer.RPAREN)
+			if err != nil {
+				return nil, err
+			}
+			if atClose {
+				break // висячая запятая перед ")"
+			}
 		}
 	}
+	p.skipNewlines()
 	if _, err := p.expect(lexer.RPAREN); err != nil {
 		return nil, err
 	}
@@ -391,6 +404,7 @@ func (p *Parser) parseTypeName() (string, error) {
 	result := name.Value
 	if p.cur().Type == lexer.LT {
 		p.advance() // "<"
+		p.skipNewlines()
 		var args []string
 		for {
 			arg, err := p.parseTypeName()
@@ -402,7 +416,15 @@ func (p *Parser) parseTypeName() (string, error) {
 				break
 			}
 			p.advance() // ","
+			atClose, err := p.skipNewlinesAfterAngleComma()
+			if err != nil {
+				return "", err
+			}
+			if atClose {
+				break // висячая запятая перед ">"
+			}
 		}
+		p.skipNewlines()
 		if err := p.expectCloseAngle(); err != nil {
 			return "", fmt.Errorf("после аргументов типа %q<%s>: %w", name.Value, strings.Join(args, ", "), err)
 		}

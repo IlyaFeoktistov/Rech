@@ -354,6 +354,7 @@ func (p *Parser) parsePostfixTail(expr ast.Expr) (ast.Expr, error) {
 // ast.ListLiteral. Позиция парсера на входе - на "[".
 func (p *Parser) parseListLiteral() (ast.Expr, error) {
 	lb := p.advance() // "["
+	p.skipNewlines()
 	var elems []ast.Expr
 	if p.cur().Type != lexer.RBRACKET {
 		for {
@@ -366,8 +367,16 @@ func (p *Parser) parseListLiteral() (ast.Expr, error) {
 				break
 			}
 			p.advance() // ","
+			atClose, err := p.skipNewlinesAfterListComma(lexer.RBRACKET)
+			if err != nil {
+				return nil, err
+			}
+			if atClose {
+				break // висячая запятая перед "]"
+			}
 		}
 	}
+	p.skipNewlines()
 	if _, err := p.expect(lexer.RBRACKET); err != nil {
 		return nil, fmt.Errorf("после элементов литерала списка ожидалось \"]\": %w", err)
 	}

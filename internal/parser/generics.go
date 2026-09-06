@@ -18,6 +18,7 @@ func (p *Parser) parseGenericParams() ([]ast.GenericParam, error) {
 		return nil, nil
 	}
 	p.advance() // "<"
+	p.skipNewlines()
 	var params []ast.GenericParam
 	seen := map[string]bool{}
 	for {
@@ -49,7 +50,15 @@ func (p *Parser) parseGenericParams() ([]ast.GenericParam, error) {
 			break
 		}
 		p.advance() // ","
+		atClose, err := p.skipNewlinesAfterAngleComma()
+		if err != nil {
+			return nil, err
+		}
+		if atClose {
+			break // висячая запятая перед ">"
+		}
 	}
+	p.skipNewlines()
 	if err := p.expectCloseAngle(); err != nil {
 		return nil, fmt.Errorf("после параметров типа: %w", err)
 	}
@@ -64,6 +73,7 @@ func (p *Parser) parseGenericParams() ([]ast.GenericParam, error) {
 func (p *Parser) parseGenericCallExpr() (*ast.CallExpr, error) {
 	name := p.advance() // IDENT
 	p.advance()         // "<"
+	p.skipNewlines()
 	var typeArgs []string
 	for {
 		t, err := p.parseTypeName()
@@ -75,7 +85,15 @@ func (p *Parser) parseGenericCallExpr() (*ast.CallExpr, error) {
 			break
 		}
 		p.advance() // ","
+		atClose, err := p.skipNewlinesAfterAngleComma()
+		if err != nil {
+			return nil, err
+		}
+		if atClose {
+			break // висячая запятая перед ">"
+		}
 	}
+	p.skipNewlines()
 	if err := p.expectCloseAngle(); err != nil {
 		return nil, fmt.Errorf("после аргументов типа вызова %q: %w", name.Value, err)
 	}

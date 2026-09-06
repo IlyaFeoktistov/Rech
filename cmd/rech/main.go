@@ -6,6 +6,7 @@
 //	rech build [--keep-c] --lib <файл.rech>|<каталог>|-c "<код>"  - собрать разделяемую библиотеку (.so/.dylib/.dll) + C-заголовок (.h)
 //	rech run [--keep-c] <файл.rech>|<каталог>|-c "<код>"          - собрать и выполнить
 //	rech test <файл.rech>|<каталог>                                - найти и запустить тесты
+//	rech fmt [--write] <файл.rech>|<каталог>                       - канонический отступ, как gofmt
 //	rech install                                                   - скачать/обновить кеш внешних зависимостей (.rechproj, "зависимости:")
 //	rech debug                                                     - сервер DAP по stdin/stdout (для VS Code)
 //	rech lsp                                                       - сервер LSP по stdin/stdout (hover/автодополнение, для VS Code)
@@ -110,6 +111,13 @@ func main() {
 			os.Exit(2)
 		}
 		if !runTests(os.Args[2]) {
+			os.Exit(1)
+		}
+		return
+	}
+
+	if cmd == "fmt" {
+		if !runFmt(os.Args[2:]) {
 			os.Exit(1)
 		}
 		return
@@ -351,7 +359,7 @@ func parseBuildArgs(args []string) (srcPath, code string, keepC, hasCode, isLib 
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "использование: rech build [--keep-c] [--lib] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech run [--keep-c] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech test <файл.rech>|<каталог> | rech install | rech debug | rech lsp | rech init [имя] | rech version")
+	fmt.Fprintln(os.Stderr, "использование: rech build [--keep-c] [--lib] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech run [--keep-c] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech test <файл.rech>|<каталог> | rech fmt [--write] <файл.rech>|<каталог> | rech install | rech debug | rech lsp | rech init [имя] | rech version")
 }
 
 // testDotsPerLine - сколько точек/"F" печатать в строке прогресса, прежде

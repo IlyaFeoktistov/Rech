@@ -55,6 +55,7 @@ func (p *Parser) collectEntitySignature(entityMethods map[string]map[string][]as
 				break
 			}
 			p.advance()
+			p.skipNewlines()
 		}
 	}
 	if p.cur().Type == lexer.TAG {

@@ -41,6 +41,7 @@ func (p *Parser) parseInterfaceDecl() (*ast.InterfaceDecl, error) {
 				break
 			}
 			p.advance() // ","
+			p.skipNewlines()
 		}
 	}
 

@@ -223,6 +223,29 @@ func (p *Parser) advance() lexer.Token {
 // затрагивает только эту позицию разбора (закрытие generic-скобок) -
 // cur()/advance() иначе видят SHR как есть, оператор сдвига в обычных
 // выражениях не задет.
+// atCloseAngle сообщает, стоит ли парсер прямо на закрывающей ">" списка
+// generic-параметров/аргументов типа - GT или ПЕРВАЯ половина ">>" (SHR,
+// разбираемого на два отдельных ">" у вложенных generic, см. pendingGT/
+// expectCloseAngle) - нужен отдельно от expectCloseAngle, чтобы проверить
+// висячую запятую перед закрывающей ">" БЕЗ побочного эффекта продвижения
+// позиции (expectCloseAngle сам продвигается).
+func (p *Parser) atCloseAngle() bool {
+	return p.cur().Type == lexer.GT || (p.cur().Type == lexer.SHR && !p.pendingGT)
+}
+
+// skipNewlinesAfterAngleComma - тот же принцип, что и
+// skipNewlinesAfterListComma, для generic-параметров/аргументов типа
+// ("<...>"), где закрывающий токен - не единственный TokenType (см.
+// atCloseAngle - GT или ещё не расщеплённый SHR).
+func (p *Parser) skipNewlinesAfterAngleComma() (bool, error) {
+	if p.atCloseAngle() {
+		return false, fmt.Errorf("строка %d, столбец %d: висячая запятая перед \">\" требует переноса строки - закрывающая скобка обязана оказаться на своей строке (либо уберите запятую)",
+			p.cur().Line, p.cur().Col)
+	}
+	p.skipNewlines()
+	return p.atCloseAngle(), nil
+}
+
 func (p *Parser) expectCloseAngle() error {
 	if p.cur().Type == lexer.GT {
 		p.advance()
@@ -250,6 +273,28 @@ func (p *Parser) skipNewlines() {
 	for p.cur().Type == lexer.NEWLINE {
 		p.advance()
 	}
+}
+
+// skipNewlinesAfterListComma - вызывается сразу после уже потреблённой ","
+// разделителя многострочного списка в скобках ("(...)"/"[...]"/"<...>":
+// параметры, аргументы вызова/конструктора, список типов "Вызываемый(...)",
+// литерал списка, generic-параметры/аргументы типа) - пропускает переносы
+// строк и сообщает, не оказалась ли следом сразу closing (висячая запятая
+// перед закрывающей скобкой, тот же PSR-12-подобный стиль, что и перенос
+// внутри самого списка) - вызывающая сторона обязана прервать цикл элементов
+// списка, если результат true. Висячая запятая БЕЗ переноса строки прямо
+// перед closing ("f(a, b,)" одной строкой) - ошибка, а не молча принятый
+// синоним "f(a, b)": иначе один и тот же список можно было бы написать
+// двумя ничем не различимыми способами без причины предпочесть один - по
+// решению пользователя висячая запятая обязана сопровождаться переносом
+// закрывающей скобки на свою строку.
+func (p *Parser) skipNewlinesAfterListComma(closing lexer.TokenType) (bool, error) {
+	if p.cur().Type == closing {
+		return false, fmt.Errorf("строка %d, столбец %d: висячая запятая перед %q требует переноса строки - закрывающая скобка обязана оказаться на своей строке (либо уберите запятую)",
+			p.cur().Line, p.cur().Col, closing)
+	}
+	p.skipNewlines()
+	return p.cur().Type == closing, nil
 }
 
 // consumeDoc - если текущий токен DOC_COMMENT ("/** ... */"), возвращает
@@ -770,6 +815,7 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 				break
 			}
 			p.advance() // ","
+			p.skipNewlines()
 		}
 	}
 	if kw.Type == lexer.KwStruct && (baseName != "" || len(interfaces) > 0) {

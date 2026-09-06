@@ -84,6 +84,7 @@ func (p *Parser) parseCallableTypeName(name lexer.Token) (string, error) {
 		return "", fmt.Errorf("строка %d, столбец %d: после %q ожидался список параметров \"(...)\"", p.cur().Line, p.cur().Col, name.Value)
 	}
 	p.advance() // "("
+	p.skipNewlines()
 	var params []string
 	if p.cur().Type != lexer.RPAREN {
 		for {
@@ -96,8 +97,16 @@ func (p *Parser) parseCallableTypeName(name lexer.Token) (string, error) {
 				break
 			}
 			p.advance() // ","
+			atClose, err := p.skipNewlinesAfterListComma(lexer.RPAREN)
+			if err != nil {
+				return "", err
+			}
+			if atClose {
+				break // висячая запятая перед ")"
+			}
 		}
 	}
+	p.skipNewlines()
 	if _, err := p.expect(lexer.RPAREN); err != nil {
 		return "", fmt.Errorf("после параметров типа %q: %w", name.Value, err)
 	}

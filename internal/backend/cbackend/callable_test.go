@@ -80,6 +80,41 @@ func TestGenerateFromIRLambdaCaptureEnv(t *testing.T) {
 	}
 }
 
+// TestGenerateFromIRCallableParamEntityCollectionOrdering - сигнатура
+// "Вызываемый", принимающая generic-коллекцию с сущностью-элементом
+// (Список<T> у examples/бд/чанкование.rech, "чанковать_по_полю<T>(...,
+// обработчик: Вызываемый(Список<T>))") - typedef этой коллекции обязан
+// оказаться в тексте C РАНЬШЕ typedef самой сигнатуры (её "fn" - указатель
+// на функцию, принимающую "rech_T_... *" этой коллекции - C требует полный
+// тип под указателем-членом структуры). До фикса обе группы эмитились в
+// фиксированном порядке "сначала все Callable, потом коллекции с сущностью-
+// элементом" - типичная сигнатура вида "Вызываемый(Список<Сущность>)"
+// ссылалась на ещё не объявленный typedef.
+func TestGenerateFromIRCallableParamEntityCollectionOrdering(t *testing.T) {
+	entity := &ir.Entity{Name: "Пользователь", IsStruct: true, Fields: []ir.Field{{Name: "id", Type: ir.TypeInt}}}
+	listType := ir.Type{Kind: ir.KindEntity, Entity: "Список<Пользователь>"}
+	callableT := ir.CallableType([]ir.Type{listType}, nil)
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{&ir.ReturnStmt{}}}
+	prog := &ir.Program{
+		Entities:  []*ir.Entity{entity},
+		Generics:  []ir.GenericInstantiation{{Name: "Список<Пользователь>", Template: "Список", ElemType: ir.Type{Kind: ir.KindEntity, Entity: "Пользователь"}}},
+		Callables: []ir.CallableSig{{Name: callableT.Entity, Params: []ir.Type{listType}, Result: nil}},
+		Functions: []*ir.Function{main},
+	}
+	out, err := GenerateFromIR(prog)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	collectionIdx := strings.Index(out, "} rech_T_spisok_of_polzovatel;")
+	callableIdx := strings.Index(out, "rech_T_spisok_of_polzovatel *);")
+	if collectionIdx == -1 || callableIdx == -1 {
+		t.Fatalf("ожидались оба typedef в выводе, получено:\n%s", out)
+	}
+	if collectionIdx > callableIdx {
+		t.Fatalf("typedef коллекции (позиция %d) обязан идти РАНЬШЕ typedef сигнатуры Callable (позиция %d)", collectionIdx, callableIdx)
+	}
+}
+
 // TestGenerateFromIRCallValueExpr - вызов значения типа Callable ("ф(...)")
 // зовёт через .fn(.env, ...аргументы...), не по статически известному
 // имени функции.
