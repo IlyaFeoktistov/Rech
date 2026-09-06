@@ -57,6 +57,7 @@ func (p *Parser) parseUseDecl() (*ast.UseDecl, error) {
 		p.advance() // ","
 		p.skipNewlines()
 	}
+	p.skipNewlines()
 	if _, err := p.expect(lexer.KwOf); err != nil {
 		return nil, fmt.Errorf("после списка имён ожидалось \"из\": %w", err)
 	}

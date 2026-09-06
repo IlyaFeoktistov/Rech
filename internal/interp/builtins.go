@@ -189,6 +189,13 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return boolValue(shutdownRequested()), true
 	case "получен_сигнал":
 		return boolValue(signalReceived(args[0].I)), true
+	case "установить_сырой_режим":
+		setRawMode(args[0].B)
+		return Value{}, true
+	case "ширина_терминала":
+		return intValue(terminalWidth()), true
+	case "высота_терминала":
+		return intValue(terminalHeight()), true
 	case "дождаться_всех_задач":
 		return boolValue(waitAllTasks(args[0].I)), true
 	case "слушать_tcp_защищённо":
@@ -283,6 +290,10 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return intValue(dateToTime(args[0])), true
 	case "дату_в_строку":
 		return stringValue(dateToString(args[0])), true
+	case "rgbцвет_из_hex":
+		return hexToColor(args[0].S), true
+	case "rgbцвет_в_hex":
+		return stringValue(colorToHex(args[0])), true
 	case "значение_куки":
 		return cookieValue(args[0], args[1].S), true
 	case "значение_заголовка":

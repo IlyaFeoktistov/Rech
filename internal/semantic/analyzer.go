@@ -480,6 +480,7 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 	registerStringSplitFunc(funcs)
 	registerRegexFunc(funcs)
 	registerDateTimeFuncs(a.entities, funcs)
+	registerColorFuncs(a.entities, funcs)
 	registerCookieFuncs(a.entities, funcs)
 	registerHTTPHeaderFunc(funcs)
 	registerEnvFuncs(funcs)
@@ -888,6 +889,7 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 		&ir.Entity{Name: "ДатаВремя", IsStruct: true, Fields: dateTimeFields},
 		&ir.Entity{Name: "ОпцииКуки", IsStruct: true, Fields: cookieOptionsFields},
 		&ir.Entity{Name: "Дейтаграмма", IsStruct: true, Fields: datagramFields},
+		&ir.Entity{Name: "RGBЦвет", IsStruct: true, Fields: colorFields},
 	)
 	// "Исключение" - ссылочная сущность (не структура): "выбросить"
 	// передаёт указатель на неё дальше по стеку вызовов без копирования,

@@ -119,6 +119,9 @@ type builtinFlags struct {
 	// rech_date_to_time/rech_date_to_string (datetime.go) - встроенные
 	// функции "время"/"время_как_дата"/"дата_как_время"/"дату_в_строку".
 	usesDateTime bool
+	// usesColor - нужны ли rech_hex_to_color/rech_color_to_hex (color.go) -
+	// встроенные функции "rgbцвет_из_hex"/"rgbцвет_в_hex".
+	usesColor bool
 	// usesCookies - нужны ли rech_cookie_value/rech_cookie_string
 	// (cookies.go) - встроенные функции "значение_куки"/"строка_куки".
 	usesCookies bool
@@ -148,6 +151,9 @@ type builtinFlags struct {
 	// usesSignals - нужен ли rech_got_signal (signals.go) - встроенная
 	// функция "получен_сигнал" (докстрока там же).
 	usesSignals bool
+	// usesConsole - нужен ли consoleRuntimeCode (console.go) - встроенные
+	// функции "установить_сырой_режим"/"ширина_терминала"/"высота_терминала".
+	usesConsole bool
 	// usesActiveTaskWait - нужен ли rech_wait_all_tasks (active_tasks.go) -
 	// встроенная функция "дождаться_всех_задач" - отдельный от usesThreads
 	// флаг (irGenCtx, не builtinFlags - builtinCallCode не видит ctx
@@ -357,6 +363,15 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 		flags.usesSignals = true
 		flags.usesPanic = true
 		return fmt.Sprintf("rech_got_signal(%s)", args[0]), true
+	case "установить_сырой_режим":
+		flags.usesConsole = true
+		return fmt.Sprintf("rech_set_raw_mode(%s)", args[0]), true
+	case "ширина_терминала":
+		flags.usesConsole = true
+		return "rech_terminal_width()", true
+	case "высота_терминала":
+		flags.usesConsole = true
+		return "rech_terminal_height()", true
 	case "дождаться_всех_задач":
 		flags.usesActiveTaskWait = true
 		return fmt.Sprintf("rech_wait_all_tasks(%s)", args[0]), true
@@ -447,6 +462,13 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 	case "дату_в_строку":
 		flags.usesDateTime = true
 		return fmt.Sprintf("rech_date_to_string(%s)", args[0]), true
+	case "rgbцвет_из_hex":
+		flags.usesColor = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_hex_to_color(%s)", args[0]), true
+	case "rgbцвет_в_hex":
+		flags.usesColor = true
+		return fmt.Sprintf("rech_color_to_hex(%s)", args[0]), true
 	case "значение_куки":
 		flags.usesCookies = true
 		return fmt.Sprintf("rech_cookie_value((%s).%s, %s)", args[0], mangleField("заголовки"), args[1]), true

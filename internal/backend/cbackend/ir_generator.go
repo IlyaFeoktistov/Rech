@@ -920,8 +920,8 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// объявленного заголовком (найдено живьём - examples/основы/
 	// внешние_функции.rech, strlen + <string.h>, включённый совсем по
 	// другой причине - memcpy захваченной лямбды).
-	ctx.includesStringH = ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesPanicCatch || ctx.usesStringSplit || ctx.usesRegex || ctx.usesHTTPHeaders || hasStructTargets || prog.UsesReflection
-	ctx.includesStdlibH = ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesQueryParams || ctx.usesCookies || ctx.usesRandom || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesRegex || ctx.usesHTTPHeaders || hasStructTargets
+	ctx.includesStringH = ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesPanicCatch || ctx.usesStringSplit || ctx.usesRegex || ctx.usesHTTPHeaders || ctx.usesColor || hasStructTargets || prog.UsesReflection
+	ctx.includesStdlibH = ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesColor || ctx.usesQueryParams || ctx.usesCookies || ctx.usesRandom || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesRegex || ctx.usesHTTPHeaders || hasStructTargets
 	ctx.includesMathH = ctx.usesMath
 	for _, ext := range prog.ExternFuncs {
 		protoStr, err := externPrototypeOfIR(ctx, ext)
@@ -1036,6 +1036,13 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	}
 	if ctx.usesExceptions {
 		sb.WriteString("#include <setjmp.h>\n")
+	}
+	if ctx.usesConsole {
+		// termios.h/sys/ioctl.h/unistd.h - "установить_сырой_режим"/
+		// "ширина_терминала"/"высота_терминала" (console.go) - на Windows не
+		// нужны вовсе (windows.h уже подключён безусловно выше, консольный
+		// API - оттуда же).
+		sb.WriteString("#ifndef _WIN32\n#include <termios.h>\n#include <sys/ioctl.h>\n#include <unistd.h>\n#endif\n")
 	}
 	if ctx.usesShutdownFlag || ctx.usesSockets || ctx.usesSignals {
 		// usesSockets - "signal(SIGPIPE, SIG_IGN)" (см. package doc
@@ -1313,6 +1320,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// После typedefs - rech_time_to_date/rech_date_to_time/
 	// rech_date_to_string принимают/возвращают ДатаВремя по значению.
 	appendCodeIf(&sb, ctx.usesDateTime, datetimeHelpers)
+	appendCodeIf(&sb, ctx.usesColor, colorHelpers)
 	// Не зависит от typedefs вообще (только примитивы) - здесь же просто
 	// для единообразия с остальными builtin-хелперами шага 8.
 	appendCodeIf(&sb, ctx.usesRandom, randomHelpers)
@@ -1336,6 +1344,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// небольшими самодостаточными хелперами.
 	appendCodeIf(&sb, ctx.usesShutdownFlag, shutdownFlagCode)
 	appendCodeIf(&sb, ctx.usesSignals, signalRuntimeCode())
+	appendCodeIf(&sb, ctx.usesConsole, consoleRuntimeCode())
 	// "rech_db_t" сам уже виден (dbHandleTypedefCode, эмитирован раньше
 	// typedefs/genericsCode выше) - здесь только остальной рантайм БД
 	// (подключение/запросы/подстановка параметров), который ссылается на
