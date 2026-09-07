@@ -318,13 +318,41 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if typ := ir.TypeOf(cond); typ != ir.TypeBool {
 			return nil, fmt.Errorf("строка %d: условие \"пока\" должно быть логическим, получено %s", s.Line, typ)
 		}
+		// Сужение nullable-типа в условии "пока а != Ничто {...}" - ТЕМ ЖЕ
+		// принципом, что и "если а != Ничто {...}" (established, см. её же
+		// комментарий у case *ast.IfStmt) - НАЙДЕННОЕ ограничение (docs/
+		// ROADMAP.md, Шаг 94) снято: условие "пока" проверяется заново
+		// ПЕРЕД КАЖДЫМ проходом тела, значит "а != Ничто" доказанно истинно
+		// в начале ЛЮБОГО прохода, не только первого - никакого fixed-point
+		// анализа по обратному ребру цикла не требуется, это прямое
+		// следствие семантики "пока" (тело физически не может начать
+		// выполняться, если условие в этот момент ложно) - та же гарантия,
+		// что и у "если", просто проверяемая заново на каждом входе, а не
+		// один раз.
+		nc, isNullCheck := cond.(*ir.NullCheckExpr)
+		var narrowedName string
+		if isNullCheck {
+			if ident, ok := nc.Value.(*ir.Identifier); ok {
+				narrowedName = ident.Name
+			}
+		}
+		// preWhile снят ДО markNonNull - established после цикла
+		// восстанавливается К НЕМУ целиком (см. ниже) - сужение НЕ
+		// переживает сам цикл: после выхода "а" вполне может быть Ничто
+		// (именно оно и остановило "пока").
+		preWhile := snapshotEstablished(sc.established)
+		if isNullCheck && nc.IsNot && narrowedName != "" {
+			markNonNull(sc, narrowedName)
+		}
 		// "пока" может не выполниться ни разу - established, доказанное
-		// внутри тела, не гарантировано ПОСЛЕ цикла (консервативный откат к
-		// состоянию до цикла, а не fixed-point анализ по итерациям - см.
-		// package doc ctx.established); внутри самого тела, в пределах
-		// одного прохода, накопленные по ходу established всё ещё видны
-		// (обычный sc.push/analyzeBlock/sc.pop).
+		// внутри тела (в т.ч. само сужение выше), не гарантировано ПОСЛЕ
+		// цикла - откат к preWhile ниже, консервативный, не fixed-point
+		// анализ по итерациям (см. package doc ctx.established); внутри
+		// самого тела, в пределах одного прохода, накопленные по ходу
+		// established всё ещё видны (обычный sc.push/analyzeBlock/sc.pop,
+		// см. analyzeLoopBody).
 		body, err := analyzeLoopBody(sc, "", ir.Type{}, s.Body, s.Line)
+		sc.established = preWhile
 		if err != nil {
 			return nil, err
 		}
