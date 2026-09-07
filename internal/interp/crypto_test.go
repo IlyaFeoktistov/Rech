@@ -13,11 +13,11 @@ import (
 
 // TestRunCryptoBuiltins - "хеш(алгоритм, данные)"/"подпись_hmac_sha256"/
 // "закодировать_base64url"/"декодировать_base64url" - значения сверены с
-// общеизвестными тестовыми векторами (SHA-256/SHA-1/MD5/SHA-512("abc") и
-// пустой строки, HMAC-SHA256 из FIPS/RFC-примеров) - то же самое, что и
-// cbackend.TestGenerateFromIRCryptoBuiltinCalls (там - только присутствие
-// вызова в сгенерированном C, не значение - см. package doc crypto.go в
-// cbackend про побайтовое совпадение).
+// общеизвестными тестовыми векторами (SHA-256/SHA-1/MD5/SHA-512/
+// SHA3_256("abc") и пустой строки, HMAC-SHA256 из FIPS/RFC-примеров) - то
+// же самое, что и cbackend.TestGenerateFromIRCryptoBuiltinCalls (там -
+// только присутствие вызова в сгенерированном C, не значение - см. package
+// doc crypto.go в cbackend про побайтовое совпадение).
 func TestRunCryptoBuiltins(t *testing.T) {
 	got := runSrc(t, `
 функция главная
@@ -29,6 +29,8 @@ func TestRunCryptoBuiltins(t *testing.T) {
     вывести хеш(АлгоритмХеша.MD5, "")
     вывести хеш(АлгоритмХеша.MD5, "abc")
     вывести хеш(АлгоритмХеша.SHA512, "abc")
+    вывести хеш(АлгоритмХеша.SHA3_256, "")
+    вывести хеш(АлгоритмХеша.SHA3_256, "abc")
     вывести подпись_hmac_sha256("The quick brown fox jumps over the lazy dog", "key")
     переменная закодировано = закодировать_base64url("hello world?")
     вывести закодировано
@@ -42,9 +44,30 @@ func TestRunCryptoBuiltins(t *testing.T) {
 		"d41d8cd98f00b204e9800998ecf8427e\n" +
 		"900150983cd24fb0d6963f7d28e17f72\n" +
 		"ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f\n" +
+		"a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a\n" +
+		"3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532\n" +
 		"f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8\n" +
 		"aGVsbG8gd29ybGQ_\n" +
 		"hello world?\n"
+	if got != want {
+		t.Fatalf("ожидалось %q, получено %q", want, got)
+	}
+}
+
+// TestRunSHA3MultiBlockMatchesReference - сообщение длиннее одного
+// sponge-блока (rsiz=136 байт для SHA3_256) - упражняет ветку "перестановка
+// в середине update", не только паддинг-путь у коротких входов выше.
+// Эталон - hashlib.sha3_256(b"a"*200) в Python (независимая от Go
+// реализация).
+func TestRunSHA3MultiBlockMatchesReference(t *testing.T) {
+	long := strings.Repeat("a", 200)
+	got := runSrc(t, `
+функция главная
+{
+    вывести хеш(АлгоритмХеша.SHA3_256, "`+long+`")
+}
+`)
+	want := "cce34485baf2bf2aca99b94833892a4f52896d3d153f7b840cc4f9fe695f1387\n"
 	if got != want {
 		t.Fatalf("ожидалось %q, получено %q", want, got)
 	}

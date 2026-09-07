@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"crypto/sha1"
 	"crypto/sha256"
+	"crypto/sha3"
 	"crypto/sha512"
 	"encoding/base64"
 	"encoding/hex"
@@ -48,6 +49,15 @@ func sha512Hex(s string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// sha3256Hex - алгоритм SHA3_256 (FIPS 202) - sponge-конструкция на базе
+// перестановки Keccak-f[1600], принципиально другая, чем Меркла-Дамгора у
+// SHA-256/512 выше - НЕ сломан, годится для новых паролей/подписей, как
+// SHA256/SHA512 (не замена им, самостоятельный алгоритм).
+func sha3256Hex(s string) string {
+	sum := sha3.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
+}
+
 // hashByAlgorithm - диспетчер builtin'а "хеш(алгоритм, данные)" по
 // значению члена перечисления "АлгоритмХеша" (уже развёрнутого в Целое на
 // этапе семантического анализа, docs/SPEC.md - "Перечисления": член
@@ -68,6 +78,8 @@ func hashByAlgorithm(algorithm int, data string) string {
 		return md5Hex(data)
 	case 3:
 		return sha512Hex(data)
+	case 4:
+		return sha3256Hex(data)
 	default:
 		panicRuntime("%s", rtmsg.UnknownHashAlgorithm)
 		return ""

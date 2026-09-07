@@ -27,6 +27,10 @@ func TestGenerateFromIRCryptoBuiltinCalls(t *testing.T) {
 				Type: ir.TypeString, HasReturn: true,
 			}},
 			&ir.PrintStmt{Value: &ir.CallExpr{
+				Callee: "хеш", Args: []ir.Expr{&ir.IntLiteral{Value: 4}, &ir.StringLiteral{Value: "abc"}},
+				Type: ir.TypeString, HasReturn: true,
+			}},
+			&ir.PrintStmt{Value: &ir.CallExpr{
 				Callee: "подпись_hmac_sha256",
 				Args:   []ir.Expr{&ir.StringLiteral{Value: "data"}, &ir.StringLiteral{Value: "key"}},
 				Type:   ir.TypeString, HasReturn: true,
@@ -55,6 +59,7 @@ func TestGenerateFromIRCryptoBuiltinCalls(t *testing.T) {
 		"static char *rech_sha1_hex(const char *s)",
 		"static char *rech_md5_hex(const char *s)",
 		"static char *rech_sha512_hex(const char *s)",
+		"static char *rech_sha3_256_hex(const char *s)",
 		"static char *rech_hmac_sha256_hex(const char *data, const char *key)",
 		"static char *rech_base64url_encode(const char *s)",
 		"static char *rech_base64url_decode(const char *s)",

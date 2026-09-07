@@ -436,6 +436,117 @@ static void rech_sha512_final(rech_sha512_ctx *ctx, unsigned char out[64]) {
     }
 }
 
+// rech_sha3_256_* - SHA3_256 (FIPS 202) - sponge-конструкция на базе
+// перестановки Keccak-f[1600], принципиально другая, чем Меркла-Дамгора у
+// SHA-256/1/MD5/SHA-512 выше (нет message schedule/раундовых W[]-слов -
+// вместо этого 1600-битное состояние из 25 64-битных "полос", 24 раунда
+// theta/rho/pi/chi/iota). Состояние хранится как 200-байтовый массив (не
+// union'ом uint64_t/uint8_t - typedef-punning через union для чтения "не
+// того" члена, которым он был записан, undefined behavior в C, хотя многие
+// компиляторы его разрешают как расширение) - rech_keccakf сама
+// пакует/распаковывает 8-байтовые "полосы" в little-endian явными
+// сдвигами на входе/выходе перестановки.
+//
+// Константы (rech_keccakf_rndc/rotc/piln) и структура самой перестановки -
+// стандартный вид эталонной реализации Keccak-семейства (не собственное
+// изобретение) - соответствие подтверждено тестовыми векторами
+// (SHA3-256("")/SHA3-256("abc")), не только "похоже на правильное".
+static const uint64_t rech_keccakf_rndc[24] = {
+    0x0000000000000001ULL, 0x0000000000008082ULL, 0x800000000000808aULL, 0x8000000080008000ULL,
+    0x000000000000808bULL, 0x0000000080000001ULL, 0x8000000080008081ULL, 0x8000000000008009ULL,
+    0x000000000000008aULL, 0x0000000000000088ULL, 0x0000000080008009ULL, 0x000000008000000aULL,
+    0x000000008000808bULL, 0x800000000000008bULL, 0x8000000000008089ULL, 0x8000000000008003ULL,
+    0x8000000000008002ULL, 0x8000000000000080ULL, 0x000000000000800aULL, 0x800000008000000aULL,
+    0x8000000080008081ULL, 0x8000000000008080ULL, 0x0000000080000001ULL, 0x8000000080008008ULL,
+};
+
+static const int rech_keccakf_rotc[24] = {
+    1, 3, 6, 10, 15, 21, 28, 36, 45, 55, 2, 14,
+    27, 41, 56, 8, 25, 43, 62, 18, 39, 61, 20, 44,
+};
+
+static const int rech_keccakf_piln[24] = {
+    10, 7, 11, 17, 18, 3, 5, 16, 8, 21, 24, 4,
+    15, 23, 19, 13, 12, 2, 20, 14, 22, 9, 6, 1,
+};
+
+#define RECH_ROTL64(x, n) (((x) << (n)) | ((x) >> (64 - (n))))
+
+static void rech_keccakf(unsigned char *stb) {
+    uint64_t st[25];
+    for (int i = 0; i < 25; i++) {
+        st[i] = 0;
+        for (int b = 0; b < 8; b++) {
+            st[i] |= ((uint64_t)stb[i * 8 + b]) << (8 * b);
+        }
+    }
+    uint64_t bc[5], t;
+    for (int r = 0; r < 24; r++) {
+        for (int i = 0; i < 5; i++) {
+            bc[i] = st[i] ^ st[i + 5] ^ st[i + 10] ^ st[i + 15] ^ st[i + 20];
+        }
+        for (int i = 0; i < 5; i++) {
+            t = bc[(i + 4) %% 5] ^ RECH_ROTL64(bc[(i + 1) %% 5], 1);
+            for (int j = 0; j < 25; j += 5) {
+                st[j + i] ^= t;
+            }
+        }
+        t = st[1];
+        for (int i = 0; i < 24; i++) {
+            int j = rech_keccakf_piln[i];
+            uint64_t tmp = st[j];
+            st[j] = RECH_ROTL64(t, rech_keccakf_rotc[i]);
+            t = tmp;
+        }
+        for (int j = 0; j < 25; j += 5) {
+            uint64_t bc2[5];
+            for (int i = 0; i < 5; i++) {
+                bc2[i] = st[j + i];
+            }
+            for (int i = 0; i < 5; i++) {
+                st[j + i] ^= (~bc2[(i + 1) %% 5]) & bc2[(i + 2) %% 5];
+            }
+        }
+        st[0] ^= rech_keccakf_rndc[r];
+    }
+    for (int i = 0; i < 25; i++) {
+        for (int b = 0; b < 8; b++) {
+            stb[i * 8 + b] = (unsigned char)((st[i] >> (8 * b)) & 0xff);
+        }
+    }
+}
+
+typedef struct {
+    unsigned char st[200];
+    int rsiz;
+    int pt;
+} rech_sha3_ctx;
+
+static void rech_sha3_256_init(rech_sha3_ctx *ctx) {
+    memset(ctx->st, 0, sizeof(ctx->st));
+    ctx->rsiz = 200 - 2 * 32;
+    ctx->pt = 0;
+}
+
+static void rech_sha3_256_update(rech_sha3_ctx *ctx, const unsigned char *data, size_t len) {
+    int j = ctx->pt;
+    for (size_t i = 0; i < len; i++) {
+        ctx->st[j++] ^= data[i];
+        if (j >= ctx->rsiz) {
+            rech_keccakf(ctx->st);
+            j = 0;
+        }
+    }
+    ctx->pt = j;
+}
+
+static void rech_sha3_256_final(rech_sha3_ctx *ctx, unsigned char out[32]) {
+    ctx->st[ctx->pt] ^= 0x06;
+    ctx->st[ctx->rsiz - 1] ^= 0x80;
+    rech_keccakf(ctx->st);
+    memcpy(out, ctx->st, 32);
+}
+
 static char *rech_bytes_to_hex(const unsigned char *data, size_t len) {
     static const char hexd[] = "0123456789abcdef";
     char *out = malloc(len * 2 + 1);
@@ -483,14 +594,23 @@ static char *rech_sha512_hex(const char *s) {
     return rech_bytes_to_hex(digest, 64);
 }
 
+static char *rech_sha3_256_hex(const char *s) {
+    rech_sha3_ctx ctx;
+    rech_sha3_256_init(&ctx);
+    rech_sha3_256_update(&ctx, (const unsigned char *)s, strlen(s));
+    unsigned char digest[32];
+    rech_sha3_256_final(&ctx, digest);
+    return rech_bytes_to_hex(digest, 32);
+}
+
 // rech_hash_hex - диспетчер builtin'а "хеш(алгоритм, данные)" по значению
 // члена перечисления "АлгоритмХеша" - ИНДЕКСЫ ДОЛЖНЫ БУКВАЛЬНО СОВПАДАТЬ с
 // internal/semantic/types.go, StandardEnums["АлгоритмХеша"] (0=SHA256,
-// 1=SHA1, 2=MD5, 3=SHA512) - тот же контракт, что у hashByAlgorithm в
-// internal/interp/crypto.go. Значение вне диапазона возможно, только если
-// вызвать "хеш" с голым Целое напрямую, не через сам enum (тип параметра -
-// Kind int, компилятор не проверяет диапазон) - аварийное завершение, не
-// неопределённое поведение.
+// 1=SHA1, 2=MD5, 3=SHA512, 4=SHA3_256) - тот же контракт, что у
+// hashByAlgorithm в internal/interp/crypto.go. Значение вне диапазона
+// возможно, только если вызвать "хеш" с голым Целое напрямую, не через сам
+// enum (тип параметра - Kind int, компилятор не проверяет диапазон) -
+// аварийное завершение, не неопределённое поведение.
 static char *rech_hash_hex(int algorithm, const char *s) {
     switch (algorithm) {
     case 0:
@@ -501,6 +621,8 @@ static char *rech_hash_hex(int algorithm, const char *s) {
         return rech_md5_hex(s);
     case 3:
         return rech_sha512_hex(s);
+    case 4:
+        return rech_sha3_256_hex(s);
     default:
         rech_panic("%[2]s");
         return NULL;
