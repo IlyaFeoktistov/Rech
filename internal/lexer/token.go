@@ -116,6 +116,7 @@ const (
 	KwJSON        // JSON (формат-маркер после "разобрать"/"сериализовать", не склоняется)
 	KwXML         // XML (формат-маркер после "разобрать"/"сериализовать", не склоняется)
 	KwYAML        // YAML (формат-маркер после "разобрать"/"сериализовать", не склоняется)
+	KwPROTOBUF    // PROTOBUF (формат-маркер после "разобрать"/"сериализовать", не склоняется; источник/результат - Список<Байт>, не Строка)
 	KwType        // тип (тип <Имя> - дескриптор типа без экземпляра, аналог typeof)
 	KwNull        // Ничто (отсутствие значения у nullable-типа "?Тип")
 	KwAbstract    // абстрактный / абстрактная / абстрактное / абстрактные (перед "сущность"/"класс")
@@ -217,6 +218,7 @@ var keywords = map[string]TokenType{
 	"JSON":           KwJSON,
 	"XML":            KwXML,
 	"YAML":           KwYAML,
+	"PROTOBUF":       KwPROTOBUF,
 	"тип":            KwType,
 	"Ничто":          KwNull,
 	"абстрактный":    KwAbstract,
@@ -463,6 +465,8 @@ func (t TokenType) String() string {
 		return "XML"
 	case KwYAML:
 		return "YAML"
+	case KwPROTOBUF:
+		return "PROTOBUF"
 	case KwType:
 		return "тип"
 	case KwNull:

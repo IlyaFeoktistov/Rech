@@ -18,7 +18,10 @@ func (*ParseExpr) expr() {}
 
 // SerializeExpr - "сериализовать JSON <выражение>" - обратное к ParseExpr,
 // Value любого JSON-совместимого типа сериализуется в Строка (нет
-// отдельного целевого типа - им и так является тип Value).
+// отдельного целевого типа - им и так является тип Value). Результат -
+// "Строка" для JSON/XML/YAML, но "Список<Байт>" для PROTOBUF (двоичный
+// формат - см. package doc internal/semantic/protobuf.go) - см. TypeOf(
+// *SerializeExpr), internal/ir/expr.go.
 type SerializeExpr struct {
 	Format string
 	Value  Expr

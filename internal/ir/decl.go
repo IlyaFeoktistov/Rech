@@ -56,6 +56,15 @@ type Program struct {
 	// отдельная функция от rech_json_extract_<T>/rech_xml_extract_<T>).
 	YAMLParseTargets     []Type
 	YAMLSerializeTargets []Type
+	// ProtobufParseTargets/ProtobufSerializeTargets - те же роли, что
+	// YAMLParseTargets/YAMLSerializeTargets, для "разобрать PROTOBUF"/
+	// "сериализовать PROTOBUF" (internal/semantic/protobuf.go) - двоичный
+	// wire-формат Protocol Buffers, не текстовый, поэтому Source/значение -
+	// "Список<Байт>", не "Строка" (см. package doc там же); номер поля
+	// берётся из обязательного тега "protobuf:<номер>" (structtag), не из
+	// имени поля.
+	ProtobufParseTargets     []Type
+	ProtobufSerializeTargets []Type
 	// ReflectTargets - конкретные сущности/структуры/интерфейсы,
 	// встретившиеся хоть раз как аргумент боксирования ("(Значение) x"),
 	// как имя у "тип <Имя>", или как цель "<значение> как <Имя>", без

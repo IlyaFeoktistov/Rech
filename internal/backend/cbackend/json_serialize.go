@@ -230,6 +230,9 @@ func generateIRSerializeExpr(ctx *irGenCtx, e *ir.SerializeExpr) (string, valueT
 	if e.Format == "YAML" {
 		return generateIRSerializeExprYAML(t, valueCode), typeString, nil
 	}
+	if e.Format == "PROTOBUF" {
+		return generateIRSerializeExprPROTOBUF(ctx, t, valueCode)
+	}
 	code := fmt.Sprintf("%s(%s)", jsonToStringWrapperName(t), valueCode)
 	return code, typeString, nil
 }

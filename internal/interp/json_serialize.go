@@ -25,6 +25,9 @@ func (in *Interp) evalSerializeExpr(e *ir.SerializeExpr, env *Env, cc *callCtx) 
 	if e.Format == "YAML" {
 		return in.evalYAMLSerializeExpr(v), nil
 	}
+	if e.Format == "PROTOBUF" {
+		return in.evalProtobufSerializeExpr(v), nil
+	}
 	var sb strings.Builder
 	in.jsonSerialize(&sb, v)
 	return stringValue(sb.String()), nil

@@ -46,7 +46,10 @@ func registerParseErrorEntity(entities map[string]entitySig) {
 }
 
 // supportedFormats - форматы, поддержанные "разобрать"/"сериализовать".
-var supportedFormats = map[string]bool{"JSON": true, "XML": true, "YAML": true}
+// "PROTOBUF" - особый случай (internal/semantic/protobuf.go): Source/
+// значение "Список<Байт>", не "Строка", проверяется отдельной веткой в
+// analyzeParseExpr/analyzeSerializeExpr ниже, до общей проверки Строка.
+var supportedFormats = map[string]bool{"JSON": true, "XML": true, "YAML": true, "PROTOBUF": true}
 
 // analyzeParseExpr - см. package doc и ast.ParseExpr. Source обязан быть
 // Строкой, целевой Тип - совместим с форматом (structCompatible).
@@ -56,11 +59,14 @@ var supportedFormats = map[string]bool{"JSON": true, "XML": true, "YAML": true}
 // рекурсивно для любого достижимого из него типа поля/элемента списка).
 func analyzeParseExpr(sc *ctx, e *ast.ParseExpr) (ir.Expr, error) {
 	if !supportedFormats[e.Format] {
-		return nil, fmt.Errorf("строка %d: \"разобрать\" поддерживает только форматы JSON/XML/YAML, получено %q", e.Line, e.Format)
+		return nil, fmt.Errorf("строка %d: \"разобрать\" поддерживает только форматы JSON/XML/YAML/PROTOBUF, получено %q", e.Line, e.Format)
 	}
 	source, err := analyzeExpr(sc, e.Source)
 	if err != nil {
 		return nil, err
+	}
+	if e.Format == protobufFormat {
+		return analyzeProtobufParseExpr(sc, e, source)
 	}
 	if ir.TypeOf(source).Kind != ir.KindString {
 		return nil, fmt.Errorf("строка %d: \"разобрать %s\" ожидает источник типа Строка, получено %s", e.Line, e.Format, ir.TypeOf(source))
@@ -93,11 +99,14 @@ func analyzeParseExpr(sc *ctx, e *ast.ParseExpr) (ir.Expr, error) {
 // рекурсивно для любого достижимого из него).
 func analyzeSerializeExpr(sc *ctx, e *ast.SerializeExpr) (ir.Expr, error) {
 	if !supportedFormats[e.Format] {
-		return nil, fmt.Errorf("строка %d: \"сериализовать\" поддерживает только форматы JSON/XML/YAML, получено %q", e.Line, e.Format)
+		return nil, fmt.Errorf("строка %d: \"сериализовать\" поддерживает только форматы JSON/XML/YAML/PROTOBUF, получено %q", e.Line, e.Format)
 	}
 	value, err := analyzeExpr(sc, e.Value)
 	if err != nil {
 		return nil, err
+	}
+	if e.Format == protobufFormat {
+		return analyzeProtobufSerializeExpr(sc, value, e.Line)
 	}
 	// Доказанная непустота (established, "если а != Ничто {...}") -
 	// НАЙДЕННОЕ И ИСПРАВЛЕННОЕ ограничение (docs/ROADMAP.md, Шаг 41/44):

@@ -705,7 +705,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// hasStructTargets - вычислена здесь (не там, где раньше использовалась
 	// единственный раз, ниже), потому что теперь нужна РАНЬШЕ - см. package
 	// doc ctx.includesStringH.
-	hasStructTargets := len(prog.ParseTargets) > 0 || len(prog.SerializeTargets) > 0 || len(prog.XMLParseTargets) > 0 || len(prog.XMLSerializeTargets) > 0 || len(prog.YAMLParseTargets) > 0 || len(prog.YAMLSerializeTargets) > 0
+	hasStructTargets := len(prog.ParseTargets) > 0 || len(prog.SerializeTargets) > 0 || len(prog.XMLParseTargets) > 0 || len(prog.XMLSerializeTargets) > 0 || len(prog.YAMLParseTargets) > 0 || len(prog.YAMLSerializeTargets) > 0 || len(prog.ProtobufParseTargets) > 0 || len(prog.ProtobufSerializeTargets) > 0
 	for _, g := range prog.Generics {
 		dest := &genericsCode
 		switch {
@@ -1376,7 +1376,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// rech_new_<Тип> (mangleCtor) и выбрасывают "ОшибкаРазбора" через
 	// rech_struct_throw/rech_throw (exceptionRuntimeCode выше) - общий
 	// для обоих форматов, эмитится один раз.
-	appendCodeIf(&sb, len(prog.ParseTargets) > 0 || len(prog.XMLParseTargets) > 0 || len(prog.YAMLParseTargets) > 0, structParseThrowHelperCode())
+	appendCodeIf(&sb, len(prog.ParseTargets) > 0 || len(prog.XMLParseTargets) > 0 || len(prog.YAMLParseTargets) > 0 || len(prog.ProtobufParseTargets) > 0, structParseThrowHelperCode())
 	appendCodeIf(&sb, ctx.intDivMod.any() || ctx.uintDivMod.any(), divZeroThrowHelperCode())
 	appendCodeIf(&sb, ctx.usesStateFlags, requireStateHelperCode())
 	appendCodeIf(&sb, ctx.usesStateFlags, revokeStatesHelperCode())
@@ -1400,6 +1400,11 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	}
 
 	err = resolveRuntimeCode(&sb, ctx, prog, prog.YAMLParseTargets, yamlRuntimeCode)
+	if err != nil {
+		return "", err
+	}
+
+	err = resolveRuntimeCode(&sb, ctx, prog, prog.ProtobufParseTargets, protobufParseRuntimeCode)
 	if err != nil {
 		return "", err
 	}
@@ -1431,6 +1436,11 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	}
 
 	err = resolveRuntimeCode(&sb, ctx, prog, prog.YAMLSerializeTargets, yamlSerializeRuntimeCode)
+	if err != nil {
+		return "", err
+	}
+
+	err = resolveRuntimeCode(&sb, ctx, prog, prog.ProtobufSerializeTargets, protobufSerializeRuntimeCode)
 	if err != nil {
 		return "", err
 	}

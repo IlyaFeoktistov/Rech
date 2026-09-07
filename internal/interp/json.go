@@ -35,6 +35,9 @@ func (in *Interp) evalParseExpr(e *ir.ParseExpr, env *Env, cc *callCtx) (Value, 
 	if e.Format == "YAML" {
 		return in.evalYAMLParseExpr(e, src)
 	}
+	if e.Format == "PROTOBUF" {
+		return in.evalProtobufParseExpr(e, src)
+	}
 	var raw any
 	if err := json.Unmarshal([]byte(src.S), &raw); err != nil {
 		return Value{}, in.jsonParseFail(rtmsg.JSONParseError)

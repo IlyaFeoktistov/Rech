@@ -298,6 +298,9 @@ func generateIRParseExpr(ctx *irGenCtx, e *ir.ParseExpr) (string, valueType, err
 		code, vt := generateIRParseExprYAML(e, srcCode)
 		return code, vt, nil
 	}
+	if e.Format == "PROTOBUF" {
+		return generateIRParseExprPROTOBUF(ctx, e, srcCode)
+	}
 	code := fmt.Sprintf("%s(rech_json_parse(%s))", jsonExtractorNameFor(e.To), srcCode)
 	return code, fromIRType(e.To), nil
 }

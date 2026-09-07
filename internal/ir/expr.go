@@ -219,6 +219,14 @@ func TypeOf(e Expr) Type {
 	case *ParseExpr:
 		return e.To
 	case *SerializeExpr:
+		if e.Format == "PROTOBUF" {
+			// "Список<Байт>" - см. package doc SerializeExpr - строковый
+			// литерал имени типа, не константа: internal/ir не должен знать
+			// о byteListType (internal/semantic/bytesio.go и его аналоги в
+			// cbackend/interp) - тот же принцип, что и остальной ir, не
+			// зависящий от backend-специфичных деталей.
+			return EntityType("Список<Байт>")
+		}
 		return TypeString
 	case *IsExpr:
 		return TypeBool
