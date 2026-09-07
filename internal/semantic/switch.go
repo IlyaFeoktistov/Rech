@@ -144,6 +144,8 @@ func exprLine(e ast.Expr) int {
 		return e.Line
 	case *ast.BinaryExpr:
 		return e.Line
+	case *ast.TernaryExpr:
+		return e.Line
 	case *ast.UnaryExpr:
 		return e.Line
 	case *ast.FieldAccess:

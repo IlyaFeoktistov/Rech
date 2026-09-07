@@ -159,6 +159,21 @@ type BinaryExpr struct {
 func (*BinaryExpr) node() {}
 func (*BinaryExpr) expr() {}
 
+// TernaryExpr - "условие ? тогда : иначе" (тернарный условный оператор,
+// docs/SPEC.md) - Cond обязан разбираться в Логическое, Then/Else -
+// строго одинакового типа. Правоассоциативен (`а ? б : в ? г : д` -
+// `а ? б : (в ? г : д)`), тем же принципом, что и в C/большинстве
+// C-подобных языков.
+type TernaryExpr struct {
+	Cond Expr
+	Then Expr
+	Else Expr
+	Line int
+}
+
+func (*TernaryExpr) node() {}
+func (*TernaryExpr) expr() {}
+
 // UnaryExpr - унарная операция. Op - один из: "-" "не".
 type UnaryExpr struct {
 	Op      string

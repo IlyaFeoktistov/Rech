@@ -78,6 +78,9 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 	case *ast.BinaryExpr:
 		return analyzeBinaryExpr(sc, e)
 
+	case *ast.TernaryExpr:
+		return analyzeTernaryExpr(sc, e)
+
 	case *ast.CallExpr:
 		call, err := analyzeCallExpr(sc, e)
 		if err != nil {
@@ -536,6 +539,11 @@ func analyzeCallExpr(sc *ctx, e *ast.CallExpr) (ir.Expr, error) {
 		}
 		if bytesIOFuncNames[callee] {
 			if err := registerByteListTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
+				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
+			}
+		}
+		if imageCodecFuncNames[callee] {
+			if err := registerImageCodecEntityOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
 				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
 			}
 		}

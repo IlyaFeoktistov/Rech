@@ -268,6 +268,8 @@ func substExpr(e ast.Expr, subst map[string]string) ast.Expr {
 		return &ast.MethodCallExpr{Receiver: substExpr(e.Receiver, subst), Method: e.Method, Args: substExprs(e.Args, subst), Static: e.Static, Line: e.Line}
 	case *ast.BinaryExpr:
 		return &ast.BinaryExpr{Op: e.Op, Left: substExpr(e.Left, subst), Right: substExpr(e.Right, subst), Line: e.Line}
+	case *ast.TernaryExpr:
+		return &ast.TernaryExpr{Cond: substExpr(e.Cond, subst), Then: substExpr(e.Then, subst), Else: substExpr(e.Else, subst), Line: e.Line}
 	case *ast.UnaryExpr:
 		return &ast.UnaryExpr{Op: e.Op, Operand: substExpr(e.Operand, subst), Line: e.Line}
 	case *ast.CastExpr:

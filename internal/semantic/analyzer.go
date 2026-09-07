@@ -502,6 +502,7 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 	registerGRPCSFuncs(funcs)
 	registerNumberBaseFuncs(funcs)
 	registerProcessFuncs(funcs)
+	registerImageCodecFuncs(funcs)
 	for _, fn := range prog.Functions {
 		if _, exists := funcs[fn.Name]; exists {
 			if builtins.IsReservedName(fn.Name) {
@@ -1048,6 +1049,13 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	// "HTTP2Поток" - тот же принцип, что "ЗапросБайты"/"ОтветБайты" выше.
 	if _, ok := a.entities[http2StreamType]; ok {
 		out.Entities = append(out.Entities, &ir.Entity{Name: http2StreamType, IsStruct: true, Fields: http2StreamFields})
+	}
+	// "ДекодированноеИзображение" - тот же принцип, что "ЗапросБайты"/
+	// "ОтветБайты"/"HTTP2Поток" выше - зарегистрирована в a.entities только
+	// при реальном вызове "декодировать_изображение"/"закодировать_
+	// изображение" (registerImageCodecEntityOnCall, imagecodec.go).
+	if _, ok := a.entities[imageCodecEntityName]; ok {
+		out.Entities = append(out.Entities, &ir.Entity{Name: imageCodecEntityName, IsStruct: true, Fields: imageCodecFields})
 	}
 	// "Блокировка" - проверка ЗДЕСЬ (не раньше цикла по prog.Entities/
 	// prog.Functions выше), потому что она может встретиться впервые не

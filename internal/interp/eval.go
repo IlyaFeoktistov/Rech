@@ -50,6 +50,18 @@ func (in *Interp) evalExpr(e ir.Expr, env *Env, cc *callCtx) (Value, error) {
 	case *ir.BinaryExpr:
 		return in.evalBinary(e, env, cc)
 
+	case *ir.TernaryExpr:
+		cond, err := in.evalExpr(e.Cond, env, cc)
+		if err != nil {
+			return Value{}, err
+		}
+		// Короткое замыкание - только одна из веток вычисляется, тем же
+		// принципом, что и "и"/"или" в evalBinary выше.
+		if cond.B {
+			return in.evalExpr(e.Then, env, cc)
+		}
+		return in.evalExpr(e.Else, env, cc)
+
 	case *ir.CallExpr:
 		args := make([]Value, len(e.Args))
 		for i, a := range e.Args {

@@ -168,6 +168,19 @@ type builtinFlags struct {
 	// настоящая внешняя библиотека, не переиспользованный хелпер, эмитится
 	// только когда программа реально вызвала одну из http2_*-функций.
 	usesHTTP2 bool
+	// usesImageCodec - нужен ли rech_decode_image_file/rech_encode_
+	// image_file (imagecodec.go, диспетчер по значению "ФорматИзображения")
+	// - встроенные функции "декодировать_изображение"/"закодировать_
+	// изображение" - подключает И libpng, И libjpeg разом (#include
+	// <png.h>/<jpeglib.h>, -lpng -ljpeg - internal/toolchain/cc.go) - формат
+	// выбирается РАНТАЙМ-значением параметра, не известен на этапе
+	// компиляции самого Rech-компилятора, значит обе ветки диспетчера (и
+	// обе библиотеки) нужны программе, вызвавшей любую из двух функций,
+	// независимо от того, какой конкретно формат встретится в реальном
+	// запуске - третий срез работы с изображениями (docs/ROADMAP.md),
+	// настоящее сжатие - внешняя библиотека, тем же принципом, что и
+	// usesTLS/usesHTTP2 выше.
+	usesImageCodec bool
 	// usesGRPC - нужен ли grpcSessionOpsCode (grpc.go) - length-prefix
 	// фрейминг поверх уже сгенерированного HTTP/2-рантайма (usesHTTP2
 	// подразумевается: gRPC-код зовёт rech_http2_* по имени, см. package doc
@@ -642,6 +655,15 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 	case "rgbцвет_в_hex":
 		flags.usesColor = true
 		return fmt.Sprintf("rech_color_to_hex(%s)", args[0]), true
+	case "декодировать_изображение":
+		flags.usesImageCodec = true
+		flags.usesByteListWrap = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_decode_image_file(%s, (int)(%s))", args[0], args[1]), true
+	case "закодировать_изображение":
+		flags.usesImageCodec = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_encode_image_file(%s, %s, %s, %s, (int)(%s), %s)", args[0], args[1], args[2], args[3], args[4], args[5]), true
 	case "значение_куки":
 		flags.usesCookies = true
 		return fmt.Sprintf("rech_cookie_value((%s).%s, %s)", args[0], mangleField("заголовки"), args[1]), true

@@ -1162,6 +1162,19 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	if ctx.usesHTTP2 {
 		sb.WriteString("#include <nghttp2/nghttp2.h>\n#include <sys/time.h>\n")
 	}
+	// <png.h>/<jpeglib.h>/<setjmp.h> - PNG/JPEG-кодек (png.go/jpeg.go/
+	// imagecodec.go, "декодировать_изображение"/"закодировать_изображение")
+	// - libpng+libjpeg, обе разом (-lpng -ljpeg - internal/toolchain/cc.go,
+	// по маркерам этих #include) - третий срез работы с изображениями
+	// (docs/ROADMAP.md, "Работа с изображениями"); <stdio.h> (FILE) уже
+	// подключён безусловно выше - <jpeglib.h> сам его требует, но не
+	// включает. setjmp/longjmp - собственный обработчик ошибок libjpeg
+	// (package doc jpeg.go), НЕ через ctx.usesExceptions (тот подключается
+	// только при "попытаться"/"поймать" в самой Rech-программе, независимая
+	// причина).
+	if ctx.usesImageCodec {
+		sb.WriteString("#include <png.h>\n#include <jpeglib.h>\n#include <setjmp.h>\n")
+	}
 	// Потоки ("запустить"/"дождаться") и "Блокировка" - на Windows
 	// CreateThread/CRITICAL_SECTION уже объявлены через windows.h выше,
 	// отдельного заголовка не нужно; на POSIX - pthread.h (pthread_mutex_t
@@ -1428,6 +1441,15 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// (зарегистрирован в prog.Generics принудительно, internal/semantic/
 	// bytesio.go) и rech_file_t/rech_open_mode из fileHelpers.
 	appendCodeIf(&sb, ctx.usesBytesIO, bytesIOHelpers())
+	// После bytesWrapHelper выше (rech_bytes_wrap) - rech_png_decode_file
+	// (png.go)/rech_jpeg_decode_file (jpeg.go) строят через неё поле
+	// "пиксели"; typedef "ДекодированноеИзображение" эмитирован раньше
+	// вместе с остальными entity-typedef'ами (обычная сущность, тот же
+	// путь, что и у RGBЦвет). rech_decode_image_file/rech_encode_image_file
+	// (imagecodec.go) - диспетчер поверх обеих - должен идти ПОСЛЕ них.
+	appendCodeIf(&sb, ctx.usesImageCodec, pngHelpers)
+	appendCodeIf(&sb, ctx.usesImageCodec, jpegHelpers)
+	appendCodeIf(&sb, ctx.usesImageCodec, imageCodecDispatchHelpers)
 	// После genericsCode/bytesWrapHelper выше И после httpServerHelpersCode
 	// (usesHTTPServer, эмитирована раньше - rech_recv_http_request/
 	// rech_http_parse_head) - rech_http_accept_request_bytes/rech_http_
@@ -2452,6 +2474,26 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 
 	case *ir.BinaryExpr:
 		return generateIRBinaryExpr(ctx, e)
+
+	case *ir.TernaryExpr:
+		// Родной тернарный оператор C - уже короткое замыкание (ровно одна
+		// из веток вычисляется), Then/Else семантически проверены
+		// одинакового типа (analyzeTernaryExpr) - никакого хелпера не
+		// нужно, в отличие от "??" ниже (там Left - nullable-обёртка,
+		// нужно её развернуть).
+		condCode, _, err := generateIRExpr(ctx, e.Cond)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		thenCode, _, err := generateIRExpr(ctx, e.Then)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		elseCode, _, err := generateIRExpr(ctx, e.Else)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		return fmt.Sprintf("((%s) ? (%s) : (%s))", condCode, thenCode, elseCode), fromIRType(e.Type), nil
 
 	case *ir.CallExpr:
 		cName, isExtern := ctx.externCNames[e.Callee]

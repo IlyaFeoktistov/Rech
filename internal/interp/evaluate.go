@@ -115,6 +115,16 @@ func (in *Interp) evalAstExpr(e ast.Expr, env *Env, this *entityObj) (Value, err
 	case *ast.BinaryExpr:
 		return in.evalAstBinary(e, env, this)
 
+	case *ast.TernaryExpr:
+		cond, err := in.evalAstExpr(e.Cond, env, this)
+		if err != nil {
+			return Value{}, err
+		}
+		if cond.B {
+			return in.evalAstExpr(e.Then, env, this)
+		}
+		return in.evalAstExpr(e.Else, env, this)
+
 	case *ast.CallExpr:
 		args, err := in.evalAstArgs(e.Args, env, this)
 		if err != nil {

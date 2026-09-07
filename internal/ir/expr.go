@@ -71,6 +71,21 @@ type BinaryExpr struct {
 
 func (*BinaryExpr) expr() {}
 
+// TernaryExpr - "условие ? тогда : иначе" (тернарный условный оператор) -
+// Cond обязан быть Логическое (проверено семантическим анализом), Then/
+// Else - строго ОДИНАКОВОГО типа (Type - этот общий тип). В рантайме
+// вычисляется ТОЛЬКО одна из двух ветвей (короткое замыкание, как у "и"/
+// "или") - не обе, поэтому это отдельный узел IR, не БинарнаяОперация
+// (у той всегда ровно два операнда).
+type TernaryExpr struct {
+	Cond Expr
+	Then Expr
+	Else Expr
+	Type Type
+}
+
+func (*TernaryExpr) expr() {}
+
 // UnaryExpr - унарная операция; Op - один из "- не".
 type UnaryExpr struct {
 	Op      string
@@ -271,6 +286,8 @@ func TypeOf(e Expr) Type {
 	case *DerefExpr:
 		return e.Type
 	case *ListElementRef:
+		return e.Type
+	case *TernaryExpr:
 		return e.Type
 	default:
 		return TypeUnknown

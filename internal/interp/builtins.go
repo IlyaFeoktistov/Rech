@@ -329,6 +329,11 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return hexToColor(args[0].S), true
 	case "rgbцвет_в_hex":
 		return stringValue(colorToHex(args[0])), true
+	case "декодировать_изображение":
+		return decodeImageFile(args[0].S, args[1].I), true
+	case "закодировать_изображение":
+		encodeImageFile(args[0].S, args[1].I, args[2].I, bytesFromValue(args[3]), args[4].I, args[5].I)
+		return Value{}, true
 	case "значение_куки":
 		return cookieValue(args[0], args[1].S), true
 	case "значение_заголовка":

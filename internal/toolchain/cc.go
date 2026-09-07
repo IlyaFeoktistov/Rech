@@ -166,6 +166,18 @@ func commonLinkFlags(src []byte) []string {
 	if bytes.Contains(src, []byte("#include <nghttp2/nghttp2.h>")) {
 		flags = append(flags, "-lnghttp2")
 	}
+	// -lpng - PNG-кодек ("png_декодировать_файл"/"png_кодировать_файл",
+	// internal/backend/cbackend/png.go) - тот же принцип, что и OpenSSL/
+	// nghttp2 выше, по маркеру "#include <png.h>" (ctx.usesPNG).
+	if bytes.Contains(src, []byte("#include <png.h>")) {
+		flags = append(flags, "-lpng")
+	}
+	// -ljpeg - JPEG-кодек ("jpeg_декодировать_файл"/"jpeg_кодировать_файл",
+	// internal/backend/cbackend/jpeg.go) - по маркеру "#include
+	// <jpeglib.h>" (ctx.usesJPEG).
+	if bytes.Contains(src, []byte("#include <jpeglib.h>")) {
+		flags = append(flags, "-ljpeg")
+	}
 	if runtime.GOOS == "windows" {
 		// -lshell32 - CommandLineToArgvW (internal/backend/cbackend.
 		// argFuncHelper/rech_init_args): argv, который сам даёт CRT на
@@ -253,6 +265,17 @@ func missingLibHint(linkerOutput string) string {
 	if mentionsSSL && (mentionsMissing || strings.Contains(lower, "no such file")) {
 		fmt.Fprintf(&hint, "похоже, не хватает OpenSSL для TLS (\"слушать_tcp_защищённо\"): %s\n", installHintFor("ssl"))
 	}
+	// -lpng/-ljpeg (PNG/JPEG-кодек, png.go/jpeg.go) - тот же класс
+	// подсказки, что и SSL выше - libpng-dev/libjpeg-dev (заголовки) часто
+	// не установлены отдельно от рантайм-библиотек.
+	mentionsPNG := strings.Contains(lower, "-lpng") || strings.Contains(lower, "png.lib") || strings.Contains(lower, "png.h")
+	if mentionsPNG && (mentionsMissing || strings.Contains(lower, "no such file")) {
+		fmt.Fprintf(&hint, "похоже, не хватает libpng (\"png_декодировать_файл\"/\"png_кодировать_файл\"): %s\n", installHintFor("png"))
+	}
+	mentionsJPEG := strings.Contains(lower, "-ljpeg") || strings.Contains(lower, "jpeg.lib") || strings.Contains(lower, "jpeglib.h")
+	if mentionsJPEG && (mentionsMissing || strings.Contains(lower, "no such file")) {
+		fmt.Fprintf(&hint, "похоже, не хватает libjpeg (\"jpeg_декодировать_файл\"/\"jpeg_кодировать_файл\"): %s\n", installHintFor("jpeg"))
+	}
 	return strings.TrimRight(hint.String(), "\n")
 }
 
@@ -282,6 +305,16 @@ func installHintFor(lib string) string {
 			"linux":   "sudo apt install libssl-dev (Debian/Ubuntu) или sudo dnf install openssl-devel (Fedora)",
 			"darwin":  "brew install openssl (может понадобиться -L/-I на путь brew --prefix openssl)",
 			"windows": "vcpkg install openssl",
+		},
+		"png": {
+			"linux":   "sudo apt install libpng-dev (Debian/Ubuntu) или sudo dnf install libpng-devel (Fedora)",
+			"darwin":  "brew install libpng",
+			"windows": "vcpkg install libpng",
+		},
+		"jpeg": {
+			"linux":   "sudo apt install libjpeg-dev (Debian/Ubuntu) или sudo dnf install libjpeg-turbo-devel (Fedora)",
+			"darwin":  "brew install jpeg",
+			"windows": "vcpkg install libjpeg-turbo",
 		},
 	}
 	if perOS, ok := hints[lib]; ok {

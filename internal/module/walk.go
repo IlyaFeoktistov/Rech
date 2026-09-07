@@ -81,17 +81,18 @@ var builtinTypeBases = map[string]bool{
 	"ЗапросБайты":         true,
 	"ОтветБайты":          true,
 	"ЧастьФормы":          true,
-	"Целое8":              true,
-	"Целое16":             true,
-	"Целое32":             true,
-	"Целое64":             true,
-	"Натуральное":         true,
-	"Натуральное8":        true,
-	"Натуральное16":       true,
-	"Натуральное32":       true,
-	"Натуральное64":       true,
-	"Тип":                 true,
-	"Значение":            true,
+	"ДекодированноеИзображение": true,
+	"Целое8":        true,
+	"Целое16":       true,
+	"Целое32":       true,
+	"Целое64":       true,
+	"Натуральное":   true,
+	"Натуральное8":  true,
+	"Натуральное16": true,
+	"Натуральное32": true,
+	"Натуральное64": true,
+	"Тип":           true,
+	"Значение":      true,
 }
 
 // resolveBareName ищет name (имя функции или простого - не generic - типа)
@@ -686,6 +687,14 @@ func (r *rewriter) rewriteExpr(e ast.Expr) error {
 			return err
 		}
 		return r.rewriteExpr(e.Right)
+	case *ast.TernaryExpr:
+		if err := r.rewriteExpr(e.Cond); err != nil {
+			return err
+		}
+		if err := r.rewriteExpr(e.Then); err != nil {
+			return err
+		}
+		return r.rewriteExpr(e.Else)
 	case *ast.UnaryExpr:
 		return r.rewriteExpr(e.Operand)
 	case *ast.CastExpr:

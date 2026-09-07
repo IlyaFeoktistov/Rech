@@ -120,6 +120,12 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 	case http2StreamType:
 		registerHTTPEntity(entities, http2StreamType, http2StreamFields)
 		return ir.EntityType(http2StreamType), nil
+	case imageCodecEntityName:
+		if _, err := resolveTypeName(entities, methods, aliases, interfaces, byteListType); err != nil {
+			return ir.TypeUnknown, err
+		}
+		registerHTTPEntity(entities, imageCodecEntityName, imageCodecFields)
+		return ir.EntityType(imageCodecEntityName), nil
 	case "Совпадение":
 		// "группы" (Список<Строка>) - зарегистрировать ДО самой "Совпадение",
 		// иначе метод вроде "м.группы.длина()" не найдёт methods["Список<
@@ -299,6 +305,17 @@ var StandardEnums = map[string]map[string]int64{
 	// как у RSA).
 	"АлгоритмПодписи": {
 		"RSA": 0, "Ed25519": 1,
+	},
+	// ФорматИзображения - для "декодировать_изображение(путь,
+	// ФорматИзображения.PNG)"/"закодировать_изображение(...)" - тот же
+	// принцип, что и АлгоритмХеша/АлгоритмПодписи выше: один builtin на
+	// семейство форматов вместо отдельного имени функции на каждый
+	// (png_декодировать_файл/jpeg_декодировать_файл - как было в исходной
+	// версии этого среза). internal/backend/cbackend/imagecodec.go -
+	// rech_decode_image_file/rech_encode_image_file - ИНДЕКСЫ ДОЛЖНЫ
+	// БУКВАЛЬНО СОВПАДАТЬ с их switch (0=PNG, 1=JPEG).
+	"ФорматИзображения": {
+		"PNG": 0, "JPEG": 1,
 	},
 }
 

@@ -9,7 +9,58 @@ import (
 )
 
 func (p *Parser) parseExpr() (ast.Expr, error) {
-	return p.parseCoalesce()
+	return p.parseTernary()
+}
+
+// parseTernary - "условие ? тогда : иначе" (тернарный условный оператор) -
+// самый низкий приоритет из всех (слабее даже "??"), правоассоциативно
+// (Then/Else сами разбираются через parseTernary, не parseCoalesce -
+// `а ? б : в ? г : д` цепочкой уходит вправо, как в C). "?"/":" - уже
+// существующие токены (QUESTION - иначе только префикс nullable-типа
+// "?Тип", COLON - иначе разделитель в "имеет:"/"когда:"/т. п.) - здесь
+// применены как ПОСТФИКС после уже разобранного выражения, коллизии с
+// типовой позицией нет (там разбор идёт отдельной, не expression,
+// грамматикой). Перенос строки после "?"/":" - незначим, тем же
+// принципом, что и после бинарного оператора (parseLeftAssoc выше).
+func (p *Parser) parseTernary() (ast.Expr, error) {
+	cond, err := p.parseCoalesce()
+	if err != nil {
+		return nil, err
+	}
+	if p.cur().Type != lexer.QUESTION {
+		return cond, nil
+	}
+	q := p.advance()
+	p.skipNewlines()
+	// "условие ?: иначе" (форма Elvis-оператора из PHP/Kotlin/Groovy, без
+	// повтора условия в середине) - т. к. условие ОБЯЗАНО быть Логическое
+	// (см. analyzeTernaryExpr), "тогда"-ветвь в true-случае - буквально
+	// "истина" (значение самого условия, когда оно true) - синтезируем
+	// BoolLiteral, не переразбираем/не дублируем условие (что повторно
+	// вычислило бы его при побочных эффектах). Эквивалентно "условие или
+	// иначе" - тем не менее написано как отдельный оператор по прямому
+	// запросу пользователя, привычному по PHP.
+	var thenExpr ast.Expr
+	if p.cur().Type == lexer.COLON {
+		thenExpr = &ast.BoolLiteral{Value: true, Line: q.Line}
+	} else {
+		var err error
+		thenExpr, err = p.parseTernary()
+		if err != nil {
+			return nil, err
+		}
+	}
+	p.skipNewlines()
+	if p.cur().Type != lexer.COLON {
+		return nil, fmt.Errorf("строка %d, столбец %d: тернарный оператор \"?\" без \":\": ожидался \":\", получено %q", p.cur().Line, p.cur().Col, p.cur().Value)
+	}
+	p.advance()
+	p.skipNewlines()
+	elseExpr, err := p.parseTernary()
+	if err != nil {
+		return nil, err
+	}
+	return &ast.TernaryExpr{Cond: cond, Then: thenExpr, Else: elseExpr, Line: q.Line}, nil
 }
 
 // parseCoalesce - "а ?? б" (null-coalescing) - самый низкий приоритет
@@ -62,6 +113,13 @@ func (p *Parser) parseLeftAssoc(next func() (ast.Expr, error), ops map[lexer.Tok
 			return left, nil
 		}
 		op := p.advance()
+		// Перенос строки сразу ПОСЛЕ бинарного оператора - незначим (тот же
+		// принцип, что и в большинстве языков со значимым переносом строки:
+		// оператор в конце строки однозначно сигнализирует продолжение
+		// выражения на следующей, парсер уже внутри разбора выражения -
+		// границе инструкции взяться неоткуда). Перенос ПЕРЕД оператором
+		// (`а\nи б`) по-прежнему не поддержан - см. docs/ROADMAP.md.
+		p.skipNewlines()
 		right, err := next()
 		if err != nil {
 			return nil, err
@@ -110,6 +168,9 @@ func (p *Parser) parseComparison() (ast.Expr, error) {
 	}
 	if opStr, ok := comparisonOps[p.cur().Type]; ok {
 		op := p.advance()
+		// Тот же принцип, что и в parseLeftAssoc - перенос строки сразу
+		// после оператора сравнения незначим.
+		p.skipNewlines()
 		right, err := p.parseBitOr()
 		if err != nil {
 			return nil, err
