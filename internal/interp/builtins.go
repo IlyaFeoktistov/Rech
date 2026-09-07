@@ -307,6 +307,10 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return stringValue(base64URLEncode(args[0].S)), true
 	case "декодировать_base64url":
 		return stringValue(base64URLDecode(args[0].S)), true
+	case "зашифровать":
+		return stringValue(aesEncryptHex(args[0].S, args[1].S)), true
+	case "расшифровать":
+		return stringValue(aesDecryptHex(args[0].S, args[1].S)), true
 	case "время_как_дата":
 		return timeToDate(args[0].I), true
 	case "дата_как_время":

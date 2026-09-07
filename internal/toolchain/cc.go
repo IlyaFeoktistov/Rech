@@ -146,8 +146,17 @@ func commonLinkFlags(src []byte) []string {
 	// ctx.usesTLS, см. ir_generator.go). -lssl ДО -lcrypto - libssl зависит
 	// от libcrypto, порядок статической линковки на некоторых линковщиках
 	// (GNU ld без --start-group) значим.
-	if bytes.Contains(src, []byte("#include <openssl/ssl.h>")) {
+	usesOpenSSLSSL := bytes.Contains(src, []byte("#include <openssl/ssl.h>"))
+	if usesOpenSSLSSL {
 		flags = append(flags, "-lssl", "-lcrypto")
+	}
+	// -lcrypto (без -lssl) - AES-256-GCM ("зашифровать"/"расшифровать",
+	// internal/backend/cbackend/aes.go) - только EVP/RAND (libcrypto), не
+	// TLS-рукопожатие (libssl) - по маркеру "#include <openssl/evp.h>"
+	// (ctx.usesAES). Если TLS уже добавил "-lcrypto" веткой выше - не
+	// дублировать флаг.
+	if !usesOpenSSLSSL && bytes.Contains(src, []byte("#include <openssl/evp.h>")) {
+		flags = append(flags, "-lcrypto")
 	}
 	// -lnghttp2 - HTTP/2-транспорт (internal/backend/cbackend/http2.go) -
 	// тот же принцип, что и OpenSSL выше: не входит в стандартный C-тулчейн,

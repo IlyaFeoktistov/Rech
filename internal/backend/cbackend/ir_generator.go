@@ -1100,6 +1100,15 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	if ctx.usesTLS {
 		sb.WriteString("#include <openssl/ssl.h>\n#include <openssl/err.h>\n")
 	}
+	// <openssl/evp.h>/<openssl/rand.h> - AES-256-GCM ("зашифровать"/
+	// "расшифровать", aes.go) - тот же OpenSSL, что и у TLS выше, но
+	// отдельный флаг/отдельный маркер для -lcrypto (internal/toolchain/
+	// cc.go): "зашифровать"/"расшифровать" не тянут libssl (нет TLS-
+	// рукопожатия), только libcrypto (EVP/RAND) - не одно и то же с usesTLS,
+	// программа может использовать одно без другого.
+	if ctx.usesAES {
+		sb.WriteString("#include <openssl/evp.h>\n#include <openssl/rand.h>\n")
+	}
 	// <nghttp2/nghttp2.h> - HTTP/2-транспорт (http2.go) - единственная
 	// внешняя библиотека этого блока, кроме OpenSSL выше (-lnghttp2,
 	// internal/toolchain/cc.go, по маркеру этого #include) - POSIX-only
@@ -1413,6 +1422,11 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// Не зависит от typedefs - только примитивы (const char *) - после
 	// panicHelper выше (rech_base64url_decode зовёт rech_panic).
 	appendCodeIf(&sb, ctx.usesCrypto, cryptoHelpers)
+	// aes.go - "зашифровать"/"расшифровать" - ПОСЛЕ cryptoHelpers выше
+	// (rech_aes_key_from_passphrase зовёт rech_sha256_*, rech_aes_encrypt_
+	// hex зовёт rech_bytes_to_hex) - usesAES всегда идёт вместе с
+	// usesCrypto=true (builtins_shared.go), так что порядок гарантирован.
+	appendCodeIf(&sb, ctx.usesAES, aesHelpers)
 	// После typedefs (rech_T_opcii_kuki/rech_T_n_stroka уже объявлены) и
 	// после strConcatHelper выше (rech_cookie_string зовёт rech_str_concat).
 	appendCodeIf(&sb, ctx.usesCookies, cookieHelpers())

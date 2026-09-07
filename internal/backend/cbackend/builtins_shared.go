@@ -143,6 +143,15 @@ type builtinFlags struct {
 	// настоящий TLS-стек с нуля - риск для безопасности, не место для
 	// принципа "не тянуть внешнюю библиотеку".
 	usesTLS bool
+	// usesAES - нужны ли rech_aes_encrypt_hex/rech_aes_decrypt_hex (aes.go)
+	// - встроенные функции "зашифровать"/"расшифровать" - подключает
+	// OpenSSL EVP (#include <openssl/evp.h>/<openssl/rand.h>, -lcrypto -
+	// internal/toolchain/cc.go) - ТОТ ЖЕ ДОВОД, что и у usesTLS выше:
+	// аутентифицированное шифрование с нуля - риск для безопасности, не
+	// место для "хватает ~100 строк своего кода" (в отличие от usesCrypto
+	// - голых хеш-функций). Всегда идёт вместе с usesCrypto=true (ключ AES
+	// - SHA-256 от пароля, см. package doc aes.go).
+	usesAES bool
 	// usesHTTP2 - нужен ли биндинг к nghttp2 (http2.go, HTTP/2-транспорт) -
 	// подключает <nghttp2/nghttp2.h> (-lnghttp2 - internal/toolchain/cc.go,
 	// по маркеру этого #include) - тем же принципом, что и usesTLS/OpenSSL:
@@ -683,6 +692,16 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 		flags.usesCrypto = true
 		flags.usesPanic = true
 		return fmt.Sprintf("rech_base64url_decode(%s)", args[0]), true
+	case "зашифровать":
+		flags.usesCrypto = true
+		flags.usesAES = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_aes_encrypt_hex(%s, %s)", args[0], args[1]), true
+	case "расшифровать":
+		flags.usesCrypto = true
+		flags.usesAES = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_aes_decrypt_hex(%s, %s)", args[0], args[1]), true
 	default:
 		return "", false
 	}
