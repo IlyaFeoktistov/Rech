@@ -336,8 +336,57 @@ func (l *Lexer) readIdentOrKeyword(line, col int) Token {
 	return Token{Type: IDENT, Value: value, Line: line, Col: col}
 }
 
+// hexDigit/octalDigit/binaryDigit - наборы цифр у "0x"/"0o"/"0b"-литералов
+// (readNumber ниже) - только ASCII a-f/A-F для hex (в отличие от
+// unicode.IsDigit, который берёт ЛЮБую desятичную цифру Unicode - здесь
+// это неуместно, шестнадцатеричная цифра - строго ASCII).
+func hexDigit(r rune) bool {
+	return (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')
+}
+
+func octalDigit(r rune) bool {
+	return r >= '0' && r <= '7'
+}
+
+func binaryDigit(r rune) bool {
+	return r == '0' || r == '1'
+}
+
 func (l *Lexer) readNumber(line, col int) Token {
 	start := l.pos
+	// "0x"/"0o"/"0b" (шестнадцатеричный/восьмеричный/двоичный литерал) -
+	// распознаётся ТОЛЬКО по явному префиксу сразу после ведущего "0", не
+	// через "угадывание базы по содержимому" - десятичный литерал с
+	// ведущим нулём ("007") остаётся десятичным, как и раньше (см. её же
+	// разбор в parser/expr.go, parseIntTokenValue - тем же принципом
+	// объяснено там). Дробная часть/экспонента у этих трёх форм не
+	// поддержаны (только целые - мотивация была адреса памяти/битовые
+	// маски, не научная нотация).
+	if l.peek() == '0' {
+		switch l.peekAt(1) {
+		case 'x', 'X':
+			l.advance()
+			l.advance()
+			for l.pos < len(l.src) && hexDigit(l.peek()) {
+				l.advance()
+			}
+			return Token{Type: INT, Value: string(l.src[start:l.pos]), Line: line, Col: col}
+		case 'o', 'O':
+			l.advance()
+			l.advance()
+			for l.pos < len(l.src) && octalDigit(l.peek()) {
+				l.advance()
+			}
+			return Token{Type: INT, Value: string(l.src[start:l.pos]), Line: line, Col: col}
+		case 'b', 'B':
+			l.advance()
+			l.advance()
+			for l.pos < len(l.src) && binaryDigit(l.peek()) {
+				l.advance()
+			}
+			return Token{Type: INT, Value: string(l.src[start:l.pos]), Line: line, Col: col}
+		}
+	}
 	for l.pos < len(l.src) && unicode.IsDigit(l.peek()) {
 		l.advance()
 	}

@@ -500,6 +500,7 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 	registerHTTP2Funcs(funcs)
 	registerGRPCFuncs(funcs)
 	registerGRPCSFuncs(funcs)
+	registerNumberBaseFuncs(funcs)
 	for _, fn := range prog.Functions {
 		if _, exists := funcs[fn.Name]; exists {
 			if builtins.IsReservedName(fn.Name) {

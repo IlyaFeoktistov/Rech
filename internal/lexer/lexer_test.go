@@ -110,6 +110,33 @@ func TestLexerNullKeyword(t *testing.T) {
 	}
 }
 
+// TestLexerHexOctalBinaryIntLiterals - "0x"/"0o"/"0b" остаются одним INT-
+// токеном со ВСЕМ префиксом в Value (разбор значения - parser/expr.go,
+// parseIntTokenValue) - "007" (десятичный с ведущим нулём, без префикса)
+// остаётся ОБЫЧНЫМ INT, не путается с восьмеричным.
+func TestLexerHexOctalBinaryIntLiterals(t *testing.T) {
+	for _, tc := range []struct {
+		src  string
+		want string
+	}{
+		{"0xFF", "0xFF"},
+		{"0Xab", "0Xab"},
+		{"0o17", "0o17"},
+		{"0O17", "0O17"},
+		{"0b1010", "0b1010"},
+		{"0B1010", "0B1010"},
+		{"007", "007"},
+	} {
+		toks, err := New(tc.src).Tokenize()
+		if err != nil {
+			t.Fatalf("%s: неожиданная ошибка: %v", tc.src, err)
+		}
+		if len(toks) < 1 || toks[0].Type != INT || toks[0].Value != tc.want {
+			t.Fatalf("%s: ожидался один INT-токен %q, получено: %v", tc.src, tc.want, toks)
+		}
+	}
+}
+
 func TestLexerCharLiteral(t *testing.T) {
 	toks, err := New(`'a' 'я' '\n' '\''`).Tokenize()
 	if err != nil {

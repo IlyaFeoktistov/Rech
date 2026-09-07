@@ -64,6 +64,16 @@ func ReadIntFormat(input string) string {
 	return fmt.Sprintf("прочитать_целое: \"%s\" не является целым числом", input)
 }
 
+// NumBaseParseFailedFormat - сообщение при "целое_из_hex"/"целое_из_oct"/
+// "целое_из_bin", если строка (без необязательного "0x"/"0o"/"0b"-префикса)
+// не состоит целиком из цифр своей системы счисления. op - имя конкретной
+// вызванной функции (сообщение начинается с него, тот же принцип, что и у
+// OpenFailedFormat/ReadIntFormat). Формат должен совпадать байт-в-байт с
+// cbackend (internal/backend/cbackend/numbase.go).
+func NumBaseParseFailedFormat(op, input string) string {
+	return fmt.Sprintf("%s: \"%s\" не является допустимым числом в этой системе счисления", op, input)
+}
+
 // ReadFloatFormat - то же самое для прочитать_число.
 func ReadFloatFormat(input string) string {
 	return fmt.Sprintf("прочитать_число: \"%s\" не является числом", input)

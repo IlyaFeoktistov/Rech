@@ -162,6 +162,9 @@ type builtinFlags struct {
 	// tls.go) - выставляется вместе с ними в диспетчеризации ниже, не
 	// самостоятельно.
 	usesGRPCS bool
+	// usesNumBase - нужны ли rech_int_to_hex/rech_int_from_hex и то же для
+	// oct/bin (numbase.go) - "целое_в_*"/"целое_из_*".
+	usesNumBase bool
 	// usesShutdownFlag - нужен ли rech_shutdown_requested (shutdown.go) -
 	// встроенная функция "запрошена_остановка" - регистрирует обработчик
 	// SIGINT/SIGTERM лениво, при первом использовании программой (см. её
@@ -434,6 +437,27 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 		flags.usesGRPCS = true
 		flags.usesPanic = true
 		return fmt.Sprintf("rech_grpcs_new_session(%s, %s)", args[0], args[1]), true
+	case "целое_в_hex":
+		flags.usesNumBase = true
+		return fmt.Sprintf("rech_int_to_hex(%s)", args[0]), true
+	case "целое_из_hex":
+		flags.usesNumBase = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_int_from_hex(%s)", args[0]), true
+	case "целое_в_oct":
+		flags.usesNumBase = true
+		return fmt.Sprintf("rech_int_to_oct(%s)", args[0]), true
+	case "целое_из_oct":
+		flags.usesNumBase = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_int_from_oct(%s)", args[0]), true
+	case "целое_в_bin":
+		flags.usesNumBase = true
+		return fmt.Sprintf("rech_int_to_bin(%s)", args[0]), true
+	case "целое_из_bin":
+		flags.usesNumBase = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_int_from_bin(%s)", args[0]), true
 	case "http2_принять_сессию":
 		flags.usesHTTP2 = true
 		flags.usesSockets = true

@@ -383,6 +383,30 @@ func (p *Parser) parseListLiteral() (ast.Expr, error) {
 	return &ast.ListLiteral{Elems: elems, Line: lb.Line}, nil
 }
 
+// parseIntTokenValue разбирает значение INT-токена - десятичное как раньше,
+// либо явно префиксованное "0x"/"0X" (16), "0o"/"0O" (8), "0b"/"0B" (2) -
+// префикс определяется явно по СИМВОЛАМ токена (не strconv.ParseInt с
+// base 0), чтобы НЕ менять поведение уже существующих десятичных литералов
+// с ведущим нулём ("007") - base 0 у strconv трактовал бы такие как
+// восьмеричные (классическое C-поведение), что было бы неожиданным для
+// уже написанного кода. Используется и здесь (обычные выражения), и в
+// decl.go (значение члена перечисления) - одна точка правды.
+func parseIntTokenValue(raw string) (int64, error) {
+	base := 10
+	digits := raw
+	if len(raw) > 2 && raw[0] == '0' {
+		switch raw[1] {
+		case 'x', 'X':
+			base, digits = 16, raw[2:]
+		case 'o', 'O':
+			base, digits = 8, raw[2:]
+		case 'b', 'B':
+			base, digits = 2, raw[2:]
+		}
+	}
+	return strconv.ParseInt(digits, base, 64)
+}
+
 func (p *Parser) parsePrimary() (ast.Expr, error) {
 	tok := p.cur()
 	switch tok.Type {
@@ -398,7 +422,7 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 		return &ast.CharLiteral{Value: r, Line: tok.Line}, nil
 	case lexer.INT:
 		p.advance()
-		v, err := strconv.ParseInt(tok.Value, 10, 64)
+		v, err := parseIntTokenValue(tok.Value)
 		if err != nil {
 			return nil, fmt.Errorf("строка %d, столбец %d: некорректный целочисленный литерал %q", tok.Line, tok.Col, tok.Value)
 		}

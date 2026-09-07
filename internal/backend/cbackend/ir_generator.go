@@ -1397,6 +1397,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// rech_date_to_string принимают/возвращают ДатаВремя по значению.
 	appendCodeIf(&sb, ctx.usesDateTime, datetimeHelpers)
 	appendCodeIf(&sb, ctx.usesColor, colorHelpers)
+	// numbase.go - "целое_в_*"/"целое_из_*" - не зависит от typedefs, только
+	// примитивы (Целое/Строка) - "из_*" зовёт rech_panic (panicHelper выше).
+	appendCodeIf(&sb, ctx.usesNumBase, numBaseToStringHelpers)
+	appendCodeIf(&sb, ctx.usesNumBase, numBaseFromStringHelpers())
 	// Не зависит от typedefs вообще (только примитивы) - здесь же просто
 	// для единообразия с остальными builtin-хелперами шага 8.
 	appendCodeIf(&sb, ctx.usesRandom, randomHelpers)

@@ -204,6 +204,18 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return listenGRPCS(args[0].I, args[1].S, args[2].S), true
 	case "новая_grpcs_сессия":
 		return in.grpcsNewSession(args[0].S, args[1].I), true
+	case "целое_в_hex":
+		return intToBaseString(args[0].I, "0x", 16), true
+	case "целое_из_hex":
+		return intFromBaseString("целое_из_hex", args[0].S, "0x", 16), true
+	case "целое_в_oct":
+		return intToBaseString(args[0].I, "0o", 8), true
+	case "целое_из_oct":
+		return intFromBaseString("целое_из_oct", args[0].S, "0o", 8), true
+	case "целое_в_bin":
+		return intToBaseString(args[0].I, "0b", 2), true
+	case "целое_из_bin":
+		return intFromBaseString("целое_из_bin", args[0].S, "0b", 2), true
 	case "получить_от":
 		return in.recvFrom(args[0], args[1].I), true
 	case "отправить_в":

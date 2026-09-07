@@ -2,7 +2,6 @@ package parser
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
@@ -165,7 +164,7 @@ func (p *Parser) parseEnumDecl() (*ast.EnumDecl, error) {
 			if err != nil {
 				return nil, fmt.Errorf("перечисление %q: член %q: после \"=\" ожидалось целое число: %w", name.Value, memberName.Value, err)
 			}
-			v, err := strconv.ParseInt(numTok.Value, 10, 64)
+			v, err := parseIntTokenValue(numTok.Value)
 			if err != nil {
 				return nil, fmt.Errorf("строка %d: перечисление %q: член %q: некорректное число %q", numTok.Line, name.Value, memberName.Value, numTok.Value)
 			}

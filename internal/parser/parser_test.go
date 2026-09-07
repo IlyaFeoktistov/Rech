@@ -708,6 +708,43 @@ func TestParseFieldAssign(t *testing.T) {
 	}
 }
 
+// TestParseHexOctalBinaryIntLiteralValues - значение (не только форма
+// токена, см. lexer_test.go) - "0xFF"/"0o17"/"0b1010" дают те же int64, что
+// написал бы человек десятичным способом; "007" (без префикса) остаётся
+// десятичным (7, не восьмеричным).
+func TestParseHexOctalBinaryIntLiteralValues(t *testing.T) {
+	for _, tc := range []struct {
+		src  string
+		want int64
+	}{
+		{"0xFF", 255},
+		{"0Xa", 10},
+		{"0o17", 15},
+		{"0b1010", 10},
+		{"007", 7},
+	} {
+		prog, err := parseSource(t, `
+функция главная {
+    переменная х = `+tc.src+`
+}
+`)
+		if err != nil {
+			t.Fatalf("%s: неожиданная ошибка: %v", tc.src, err)
+		}
+		decl, ok := prog.Functions[0].Body[0].(*ast.VarDecl)
+		if !ok {
+			t.Fatalf("%s: ожидался VarDecl, получено %T", tc.src, prog.Functions[0].Body[0])
+		}
+		lit, ok := decl.Value.(*ast.IntLiteral)
+		if !ok {
+			t.Fatalf("%s: ожидался IntLiteral, получено %T", tc.src, decl.Value)
+		}
+		if lit.Value != tc.want {
+			t.Fatalf("%s: ожидалось значение %d, получено %d", tc.src, tc.want, lit.Value)
+		}
+	}
+}
+
 func TestParseCompoundAssign(t *testing.T) {
 	prog, err := parseSource(t, `
 функция главная {
