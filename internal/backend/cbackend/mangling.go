@@ -149,6 +149,16 @@ func checkBlockManglingIn(scope map[string]string, body []ir.Stmt) error {
 			if err := checkBlockManglingIn(loopScope, s.Body); err != nil {
 				return err
 			}
+		case *ir.CStyleForStmt:
+			loopScope := map[string]string{}
+			if s.Init != nil {
+				if err := declareMangledVar(loopScope, s.Init.Name); err != nil {
+					return err
+				}
+			}
+			if err := checkBlockManglingIn(loopScope, s.Body); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

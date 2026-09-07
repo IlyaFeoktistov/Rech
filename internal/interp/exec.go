@@ -205,6 +205,11 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 			if c.kind == ctrlReturn {
 				return c, nil
 			}
+			if c.kind == ctrlBreak {
+				return ctrl{}, nil
+			}
+			// ctrlContinue/ctrlNone - следующая итерация, повторная
+			// проверка условия.
 		}
 
 	case *ir.ForStmt:
@@ -225,6 +230,9 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 			}
 			if c.kind == ctrlReturn {
 				return c, nil
+			}
+			if c.kind == ctrlBreak {
+				return ctrl{}, nil
 			}
 		}
 		return ctrl{}, nil
@@ -248,8 +256,55 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 			if c.kind == ctrlReturn {
 				return c, nil
 			}
+			if c.kind == ctrlBreak {
+				return ctrl{}, nil
+			}
 		}
 		return ctrl{}, nil
+
+	case *ir.CStyleForStmt:
+		loopEnv := newEnv(env)
+		if s.Init != nil {
+			v, err := in.evalExpr(s.Init.Value, loopEnv, cc)
+			if err != nil {
+				return ctrl{}, err
+			}
+			loopEnv.declare(s.Init.Name, in.cloneValue(v))
+		}
+		for {
+			if s.Cond != nil {
+				cond, err := in.evalExpr(s.Cond, loopEnv, cc)
+				if err != nil {
+					return ctrl{}, err
+				}
+				if !cond.B {
+					return ctrl{}, nil
+				}
+			}
+			c, err := in.execBlock(s.Body, newEnv(loopEnv), cc)
+			if err != nil {
+				return ctrl{}, err
+			}
+			if c.kind == ctrlReturn {
+				return c, nil
+			}
+			if c.kind == ctrlBreak {
+				return ctrl{}, nil
+			}
+			// ctrlContinue/ctrlNone - Post всё равно исполняется, ровно как
+			// в C, ПЕРЕД повторной проверкой условия.
+			if s.Post != nil {
+				if _, err := in.execStmt(s.Post, loopEnv, cc); err != nil {
+					return ctrl{}, err
+				}
+			}
+		}
+
+	case *ir.BreakStmt:
+		return ctrl{kind: ctrlBreak}, nil
+
+	case *ir.ContinueStmt:
+		return ctrl{kind: ctrlContinue}, nil
 
 	case *ir.ReturnStmt:
 		if s.Value == nil {
@@ -318,6 +373,9 @@ func (in *Interp) execForEachFileLine(f *os.File, s *ir.ForEachStmt, env *Env, c
 		}
 		if c.kind == ctrlReturn {
 			return c, nil
+		}
+		if c.kind == ctrlBreak {
+			return ctrl{}, nil
 		}
 		if readErr != nil {
 			return ctrl{}, nil

@@ -294,6 +294,38 @@ type irGenCtx struct {
 	chainTmpCounter  int
 	chainTmpPreamble []string
 	curIndent        string
+
+	// loopStack - один кадр на каждый ОХВАТЫВАЮЩИЙ в точке генерации цикл
+	// (WhileStmt/ForStmt/ForEachStmt/CStyleForStmt) - читается только
+	// ir.BreakStmt/ir.ContinueStmt (emitLoopJump, break_continue.go).
+	// cleanupBase - len(cleanupStack) В МОМЕНТ входа в тело ЭТОГО цикла:
+	// "прервать"/"продолжить" обязаны прогнать (restoreCatchTop/
+	// "окончательно") только действия, добавленные ВНУТРИ цикла (вложенным
+	// "попытаться" МЕЖДУ началом цикла и самой инструкцией) - НЕ действия
+	// внешних "попытаться", охватывающих цикл СНАРУЖИ (тот кадр перехвата
+	// остаётся активным - цикл прерывается, "попытаться" вокруг него ещё
+	// не закончилось). continueTarget - "" у While/For/ForEach (Post
+	// встроен прямо в C `while`/`for` заголовок - raw C `continue`
+	// корректен сам по себе), непустая метка у CStyleForStmt (Post -
+	// произвольная Rech-инструкция, НЕ помещается в заголовок C `for` как
+	// выражение - "продолжить" обязан сначала исполнить её, что raw C
+	// `continue` там сделать не может, см. package doc generateIRCStyleFor
+	// в break_continue.go). Сохраняется/восстанавливается вокруг тела
+	// лямбды тем же принципом, что и cleanupStack/capturedRedirect выше -
+	// "прервать"/"продолжить" внутри лямбды не могут видеть цикл, в
+	// котором эта лямбда лексически объявлена (её тело - СОБСТВЕННАЯ
+	// C-функция).
+	loopStack []loopFrame
+	// forLabelCounter - счётчик уникальных меток "continue" у CStyleForStmt
+	// (rech_for_continue_N) - как tryCounter у попытаться, растёт на
+	// каждый узел, никогда не переиспользуется в пределах одной программы.
+	forLabelCounter int
+}
+
+// loopFrame - см. package doc irGenCtx.loopStack.
+type loopFrame struct {
+	cleanupBase    int
+	continueTarget string
 }
 
 // materializeIfNeeded - получатель вызова метода/присваивания полю не
@@ -2149,13 +2181,25 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 			return err
 		}
 		fmt.Fprintf(sb, "%swhile (%s) {\n", ind, cond)
+		ctx.pushLoop("")
 		for _, st := range s.Body {
 			if err := generateIRStmt(sb, ctx, st, depth+1); err != nil {
+				ctx.popLoop()
 				return err
 			}
 		}
+		ctx.popLoop()
 		fmt.Fprintf(sb, "%s}\n", ind)
 		return nil
+
+	case *ir.BreakStmt:
+		return generateIRBreakStmt(sb, ctx, depth)
+
+	case *ir.ContinueStmt:
+		return generateIRContinueStmt(sb, ctx, depth)
+
+	case *ir.CStyleForStmt:
+		return generateIRCStyleFor(sb, ctx, s, depth)
 
 	case *ir.ReturnStmt:
 		if s.Value == nil {
@@ -2310,11 +2354,14 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 		}
 		varC := mangleVar(s.Var)
 		fmt.Fprintf(sb, "%sfor (long long %s = %s; %s <= %s; %s++) {\n", ind, varC, fromCode, varC, toCode, varC)
+		ctx.pushLoop("")
 		for _, st := range s.Body {
 			if err := generateIRStmt(sb, ctx, st, depth+1); err != nil {
+				ctx.popLoop()
 				return err
 			}
 		}
+		ctx.popLoop()
 		fmt.Fprintf(sb, "%s}\n", ind)
 		return nil
 
@@ -2342,11 +2389,14 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 			fmt.Fprintf(sb, "%sbool %s = false;\n", indent(depth+1), okC)
 			fmt.Fprintf(sb, "%sconst char *%s = rech_read_line_from_file(%s, &%s);\n", indent(depth+1), varC, collCode, okC)
 			fmt.Fprintf(sb, "%sif (!%s) { break; }\n", indent(depth+1), okC)
+			ctx.pushLoop("")
 			for _, st := range s.Body {
 				if err := generateIRStmt(sb, ctx, st, depth+1); err != nil {
+					ctx.popLoop()
 					return err
 				}
 			}
+			ctx.popLoop()
 			fmt.Fprintf(sb, "%s}\n", ind)
 			return nil
 		}
@@ -2354,11 +2404,14 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 		idxC := "rech_fe_i_" + varC
 		fmt.Fprintf(sb, "%sfor (long long %s = 0; %s < %s->len; %s++) {\n", ind, idxC, idxC, collCode, idxC)
 		fmt.Fprintf(sb, "%s%s %s = %s->data[%s];\n", indent(depth+1), fromIRType(s.ElemType).cType(ctx), varC, collCode, idxC)
+		ctx.pushLoop("")
 		for _, st := range s.Body {
 			if err := generateIRStmt(sb, ctx, st, depth+1); err != nil {
+				ctx.popLoop()
 				return err
 			}
 		}
+		ctx.popLoop()
 		fmt.Fprintf(sb, "%s}\n", ind)
 		return nil
 

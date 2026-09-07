@@ -83,6 +83,12 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 		return p.parseWhileStmt()
 	case lexer.KwFor:
 		return p.parseForStmt()
+	case lexer.KwBreak:
+		tok := p.advance()
+		return &ast.BreakStmt{Line: tok.Line}, nil
+	case lexer.KwContinue:
+		tok := p.advance()
+		return &ast.ContinueStmt{Line: tok.Line}, nil
 	case lexer.KwReturn:
 		return p.parseReturnStmt()
 	case lexer.KwParent:
@@ -592,39 +598,130 @@ func (p *Parser) parseWhileStmt() (ast.Stmt, error) {
 	return &ast.WhileStmt{Cond: cond, Body: body, Line: kw.Line}, nil
 }
 
+// parseForStmt разбирает одну из трёх форм "для" - различаются по тому, что
+// следует за именем переменной цикла: "в" (parseForEachStmt), "от"
+// (диапазон, ниже) или что угодно ещё (общий C-подобный цикл,
+// parseCStyleForStmt) - определяется заглядыванием на 2 токена вперёд
+// (IDENT + "в"/"от"), НЕ потребляя имя заранее, иначе для C-подобной формы
+// пришлось бы возвращать уже считанный токен имени назад.
 func (p *Parser) parseForStmt() (ast.Stmt, error) {
 	kw, err := p.expect(lexer.KwFor)
 	if err != nil {
 		return nil, err
 	}
-	name, err := p.expect(lexer.IDENT)
-	if err != nil {
-		return nil, fmt.Errorf("после \"для\" ожидалось имя переменной цикла: %w", err)
+	if p.cur().Type == lexer.IDENT && (p.peekAt(1).Type == lexer.KwIn || p.peekAt(1).Type == lexer.KwFrom) {
+		name := p.advance()
+		if p.cur().Type == lexer.KwIn {
+			return p.parseForEachStmt(kw, name)
+		}
+		p.advance() // "от"
+		from, err := p.parseExpr()
+		if err != nil {
+			return nil, fmt.Errorf("после \"от\" ожидалось выражение: %w", err)
+		}
+		if _, err := p.expect(lexer.KwTo); err != nil {
+			return nil, fmt.Errorf("после начала диапазона ожидалось \"до\": %w", err)
+		}
+		to, err := p.parseExpr()
+		if err != nil {
+			return nil, fmt.Errorf("после \"до\" ожидалось выражение: %w", err)
+		}
+		p.registerNoun(name.Value)
+		p.skipNewlines()
+		body, err := p.parseBlock()
+		if err != nil {
+			return nil, err
+		}
+		return &ast.ForStmt{Var: name.Value, From: from, To: to, Body: body, Line: kw.Line}, nil
 	}
-	if p.cur().Type == lexer.KwIn {
-		return p.parseForEachStmt(kw, name)
+	return p.parseCStyleForStmt(kw)
+}
+
+// parseCStyleForStmt разбирает общий цикл (ни диапазон "от...до", ни
+// переход "в" по коллекции - см. parseForStmt):
+//
+//	для <init>; <условие>; <шаг> { <тело> }
+//
+// Без скобок вокруг трёх секций (в Rech нигде больше нет "(...)" вокруг
+// условия - "если x {", "пока x {") - ";" здесь ровно тот же разделитель
+// инструкций, что уже существует в языке (docs/SPEC.md), не новая
+// пунктуация. Все три секции необязательны, независимо друг от друга, тем
+// же принципом, что и в C - "для ;; { ... }" (все три пустые) бесконечен
+// (см. package doc ast.CStyleForStmt). Позиция парсера на входе - сразу
+// после "для" (kw уже разобран).
+func (p *Parser) parseCStyleForStmt(kw lexer.Token) (ast.Stmt, error) {
+	var init *ast.VarDecl
+	if p.cur().Type != lexer.SEMICOLON {
+		var err error
+		init, err = p.parseForInitStmt()
+		if err != nil {
+			return nil, err
+		}
 	}
-	if _, err := p.expect(lexer.KwFrom); err != nil {
-		return nil, fmt.Errorf("после имени переменной цикла ожидалось \"от\": %w", err)
+	if _, err := p.expect(lexer.SEMICOLON); err != nil {
+		return nil, fmt.Errorf("после инициализации цикла \"для\" ожидалось \";\": %w", err)
 	}
-	from, err := p.parseExpr()
-	if err != nil {
-		return nil, fmt.Errorf("после \"от\" ожидалось выражение: %w", err)
+	var cond ast.Expr
+	if p.cur().Type != lexer.SEMICOLON {
+		var err error
+		cond, err = p.parseExpr()
+		if err != nil {
+			return nil, fmt.Errorf("после \";\" ожидалось условие цикла \"для\": %w", err)
+		}
 	}
-	if _, err := p.expect(lexer.KwTo); err != nil {
-		return nil, fmt.Errorf("после начала диапазона ожидалось \"до\": %w", err)
+	if _, err := p.expect(lexer.SEMICOLON); err != nil {
+		return nil, fmt.Errorf("после условия цикла \"для\" ожидалось \";\": %w", err)
 	}
-	to, err := p.parseExpr()
-	if err != nil {
-		return nil, fmt.Errorf("после \"до\" ожидалось выражение: %w", err)
+	var post ast.Stmt
+	if p.cur().Type != lexer.LBRACE {
+		var err error
+		post, err = p.parseStatement()
+		if err != nil {
+			return nil, fmt.Errorf("после \";\" ожидалась инструкция шага цикла \"для\": %w", err)
+		}
 	}
-	p.registerNoun(name.Value)
+	if init != nil {
+		p.registerNoun(init.Name)
+	}
 	p.skipNewlines()
 	body, err := p.parseBlock()
 	if err != nil {
 		return nil, err
 	}
-	return &ast.ForStmt{Var: name.Value, From: from, To: to, Body: body, Line: kw.Line}, nil
+	return &ast.CStyleForStmt{Init: init, Cond: cond, Post: post, Body: body, Line: kw.Line}, nil
+}
+
+// parseForInitStmt разбирает секцию инициализации общего "для" (см.
+// parseCStyleForStmt) - "переменная <имя> = <выражение>" через уже
+// существующий parseVarDecl, либо голое "<имя> = <выражение>", построенное
+// вручную как *ast.VarDecl (не *ast.Assign) - переменная цикла ВСЕГДА
+// объявляется заново в области видимости цикла, тем же принципом, что и
+// ForStmt.Var/ForEachStmt.Var, которым тоже не нужно слово "переменная".
+func (p *Parser) parseForInitStmt() (*ast.VarDecl, error) {
+	if p.cur().Type == lexer.KwVariable {
+		decl, err := p.parseVarDecl()
+		if err != nil {
+			return nil, err
+		}
+		vd, ok := decl.(*ast.VarDecl)
+		if !ok {
+			return nil, fmt.Errorf("строка %d: инициализация цикла \"для\" должна содержать значение (\"=\")", p.cur().Line)
+		}
+		return vd, nil
+	}
+	name, err := p.expect(lexer.IDENT)
+	if err != nil {
+		return nil, fmt.Errorf("после \"для\" ожидалась инициализация переменной цикла: %w", err)
+	}
+	if _, err := p.expect(lexer.ASSIGN); err != nil {
+		return nil, fmt.Errorf("после имени переменной цикла ожидалось \"=\": %w", err)
+	}
+	value, err := p.parseExpr()
+	if err != nil {
+		return nil, fmt.Errorf("после \"=\" ожидалось начальное значение переменной цикла: %w", err)
+	}
+	p.registerNoun(name.Value)
+	return &ast.VarDecl{Name: name.Value, Value: value, Line: name.Line}, nil
 }
 
 // parseForEachStmt разбирает цикл по коллекции (шаг 4.2.b):

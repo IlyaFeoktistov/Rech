@@ -181,6 +181,14 @@ func ensureLambdaFunc(ctx *irGenCtx, e *ir.LambdaExpr) error {
 	// видеть кадры попытаться, охватывающего саму лямбду СНАРУЖИ.
 	prevCleanupStack := ctx.cleanupStack
 	ctx.cleanupStack = nil
+	// prevLoopStack - тем же принципом, что и prevCleanupStack выше:
+	// "прервать"/"продолжить" внутри тела лямбды не могут видеть цикл,
+	// лексически охватывающий саму лямбду СНАРУЖИ (семантический анализ,
+	// ctx.loopDepth, уже отверг бы их, если бы лямбда не заводила
+	// СОБСТВЕННУЮ ЧИСТУЮ область - newLambdaCtx строит свежий *ctx без
+	// loopDepth родителя, см. internal/semantic/ctx.go).
+	prevLoopStack := ctx.loopStack
+	ctx.loopStack = nil
 	var bodyErr error
 	for _, s := range e.Body {
 		if err := generateIRStmt(&sb, ctx, s, 1); err != nil {
@@ -190,6 +198,7 @@ func ensureLambdaFunc(ctx *irGenCtx, e *ir.LambdaExpr) error {
 	}
 	ctx.capturedRedirect = prevRedirect
 	ctx.cleanupStack = prevCleanupStack
+	ctx.loopStack = prevLoopStack
 	if bodyErr != nil {
 		return fmt.Errorf("лямбда: %w", bodyErr)
 	}

@@ -146,6 +146,11 @@ func collectVarDeclLines(stmts []ir.Stmt, maxLine int, out map[string]int) {
 				out[s.Var] = s.Line
 			}
 			collectVarDeclLines(s.Body, maxLine, out)
+		case *ir.CStyleForStmt:
+			if s.Init != nil && s.Line <= maxLine {
+				out[s.Init.Name] = s.Line
+			}
+			collectVarDeclLines(s.Body, maxLine, out)
 		case *ir.TryStmt:
 			collectVarDeclLines(s.Body, maxLine, out)
 			collectVarDeclLines(s.CatchBody, maxLine, out)

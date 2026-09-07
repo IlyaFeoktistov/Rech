@@ -45,6 +45,12 @@ func LineOf(s Stmt) int {
 		return s.Line
 	case *ForEachStmt:
 		return s.Line
+	case *CStyleForStmt:
+		return s.Line
+	case *BreakStmt:
+		return s.Line
+	case *ContinueStmt:
+		return s.Line
 	case *ReturnStmt:
 		return s.Line
 	case *ExprStmt:
@@ -222,6 +228,40 @@ type ForEachStmt struct {
 }
 
 func (*ForEachStmt) stmt() {}
+
+// CStyleForStmt соответствует общему циклу "для <init>; <условие>; <шаг>
+// { <тело> }" - обобщение ForStmt для произвольного шага/направления. Init -
+// переменная цикла, объявленная заново в его собственной области видимости
+// (тем же принципом, что и ForStmt.Var/ForEachStmt.Var); Post - инструкция,
+// исполняемая после Body на каждой итерации, перед повторной проверкой
+// Cond, ровно как в C. Init/Cond/Post - каждый независимо может быть nil
+// (пустая секция, как в C) - Cond == nil равносильно "истина" (бесконечный
+// цикл, "для ;; { ... }").
+type CStyleForStmt struct {
+	Init *VarDecl
+	Cond Expr
+	Post Stmt
+	Body []Stmt
+	Line int
+}
+
+func (*CStyleForStmt) stmt() {}
+
+// BreakStmt соответствует "прервать" - немедленный выход из ближайшего
+// охватывающего цикла.
+type BreakStmt struct {
+	Line int
+}
+
+func (*BreakStmt) stmt() {}
+
+// ContinueStmt соответствует "продолжить" - переход к следующей итерации
+// ближайшего охватывающего цикла (у CStyleForStmt - через Post).
+type ContinueStmt struct {
+	Line int
+}
+
+func (*ContinueStmt) stmt() {}
 
 // ReturnStmt соответствует "вернуть [<выражение>]" - Value == nil у функции
 // без объявленного типа результата; у функции с объявленным типом

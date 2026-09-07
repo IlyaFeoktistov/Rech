@@ -164,6 +164,30 @@ func substStmt(s ast.Stmt, subst map[string]string) ast.Stmt {
 		return &ast.ForStmt{Var: s.Var, From: substExpr(s.From, subst), To: substExpr(s.To, subst), Body: substStmts(s.Body, subst), Line: s.Line}
 	case *ast.ForEachStmt:
 		return &ast.ForEachStmt{Var: s.Var, Collection: substExpr(s.Collection, subst), Body: substStmts(s.Body, subst), Line: s.Line}
+	case *ast.CStyleForStmt:
+		// s.Init - *ast.VarDecl (не ast.Stmt) - nil здесь ("для ;; {...}"
+		// без инициализации, package doc ast.CStyleForStmt) нужно проверить
+		// ЯВНО перед substStmt: обёрнутый в интерфейс nil-указатель уже НЕ
+		// равен nil-интерфейсу, попадает в case *ast.VarDecl и падает на
+		// обращении к полю (типичная ловушка Go) - в отличие от Cond/Post
+		// (уже интерфейсы ast.Expr/ast.Stmt - нетронутый nil у них проходит
+		// через substExpr/substStmt безопасно, default отдаёт "как есть").
+		var init *ast.VarDecl
+		if s.Init != nil {
+			init = substStmt(s.Init, subst).(*ast.VarDecl)
+		}
+		return &ast.CStyleForStmt{
+			Init: init,
+			Cond: substExpr(s.Cond, subst),
+			Post: substStmt(s.Post, subst),
+			Body: substStmts(s.Body, subst),
+			Line: s.Line,
+		}
+	case *ast.BreakStmt, *ast.ContinueStmt:
+		// Ни выражений, ни вложенных инструкций - подставлять нечего, "s"
+		// без изменений (та же экономия, что и default ниже, просто явно
+		// названная - иначе выглядело бы забытым случаем).
+		return s
 	case *ast.ReturnStmt:
 		if s.Value == nil {
 			return &ast.ReturnStmt{Line: s.Line}
@@ -576,6 +600,24 @@ func (inst *instantiator) scanStmt(s ast.Stmt) error {
 			return err
 		}
 		return inst.scanStmts(s.Body)
+	case *ast.CStyleForStmt:
+		// s.Init - см. комментарий у одноимённого case в substStmt выше
+		// (тот же nil-указатель-в-интерфейсе): обязательная явная проверка
+		// ДО scanStmt.
+		if s.Init != nil {
+			if err := inst.scanStmt(s.Init); err != nil {
+				return err
+			}
+		}
+		if err := inst.scanExpr(s.Cond); err != nil {
+			return err
+		}
+		if err := inst.scanStmt(s.Post); err != nil {
+			return err
+		}
+		return inst.scanStmts(s.Body)
+	case *ast.BreakStmt, *ast.ContinueStmt:
+		return nil
 	case *ast.ReturnStmt:
 		if s.Value == nil {
 			return nil

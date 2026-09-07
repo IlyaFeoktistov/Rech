@@ -63,6 +63,8 @@ func stmtExprRoots(s ir.Stmt) []ir.Expr {
 		return []ir.Expr{s.Cond}
 	case *ir.WhileStmt:
 		return []ir.Expr{s.Cond}
+	case *ir.CStyleForStmt:
+		return []ir.Expr{s.Cond}
 	case *ir.ExprStmt:
 		switch {
 		case s.Call != nil:
@@ -92,6 +94,8 @@ func stmtChildBodies(s ir.Stmt) [][]ir.Stmt {
 	case *ir.ForStmt:
 		return [][]ir.Stmt{s.Body}
 	case *ir.ForEachStmt:
+		return [][]ir.Stmt{s.Body}
+	case *ir.CStyleForStmt:
 		return [][]ir.Stmt{s.Body}
 	case *ir.TryStmt:
 		return [][]ir.Stmt{s.Body, s.CatchBody}

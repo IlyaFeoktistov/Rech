@@ -122,6 +122,8 @@ const (
 	KwAbstract    // абстрактный / абстрактная / абстрактное / абстрактные (перед "сущность"/"класс")
 	KwSwitch      // выбрать (множественный выбор по значению/типу - "выбрать <выражение> { когда ... иначе ... }")
 	KwWhen        // когда (ветка внутри "выбрать")
+	KwBreak       // прервать (немедленный выход из ближайшего охватывающего цикла)
+	KwContinue    // продолжить (пропустить остаток текущей итерации ближайшего охватывающего цикла)
 
 	QUESTION         // ? (префикс nullable-типа: "?Тип")
 	QUESTIONQUESTION // ?? (значение слева, если оно не Ничто, иначе - справа)
@@ -227,6 +229,8 @@ var keywords = map[string]TokenType{
 	"абстрактные":    KwAbstract,
 	"выбрать":        KwSwitch,
 	"когда":          KwWhen,
+	"прервать":       KwBreak,
+	"продолжить":     KwContinue,
 }
 
 // KeywordTokenTypes - различные TokenType из keywords, без повторов (у
@@ -477,6 +481,10 @@ func (t TokenType) String() string {
 		return "выбрать"
 	case KwWhen:
 		return "когда"
+	case KwBreak:
+		return "прервать"
+	case KwContinue:
+		return "продолжить"
 	default:
 		return "UNKNOWN"
 	}

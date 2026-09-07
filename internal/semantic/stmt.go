@@ -106,13 +106,16 @@ func analyzeBlock(sc *ctx, stmts []ast.Stmt) ([]ir.Stmt, error) {
 func analyzeLoopBody(sc *ctx, declareVar string, declareType ir.Type, body []ast.Stmt, line int) ([]ir.Stmt, error) {
 	preLoop := snapshotEstablished(sc.established)
 	sc.push()
+	sc.loopDepth++
 	if declareVar != "" {
 		if err := sc.declare(declareVar, declareType); err != nil {
+			sc.loopDepth--
 			sc.pop()
 			return nil, fmt.Errorf("строка %d: %w", line, err)
 		}
 	}
 	analyzed, err := analyzeBlock(sc, body)
+	sc.loopDepth--
 	sc.pop()
 	if err != nil {
 		return nil, err
@@ -405,6 +408,80 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			return nil, err
 		}
 		return &ir.ForEachStmt{Var: s.Var, Collection: collection, ElemType: sig.ElemType, Body: body, Line: s.Line}, nil
+
+	case *ast.CStyleForStmt:
+		// Своя область видимости (не analyzeLoopBody - переменной цикла
+		// здесь ЗАРАНЕЕ не известен тип, в отличие от ForStmt/ForEachStmt:
+		// его выводит analyzeStmt на самом Init, тем же путём, что и у
+		// обычного VarDecl) - охватывает Init/Cond/Post/Body целиком, ровно
+		// как в C ("для" вводит собственную область видимости, docs/
+		// SPEC.md). Init/Cond/Post независимо могут отсутствовать (nil) -
+		// "для ;; { ... }" бесконечен (package doc ast.CStyleForStmt) -
+		// каждая секция анализируется, только если она есть.
+		preLoop := snapshotEstablished(sc.established)
+		sc.push()
+		sc.loopDepth++
+		var init *ir.VarDecl
+		if s.Init != nil {
+			initIR, err := analyzeStmt(sc, s.Init)
+			if err != nil {
+				sc.loopDepth--
+				sc.pop()
+				return nil, err
+			}
+			var ok bool
+			init, ok = initIR.(*ir.VarDecl)
+			if !ok {
+				sc.loopDepth--
+				sc.pop()
+				return nil, fmt.Errorf("строка %d: инициализация цикла \"для\" должна объявлять переменную", s.Line)
+			}
+		}
+		var cond ir.Expr
+		if s.Cond != nil {
+			var err error
+			cond, err = analyzeExpr(sc, s.Cond)
+			if err != nil {
+				sc.loopDepth--
+				sc.pop()
+				return nil, err
+			}
+			if typ := ir.TypeOf(cond); typ != ir.TypeBool {
+				sc.loopDepth--
+				sc.pop()
+				return nil, fmt.Errorf("строка %d: условие цикла \"для\" должно быть логическим, получено %s", s.Line, typ)
+			}
+		}
+		var post ir.Stmt
+		if s.Post != nil {
+			var err error
+			post, err = analyzeStmt(sc, s.Post)
+			if err != nil {
+				sc.loopDepth--
+				sc.pop()
+				return nil, err
+			}
+		}
+		body, err := analyzeBlock(sc, s.Body)
+		sc.loopDepth--
+		sc.pop()
+		if err != nil {
+			return nil, err
+		}
+		sc.established = preLoop
+		return &ir.CStyleForStmt{Init: init, Cond: cond, Post: post, Body: body, Line: s.Line}, nil
+
+	case *ast.BreakStmt:
+		if sc.loopDepth == 0 {
+			return nil, fmt.Errorf("строка %d: \"прервать\" допустимо только внутри цикла", s.Line)
+		}
+		return &ir.BreakStmt{Line: s.Line}, nil
+
+	case *ast.ContinueStmt:
+		if sc.loopDepth == 0 {
+			return nil, fmt.Errorf("строка %d: \"продолжить\" допустимо только внутри цикла", s.Line)
+		}
+		return &ir.ContinueStmt{Line: s.Line}, nil
 
 	case *ast.ReturnStmt:
 		if s.Value == nil {

@@ -455,6 +455,33 @@ func (r *rewriter) rewriteStmt(s ast.Stmt) error {
 			return err
 		}
 		return r.rewriteStmts(s.Body)
+	case *ast.CStyleForStmt:
+		// Init/Cond/Post независимо могут быть nil ("для ;; { ... }",
+		// package doc ast.CStyleForStmt) - rewriteStmt/rewriteExpr здесь
+		// НЕ nil-безопасны сами по себе (их default - настоящая ошибка
+		// "неизвестная инструкция/выражение", единственная защита от
+		// пропущенного case, см. *ast.ParentCallStmt выше) - каждая секция
+		// пропускается явно, если её нет. Init, когда есть, уже
+		// *ast.VarDecl - тот же case выше (addLocal + rewriteExpr(Value)) -
+		// не дублируется вручную.
+		if s.Init != nil {
+			if err := r.rewriteStmt(s.Init); err != nil {
+				return err
+			}
+		}
+		if s.Cond != nil {
+			if err := r.rewriteExpr(s.Cond); err != nil {
+				return err
+			}
+		}
+		if s.Post != nil {
+			if err := r.rewriteStmt(s.Post); err != nil {
+				return err
+			}
+		}
+		return r.rewriteStmts(s.Body)
+	case *ast.BreakStmt, *ast.ContinueStmt:
+		return nil
 	case *ast.ReturnStmt:
 		if s.Value == nil {
 			return nil

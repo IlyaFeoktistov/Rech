@@ -24,7 +24,6 @@ package cbackend
 
 import (
 	"fmt"
-	"slices"
 	"sort"
 	"strings"
 
@@ -133,12 +132,23 @@ func pushFrameRestoreCleanup(ctx *irGenCtx, frameVar string) func() {
 	}
 }
 
-// emitCleanupUnwind прогоняет ctx.cleanupStack в ОБРАТНОМ порядке (LIFO -
-// самый внутренний "попытаться" первым) - единственная точка, которая
-// вообще читает cleanupStack (generateIRReturnStmt, ir_generator.go).
+// emitCleanupUnwind прогоняет ЦЕЛИКОМ ctx.cleanupStack в ОБРАТНОМ порядке
+// (LIFO - самый внутренний "попытаться" первым) - "вернуть" (generateIRReturnStmt,
+// ir_generator.go) выходит из ФУНКЦИИ целиком, поэтому обязан размотать ВСЕ
+// охватывающие кадры "попытаться", без исключений.
 func emitCleanupUnwind(sb *strings.Builder, ctx *irGenCtx, depth int) error {
-	for _, action := range slices.Backward(ctx.cleanupStack) {
-		if err := action(sb, ctx, depth); err != nil {
+	return emitCleanupUnwindFrom(sb, ctx, depth, 0)
+}
+
+// emitCleanupUnwindFrom - как emitCleanupUnwind, но прогоняет только
+// действия с индексом >= base (не весь стек) - "прервать"/"продолжить"
+// (break_continue.go, emitLoopJump) выходят только из ОДНОГО охватывающего
+// цикла, а не из функции целиком: действия, добавленные "попытаться" ВНЕ
+// этого цикла (индекс < base - кадр перехвата ещё активен, цикл прерывается,
+// но "попытаться" вокруг него - нет), не должны разматываться вовсе.
+func emitCleanupUnwindFrom(sb *strings.Builder, ctx *irGenCtx, depth int, base int) error {
+	for i := len(ctx.cleanupStack) - 1; i >= base; i-- {
+		if err := ctx.cleanupStack[i](sb, ctx, depth); err != nil {
 			return err
 		}
 	}

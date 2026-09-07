@@ -346,6 +346,11 @@ func collectVarDecls(stmts []ir.Stmt, maxLine int, out map[string]ir.Type) {
 		case *ir.ForEachStmt:
 			out[s.Var] = s.ElemType
 			collectVarDecls(s.Body, maxLine, out)
+		case *ir.CStyleForStmt:
+			if s.Init != nil {
+				out[s.Init.Name] = ir.TypeOf(s.Init.Value)
+			}
+			collectVarDecls(s.Body, maxLine, out)
 		case *ir.TryStmt:
 			collectVarDecls(s.Body, maxLine, out)
 			out[s.CatchVar] = s.CatchVarType

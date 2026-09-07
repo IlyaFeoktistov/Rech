@@ -209,6 +209,8 @@ func collectGerundStmtLines(stmts []ast.Stmt) []int {
 				walk(st.Body)
 			case *ast.ForEachStmt:
 				walk(st.Body)
+			case *ast.CStyleForStmt:
+				walk(st.Body)
 			case *ast.TryStmt:
 				walk(st.Body)
 				walk(st.CatchBody)

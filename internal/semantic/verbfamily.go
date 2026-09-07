@@ -72,6 +72,8 @@ func collectBecomeStates(body []ast.Stmt, states map[string]string, out map[stri
 			collectBecomeStates(s.Body, states, out)
 		case *ast.ForEachStmt:
 			collectBecomeStates(s.Body, states, out)
+		case *ast.CStyleForStmt:
+			collectBecomeStates(s.Body, states, out)
 		case *ast.TryStmt:
 			collectBecomeStates(s.Body, states, out)
 			collectBecomeStates(s.CatchBody, states, out)

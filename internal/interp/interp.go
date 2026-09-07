@@ -764,6 +764,8 @@ type ctrlKind int
 const (
 	ctrlNone ctrlKind = iota
 	ctrlReturn
+	ctrlBreak
+	ctrlContinue
 )
 
 type ctrl struct {
@@ -771,17 +773,20 @@ type ctrl struct {
 	value Value
 }
 
-// execBlock исполняет stmts по порядку; при встрече "вернуть" останавливает
-// выполнение и возвращает ctrlReturn, чтобы вызывающие (если/пока/для, а
-// затем сам вызов функции/метода) прервали исполнение немедленно, а не
-// только текущую итерацию/блок.
+// execBlock исполняет stmts по порядку; при встрече "вернуть"/"прервать"/
+// "продолжить" останавливает выполнение этого блока и пробрасывает
+// полученный ctrl ВВЕРХ немедленно (а не только текущий блок) - вызывающий
+// код на каждом уровне (если/попытаться/... - execStmt) сам решает,
+// пробросить ли ctrl ещё выше или (только цикл - WhileStmt/ForStmt/
+// ForEachStmt/CStyleForStmt в exec.go) перехватить ctrlBreak/ctrlContinue
+// как собственно предназначенные ему.
 func (in *Interp) execBlock(stmts []ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 	for _, s := range stmts {
 		c, err := in.execStmt(s, env, cc)
 		if err != nil {
 			return ctrl{}, err
 		}
-		if c.kind == ctrlReturn {
+		if c.kind != ctrlNone {
 			return c, nil
 		}
 	}

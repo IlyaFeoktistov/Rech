@@ -163,7 +163,11 @@ func (in *Interp) execTryWithFinally(s *ir.TryStmt, env *Env, cc *callCtx) (c ct
 			err = ferr
 			return
 		}
-		if fc.kind == ctrlReturn {
+		if fc.kind != ctrlNone {
+			// Любой control-flow внутри самого "окончательно" (не только
+			// "вернуть", см. package doc выше - "прервать"/"продолжить",
+			// если попытаться{...} лежит внутри цикла) переопределяет
+			// исход попытки/поймать тем же принципом.
 			c = fc
 			err = nil
 		}
