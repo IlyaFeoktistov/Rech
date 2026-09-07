@@ -1325,6 +1325,13 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	if ctx.usesHTTP2 {
 		sb.WriteString(http2SessionOpsCode())
 	}
+	// grpcSessionOpsCode - ПОСЛЕ http2SessionOpsCode выше (зовёт rech_http2_*
+	// по имени, см. package doc grpc.go) И после nullablesCode/
+	// nullablesAfterTypedefs (обе группы уже эмитированы раньше по коду
+	// функции - см. их точки выше; "?Список<Байт>"_wrap/_empty оттуда).
+	if ctx.usesGRPC {
+		sb.WriteString(grpcSessionOpsCode())
+	}
 	// После bytesWrapHelper выше - rech_bytes_from_string зовёт
 	// rech_bytes_wrap напрямую.
 	appendCodeIf(&sb, ctx.usesByteStringConv, byteStringConvHelpers())

@@ -343,6 +343,13 @@ var ReservedFuncNames = map[string]bool{
 	"http2_отправить_данные":        true,
 	"http2_отправить_трейлер":       true,
 	"http2_завершить_поток":         true,
+	"grpc_открыть_поток":            true,
+	"grpc_начать_ответ":             true,
+	"grpc_прочитать_сообщение":      true,
+	"grpc_отправить_сообщение":      true,
+	"grpc_завершить":                true,
+	"grpc_статус":                   true,
+	"grpc_сообщение_ошибки":         true,
 }
 
 // ReservedEntityNames - зарезервированные имена сущностей (Запрос/Ответ,

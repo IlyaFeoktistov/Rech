@@ -39,6 +39,7 @@ const protobufFormat = "PROTOBUF"
 // Source обязан быть "Список<Байт>" (не "Строка", см. package doc), целевой
 // Тип - совместим с protobufCompatible.
 func analyzeProtobufParseExpr(sc *ctx, e *ast.ParseExpr, source ir.Expr) (ir.Expr, error) {
+	source = maybeUnwrapNarrowed(sc, source)
 	if err := requireByteListType(ir.TypeOf(source), e.Line, "разобрать PROTOBUF"); err != nil {
 		return nil, err
 	}

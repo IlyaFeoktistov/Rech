@@ -358,6 +358,23 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 	case "http2_завершить_поток":
 		in.http2FinishStream(args[0])
 		return Value{}, true
+	case "grpc_открыть_поток":
+		return in.grpcOpenStream(args[0], args[1].S), true
+	case "grpc_начать_ответ":
+		in.grpcSendHeaders(args[0])
+		return Value{}, true
+	case "grpc_прочитать_сообщение":
+		return in.grpcReadMessage(args[0]), true
+	case "grpc_отправить_сообщение":
+		in.grpcSendMessage(args[0], bytesFromValue(args[1]))
+		return Value{}, true
+	case "grpc_завершить":
+		in.grpcFinish(args[0], args[1].I, args[2].S)
+		return Value{}, true
+	case "grpc_статус":
+		return in.grpcStatus(args[0]), true
+	case "grpc_сообщение_ошибки":
+		return in.grpcErrorMessage(args[0]), true
 	default:
 		return Value{}, false
 	}

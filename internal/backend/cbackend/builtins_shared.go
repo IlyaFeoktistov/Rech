@@ -149,6 +149,12 @@ type builtinFlags struct {
 	// настоящая внешняя библиотека, не переиспользованный хелпер, эмитится
 	// только когда программа реально вызвала одну из http2_*-функций.
 	usesHTTP2 bool
+	// usesGRPC - нужен ли grpcSessionOpsCode (grpc.go) - length-prefix
+	// фрейминг поверх уже сгенерированного HTTP/2-рантайма (usesHTTP2
+	// подразумевается: gRPC-код зовёт rech_http2_* по имени, см. package doc
+	// grpc.go) - эмитится только когда программа реально вызвала одну из
+	// grpc_*-функций.
+	usesGRPC bool
 	// usesShutdownFlag - нужен ли rech_shutdown_requested (shutdown.go) -
 	// встроенная функция "запрошена_остановка" - регистрирует обработчик
 	// SIGINT/SIGTERM лениво, при первом использовании программой (см. её
@@ -460,6 +466,39 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 	case "http2_завершить_поток":
 		flags.usesHTTP2 = true
 		return fmt.Sprintf("rech_http2_finish_stream(%s)", args[0]), true
+	case "grpc_открыть_поток":
+		flags.usesHTTP2 = true
+		flags.usesGRPC = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_grpc_open_stream(%s, %s)", args[0], args[1]), true
+	case "grpc_начать_ответ":
+		flags.usesHTTP2 = true
+		flags.usesGRPC = true
+		return fmt.Sprintf("rech_grpc_send_headers(%s)", args[0]), true
+	case "grpc_прочитать_сообщение":
+		flags.usesHTTP2 = true
+		flags.usesGRPC = true
+		flags.usesByteListWrap = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_grpc_read_message(%s)", args[0]), true
+	case "grpc_отправить_сообщение":
+		flags.usesHTTP2 = true
+		flags.usesGRPC = true
+		flags.usesByteListWrap = true
+		return fmt.Sprintf("rech_grpc_send_message(%s, %s)", args[0], args[1]), true
+	case "grpc_завершить":
+		flags.usesHTTP2 = true
+		flags.usesGRPC = true
+		return fmt.Sprintf("rech_grpc_finish(%s, %s, %s)", args[0], args[1], args[2]), true
+	case "grpc_статус":
+		flags.usesHTTP2 = true
+		flags.usesGRPC = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_grpc_status(%s)", args[0]), true
+	case "grpc_сообщение_ошибки":
+		flags.usesHTTP2 = true
+		flags.usesGRPC = true
+		return fmt.Sprintf("rech_grpc_error_message(%s)", args[0]), true
 	case "запрос":
 		flags.usesHTTP = true
 		flags.usesSockets = true
