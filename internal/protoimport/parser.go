@@ -188,16 +188,92 @@ func (p *parser) parseImport(f *file) error {
 	return nil
 }
 
+// parseService - "service Имя { (rpc ... | option ...;)* }" - rpc-методы
+// разбираются (см. parseRPC), "option" на уровне самого service (не
+// внутри rpc) пропускается целиком, тем же принципом, что и у "option"
+// внутри message (см. skipFieldOptions/аналоги).
 func (p *parser) parseService() (serviceDecl, error) {
 	tok := p.advance() // "service"
 	nameTok, err := p.expectIdent()
 	if err != nil {
 		return serviceDecl{}, err
 	}
-	if err := p.skipBalancedBraces(); err != nil {
+	if _, err := p.expectPunct("{"); err != nil {
 		return serviceDecl{}, err
 	}
-	return serviceDecl{name: nameTok.value, line: tok.line}, nil
+	svc := serviceDecl{name: nameTok.value, line: tok.line}
+	for !p.at(tokPunct, "}") {
+		if p.cur().kind == tokEOF {
+			return serviceDecl{}, fmt.Errorf("строка %d: незакрытая \"{\" у service %q", tok.line, nameTok.value)
+		}
+		switch {
+		case p.at(tokIdent, "rpc"):
+			m, err := p.parseRPC()
+			if err != nil {
+				return serviceDecl{}, err
+			}
+			svc.methods = append(svc.methods, m)
+		case p.at(tokIdent, "option"):
+			if err := p.skipToSemicolon(); err != nil {
+				return serviceDecl{}, err
+			}
+		default:
+			return serviceDecl{}, fmt.Errorf("строка %d: неожиданный токен %q внутри service %q (ожидался \"rpc\" или \"option\")", p.cur().line, p.cur().value, nameTok.value)
+		}
+	}
+	p.advance() // "}"
+	return svc, nil
+}
+
+// parseRPC - "rpc Имя ( [stream] Запрос ) returns ( [stream] Ответ )" +
+// либо ";", либо "{ (option ...;)* }" (тело rpc - только options в
+// настоящем ".proto", generate.go по нему ничего не порождает).
+func (p *parser) parseRPC() (rpcDecl, error) {
+	tok := p.advance() // "rpc"
+	nameTok, err := p.expectIdent()
+	if err != nil {
+		return rpcDecl{}, err
+	}
+	reqType, reqStreaming, err := p.parseRPCParenType()
+	if err != nil {
+		return rpcDecl{}, err
+	}
+	if !p.at(tokIdent, "returns") {
+		return rpcDecl{}, fmt.Errorf("строка %d: у \"rpc %s\" ожидалось \"returns\"", p.cur().line, nameTok.value)
+	}
+	p.advance()
+	respType, respStreaming, err := p.parseRPCParenType()
+	if err != nil {
+		return rpcDecl{}, err
+	}
+	if p.at(tokPunct, "{") {
+		if err := p.skipBalancedBraces(); err != nil {
+			return rpcDecl{}, err
+		}
+	} else if _, err := p.expectPunct(";"); err != nil {
+		return rpcDecl{}, err
+	}
+	return rpcDecl{name: nameTok.value, reqType: reqType, reqStreaming: reqStreaming, respType: respType, respStreaming: respStreaming, line: tok.line}, nil
+}
+
+// parseRPCParenType - "( [stream] Тип )" - общая форма и у списка запроса,
+// и у "returns (...)".
+func (p *parser) parseRPCParenType() (typeName string, streaming bool, err error) {
+	if _, err := p.expectPunct("("); err != nil {
+		return "", false, err
+	}
+	if p.at(tokIdent, "stream") {
+		streaming = true
+		p.advance()
+	}
+	typeName, err = p.parseTypeName()
+	if err != nil {
+		return "", false, err
+	}
+	if _, err := p.expectPunct(")"); err != nil {
+		return "", false, err
+	}
+	return typeName, streaming, nil
 }
 
 // skipBalancedBraces пропускает "{ ... }" (уже на "{") с учётом вложенности -

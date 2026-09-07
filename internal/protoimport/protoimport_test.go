@@ -192,3 +192,91 @@ message B { string y = 1; }
 		t.Fatalf("Import: %v", err)
 	}
 }
+
+// TestImportGeneratesUnaryRPCStub - unary rpc порождает полную клиентскую
+// обёртку (grpc_открыть_поток/PROTOBUF/grpc_статус) - живой сквозной прогон
+// сгенерированного кода (сервер на голых grpc_*-функциях, клиент через
+// СГЕНЕРИРОВАННУЮ Greeter_SayHello) - internal/interp, отдельно от этого
+// пакета, не дублируется здесь - тест ниже проверяет только форму
+// генерации, не рантайм.
+func TestImportGeneratesUnaryRPCStub(t *testing.T) {
+	dir := t.TempDir()
+	path := writeProto(t, dir, "a.proto", `
+syntax = "proto3";
+package greet;
+message HelloRequest { string name = 1; }
+message HelloResponse { string message = 1; }
+service Greeter {
+  rpc SayHello (HelloRequest) returns (HelloResponse);
+}
+`)
+	out, err := Import(path)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	for _, want := range []string{
+		"сущность GRPCОшибка наследует Исключение",
+		"функция Greeter_SayHello(сессия: HTTP2Сессия, запрос: HelloRequest): HelloResponse",
+		`grpc_открыть_поток(сессия, "/greet.Greeter/SayHello")`,
+		"сериализовать PROTOBUF запрос",
+		"разобрать PROTOBUF тело как HelloResponse",
+		"выбросить новая GRPCОшибка(статус, grpc_сообщение_ошибки(поток))",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("ожидалось в выводе: %q, получено:\n%s", want, out)
+		}
+	}
+}
+
+// TestImportGeneratesStreamingRPCOpensStreamOnly - для любого из трёх видов
+// streaming генерируется только "открыть поток" (не полная обёртка -
+// сериализацию/цикл streaming-сообщений ведёт вызывающая программа сама).
+func TestImportGeneratesStreamingRPCOpensStreamOnly(t *testing.T) {
+	dir := t.TempDir()
+	path := writeProto(t, dir, "a.proto", `
+syntax = "proto3";
+message Req { string x = 1; }
+message Resp { string y = 1; }
+service S {
+  rpc ServerStream (Req) returns (stream Resp);
+  rpc ClientStream (stream Req) returns (Resp);
+  rpc Bidi (stream Req) returns (stream Resp);
+}
+`)
+	out, err := Import(path)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	for _, name := range []string{"S_ServerStream", "S_ClientStream", "S_Bidi"} {
+		want := "функция " + name + "(сессия: HTTP2Сессия): HTTP2Поток"
+		if !strings.Contains(out, want) {
+			t.Errorf("ожидалось в выводе: %q, получено:\n%s", want, out)
+		}
+	}
+	// Без пакета - путь без префикса.
+	if !strings.Contains(out, `grpc_открыть_поток(сессия, "/S/ServerStream")`) {
+		t.Errorf("ожидался путь без пакета, получено:\n%s", out)
+	}
+}
+
+// TestImportRejectsRPCWithScalarRequestType - настоящий ".proto" не даёт
+// написать rpc со скалярным типом синтаксически (grammar требует
+// message-имя), но локальный импорт мог сослаться на message, ошибочно
+// разрешившееся на scalarTypes-ключ (невозможно на практике, т.к. scalarTypes -
+// зарезервированные слова, но проверка - защита от будущей регрессии) -
+// здесь проверяется более реалистичный случай: ссылка на enum (валидное
+// имя типа, но rpc допускает только message).
+func TestImportRejectsRPCWithScalarRequestType(t *testing.T) {
+	dir := t.TempDir()
+	path := writeProto(t, dir, "a.proto", `
+syntax = "proto3";
+enum Color { RED = 0; }
+message Resp { string y = 1; }
+service S {
+  rpc M (Color) returns (Resp);
+}
+`)
+	if _, err := Import(path); err == nil || !strings.Contains(err.Error(), "не message") {
+		t.Fatalf("ожидалась ошибка про \"не message\", получено: %v", err)
+	}
+}

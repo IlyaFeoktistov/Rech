@@ -30,10 +30,11 @@
 //     не разрешаются как локальный импорт (см. protoimport.go,
 //     collectFiles) - потребовали бы специального соответствия встроенным
 //     типам Rech (например, Timestamp <-> ДатаВремя), не сделано.
-//   - service/rpc - разбираются (чтобы не ломать парсер на реальном файле
-//     с определением сервиса), но НЕ порождают никакого Rech-кода - gRPC
-//     framing ещё не реализован (отдельный, следующий шаг), сейчас этот
-//     импортёр даёт только сообщения.
+//
+// service/rpc (Шаг 96, generate_rpc.go) - unary rpc порождает полную
+// клиентскую обёртку (grpc_* + PROTOBUF), streaming rpc - только "открыть
+// поток" (сериализацию/цикл streaming-сообщений вызывающая программа ведёт
+// сама) - см. package doc generate_rpc.go.
 package protoimport
 
 import (
@@ -139,10 +140,15 @@ func buildAndGenerate(files []*file) (string, error) {
 		}
 	}
 
-	return renderRech(enums, messages), nil
+	rpcs, usesUnaryRPC, err := resolveRPCs(files, reg)
+	if err != nil {
+		return "", err
+	}
+
+	return renderRech(enums, messages, rpcs, usesUnaryRPC), nil
 }
 
-func renderRech(enums []generatedEnum, messages []generatedMessage) string {
+func renderRech(enums []generatedEnum, messages []generatedMessage, rpcs []generatedRPC, usesUnaryRPC bool) string {
 	var sb strings.Builder
 	sb.WriteString("/** Сгенерировано \"rech proto\" из .proto-контракта - не редактировать вручную,\nперегенерировать при изменении контракта. См. docs/SPEC.md, раздел про PROTOBUF. */\n\n")
 
@@ -172,6 +178,8 @@ func renderRech(enums []generatedEnum, messages []generatedMessage) string {
 		}
 		sb.WriteString("}\n\n")
 	}
+
+	renderRPCs(&sb, rpcs, usesUnaryRPC)
 
 	return sb.String()
 }

@@ -25,3 +25,14 @@ message User {
   Address address = 5;
   Role role = 6;
 }
+
+message GetUserRequest {
+  string name = 1;
+}
+
+// "service"/"rpc" тоже порождают код (не только message/enum) - unary rpc
+// (как здесь) даёт полную клиентскую обёртку (grpc_* + PROTOBUF), см.
+// сгенерированную "функция Users_GetUser" и docs/SPEC.md, раздел про gRPC.
+service Users {
+  rpc GetUser (GetUserRequest) returns (User);
+}

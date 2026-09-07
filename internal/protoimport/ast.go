@@ -18,8 +18,23 @@ type importDecl struct {
 }
 
 type serviceDecl struct {
-	name string
-	line int
+	name    string
+	line    int
+	methods []rpcDecl
+}
+
+// rpcDecl - "rpc Имя (Запрос) returns (Ответ);" (тело "{ ... }" вместо ";"
+// тоже допустимо - только "option ...;" внутри, пропускается целиком,
+// generate.go не порождает по нему ничего). reqStreaming/respStreaming -
+// "stream" перед типом запроса/ответа - определяет один из четырёх видов
+// gRPC-вызова (см. generate.go, rpcKind).
+type rpcDecl struct {
+	name          string
+	reqType       string
+	reqStreaming  bool
+	respType      string
+	respStreaming bool
+	line          int
 }
 
 // message - "message Имя { ... }", включая вложенные message/enum (плоско

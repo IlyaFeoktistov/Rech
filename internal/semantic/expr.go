@@ -565,7 +565,18 @@ func analyzeCallExpr(sc *ctx, e *ast.CallExpr) (ir.Expr, error) {
 				}
 			}
 		}
-		if funcSigTouchesSocket(sig) || callee == "запрос" {
+		// "новая_http2_сессия"/"новая_grpcs_сессия" - тем же случаем, что и
+		// "запрос" выше: обе дозваниваются через сокет ВНУТРИ реализации, но
+		// в их СОБСТВЕННОЙ сигнатуре типа "Сокет" нет вовсе (HTTP2Сессия -
+		// другой тип) - funcSigTouchesSocket это не ловит. ЖИВОЙ НАЙДЕННЫЙ
+		// БАГ: "?Сокет" нужен ЛЮБОЙ программе с usesSockets (socketHelpers/
+		// socketHelpersTLS эмитируются ОДНИМ блоком, rech_accept внутри
+		// него безусловно возвращает "?Сокет") - до сих пор маскировался
+		// тем, что каждая проверенная программа заодно звала и "http2_
+		// принять_сессию" (та ловится funcSigTouchesSocket, Сокет-параметр
+		// есть) - здесь найдено на чисто клиентской программе, ни разу не
+		// принимающей соединения.
+		if funcSigTouchesSocket(sig) || callee == "запрос" || callee == "новая_http2_сессия" || callee == "новая_grpcs_сессия" {
 			if err := registerSocketNullableOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
 				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
 			}
