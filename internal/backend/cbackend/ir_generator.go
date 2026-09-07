@@ -916,6 +916,29 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		body.WriteString(fnCode)
 	}
 
+	// ctx.usesHTTP2 => ctx.usesSockets - ЖИВОЙ НАЙДЕННЫЙ БАГ: http2SessionOpsCode/
+	// http2CallbacksCode (http2.go) эмитируются ОДНИМ блоком целиком при
+	// usesHTTP2 - внутри БЕЗУСЛОВНО есть rech_http2_accept_session/rech_
+	// http2_io_thread/rech_http2_start_thread, которые зовут accept()/recv()/
+	// setsockopt() напрямую (нужны <sys/socket.h>/<errno.h>/... - emitted
+	// ниже, только если ctx.usesSockets) - но usesSockets выставляют ТОЛЬКО
+	// диспетчеризации http2_принять_сессию/новая_http2_сессия/http2_закрыть_
+	// сессию (builtins_shared.go) - ни одна из grpc_*/http2_открыть_поток/
+	// http2_отправить_данные/... (работают уже НАД готовой сессией, сама
+	// сессия установлена в ДРУГОМ месте программы, а то и в другом файле,
+	// пришедшем через "использовать") этого не делает. Программа/библиотека,
+	// вызывающая ТОЛЬКО такие функции (например, сгенерированная "rech
+	// proto" клиентская обёртка Сервис_Метод(сессия: HTTP2Сессия, ...) -
+	// сессию открывает ВЫЗЫВАЮЩАЯ программа, не сама обёртка) падала на
+	// "unknown type name"/implicit-declaration у cc - найдено на "rech
+	// build --lib" файла со сгенерированными gRPC-стабами (Шаг 96), без
+	// единого вызова http2_принять_сессию/новая_http2_сессия в НЕЙ САМОЙ
+	// (маскировалось в обычной сборке до сих пор тем, что проверенные
+	// программы попутно ещё и открывали сессию в той же единице трансляции).
+	if ctx.usesHTTP2 {
+		ctx.usesSockets = true
+	}
+
 	// ctx.includesStringH/includesStdlibH/includesMathH - вычислены только
 	// теперь, тела выше (ctx.usesMemcpy/usesCast/usesRandom/... - и то, что
 	// ниже собирает "#include <...>", ir_generator.go, sb) - единственное

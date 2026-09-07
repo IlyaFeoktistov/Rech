@@ -116,8 +116,25 @@ var http2BytesFuncNames = map[string]bool{
 // программа - без этой безусловной регистрации сборка настоящим cc падала
 // бы на "unknown type name", если программа использует HTTP/2, но ни разу
 // не вызывает именно "http2_заголовок" (найдено живой проверкой).
+//
+// ТЕМ ЖЕ путём резолвит "?Сокет" - ЖИВОЙ НАЙДЕННЫЙ БАГ (Шаг 96/97): любая
+// http2_*/grpc_*-функция (не только http2_принять_сессию/новая_http2_
+// сессия) заставляет ir_generator.go включить usesSockets (rech_http2_
+// io_thread/accept_session зовут accept()/recv() напрямую - см. её же
+// комментарий, "ctx.usesHTTP2 => ctx.usesSockets") - а socketHelpers/
+// socketHelpersTLS БЕЗУСЛОВНО несут rech_accept, возвращающую "?Сокет" -
+// программа/библиотека, вызывающая ТОЛЬКО функции над уже открытой
+// сессией (например, сгенерированная "rech proto" клиентская обёртка
+// Сервис_Метод(сессия: HTTP2Сессия, ...) - саму сессию открывает
+// ВЫЗЫВАЮЩАЯ программа, не эта функция), ни разу не звавшая "http2_
+// принять_сессию"/"новая_http2_сессия"/"запрос" (единственные места,
+// раньше резолвившие "?Сокет" - см. registerSocketNullableOnCall,
+// funcSigTouchesSocket), падала на "unknown type name" у "rech build --lib".
 func registerHTTP2TypesOnCall(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig) error {
 	if _, err := resolveTypeName(entities, methods, aliases, interfaces, "?Строка"); err != nil {
+		return err
+	}
+	if err := registerSocketNullableOnCall(entities, methods, aliases, interfaces); err != nil {
 		return err
 	}
 	_, err := resolveTypeName(entities, methods, aliases, interfaces, http2StreamType)
