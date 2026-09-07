@@ -128,9 +128,9 @@ type builtinFlags struct {
 	// usesEnv - нужен ли rech_getenv (env.go) - встроенная функция
 	// "получить_переменную_окружения".
 	usesEnv bool
-	// usesCrypto - нужны ли rech_sha256_hex/rech_hmac_sha256_hex/
+	// usesCrypto - нужны ли rech_hash_hex/rech_hmac_sha256_hex/
 	// rech_base64url_encode/rech_base64url_decode (crypto.go) - встроенные
-	// функции "хеш_sha256"/"подпись_hmac_sha256"/"закодировать_base64url"/
+	// функции "хеш"/"подпись_hmac_sha256"/"закодировать_base64url"/
 	// "декодировать_base64url" - не зависит от typedefs (только "const
 	// char *"), тем же принципом, что и usesStringOps/usesRandom.
 	usesCrypto bool
@@ -669,15 +669,10 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 		// исключительно за <string.h>, здесь - за strstr.
 		flags.usesStrCmp = true
 		return fmt.Sprintf("(strstr(%s, %s) != NULL)", args[0], args[1]), true
-	case "хеш_sha256":
+	case "хеш":
 		flags.usesCrypto = true
-		return fmt.Sprintf("rech_sha256_hex(%s)", args[0]), true
-	case "хеш_sha1":
-		flags.usesCrypto = true
-		return fmt.Sprintf("rech_sha1_hex(%s)", args[0]), true
-	case "хеш_md5":
-		flags.usesCrypto = true
-		return fmt.Sprintf("rech_md5_hex(%s)", args[0]), true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_hash_hex((int)(%s), %s)", args[0], args[1]), true
 	case "подпись_hmac_sha256":
 		flags.usesCrypto = true
 		return fmt.Sprintf("rech_hmac_sha256_hex(%s, %s)", args[0], args[1]), true

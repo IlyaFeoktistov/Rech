@@ -6,20 +6,25 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
-// cryptoHelpers - "хеш_sha256"/"подпись_hmac_sha256"/
+// cryptoHelpers - "хеш(алгоритм, данные)"/"подпись_hmac_sha256"/
 // "закодировать_base64url"/"декодировать_base64url" (internal/builtins.All,
 // docs/ROADMAP.md - "Нет крипто-хеш-функции"). Собственная реализация
-// SHA-256 (FIPS 180-4), не биндинг к OpenSSL/libcrypto - тот же принцип,
-// что и у randomHelpers/датHelpers (не тянуть внешнюю библиотеку туда, где
-// хватает ~100 строк стандартного алгоритма, не привязанного к платформе).
-// HMAC-SHA256 (FIPS 198-1) построен поверх него - основа подписи токена
-// (алгоритм HS256 в JWT). "rech_bytes_to_hex" - общий хвост обеих
-// хеш-функций: результат - HEX, не сырые байты (Rech "Строка" в cbackend -
-// "const char *" без отдельно хранимой длины, сырой 32-байтовый дайджест
-// мог бы содержать 0x00 внутри и потерять хвост при любой операции,
-// использующей strlen). Buffer выделяется через malloc, не GC_MALLOC - тем
-// же принципом, что и stringOpsHelpers/randomHelpers: программа, вызвавшая
-// только эти функции, не должна тянуть за собой Boehm GC (<gc.h>).
+// SHA-256/SHA-1/MD5/SHA-512 (FIPS 180-4/RFC 1321), не биндинг к
+// OpenSSL/libcrypto - тот же принцип, что и у randomHelpers/датHelpers (не
+// тянуть внешнюю библиотеку туда, где хватает ~100 строк стандартного
+// алгоритма, не привязанного к платформе). "rech_hash_hex" - runtime-
+// диспетчер по числу (член перечисления "АлгоритмХеша", уже развёрнутый
+// семантическим анализом в IntLiteral - см. package doc hashByAlgorithm в
+// internal/interp/crypto.go, ИНДЕКСЫ ДОЛЖНЫ СОВПАДАТЬ с internal/semantic/
+// types.go, StandardEnums). HMAC-SHA256 (FIPS 198-1) построен поверх
+// SHA-256 - основа подписи токена (алгоритм HS256 в JWT). "rech_bytes_
+// to_hex" - общий хвост всех хеш-функций: результат - HEX, не сырые байты
+// (Rech "Строка" в cbackend - "const char *" без отдельно хранимой длины,
+// сырой дайджест мог бы содержать 0x00 внутри и потерять хвост при любой
+// операции, использующей strlen). Buffer выделяется через malloc, не
+// GC_MALLOC - тем же принципом, что и stringOpsHelpers/randomHelpers:
+// программа, вызвавшая только эти функции, не должна тянуть за собой
+// Boehm GC (<gc.h>).
 var cryptoHelpers = fmt.Sprintf(`static const uint32_t rech_sha256_k[64] = {
     0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
     0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
@@ -308,6 +313,129 @@ static void rech_md5_final(rech_md5_ctx *ctx, unsigned char out[16]) {
     }
 }
 
+// rech_sha512_ctx/rech_sha512_* - SHA-512 (FIPS 180-4) - тот же принцип,
+// что и SHA-256 выше, только 64-битные слова (8 слов состояния, 80
+// раундов, блок 128 байт) и другие раундовые константы/сдвиги. НЕ сломан
+// (в отличие от SHA-1/MD5 выше) - годится для новых паролей/подписей, у
+// него просто более длинный (64-байтовый) дайджест, чем у SHA-256.
+static const uint64_t rech_sha512_k[80] = {
+    0x428a2f98d728ae22ULL,0x7137449123ef65cdULL,0xb5c0fbcfec4d3b2fULL,0xe9b5dba58189dbbcULL,
+    0x3956c25bf348b538ULL,0x59f111f1b605d019ULL,0x923f82a4af194f9bULL,0xab1c5ed5da6d8118ULL,
+    0xd807aa98a3030242ULL,0x12835b0145706fbeULL,0x243185be4ee4b28cULL,0x550c7dc3d5ffb4e2ULL,
+    0x72be5d74f27b896fULL,0x80deb1fe3b1696b1ULL,0x9bdc06a725c71235ULL,0xc19bf174cf692694ULL,
+    0xe49b69c19ef14ad2ULL,0xefbe4786384f25e3ULL,0x0fc19dc68b8cd5b5ULL,0x240ca1cc77ac9c65ULL,
+    0x2de92c6f592b0275ULL,0x4a7484aa6ea6e483ULL,0x5cb0a9dcbd41fbd4ULL,0x76f988da831153b5ULL,
+    0x983e5152ee66dfabULL,0xa831c66d2db43210ULL,0xb00327c898fb213fULL,0xbf597fc7beef0ee4ULL,
+    0xc6e00bf33da88fc2ULL,0xd5a79147930aa725ULL,0x06ca6351e003826fULL,0x142929670a0e6e70ULL,
+    0x27b70a8546d22ffcULL,0x2e1b21385c26c926ULL,0x4d2c6dfc5ac42aedULL,0x53380d139d95b3dfULL,
+    0x650a73548baf63deULL,0x766a0abb3c77b2a8ULL,0x81c2c92e47edaee6ULL,0x92722c851482353bULL,
+    0xa2bfe8a14cf10364ULL,0xa81a664bbc423001ULL,0xc24b8b70d0f89791ULL,0xc76c51a30654be30ULL,
+    0xd192e819d6ef5218ULL,0xd69906245565a910ULL,0xf40e35855771202aULL,0x106aa07032bbd1b8ULL,
+    0x19a4c116b8d2d0c8ULL,0x1e376c085141ab53ULL,0x2748774cdf8eeb99ULL,0x34b0bcb5e19b48a8ULL,
+    0x391c0cb3c5c95a63ULL,0x4ed8aa4ae3418acbULL,0x5b9cca4f7763e373ULL,0x682e6ff3d6b2b8a3ULL,
+    0x748f82ee5defb2fcULL,0x78a5636f43172f60ULL,0x84c87814a1f0ab72ULL,0x8cc702081a6439ecULL,
+    0x90befffa23631e28ULL,0xa4506cebde82bde9ULL,0xbef9a3f7b2c67915ULL,0xc67178f2e372532bULL,
+    0xca273eceea26619cULL,0xd186b8c721c0c207ULL,0xeada7dd6cde0eb1eULL,0xf57d4f7fee6ed178ULL,
+    0x06f067aa72176fbaULL,0x0a637dc5a2c898a6ULL,0x113f9804bef90daeULL,0x1b710b35131c471bULL,
+    0x28db77f523047d84ULL,0x32caab7b40c72493ULL,0x3c9ebe0a15c9bebcULL,0x431d67c49c100d4cULL,
+    0x4cc5d4becb3e42b6ULL,0x597f299cfc657e2aULL,0x5fcb6fab3ad6faecULL,0x6c44198c4a475817ULL,
+};
+
+typedef struct {
+    uint64_t state[8];
+    uint64_t bitlen;
+    unsigned char buffer[128];
+    size_t buflen;
+} rech_sha512_ctx;
+
+#define RECH_ROTR64(x, n) (((x) >> (n)) | ((x) << (64 - (n))))
+
+static void rech_sha512_transform(rech_sha512_ctx *ctx, const unsigned char *data) {
+    uint64_t m[80];
+    for (int i = 0; i < 16; i++) {
+        m[i] = 0;
+        for (int j = 0; j < 8; j++) {
+            m[i] = (m[i] << 8) | (uint64_t)data[i * 8 + j];
+        }
+    }
+    for (int i = 16; i < 80; i++) {
+        uint64_t s0 = RECH_ROTR64(m[i - 15], 1) ^ RECH_ROTR64(m[i - 15], 8) ^ (m[i - 15] >> 7);
+        uint64_t s1 = RECH_ROTR64(m[i - 2], 19) ^ RECH_ROTR64(m[i - 2], 61) ^ (m[i - 2] >> 6);
+        m[i] = m[i - 16] + s0 + m[i - 7] + s1;
+    }
+    uint64_t a = ctx->state[0], b = ctx->state[1], c = ctx->state[2], d = ctx->state[3];
+    uint64_t e = ctx->state[4], f = ctx->state[5], g = ctx->state[6], h = ctx->state[7];
+    for (int i = 0; i < 80; i++) {
+        uint64_t s1 = RECH_ROTR64(e, 14) ^ RECH_ROTR64(e, 18) ^ RECH_ROTR64(e, 41);
+        uint64_t ch = (e & f) ^ ((~e) & g);
+        uint64_t t1 = h + s1 + ch + rech_sha512_k[i] + m[i];
+        uint64_t s0 = RECH_ROTR64(a, 28) ^ RECH_ROTR64(a, 34) ^ RECH_ROTR64(a, 39);
+        uint64_t maj = (a & b) ^ (a & c) ^ (b & c);
+        uint64_t t2 = s0 + maj;
+        h = g; g = f; f = e; e = d + t1;
+        d = c; c = b; b = a; a = t1 + t2;
+    }
+    ctx->state[0] += a; ctx->state[1] += b; ctx->state[2] += c; ctx->state[3] += d;
+    ctx->state[4] += e; ctx->state[5] += f; ctx->state[6] += g; ctx->state[7] += h;
+}
+
+static void rech_sha512_init(rech_sha512_ctx *ctx) {
+    ctx->bitlen = 0;
+    ctx->buflen = 0;
+    ctx->state[0] = 0x6a09e667f3bcc908ULL; ctx->state[1] = 0xbb67ae8584caa73bULL;
+    ctx->state[2] = 0x3c6ef372fe94f82bULL; ctx->state[3] = 0xa54ff53a5f1d36f1ULL;
+    ctx->state[4] = 0x510e527fade682d1ULL; ctx->state[5] = 0x9b05688c2b3e6c1fULL;
+    ctx->state[6] = 0x1f83d9abfb41bd6bULL; ctx->state[7] = 0x5be0cd19137e2179ULL;
+}
+
+static void rech_sha512_update(rech_sha512_ctx *ctx, const unsigned char *data, size_t len) {
+    for (size_t i = 0; i < len; i++) {
+        ctx->buffer[ctx->buflen++] = data[i];
+        if (ctx->buflen == 128) {
+            rech_sha512_transform(ctx, ctx->buffer);
+            ctx->bitlen += 1024;
+            ctx->buflen = 0;
+        }
+    }
+}
+
+// Паддинг - 128-байтовый блок, 128-битное поле длины (мы храним только
+// младшие 64 бита - на практике сообщение короче 2^64 бит, ~2 эксабайта -
+// верхние 8 байт поля длины всегда нулевые, тот же практический предел,
+// что уже неявно принят у SHA-256 выше).
+static void rech_sha512_final(rech_sha512_ctx *ctx, unsigned char out[64]) {
+    size_t i = ctx->buflen;
+    ctx->bitlen += (uint64_t)ctx->buflen * 8;
+    ctx->buffer[i++] = 0x80;
+    if (i > 112) {
+        while (i < 128) {
+            ctx->buffer[i++] = 0;
+        }
+        rech_sha512_transform(ctx, ctx->buffer);
+        i = 0;
+    }
+    while (i < 112) {
+        ctx->buffer[i++] = 0;
+    }
+    for (int j = 0; j < 8; j++) {
+        ctx->buffer[i++] = 0;
+    }
+    for (int j = 7; j >= 0; j--) {
+        ctx->buffer[i++] = (unsigned char)((ctx->bitlen >> (j * 8)) & 0xff);
+    }
+    rech_sha512_transform(ctx, ctx->buffer);
+    for (int j = 0; j < 8; j++) {
+        out[j * 8] = (unsigned char)((ctx->state[j] >> 56) & 0xff);
+        out[j * 8 + 1] = (unsigned char)((ctx->state[j] >> 48) & 0xff);
+        out[j * 8 + 2] = (unsigned char)((ctx->state[j] >> 40) & 0xff);
+        out[j * 8 + 3] = (unsigned char)((ctx->state[j] >> 32) & 0xff);
+        out[j * 8 + 4] = (unsigned char)((ctx->state[j] >> 24) & 0xff);
+        out[j * 8 + 5] = (unsigned char)((ctx->state[j] >> 16) & 0xff);
+        out[j * 8 + 6] = (unsigned char)((ctx->state[j] >> 8) & 0xff);
+        out[j * 8 + 7] = (unsigned char)(ctx->state[j] & 0xff);
+    }
+}
+
 static char *rech_bytes_to_hex(const unsigned char *data, size_t len) {
     static const char hexd[] = "0123456789abcdef";
     char *out = malloc(len * 2 + 1);
@@ -344,6 +472,39 @@ static char *rech_md5_hex(const char *s) {
     unsigned char digest[16];
     rech_md5_final(&ctx, digest);
     return rech_bytes_to_hex(digest, 16);
+}
+
+static char *rech_sha512_hex(const char *s) {
+    rech_sha512_ctx ctx;
+    rech_sha512_init(&ctx);
+    rech_sha512_update(&ctx, (const unsigned char *)s, strlen(s));
+    unsigned char digest[64];
+    rech_sha512_final(&ctx, digest);
+    return rech_bytes_to_hex(digest, 64);
+}
+
+// rech_hash_hex - диспетчер builtin'а "хеш(алгоритм, данные)" по значению
+// члена перечисления "АлгоритмХеша" - ИНДЕКСЫ ДОЛЖНЫ БУКВАЛЬНО СОВПАДАТЬ с
+// internal/semantic/types.go, StandardEnums["АлгоритмХеша"] (0=SHA256,
+// 1=SHA1, 2=MD5, 3=SHA512) - тот же контракт, что у hashByAlgorithm в
+// internal/interp/crypto.go. Значение вне диапазона возможно, только если
+// вызвать "хеш" с голым Целое напрямую, не через сам enum (тип параметра -
+// Kind int, компилятор не проверяет диапазон) - аварийное завершение, не
+// неопределённое поведение.
+static char *rech_hash_hex(int algorithm, const char *s) {
+    switch (algorithm) {
+    case 0:
+        return rech_sha256_hex(s);
+    case 1:
+        return rech_sha1_hex(s);
+    case 2:
+        return rech_md5_hex(s);
+    case 3:
+        return rech_sha512_hex(s);
+    default:
+        rech_panic("%[2]s");
+        return NULL;
+    }
 }
 
 // rech_hmac_sha256_hex - HMAC-SHA256 (FIPS 198-1), тот же алгоритм подписи,
@@ -452,4 +613,4 @@ static char *rech_base64url_decode(const char *s) {
     out[oi] = '\0';
     return out;
 }
-`, rtmsg.Base64URLInvalidInput)
+`, rtmsg.Base64URLInvalidInput, rtmsg.UnknownHashAlgorithm)

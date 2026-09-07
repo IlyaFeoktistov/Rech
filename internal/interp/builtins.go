@@ -299,12 +299,8 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return intValue(randomInt(args[0].I, args[1].I)), true
 	case "время":
 		return intValue(nowUnix()), true
-	case "хеш_sha256":
-		return stringValue(sha256Hex(args[0].S)), true
-	case "хеш_sha1":
-		return stringValue(sha1Hex(args[0].S)), true
-	case "хеш_md5":
-		return stringValue(md5Hex(args[0].S)), true
+	case "хеш":
+		return stringValue(hashByAlgorithm(int(args[0].I), args[1].S)), true
 	case "подпись_hmac_sha256":
 		return stringValue(hmacSHA256Hex(args[0].S, args[1].S)), true
 	case "закодировать_base64url":
