@@ -323,6 +323,41 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 			panicRuntime("%s", rtmsg.SocketWrongKind)
 		}
 		return Value{}, true
+	case "http2_принять_сессию":
+		return in.http2AcceptSession(args[0]), true
+	case "новая_http2_сессия":
+		return in.http2NewSession(args[0].S, args[1].I), true
+	case "http2_закрыть_сессию":
+		in.http2CloseSession(args[0])
+		return Value{}, true
+	case "http2_принять_поток":
+		return in.http2AcceptStream(args[0]), true
+	case "http2_открыть_поток":
+		return in.http2OpenStream(args[0], args[1].S, args[2].S), true
+	case "http2_путь":
+		return in.http2Path(args[0]), true
+	case "http2_метод":
+		return in.http2Method(args[0]), true
+	case "http2_статус":
+		return in.http2StatusOf(args[0]), true
+	case "http2_заголовок":
+		return in.http2HeaderOf(args[0], args[1].S), true
+	case "http2_прочитать_данные":
+		return in.http2ReadData(args[0], args[1].I), true
+	case "http2_прочитать_всё":
+		return in.http2ReadAll(args[0]), true
+	case "http2_отправить_заголовки":
+		in.http2SendHeaders(args[0], args[1].I)
+		return Value{}, true
+	case "http2_отправить_данные":
+		in.http2SendData(args[0], args[1])
+		return Value{}, true
+	case "http2_отправить_трейлер":
+		in.http2SendTrailer(args[0], args[1].S, args[2].S)
+		return Value{}, true
+	case "http2_завершить_поток":
+		in.http2FinishStream(args[0])
+		return Value{}, true
 	default:
 		return Value{}, false
 	}

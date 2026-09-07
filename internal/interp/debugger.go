@@ -515,6 +515,8 @@ func (d *Debugger) formatValue(v Value) string {
 		return "[сокет]"
 	case ir.KindDB:
 		return "[бд]"
+	case ir.KindHTTP2Session:
+		return "[http2-сессия]"
 	default:
 		return v.S
 	}

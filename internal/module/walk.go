@@ -60,6 +60,8 @@ var builtinTypeBases = map[string]bool{
 	"Файл":                true,
 	"Сокет":               true,
 	"БД":                  true,
+	"HTTP2Сессия":         true,
+	"HTTP2Поток":          true,
 	"Запрос":              true,
 	"Ответ":               true,
 	"Исключение":          true,

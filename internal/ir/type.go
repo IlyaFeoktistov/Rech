@@ -37,6 +37,17 @@ const (
 	// подключения в рантайме, не по Kind) - как и KindFile/KindSocket, без
 	// операторов, представление решает каждый потребитель сам.
 	KindDB
+	// KindHTTP2Session - непрозрачный дескриптор активной HTTP/2-сессии
+	// (клиентской или серверной, поверх уже принятого/установленного
+	// "Сокет") - как и KindFile/KindSocket/KindDB, без операторов,
+	// представление (nghttp2-сессия в cbackend, golang.org/x/net/http2 в
+	// interp) решает каждый потребитель сам. Один RPC/запрос внутри такой
+	// сессии - НЕ отдельный Kind, а обычная сущность "HTTP2Поток" (поля
+	// "сессия"/"ид" - см. internal/semantic/http2.go) - у HTTP/2 одна
+	// сессия мультиплексирует много потоков, а не наоборот, поэтому именно
+	// сессия непрозрачна, а поток - обычные данные (номер потока), с
+	// которыми работают свободные функции.
+	KindHTTP2Session
 	// KindInterface - значение интерфейсного типа - контракт на
 	// набор методов, которому соответствует конкретная сущность за
 	// значением (хранит её имя в Entity, тем же полем, что и KindEntity -
@@ -147,17 +158,18 @@ type Type struct {
 }
 
 var (
-	TypeUnknown = Type{Kind: KindUnknown}
-	TypeByte    = Type{Kind: KindByte}
-	TypeInt     = Type{Kind: KindInt}
-	TypeFloat32 = Type{Kind: KindFloat32}
-	TypeFloat   = Type{Kind: KindFloat}
-	TypeChar    = Type{Kind: KindChar}
-	TypeString  = Type{Kind: KindString}
-	TypeBool    = Type{Kind: KindBool}
-	TypeFile    = Type{Kind: KindFile}
-	TypeSocket  = Type{Kind: KindSocket}
-	TypeDB      = Type{Kind: KindDB}
+	TypeUnknown      = Type{Kind: KindUnknown}
+	TypeByte         = Type{Kind: KindByte}
+	TypeInt          = Type{Kind: KindInt}
+	TypeFloat32      = Type{Kind: KindFloat32}
+	TypeFloat        = Type{Kind: KindFloat}
+	TypeChar         = Type{Kind: KindChar}
+	TypeString       = Type{Kind: KindString}
+	TypeBool         = Type{Kind: KindBool}
+	TypeFile         = Type{Kind: KindFile}
+	TypeSocket       = Type{Kind: KindSocket}
+	TypeDB           = Type{Kind: KindDB}
+	TypeHTTP2Session = Type{Kind: KindHTTP2Session}
 
 	TypeInt8  = Type{Kind: KindInt8}
 	TypeInt16 = Type{Kind: KindInt16}
@@ -297,6 +309,8 @@ func (t Type) String() string {
 		return "Сокет"
 	case KindDB:
 		return "БД"
+	case KindHTTP2Session:
+		return "HTTP2Сессия"
 	case KindNull:
 		return "Ничто"
 	case KindInt8:

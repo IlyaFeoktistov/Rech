@@ -143,6 +143,12 @@ type builtinFlags struct {
 	// настоящий TLS-стек с нуля - риск для безопасности, не место для
 	// принципа "не тянуть внешнюю библиотеку".
 	usesTLS bool
+	// usesHTTP2 - нужен ли биндинг к nghttp2 (http2.go, HTTP/2-транспорт) -
+	// подключает <nghttp2/nghttp2.h> (-lnghttp2 - internal/toolchain/cc.go,
+	// по маркеру этого #include) - тем же принципом, что и usesTLS/OpenSSL:
+	// настоящая внешняя библиотека, не переиспользованный хелпер, эмитится
+	// только когда программа реально вызвала одну из http2_*-функций.
+	usesHTTP2 bool
 	// usesShutdownFlag - нужен ли rech_shutdown_requested (shutdown.go) -
 	// встроенная функция "запрошена_остановка" - регистрирует обработчик
 	// SIGINT/SIGTERM лениво, при первом использовании программой (см. её
@@ -401,6 +407,59 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 		flags.usesTLS = true
 		flags.usesPanic = true
 		return fmt.Sprintf("rech_listen_tcp_secure(%s, %s, %s)", args[0], args[1], args[2]), true
+	case "http2_принять_сессию":
+		flags.usesHTTP2 = true
+		flags.usesSockets = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_http2_accept_session(%s)", args[0]), true
+	case "новая_http2_сессия":
+		flags.usesHTTP2 = true
+		flags.usesSockets = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_http2_new_session(%s, %s)", args[0], args[1]), true
+	case "http2_закрыть_сессию":
+		flags.usesHTTP2 = true
+		return fmt.Sprintf("rech_http2_close_session(%s)", args[0]), true
+	case "http2_принять_поток":
+		flags.usesHTTP2 = true
+		return fmt.Sprintf("rech_http2_accept_stream(%s)", args[0]), true
+	case "http2_открыть_поток":
+		flags.usesHTTP2 = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_http2_open_stream(%s, %s, %s)", args[0], args[1], args[2]), true
+	case "http2_путь":
+		flags.usesHTTP2 = true
+		return fmt.Sprintf("rech_http2_path(%s)", args[0]), true
+	case "http2_метод":
+		flags.usesHTTP2 = true
+		return fmt.Sprintf("rech_http2_method(%s)", args[0]), true
+	case "http2_статус":
+		flags.usesHTTP2 = true
+		return fmt.Sprintf("rech_http2_status(%s)", args[0]), true
+	case "http2_заголовок":
+		flags.usesHTTP2 = true
+		return fmt.Sprintf("rech_http2_header(%s, %s)", args[0], args[1]), true
+	case "http2_прочитать_данные":
+		flags.usesHTTP2 = true
+		flags.usesByteListWrap = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_http2_read_data(%s, %s)", args[0], args[1]), true
+	case "http2_прочитать_всё":
+		flags.usesHTTP2 = true
+		flags.usesByteListWrap = true
+		return fmt.Sprintf("rech_http2_read_all(%s)", args[0]), true
+	case "http2_отправить_заголовки":
+		flags.usesHTTP2 = true
+		return fmt.Sprintf("rech_http2_send_headers(%s, %s)", args[0], args[1]), true
+	case "http2_отправить_данные":
+		flags.usesHTTP2 = true
+		return fmt.Sprintf("rech_http2_send_data(%s, %s)", args[0], args[1]), true
+	case "http2_отправить_трейлер":
+		flags.usesHTTP2 = true
+		return fmt.Sprintf("rech_http2_send_trailer(%s, %s, %s)", args[0], args[1], args[2]), true
+	case "http2_завершить_поток":
+		flags.usesHTTP2 = true
+		return fmt.Sprintf("rech_http2_finish_stream(%s)", args[0]), true
 	case "запрос":
 		flags.usesHTTP = true
 		flags.usesSockets = true

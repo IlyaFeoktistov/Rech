@@ -29,6 +29,11 @@ const (
 	// какой это драйвер), см. typedef rech_db_t в internal/backend/cbackend/
 	// db.go.
 	kindDB
+	// kindHTTP2Session - непрозрачный дескриптор активной HTTP/2-сессии
+	// (см. ir.KindHTTP2Session) - представление в C - указатель на
+	// собственную структуру-обёртку над nghttp2-сессией, см. typedef
+	// rech_http2_session_t в internal/backend/cbackend/http2.go.
+	kindHTTP2Session
 	// kindTask - значение-дескриптор задачи ("запустить <имя>(...)") -
 	// entity несёт имя ОБЁРНУТОЙ ФУНКЦИИ, не тип результата (см.
 	// package doc internal/backend/cbackend/concurrency.go) - всегда
@@ -93,17 +98,18 @@ type valueType struct {
 }
 
 var (
-	typeUnknown = valueType{kind: kindUnknown}
-	typeByte    = valueType{kind: kindByte}
-	typeInt     = valueType{kind: kindInt}
-	typeFloat32 = valueType{kind: kindFloat32}
-	typeFloat   = valueType{kind: kindFloat}
-	typeChar    = valueType{kind: kindChar}
-	typeString  = valueType{kind: kindString}
-	typeBool    = valueType{kind: kindBool}
-	typeFile    = valueType{kind: kindFile}
-	typeSocket  = valueType{kind: kindSocket}
-	typeDB      = valueType{kind: kindDB}
+	typeUnknown      = valueType{kind: kindUnknown}
+	typeByte         = valueType{kind: kindByte}
+	typeInt          = valueType{kind: kindInt}
+	typeFloat32      = valueType{kind: kindFloat32}
+	typeFloat        = valueType{kind: kindFloat}
+	typeChar         = valueType{kind: kindChar}
+	typeString       = valueType{kind: kindString}
+	typeBool         = valueType{kind: kindBool}
+	typeFile         = valueType{kind: kindFile}
+	typeSocket       = valueType{kind: kindSocket}
+	typeDB           = valueType{kind: kindDB}
+	typeHTTP2Session = valueType{kind: kindHTTP2Session}
 
 	typeInt8   = valueType{kind: kindInt8}
 	typeInt16  = valueType{kind: kindInt16}
@@ -158,27 +164,28 @@ func pointerType(name string) valueType {
 // kindChar - int32_t ("Символ" хранит кодовую точку Unicode, не байт, как C
 // char - язык кириллический по духу, 'я' должен помещаться в один Символ).
 var primitiveCTypes = map[valueType]string{
-	typeByte:     "unsigned char",
-	typeInt:      "long long",
-	typeFloat32:  "float",
-	typeFloat:    "double",
-	typeChar:     "int32_t",
-	typeString:   "const char *",
-	typeBool:     "bool",
-	typeFile:     "rech_file_t",
-	typeSocket:   "rech_socket_t",
-	typeDB:       "rech_db_t *",
-	typeInt8:     "int8_t",
-	typeInt16:    "int16_t",
-	typeInt32:    "int32_t",
-	typeInt64:    "int64_t",
-	typeUint:     "uint64_t",
-	typeUint8:    "uint8_t",
-	typeUint16:   "uint16_t",
-	typeUint32:   "uint32_t",
-	typeUint64:   "uint64_t",
-	typeAny:      "rech_any_t",
-	typeTypeInfo: "const rech_type_meta_t *",
+	typeByte:         "unsigned char",
+	typeInt:          "long long",
+	typeFloat32:      "float",
+	typeFloat:        "double",
+	typeChar:         "int32_t",
+	typeString:       "const char *",
+	typeBool:         "bool",
+	typeFile:         "rech_file_t",
+	typeSocket:       "rech_socket_t",
+	typeDB:           "rech_db_t *",
+	typeHTTP2Session: "rech_http2_session_t *",
+	typeInt8:         "int8_t",
+	typeInt16:        "int16_t",
+	typeInt32:        "int32_t",
+	typeInt64:        "int64_t",
+	typeUint:         "uint64_t",
+	typeUint8:        "uint8_t",
+	typeUint16:       "uint16_t",
+	typeUint32:       "uint32_t",
+	typeUint64:       "uint64_t",
+	typeAny:          "rech_any_t",
+	typeTypeInfo:     "const rech_type_meta_t *",
 }
 
 // cType - C-тип, соответствующий t. Для kindEntity зависит от того,

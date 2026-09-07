@@ -41,6 +41,8 @@ func printCall(ctx *irGenCtx, typ valueType, code string) string {
 		return `printf("[сокет]\n");`
 	case typeDB:
 		return `printf("[бд]\n");`
+	case typeHTTP2Session:
+		return `printf("[http2-сессия]\n");`
 	default:
 		if typ.kind == kindEntity {
 			kind := "сущность"

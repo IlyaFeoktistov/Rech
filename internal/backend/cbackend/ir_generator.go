@@ -486,6 +486,15 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		if ent.HasStateFlags {
 			usesStateFlags = true
 		}
+		if ent.Name == http2StreamTypeC {
+			// "HTTP2Поток" сам - структура (IsStruct, не попадает под
+			// проверку выше), но её РАНТАЙМ (http2.go - сессия/поток
+			// nghttp2, заголовки, растущие буферы) выделяет память через
+			// GC_MALLOC независимо от того, есть ли в программе хоть одна
+			// ссылочная сущность - тем же принципом, что prog.UsesDB/
+			// len(prog.Generics)>0 ниже.
+			usesGC = true
+		}
 	}
 	for _, t := range prog.ReflectTargets {
 		// Боксирование структуры ("(Значение) x") GC_MALLOC'ит независимую
@@ -1001,10 +1010,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// автоматически, см. ensureTaskWrapper) - должен идти ДО "#include
 	// <gc.h>" (заголовочный guard <gc.h> учитывает его только на первое
 	// включение).
-	if ctx.usesThreads {
+	if ctx.usesThreads || ctx.usesHTTP2 {
 		sb.WriteString("#define GC_THREADS\n")
 	}
-	if ctx.usesGC || ctx.usesThreads {
+	if ctx.usesGC || ctx.usesThreads || ctx.usesHTTP2 {
 		sb.WriteString("#include <gc.h>\n")
 	}
 	if ctx.includesStringH {
@@ -1067,6 +1076,15 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// -lcrypto - internal/toolchain/cc.go, по маркеру этого #include).
 	if ctx.usesTLS {
 		sb.WriteString("#include <openssl/ssl.h>\n#include <openssl/err.h>\n")
+	}
+	// <nghttp2/nghttp2.h> - HTTP/2-транспорт (http2.go) - единственная
+	// внешняя библиотека этого блока, кроме OpenSSL выше (-lnghttp2,
+	// internal/toolchain/cc.go, по маркеру этого #include) - POSIX-only
+	// (см. package doc http2.go, "#error" на _WIN32 внутри самого рантайма),
+	// поэтому <sys/time.h> (struct timeval, тайм-аут recv() у IO-потока)
+	// подключается тут же, безусловно вместе с ним.
+	if ctx.usesHTTP2 {
+		sb.WriteString("#include <nghttp2/nghttp2.h>\n#include <sys/time.h>\n")
 	}
 	// Потоки ("запустить"/"дождаться") и "Блокировка" - на Windows
 	// CreateThread/CRITICAL_SECTION уже объявлены через windows.h выше,
@@ -1170,6 +1188,18 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// раньше, чем полный dbRuntimeCode (тот эмитируется намного позже -
 	// зависит от genericsCode, которого здесь ещё нет).
 	appendCodeIf(&sb, prog.UsesDB, dbHandleTypedefCode(prog.DBPoolSize, prog.DBPoolTimeoutMs, prog.DBSQLiteBusyTimeoutMs))
+
+	// Тот же принцип, что и dbHandleTypedefCode выше - сущность "HTTP2Поток"
+	// несёт поле типа "HTTP2Сессия" (rech_http2_session_t *), её typedef
+	// обязан быть виден раньше typedef самой "HTTP2Поток". http2CallbacksCode
+	// (nghttp2-колбэки) не зависит ни от genericsCode/typedefs, ни от
+	// socketHelpers/bytesWrapHelper (те нужны только http2SessionOpsCode -
+	// см. её отдельную, более позднюю точку эмиссии) - можно эмитить сразу
+	// вместе с typedef'ом.
+	if ctx.usesHTTP2 {
+		sb.WriteString(http2SessionTypedefCode)
+		sb.WriteString(http2CallbacksCode)
+	}
 
 	// Перед typedefs - сущность может нести поле generic-коллекции по
 	// значению (например, "товары: Список<Строка>"), значит её C-typedef
@@ -1287,6 +1317,14 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// флаг, эмитится РОВНО один раз для программы, использующей и то, и
 	// другое сразу.
 	appendCodeIf(&sb, ctx.usesByteListWrap, bytesWrapHelper())
+	// http2SessionOpsCode - после socketHelpers/socketHelpersTLS
+	// (rech_connect_tcp) И bytesWrapHelper выше (rech_http2_read_data зовёт
+	// rech_bytes_wrap) И typedefs (её typedef "HTTP2Поток" уже должен быть
+	// виден) - typedef/колбэки самой сессии эмитированы РАНЬШЕ (см. их
+	// отдельную точку выше, рядом с dbHandleTypedefCode).
+	if ctx.usesHTTP2 {
+		sb.WriteString(http2SessionOpsCode())
+	}
 	// После bytesWrapHelper выше - rech_bytes_from_string зовёт
 	// rech_bytes_wrap напрямую.
 	appendCodeIf(&sb, ctx.usesByteStringConv, byteStringConvHelpers())
@@ -2887,27 +2925,28 @@ func generateIRStaticMethodCallExpr(ctx *irGenCtx, e *ir.StaticMethodCallExpr) (
 // irKindToValueType - ir.Kind -> valueType для всех примитивов (не
 // KindEntity - у него есть переменная часть, имя сущности, см. fromIRType).
 var irKindToValueType = map[ir.TypeKind]valueType{
-	ir.KindByte:     typeByte,
-	ir.KindInt:      typeInt,
-	ir.KindFloat32:  typeFloat32,
-	ir.KindFloat:    typeFloat,
-	ir.KindChar:     typeChar,
-	ir.KindString:   typeString,
-	ir.KindBool:     typeBool,
-	ir.KindFile:     typeFile,
-	ir.KindSocket:   typeSocket,
-	ir.KindDB:       typeDB,
-	ir.KindInt8:     typeInt8,
-	ir.KindInt16:    typeInt16,
-	ir.KindInt32:    typeInt32,
-	ir.KindInt64:    typeInt64,
-	ir.KindUint:     typeUint,
-	ir.KindUint8:    typeUint8,
-	ir.KindUint16:   typeUint16,
-	ir.KindUint32:   typeUint32,
-	ir.KindUint64:   typeUint64,
-	ir.KindAny:      typeAny,
-	ir.KindTypeInfo: typeTypeInfo,
+	ir.KindByte:         typeByte,
+	ir.KindInt:          typeInt,
+	ir.KindFloat32:      typeFloat32,
+	ir.KindFloat:        typeFloat,
+	ir.KindChar:         typeChar,
+	ir.KindString:       typeString,
+	ir.KindBool:         typeBool,
+	ir.KindFile:         typeFile,
+	ir.KindSocket:       typeSocket,
+	ir.KindDB:           typeDB,
+	ir.KindHTTP2Session: typeHTTP2Session,
+	ir.KindInt8:         typeInt8,
+	ir.KindInt16:        typeInt16,
+	ir.KindInt32:        typeInt32,
+	ir.KindInt64:        typeInt64,
+	ir.KindUint:         typeUint,
+	ir.KindUint8:        typeUint8,
+	ir.KindUint16:       typeUint16,
+	ir.KindUint32:       typeUint32,
+	ir.KindUint64:       typeUint64,
+	ir.KindAny:          typeAny,
+	ir.KindTypeInfo:     typeTypeInfo,
 }
 
 func fromIRType(t ir.Type) valueType {

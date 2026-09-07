@@ -570,6 +570,16 @@ func analyzeCallExpr(sc *ctx, e *ast.CallExpr) (ir.Expr, error) {
 				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
 			}
 		}
+		if http2FuncNames[callee] {
+			if err := registerHTTP2TypesOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
+				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
+			}
+		}
+		if http2BytesFuncNames[callee] {
+			if err := registerByteListTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
+				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
+			}
+		}
 		if optionalStringFuncNames[callee] {
 			if err := registerOptionalStringOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
 				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)

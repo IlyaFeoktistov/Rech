@@ -8,6 +8,7 @@ require (
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/jus1d/gomorphy v0.2.3
 	github.com/lib/pq v1.12.3
+	golang.org/x/net v0.58.0
 	golang.org/x/term v0.45.0
 	golang.org/x/text v0.41.0
 	modernc.org/sqlite v1.57.0

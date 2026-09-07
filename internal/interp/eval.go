@@ -787,6 +787,8 @@ func (in *Interp) printValue(v Value) {
 		fmt.Fprintln(in.out, "[сокет]")
 	case ir.KindDB:
 		fmt.Fprintln(in.out, "[бд]")
+	case ir.KindHTTP2Session:
+		fmt.Fprintln(in.out, "[http2-сессия]")
 	case ir.KindPointer:
 		// В отличие от cbackend (настоящий C-указатель, "%p") -
 		// pointerTarget интерпретатора не настоящий адрес памяти

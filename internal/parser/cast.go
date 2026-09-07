@@ -38,6 +38,7 @@ var primitiveCastTypes = map[string]bool{
 	"Файл":           true,
 	"Сокет":          true,
 	"БД":             true,
+	"HTTP2Сессия":    true,
 }
 
 // tryParseCast проверяет, не начинается ли текущая позиция с "(Тип)" (Тип -

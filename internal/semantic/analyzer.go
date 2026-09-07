@@ -497,6 +497,7 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 	registerBytesIOFuncs(funcs)
 	registerHTTPBytesFuncs(funcs)
 	registerMultipartFunc(funcs)
+	registerHTTP2Funcs(funcs)
 	for _, fn := range prog.Functions {
 		if _, exists := funcs[fn.Name]; exists {
 			if builtins.IsReservedName(fn.Name) {
@@ -1039,6 +1040,10 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	}
 	if _, ok := a.entities[httpBytesResponseType]; ok {
 		out.Entities = append(out.Entities, &ir.Entity{Name: httpBytesResponseType, IsStruct: true, Fields: httpBytesResponseFields})
+	}
+	// "HTTP2Поток" - тот же принцип, что "ЗапросБайты"/"ОтветБайты" выше.
+	if _, ok := a.entities[http2StreamType]; ok {
+		out.Entities = append(out.Entities, &ir.Entity{Name: http2StreamType, IsStruct: true, Fields: http2StreamFields})
 	}
 	// "Блокировка" - проверка ЗДЕСЬ (не раньше цикла по prog.Entities/
 	// prog.Functions выше), потому что она может встретиться впервые не

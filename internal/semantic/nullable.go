@@ -58,6 +58,7 @@ var optionalStringFuncNames = map[string]bool{
 	"получить_переменную_окружения": true,
 	"значение_заголовка":            true,
 	"значение_куки":                 true,
+	"http2_заголовок":               true,
 }
 
 // nonNullState - синтетическое имя "состояния" (в смысле established, см.

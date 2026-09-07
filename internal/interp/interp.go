@@ -238,6 +238,10 @@ type Value struct {
 	// видно.
 	DB *sql.DB
 
+	// HTTP2 - непрозрачный дескриптор активной HTTP/2-сессии, Type.Kind ==
+	// ir.KindHTTP2Session - см. package doc internal/interp/http2.go.
+	HTTP2 *http2Session
+
 	// Ptr - непрозрачный "адрес" ("Указатель<T>", Type.Kind ==
 	// ir.KindPointer) - см. package doc internal/interp/pointer.go.
 	Ptr *pointerTarget

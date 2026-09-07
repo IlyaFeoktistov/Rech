@@ -46,6 +46,7 @@ var primitiveTypes = map[string]ir.Type{
 	"Файл":           ir.TypeFile,
 	"Сокет":          ir.TypeSocket,
 	"БД":             ir.TypeDB,
+	"HTTP2Сессия":    ir.TypeHTTP2Session,
 	"Дробное":        ir.TypeFloat32,
 	"Символ":         ir.TypeChar,
 	"Байт":           ir.TypeByte,
@@ -116,6 +117,9 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 		}
 		registerHTTPEntity(entities, formPartType, formPartFields)
 		return ir.EntityType(formPartType), nil
+	case http2StreamType:
+		registerHTTPEntity(entities, http2StreamType, http2StreamFields)
+		return ir.EntityType(http2StreamType), nil
 	case "Совпадение":
 		// "группы" (Список<Строка>) - зарегистрировать ДО самой "Совпадение",
 		// иначе метод вроде "м.группы.длина()" не найдёт methods["Список<

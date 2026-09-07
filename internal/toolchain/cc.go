@@ -149,6 +149,14 @@ func commonLinkFlags(src []byte) []string {
 	if bytes.Contains(src, []byte("#include <openssl/ssl.h>")) {
 		flags = append(flags, "-lssl", "-lcrypto")
 	}
+	// -lnghttp2 - HTTP/2-транспорт (internal/backend/cbackend/http2.go) -
+	// тот же принцип, что и OpenSSL выше: не входит в стандартный C-тулчейн,
+	// линкуется только когда программа реально вызвала одну из
+	// http2_*-функций (по маркеру "#include <nghttp2/nghttp2.h>", ctx.
+	// usesHTTP2).
+	if bytes.Contains(src, []byte("#include <nghttp2/nghttp2.h>")) {
+		flags = append(flags, "-lnghttp2")
+	}
 	if runtime.GOOS == "windows" {
 		// -lshell32 - CommandLineToArgvW (internal/backend/cbackend.
 		// argFuncHelper/rech_init_args): argv, который сам даёт CRT на
