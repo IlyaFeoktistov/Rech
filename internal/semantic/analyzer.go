@@ -501,6 +501,7 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 	registerGRPCFuncs(funcs)
 	registerGRPCSFuncs(funcs)
 	registerNumberBaseFuncs(funcs)
+	registerProcessFuncs(funcs)
 	for _, fn := range prog.Functions {
 		if _, exists := funcs[fn.Name]; exists {
 			if builtins.IsReservedName(fn.Name) {

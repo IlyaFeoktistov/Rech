@@ -165,6 +165,11 @@ type builtinFlags struct {
 	// usesNumBase - нужны ли rech_int_to_hex/rech_int_from_hex и то же для
 	// oct/bin (numbase.go) - "целое_в_*"/"целое_из_*".
 	usesNumBase bool
+	// usesSleep - нужен ли rech_sleep_ms (process.go) - "спать_мс".
+	usesSleep bool
+	// usesExit - "выйти" - зовёт exit() напрямую (<stdlib.h>, см. её
+	// включение по этому же флагу - includesStdlibH).
+	usesExit bool
 	// usesShutdownFlag - нужен ли rech_shutdown_requested (shutdown.go) -
 	// встроенная функция "запрошена_остановка" - регистрирует обработчик
 	// SIGINT/SIGTERM лениво, при первом использовании программой (см. её
@@ -458,6 +463,12 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 		flags.usesNumBase = true
 		flags.usesPanic = true
 		return fmt.Sprintf("rech_int_from_bin(%s)", args[0]), true
+	case "спать_мс":
+		flags.usesSleep = true
+		return fmt.Sprintf("rech_sleep_ms(%s)", args[0]), true
+	case "выйти":
+		flags.usesExit = true
+		return fmt.Sprintf("exit((int)(%s))", args[0]), true
 	case "http2_принять_сессию":
 		flags.usesHTTP2 = true
 		flags.usesSockets = true

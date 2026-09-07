@@ -953,7 +953,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// внешние_функции.rech, strlen + <string.h>, включённый совсем по
 	// другой причине - memcpy захваченной лямбды).
 	ctx.includesStringH = ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesPanicCatch || ctx.usesStringSplit || ctx.usesRegex || ctx.usesHTTPHeaders || ctx.usesColor || hasStructTargets || prog.UsesReflection
-	ctx.includesStdlibH = ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesColor || ctx.usesQueryParams || ctx.usesCookies || ctx.usesRandom || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesRegex || ctx.usesHTTPHeaders || hasStructTargets
+	ctx.includesStdlibH = ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesColor || ctx.usesQueryParams || ctx.usesCookies || ctx.usesRandom || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesRegex || ctx.usesHTTPHeaders || hasStructTargets || ctx.usesExit
 	ctx.includesMathH = ctx.usesMath
 	for _, ext := range prog.ExternFuncs {
 		protoStr, err := externPrototypeOfIR(ctx, ext)
@@ -1063,7 +1063,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	if ctx.includesMathH {
 		sb.WriteString("#include <math.h>\n")
 	}
-	if ctx.usesDateTime {
+	if ctx.usesDateTime || ctx.usesSleep {
 		sb.WriteString("#include <time.h>\n")
 	}
 	if ctx.usesExceptions {
@@ -1401,6 +1401,9 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// примитивы (Целое/Строка) - "из_*" зовёт rech_panic (panicHelper выше).
 	appendCodeIf(&sb, ctx.usesNumBase, numBaseToStringHelpers)
 	appendCodeIf(&sb, ctx.usesNumBase, numBaseFromStringHelpers())
+	// process.go - "спать_мс" - не зависит от typedefs, только примитив
+	// (Целое).
+	appendCodeIf(&sb, ctx.usesSleep, processHelpers)
 	// Не зависит от typedefs вообще (только примитивы) - здесь же просто
 	// для единообразия с остальными builtin-хелперами шага 8.
 	appendCodeIf(&sb, ctx.usesRandom, randomHelpers)

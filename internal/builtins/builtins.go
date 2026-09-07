@@ -358,6 +358,8 @@ var ReservedFuncNames = map[string]bool{
 	"целое_из_oct":                  true,
 	"целое_в_bin":                   true,
 	"целое_из_bin":                  true,
+	"спать_мс":                      true,
+	"выйти":                         true,
 }
 
 // ReservedEntityNames - зарезервированные имена сущностей (Запрос/Ответ,

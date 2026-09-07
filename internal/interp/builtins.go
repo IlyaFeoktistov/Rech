@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
@@ -216,6 +217,12 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return intToBaseString(args[0].I, "0b", 2), true
 	case "целое_из_bin":
 		return intFromBaseString("целое_из_bin", args[0].S, "0b", 2), true
+	case "спать_мс":
+		time.Sleep(time.Duration(args[0].I) * time.Millisecond)
+		return Value{}, true
+	case "выйти":
+		os.Exit(int(args[0].I))
+		return Value{}, true
 	case "получить_от":
 		return in.recvFrom(args[0], args[1].I), true
 	case "отправить_в":
