@@ -311,6 +311,14 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return stringValue(aesEncryptHex(args[0].S, args[1].S)), true
 	case "расшифровать":
 		return stringValue(aesDecryptHex(args[0].S, args[1].S)), true
+	case "сгенерировать_приватный_ключ":
+		return stringValue(generatePrivateKeyPEM(int(args[0].I))), true
+	case "получить_публичный_ключ":
+		return stringValue(getPublicKeyPEM(args[0].S)), true
+	case "подписать":
+		return stringValue(signHex(args[0].S, args[1].S)), true
+	case "проверить_подпись":
+		return boolValue(verifySignatureHex(args[0].S, args[1].S, args[2].S)), true
 	case "время_как_дата":
 		return timeToDate(args[0].I), true
 	case "дата_как_время":

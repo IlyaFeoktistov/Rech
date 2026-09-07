@@ -25,30 +25,9 @@ import (
 // тег(16 байт)) - "расшифровать" принимает эту строку целиком. Байтовая
 // раскладка ДОЛЖНА совпадать с interp.aesEncryptHex (internal/interp/
 // aes.go) - зашифрованное одним backend'ом должно расшифровываться
-// другим. "rech_hex_decode" - обратная операция к rech_bytes_to_hex
-// (crypto.go) - тут же, не в crypto.go, потому что нужна ТОЛЬКО
-// "расшифровать" (crypto.go никогда не декодирует произвольный HEX
-// обратно в байты - только форматирует байты в HEX).
-var aesHelpers = fmt.Sprintf(`static unsigned char *rech_hex_decode(const char *hex, size_t *outlen) {
-    size_t hexlen = strlen(hex);
-    if (hexlen %% 2 != 0) {
-        return NULL;
-    }
-    size_t n = hexlen / 2;
-    unsigned char *out = malloc(n > 0 ? n : 1);
-    for (size_t i = 0; i < n; i++) {
-        unsigned int b;
-        if (sscanf(hex + i * 2, "%%2x", &b) != 1) {
-            free(out);
-            return NULL;
-        }
-        out[i] = (unsigned char)b;
-    }
-    *outlen = n;
-    return out;
-}
-
-static void rech_aes_key_from_passphrase(const char *passphrase, unsigned char key[32]) {
+// другим. "rech_hex_decode" (обратная к rech_bytes_to_hex) - в crypto.go,
+// не здесь - нужна и "расшифровать" тут, и "проверить_подпись" (signing.go).
+var aesHelpers = fmt.Sprintf(`static void rech_aes_key_from_passphrase(const char *passphrase, unsigned char key[32]) {
     rech_sha256_ctx kctx;
     rech_sha256_init(&kctx);
     rech_sha256_update(&kctx, (const unsigned char *)passphrase, strlen(passphrase));

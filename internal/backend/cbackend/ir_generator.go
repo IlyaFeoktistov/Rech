@@ -1109,6 +1109,18 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	if ctx.usesAES {
 		sb.WriteString("#include <openssl/evp.h>\n#include <openssl/rand.h>\n")
 	}
+	// <openssl/pem.h>/<openssl/bio.h> - асимметричная подпись
+	// ("сгенерировать_приватный_ключ"/"получить_публичный_ключ"/
+	// "подписать"/"проверить_подпись", signing.go) - <openssl/evp.h> тут же
+	// (EVP_PKEY и т. п.), но не дублируется, если usesAES уже его подключил
+	// - "-lcrypto" всё равно достаточно (проверка cc.go по любому из двух
+	// маркеров - "#include <openssl/evp.h>" присутствует в обоих случаях).
+	if ctx.usesSigning {
+		if !ctx.usesAES {
+			sb.WriteString("#include <openssl/evp.h>\n")
+		}
+		sb.WriteString("#include <openssl/pem.h>\n#include <openssl/bio.h>\n")
+	}
 	// <nghttp2/nghttp2.h> - HTTP/2-транспорт (http2.go) - единственная
 	// внешняя библиотека этого блока, кроме OpenSSL выше (-lnghttp2,
 	// internal/toolchain/cc.go, по маркеру этого #include) - POSIX-only
@@ -1427,6 +1439,12 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// hex зовёт rech_bytes_to_hex) - usesAES всегда идёт вместе с
 	// usesCrypto=true (builtins_shared.go), так что порядок гарантирован.
 	appendCodeIf(&sb, ctx.usesAES, aesHelpers)
+	// signing.go - "сгенерировать_приватный_ключ"/"получить_публичный_
+	// ключ"/"подписать"/"проверить_подпись" - ПОСЛЕ cryptoHelpers (rech_
+	// sign_hex зовёт rech_bytes_to_hex, rech_verify_signature_hex зовёт
+	// rech_hex_decode) и ПОСЛЕ panicHelper (обе тянут rech_panic) - оба уже
+	// гарантированы: usesSigning всегда идёт вместе с usesCrypto=true.
+	appendCodeIf(&sb, ctx.usesSigning, signingHelpers)
 	// После typedefs (rech_T_opcii_kuki/rech_T_n_stroka уже объявлены) и
 	// после strConcatHelper выше (rech_cookie_string зовёт rech_str_concat).
 	appendCodeIf(&sb, ctx.usesCookies, cookieHelpers())

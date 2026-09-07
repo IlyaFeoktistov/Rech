@@ -547,6 +547,30 @@ static void rech_sha3_256_final(rech_sha3_ctx *ctx, unsigned char out[32]) {
     memcpy(out, ctx->st, 32);
 }
 
+// rech_hex_decode - обратная операция к rech_bytes_to_hex ниже (HEX-строка
+// в байты, не байты в HEX) - нужна "расшифровать" (aes.go)/"проверить_
+// подпись" (signing.go), обеим достаточно usesCrypto=true (обе тянут его
+// вместе со своим отдельным флагом), значит уместнее здесь, в общем блоке,
+// чем дублировать в обоих местах.
+static unsigned char *rech_hex_decode(const char *hex, size_t *outlen) {
+    size_t hexlen = strlen(hex);
+    if (hexlen %% 2 != 0) {
+        return NULL;
+    }
+    size_t n = hexlen / 2;
+    unsigned char *out = malloc(n > 0 ? n : 1);
+    for (size_t i = 0; i < n; i++) {
+        unsigned int b;
+        if (sscanf(hex + i * 2, "%%2x", &b) != 1) {
+            free(out);
+            return NULL;
+        }
+        out[i] = (unsigned char)b;
+    }
+    *outlen = n;
+    return out;
+}
+
 static char *rech_bytes_to_hex(const unsigned char *data, size_t len) {
     static const char hexd[] = "0123456789abcdef";
     char *out = malloc(len * 2 + 1);

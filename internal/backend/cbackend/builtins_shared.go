@@ -152,6 +152,16 @@ type builtinFlags struct {
 	// - голых хеш-функций). Всегда идёт вместе с usesCrypto=true (ключ AES
 	// - SHA-256 от пароля, см. package doc aes.go).
 	usesAES bool
+	// usesSigning - нужны ли rech_generate_private_key_pem/rech_get_public_
+	// key_pem/rech_sign_hex/rech_verify_signature_hex (signing.go) -
+	// встроенные функции "сгенерировать_приватный_ключ"/"получить_
+	// публичный_ключ"/"подписать"/"проверить_подпись" - те же заголовки
+	// OpenSSL EVP, что и usesAES (<openssl/evp.h>), плюс <openssl/pem.h>/
+	// <openssl/bio.h> для PEM - ОТДЕЛЬНЫЙ флаг от usesAES (симметричное
+	// шифрование и асимметричная подпись - разные builtin'ы, программа
+	// может использовать одно без другого). Асимметричная криптография с
+	// нуля - тот же риск для безопасности, что и у AES/TLS выше.
+	usesSigning bool
 	// usesHTTP2 - нужен ли биндинг к nghttp2 (http2.go, HTTP/2-транспорт) -
 	// подключает <nghttp2/nghttp2.h> (-lnghttp2 - internal/toolchain/cc.go,
 	// по маркеру этого #include) - тем же принципом, что и usesTLS/OpenSSL:
@@ -702,6 +712,26 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 		flags.usesAES = true
 		flags.usesPanic = true
 		return fmt.Sprintf("rech_aes_decrypt_hex(%s, %s)", args[0], args[1]), true
+	case "сгенерировать_приватный_ключ":
+		flags.usesCrypto = true
+		flags.usesSigning = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_generate_private_key_pem((int)(%s))", args[0]), true
+	case "получить_публичный_ключ":
+		flags.usesCrypto = true
+		flags.usesSigning = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_get_public_key_pem(%s)", args[0]), true
+	case "подписать":
+		flags.usesCrypto = true
+		flags.usesSigning = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_sign_hex(%s, %s)", args[0], args[1]), true
+	case "проверить_подпись":
+		flags.usesCrypto = true
+		flags.usesSigning = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_verify_signature_hex(%s, %s, %s)", args[0], args[1], args[2]), true
 	default:
 		return "", false
 	}
