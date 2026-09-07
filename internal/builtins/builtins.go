@@ -350,6 +350,8 @@ var ReservedFuncNames = map[string]bool{
 	"grpc_завершить":                true,
 	"grpc_статус":                   true,
 	"grpc_сообщение_ошибки":         true,
+	"слушать_grpcs":                 true,
+	"новая_grpcs_сессия":            true,
 }
 
 // ReservedEntityNames - зарезервированные имена сущностей (Запрос/Ответ,

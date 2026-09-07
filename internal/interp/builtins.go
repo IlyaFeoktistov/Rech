@@ -200,6 +200,10 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return boolValue(waitAllTasks(args[0].I)), true
 	case "слушать_tcp_защищённо":
 		return listenTLS(args[0].I, args[1].S, args[2].S), true
+	case "слушать_grpcs":
+		return listenGRPCS(args[0].I, args[1].S, args[2].S), true
+	case "новая_grpcs_сессия":
+		return in.grpcsNewSession(args[0].S, args[1].I), true
 	case "получить_от":
 		return in.recvFrom(args[0], args[1].I), true
 	case "отправить_в":

@@ -1198,7 +1198,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// вместе с typedef'ом.
 	if ctx.usesHTTP2 {
 		sb.WriteString(http2SessionTypedefCode)
-		sb.WriteString(http2CallbacksCode)
+		sb.WriteString(http2CallbacksCode(ctx.usesTLS))
 	}
 
 	// Перед typedefs - сущность может нести поле generic-коллекции по
@@ -1323,7 +1323,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// виден) - typedef/колбэки самой сессии эмитированы РАНЬШЕ (см. их
 	// отдельную точку выше, рядом с dbHandleTypedefCode).
 	if ctx.usesHTTP2 {
-		sb.WriteString(http2SessionOpsCode())
+		sb.WriteString(http2SessionOpsCode(ctx.usesTLS))
 	}
 	// grpcSessionOpsCode - ПОСЛЕ http2SessionOpsCode выше (зовёт rech_http2_*
 	// по имени, см. package doc grpc.go) И после nullablesCode/
@@ -1331,6 +1331,14 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// функции - см. их точки выше; "?Список<Байт>"_wrap/_empty оттуда).
 	if ctx.usesGRPC {
 		sb.WriteString(grpcSessionOpsCode())
+	}
+	// grpcsListenAndConnectCode - ПОСЛЕ http2SessionOpsCode выше (зовёт
+	// rech_http2_new_callbacks/rech_http2_start_thread по имени) И после
+	// socketHelpersTLS (rech_listen_tcp/rech_tls_register/SSL_CTX_new -
+	// usesGRPCS форсирует usesTLS, см. её дизайн-flag в builtins_shared.go)
+	// - см. package doc grpcs.go.
+	if ctx.usesGRPCS {
+		sb.WriteString(grpcsListenAndConnectCode())
 	}
 	// После bytesWrapHelper выше - rech_bytes_from_string зовёт
 	// rech_bytes_wrap напрямую.

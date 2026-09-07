@@ -499,6 +499,7 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 	registerMultipartFunc(funcs)
 	registerHTTP2Funcs(funcs)
 	registerGRPCFuncs(funcs)
+	registerGRPCSFuncs(funcs)
 	for _, fn := range prog.Functions {
 		if _, exists := funcs[fn.Name]; exists {
 			if builtins.IsReservedName(fn.Name) {

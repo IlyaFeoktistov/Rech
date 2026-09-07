@@ -155,6 +155,13 @@ type builtinFlags struct {
 	// grpc.go) - эмитится только когда программа реально вызвала одну из
 	// grpc_*-функций.
 	usesGRPC bool
+	// usesGRPCS - нужен ли grpcsListenAndConnectCode (grpcs.go) - "слушать_
+	// grpcs"/"новая_grpcs_сессия", TLS+ALPN "h2" - подразумевает usesHTTP2
+	// (серверная сторона - обычная http2_принять_сессию, см. package doc
+	// grpcs.go) И usesTLS (свой SSL_CTX поверх уже готового TLS-биндинга,
+	// tls.go) - выставляется вместе с ними в диспетчеризации ниже, не
+	// самостоятельно.
+	usesGRPCS bool
 	// usesShutdownFlag - нужен ли rech_shutdown_requested (shutdown.go) -
 	// встроенная функция "запрошена_остановка" - регистрирует обработчик
 	// SIGINT/SIGTERM лениво, при первом использовании программой (см. её
@@ -413,6 +420,20 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 		flags.usesTLS = true
 		flags.usesPanic = true
 		return fmt.Sprintf("rech_listen_tcp_secure(%s, %s, %s)", args[0], args[1], args[2]), true
+	case "слушать_grpcs":
+		flags.usesSockets = true
+		flags.usesTLS = true
+		flags.usesHTTP2 = true
+		flags.usesGRPCS = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_listen_tcp_grpcs(%s, %s, %s)", args[0], args[1], args[2]), true
+	case "новая_grpcs_сессия":
+		flags.usesSockets = true
+		flags.usesTLS = true
+		flags.usesHTTP2 = true
+		flags.usesGRPCS = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_grpcs_new_session(%s, %s)", args[0], args[1]), true
 	case "http2_принять_сессию":
 		flags.usesHTTP2 = true
 		flags.usesSockets = true

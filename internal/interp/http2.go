@@ -120,7 +120,16 @@ func resolveStream(v Value) (*http2Session, *http2StreamState) {
 // заводит на нём серверную HTTP/2-сессию (http2.Server.ServeConn сама
 // проверяет клиентский preface - ошибка рукопожатия обнаружится при первом
 // обращении к сессии, не здесь синхронно, тем же принципом отложенной
-// проверки, что и TLS-рукопожатие, см. rtmsg.TLSHandshakeFailed).
+// проверки, что и h2c-часть). ЖИВОЙ НАЙДЕННЫЙ БАГ (grpcs, Шаг 95) - TLS-
+// рукопожатие *tls.Conn у Go ленивое (на первом Read/Write), а http2.Server.
+// ServeConn читает ConnectionState() СРАЗУ, ДО первого Read/Write - у ещё
+// не рукопожатого соединения Version==0, что http2.Server интерпретирует
+// как "TLS version too low" и рвёт соединение GOAWAY'ем ДО того, как
+// программа вообще увидит хоть один поток (acceptWithTimeout, network_
+// timeout.go, уже форсирует tc.Handshake() синхронно для ЭТОЙ ЖЕ причины у
+// обычного "принять" - здесь пропущено не было замечено раньше просто
+// потому, что до grpcs НИ ОДИН вызывающий http2_принять_сессию listener не
+// бывал TLS-обёрнутым).
 func (in *Interp) http2AcceptSession(listenerVal Value) Value {
 	if listenerVal.Listener == nil {
 		panicRuntime("%s", rtmsg.SocketWrongKind)
@@ -128,6 +137,12 @@ func (in *Interp) http2AcceptSession(listenerVal Value) Value {
 	conn, err := listenerVal.Listener.Accept()
 	if err != nil {
 		panicRuntime("%s", rtmsg.HTTP2AcceptFailed)
+	}
+	if tc, ok := conn.(*tls.Conn); ok {
+		if err := tc.Handshake(); err != nil {
+			conn.Close()
+			panicRuntime("%s", rtmsg.HTTP2HandshakeFailed)
+		}
 	}
 	sess := &http2Session{conn: conn, incoming: make(chan *http2StreamState, 256), streams: map[int64]*http2StreamState{}}
 	server := &http2.Server{}

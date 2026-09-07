@@ -88,6 +88,34 @@ typedef struct rech_http2_session {
     int is_client;
     char *authority;
 
+    // tls_ssl - "void *", не "SSL *", ЧТОБЫ этот typedef оставался
+    // компилируемым, даже когда программа использует ТОЛЬКО h2c (нет ни
+    // grpcs, ни какого-либо другого TLS - <openssl/ssl.h> тогда вовсе не
+    // подключён, см. ir_generator.go) - каст к "SSL *" происходит только
+    // внутри send_cb/io_thread (http2CallbacksCode ниже), И ТОЛЬКО когда
+    // usesTLS истинно (там этот заголовок уже гарантированно виден). NULL -
+    // обычный h2c-поток; ненулевое значение выставляется один раз, в
+    // rech_http2_accept_session/rech_http2_new_session/rech_grpcs_*
+    // (http2SessionOpsCode/grpcs.go), не здесь.
+    void *tls_ssl;
+    // ssl_io_lock - ЖИВОЙ НАЙДЕННЫЙ БАГ (grpcs, Шаг 95): один SSL* не
+    // потокобезопасен для ОДНОВРЕМЕННЫХ SSL_read/SSL_write из разных
+    // потоков ОС (io_thread читает, произвольный вызывающий поток пишет
+    // через send_cb под sess->lock) - портит внутреннее состояние
+    // TLS-записи, воспроизведено живым прогоном (SSL_ERROR_SSL на обеих
+    // сторонах сразу, сессия зависает навечно). НЕ переиспользует sess->
+    // lock для этого - SSL_read блокируется до 50мс (SO_RCVTIMEO,
+    // rech_http2_start_thread) - удержание sess->lock на всё это время
+    // держало бы ЗАБЛОКИРОВАННЫМИ вообще все http2_*/grpc_*-функции
+    // (тоже нужен sess->lock) почти постоянно - живая находка ВТОРОГО
+    // порядка (первая попытка чинить через sess->lock), не гипотетически.
+    // rech_http2_locked_read/send_cb (http2CallbacksCode) используют
+    // pthread_mutex_TRYlock на ЭТОМ отдельном мьютексе - кто не успел,
+    // тот НЕ ждёт, а отступает (EAGAIN у чтения, NGHTTP2_ERR_WOULDBLOCK у
+    // записи - оба уже штатно обрабатываются существующей логикой цикла/
+    // nghttp2 без единой правки в ней).
+    pthread_mutex_t ssl_io_lock;
+
     pthread_t thread;
     pthread_mutex_t lock;
     pthread_cond_t cond;
@@ -235,8 +263,72 @@ static void rech_http2_enqueue(rech_http2_session_t *sess, int32_t stream_id) {
 // заголовков/данных/закрытия потока, отправка исходящих байт на сокет,
 // поставщик данных для DATA-фреймов (читает из stream->send_buf, отдаёт
 // EOF+трейлеры, когда http2_завершить_поток пометил send_eof и буфер
-// вычерпан).
-const http2CallbacksCode = `static int rech_http2_on_begin_headers(nghttp2_session *ng, const nghttp2_frame *frame, void *user_data) {
+// вычерпан). usesTLS - grpcs (Шаг 95): send_cb/io_thread читают/пишут
+// через SSL_write/SSL_read, когда sess->tls_ssl не NULL, иначе как раньше
+// (recv/send) - функция, не const, ЧТОБЫ эта ветка не появлялась вовсе в
+// программе без единого TLS-биндинга (undefined-символ SSL_read/SSL_write
+// без <openssl/ssl.h>, включаемого только при usesTLS - см. package doc
+// поля tls_ssl, http2SessionTypedefCode).
+func http2CallbacksCode(usesTLS bool) string {
+	sendExpr := "send(sess->fd, data, length, 0)"
+	recvExpr := "recv(sess->fd, buf, sizeof(buf), 0)"
+	sslIOHelpers := ""
+	if usesTLS {
+		// rech_http2_locked_send/rech_http2_locked_read - ЖИВОЙ НАЙДЕННЫЙ
+		// БАГ (grpcs, Шаг 95): один SSL* не потокобезопасен для
+		// ОДНОВРЕМЕННЫХ SSL_read/SSL_write из разных потоков ОС (io_thread
+		// читает, произвольный вызывающий поток пишет через send_cb) -
+		// портит внутреннее состояние TLS-записи, воспроизведено живым
+		// прогоном (SSL_ERROR_SSL на обеих сторонах сразу, сессия зависает
+		// навечно). ПЕРВАЯ попытка чинить через sess->lock (уже
+		// сериализующий SSL_write у всех вызывающих) провалилась ВТОРЫМ
+		// живым багом - SSL_read блокируется до 50мс (SO_RCVTIMEO,
+		// rech_http2_start_thread) - удержание sess->lock всё это время
+		// держало все http2_*/grpc_*-функции заблокированными почти
+		// постоянно (io_thread снова захватывает sess->lock фактически
+		// сразу после освобождения, на следующий опрос) - ГОЛОДАНИЕ
+		// основного потока, тоже воспроизведено живым прогоном (стало
+		// только хуже - зависало почти всегда, не изредка). Отдельный
+		// ssl_io_lock (rech_http2_session_t, http2SessionTypedefCode) +
+		// pthread_mutex_TRYlock с двух сторон - кто не успел, тот НЕ ждёт:
+		// send_cb при занятом мьютексе возвращает NGHTTP2_ERR_WOULDBLOCK
+		// (штатный сигнал nghttp2 "повтори позже" - сам io_thread зовёт
+		// nghttp2_session_send на каждой итерации, повтор произойдёт очень
+		// скоро), io_thread при занятом мьютексе выставляет errno=EAGAIN
+		// (уже штатно обрабатывается существующей веткой цикла "не
+		// сломано, просто нет данных сейчас, повторить" - ни единой правки
+		// в самом цикле не потребовалось).
+		sendExpr = "rech_http2_locked_send(sess, data, length)"
+		recvExpr = "rech_http2_locked_read(sess, buf, sizeof(buf))"
+		sslIOHelpers = `static ssize_t rech_http2_locked_send(rech_http2_session_t *sess, const uint8_t *data, size_t length) {
+    if (sess->tls_ssl == NULL) {
+        return send(sess->fd, data, length, 0);
+    }
+    if (pthread_mutex_trylock(&sess->ssl_io_lock) != 0) {
+        errno = EAGAIN;
+        return -1;
+    }
+    ssize_t n = SSL_write((SSL *)sess->tls_ssl, data, (int)length);
+    pthread_mutex_unlock(&sess->ssl_io_lock);
+    return n;
+}
+
+static ssize_t rech_http2_locked_read(rech_http2_session_t *sess, unsigned char *buf, size_t len) {
+    if (sess->tls_ssl == NULL) {
+        return recv(sess->fd, buf, len, 0);
+    }
+    if (pthread_mutex_trylock(&sess->ssl_io_lock) != 0) {
+        errno = EAGAIN;
+        return -1;
+    }
+    ssize_t n = SSL_read((SSL *)sess->tls_ssl, buf, (int)len);
+    pthread_mutex_unlock(&sess->ssl_io_lock);
+    return n;
+}
+
+`
+	}
+	return sslIOHelpers + fmt.Sprintf(`static int rech_http2_on_begin_headers(nghttp2_session *ng, const nghttp2_frame *frame, void *user_data) {
     rech_http2_session_t *sess = (rech_http2_session_t *)user_data;
     if (frame->hd.type != NGHTTP2_HEADERS) return 0;
     if (frame->headers.cat == NGHTTP2_HCAT_REQUEST) {
@@ -329,7 +421,7 @@ static ssize_t rech_http2_send_cb(nghttp2_session *ng, const uint8_t *data, size
     (void)ng;
     (void)flags;
     rech_http2_session_t *sess = (rech_http2_session_t *)user_data;
-    ssize_t n = send(sess->fd, data, length, 0);
+    ssize_t n = %[1]s;
     if (n < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) return NGHTTP2_ERR_WOULDBLOCK;
         return NGHTTP2_ERR_CALLBACK_FAILURE;
@@ -377,7 +469,7 @@ static void *rech_http2_io_thread(void *arg) {
         pthread_mutex_unlock(&sess->lock);
         if (closed) break;
 
-        ssize_t n = recv(sess->fd, buf, sizeof(buf), 0);
+        ssize_t n = %[2]s;
         int broken = 0;
         if (n > 0) {
             pthread_mutex_lock(&sess->lock);
@@ -404,7 +496,8 @@ static void *rech_http2_io_thread(void *arg) {
     return NULL;
 }
 
-`
+`, sendExpr, recvExpr)
+}
 
 // http2StreamTypeC - см. internal/semantic/http2.go, http2StreamType - тот
 // же принцип дублирования имени константой в нескольких пакетах, что и
@@ -417,12 +510,56 @@ const http2StreamTypeC = "HTTP2Поток"
 // сообщений rtmsg и настоящие манглированные C-имена (не угаданные строки -
 // mangleType/mangleField решают транслитерацию сами) прямо в тело функций,
 // тем же приёмом, что и у socketHelpers/plainSocketOpsCode.
-func http2SessionOpsCode() string {
+// http2AcceptSessionAcceptCode - только САМ accept() внутри rech_http2_
+// accept_session (Шаг 95, grpcs) - единственный фрагмент в http2SessionOpsCode,
+// которому нужно различать usesTLS: обычный accept() (openssl вообще не
+// подключён программе без единого TLS-биндинга) против rech_accept
+// (tls.go - единственная точка настоящего accept()+SSL_accept, тот же
+// принцип "TLS прозрачен для вышестоящего кода", что и у остального
+// рантайма) - работает одинаково что для обычного слушателя ("сетевой_
+// узел"), что для "слушать_grpcs" (сама решает по регистрации слушателя в
+// rech_tls_registry). rech_accept возвращает "?Сокет" (нужен цикл - её
+// пустой результат означает "нет соединения сейчас", актуально только у
+// слушателя с установленным таймаутом, но обрабатывается всегда, для
+// общности) - fd потока извлекается ПОСЛЕ первого настоящего accept, а не
+// заменяется отдельной функцией, чтобы всё остальное тело rech_http2_
+// accept_session (создание сессии/nghttp2_session_server_new/...) осталось
+// буквально тем же кодом, что и раньше.
+func http2AcceptSessionAcceptCode(usesTLS bool) string {
+	if !usesTLS {
+		return fmt.Sprintf(`rech_socket_t fd = accept(listener, NULL, NULL);
+    if (fd < 0) {
+        rech_panic("%[1]s");
+    }`, escapeCString(rtmsg.HTTP2AcceptFailed))
+	}
+	return fmt.Sprintf(`%[1]s accepted = rech_accept(listener);
+    while (!accepted.has) {
+        accepted = rech_accept(listener);
+    }
+    rech_socket_t fd = accepted.value;`, mangleType("?Сокет"))
+}
+
+// http2AcceptSessionTLSAssocCode - см. http2AcceptSessionAcceptCode - после
+// получения fd, но ДО заведения самой rech_http2_session_t: rech_tls_conn
+// (tls.go) находит уже установленное SSL* (rech_accept выше уже сделал
+// SSL_accept, если listener был зарегистрирован как TLS) - пусто, если
+// программа TLS вообще не использует (openssl не подключён).
+func http2AcceptSessionTLSAssocCode(usesTLS bool) string {
+	if !usesTLS {
+		return ""
+	}
+	return "\n    sess->tls_ssl = rech_tls_conn(fd);"
+}
+
+func http2SessionOpsCode(usesTLS bool) string {
 	streamC := mangleType(http2StreamTypeC)
 	optStringC := mangleType("?Строка")
 	byteListC := mangleType(byteListType)
+	acceptCode := http2AcceptSessionAcceptCode(usesTLS)
+	tlsAssocCode := http2AcceptSessionTLSAssocCode(usesTLS)
 	return fmt.Sprintf(`static void rech_http2_start_thread(rech_http2_session_t *sess) {
     pthread_mutex_init(&sess->lock, NULL);
+    pthread_mutex_init(&sess->ssl_io_lock, NULL);
     pthread_cond_init(&sess->cond, NULL);
     struct timeval tv;
     tv.tv_sec = 0;
@@ -458,13 +595,10 @@ static nghttp2_session_callbacks *rech_http2_new_callbacks(void) {
 }
 
 static rech_http2_session_t *rech_http2_accept_session(rech_socket_t listener) {
-    int fd = accept(listener, NULL, NULL);
-    if (fd < 0) {
-        rech_panic("%[1]s");
-    }
+    %[15]s
     rech_http2_session_t *sess = GC_MALLOC(sizeof(rech_http2_session_t));
     sess->fd = fd;
-    sess->is_client = 0;
+    sess->is_client = 0;%[16]s
     nghttp2_session_callbacks *cbs = rech_http2_new_callbacks();
     int rv = nghttp2_session_server_new(&sess->ng, cbs, sess);
     nghttp2_session_callbacks_del(cbs);
@@ -724,5 +858,5 @@ static void rech_http2_finish_stream(%[13]s potok) {
 		rtmsg.HTTP2SessionClosed, http2StreamSessionField, http2StreamIDField,
 		rtmsg.HTTP2OpenStreamFailed, rtmsg.HTTP2StreamNotFound, optStringC,
 		optStringC+"_wrap", byteListC, rtmsg.HTTP2RecvInvalidMax, streamC,
-		rtmsg.HTTP2InvalidTrailerName)
+		rtmsg.HTTP2InvalidTrailerName, acceptCode, tlsAssocCode)
 }
