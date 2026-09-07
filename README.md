@@ -288,6 +288,8 @@ internal/toolchain/        - вызов системного cc/clang/gcc, ус�
 internal/project/          - разбор манифеста `.rechproj`
 internal/pkgfetch/         - скачивание внешних зависимостей проекта (секция "зависимости:", `rech install`)
 internal/testrunner/       - `rech test`
+internal/format/           - канонический отступ исходника (`rech fmt`)
+internal/protoimport/      - импорт ".proto"-контракта в Rech-сущности с тегами `protobuf:N` (`rech proto`)
 internal/lsp/              - language server (`rech lsp`) - автодополнение/hover/definition
 internal/dap/               - типы Debug Adapter Protocol
 internal/debugadapter/     - сервер DAP (`rech debug`) поверх internal/interp

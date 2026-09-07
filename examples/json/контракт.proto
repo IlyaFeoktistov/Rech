@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+// Пример ".proto"-контракта - вход для "rech proto" (см. examples/json/
+// protobuf.rech - тот же самый пример, но написанный вручную, и docs/SPEC.md,
+// раздел про PROTOBUF). Сгенерировать Rech-исходник из этого файла:
+//
+//   rech proto examples/json/контракт.proto -o контракт_типы.rech
+
+message Address {
+  string street = 1;
+  int32 house = 2;
+}
+
+enum Role {
+  ROLE_UNKNOWN = 0;
+  ROLE_ADMIN = 1;
+  ROLE_USER = 2;
+}
+
+message User {
+  string name = 1;
+  int32 age = 2;
+  bool active = 3;
+  repeated string tags = 4;
+  Address address = 5;
+  Role role = 6;
+}
