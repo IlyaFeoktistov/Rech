@@ -113,6 +113,201 @@ static void rech_sha256_final(rech_sha256_ctx *ctx, unsigned char out[32]) {
     }
 }
 
+// rech_sha1_ctx/rech_sha1_* - SHA-1 (FIPS 180-4), тот же принцип, что и
+// SHA-256 выше (собственная реализация, не биндинг к libcrypto) - только
+// 5 32-битных слов состояния и другие раундовые функции/константы.
+// Криптографически сломан (известны коллизии) - не для новых
+// паролей/подписей ("хеш_sha256"/"подпись_hmac_sha256" для этого), а для
+// совместимости с форматами, которые требуют именно SHA-1 (объекты Git).
+typedef struct {
+    uint32_t state[5];
+    uint64_t bitlen;
+    unsigned char buffer[64];
+    size_t buflen;
+} rech_sha1_ctx;
+
+#define RECH_ROTL32(x, n) (((x) << (n)) | ((x) >> (32 - (n))))
+
+static void rech_sha1_transform(rech_sha1_ctx *ctx, const unsigned char *data) {
+    uint32_t w[80];
+    for (int i = 0; i < 16; i++) {
+        w[i] = ((uint32_t)data[i * 4] << 24) | ((uint32_t)data[i * 4 + 1] << 16) |
+               ((uint32_t)data[i * 4 + 2] << 8) | (uint32_t)data[i * 4 + 3];
+    }
+    for (int i = 16; i < 80; i++) {
+        w[i] = RECH_ROTL32(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
+    }
+    uint32_t a = ctx->state[0], b = ctx->state[1], c = ctx->state[2];
+    uint32_t d = ctx->state[3], e = ctx->state[4];
+    for (int i = 0; i < 80; i++) {
+        uint32_t f, k;
+        if (i < 20) {
+            f = (b & c) | ((~b) & d);
+            k = 0x5a827999u;
+        } else if (i < 40) {
+            f = b ^ c ^ d;
+            k = 0x6ed9eba1u;
+        } else if (i < 60) {
+            f = (b & c) | (b & d) | (c & d);
+            k = 0x8f1bbcdcu;
+        } else {
+            f = b ^ c ^ d;
+            k = 0xca62c1d6u;
+        }
+        uint32_t temp = RECH_ROTL32(a, 5) + f + e + k + w[i];
+        e = d; d = c; c = RECH_ROTL32(b, 30); b = a; a = temp;
+    }
+    ctx->state[0] += a; ctx->state[1] += b; ctx->state[2] += c;
+    ctx->state[3] += d; ctx->state[4] += e;
+}
+
+static void rech_sha1_init(rech_sha1_ctx *ctx) {
+    ctx->bitlen = 0;
+    ctx->buflen = 0;
+    ctx->state[0] = 0x67452301; ctx->state[1] = 0xefcdab89;
+    ctx->state[2] = 0x98badcfe; ctx->state[3] = 0x10325476;
+    ctx->state[4] = 0xc3d2e1f0;
+}
+
+static void rech_sha1_update(rech_sha1_ctx *ctx, const unsigned char *data, size_t len) {
+    for (size_t i = 0; i < len; i++) {
+        ctx->buffer[ctx->buflen++] = data[i];
+        if (ctx->buflen == 64) {
+            rech_sha1_transform(ctx, ctx->buffer);
+            ctx->bitlen += 512;
+            ctx->buflen = 0;
+        }
+    }
+}
+
+static void rech_sha1_final(rech_sha1_ctx *ctx, unsigned char out[20]) {
+    size_t i = ctx->buflen;
+    ctx->bitlen += (uint64_t)ctx->buflen * 8;
+    ctx->buffer[i++] = 0x80;
+    if (i > 56) {
+        while (i < 64) {
+            ctx->buffer[i++] = 0;
+        }
+        rech_sha1_transform(ctx, ctx->buffer);
+        i = 0;
+    }
+    while (i < 56) {
+        ctx->buffer[i++] = 0;
+    }
+    for (int j = 7; j >= 0; j--) {
+        ctx->buffer[i++] = (unsigned char)((ctx->bitlen >> (j * 8)) & 0xff);
+    }
+    rech_sha1_transform(ctx, ctx->buffer);
+    for (int j = 0; j < 5; j++) {
+        out[j * 4] = (unsigned char)((ctx->state[j] >> 24) & 0xff);
+        out[j * 4 + 1] = (unsigned char)((ctx->state[j] >> 16) & 0xff);
+        out[j * 4 + 2] = (unsigned char)((ctx->state[j] >> 8) & 0xff);
+        out[j * 4 + 3] = (unsigned char)(ctx->state[j] & 0xff);
+    }
+}
+
+// rech_md5_ctx/rech_md5_* - MD5 (RFC 1321). В отличие от SHA-1/SHA-256
+// (big-endian) слова блока и длина в паддинге - little-endian - обычное
+// для MD5 расхождение, не опечатка.
+static const uint32_t rech_md5_k[64] = {
+    0xd76aa478,0xe8c7b756,0x242070db,0xc1bdceee,0xf57c0faf,0x4787c62a,0xa8304613,0xfd469501,
+    0x698098d8,0x8b44f7af,0xffff5bb1,0x895cd7be,0x6b901122,0xfd987193,0xa679438e,0x49b40821,
+    0xf61e2562,0xc040b340,0x265e5a51,0xe9b6c7aa,0xd62f105d,0x02441453,0xd8a1e681,0xe7d3fbc8,
+    0x21e1cde6,0xc33707d6,0xf4d50d87,0x455a14ed,0xa9e3e905,0xfcefa3f8,0x676f02d9,0x8d2a4c8a,
+    0xfffa3942,0x8771f681,0x6d9d6122,0xfde5380c,0xa4beea44,0x4bdecfa9,0xf6bb4b60,0xbebfbc70,
+    0x289b7ec6,0xeaa127fa,0xd4ef3085,0x04881d05,0xd9d4d039,0xe6db99e5,0x1fa27cf8,0xc4ac5665,
+    0xf4292244,0x432aff97,0xab9423a7,0xfc93a039,0x655b59c3,0x8f0ccc92,0xffeff47d,0x85845dd1,
+    0x6fa87e4f,0xfe2ce6e0,0xa3014314,0x4e0811a1,0xf7537e82,0xbd3af235,0x2ad7d2bb,0xeb86d391,
+};
+
+static const int rech_md5_s[64] = {
+    7,12,17,22, 7,12,17,22, 7,12,17,22, 7,12,17,22,
+    5, 9,14,20, 5, 9,14,20, 5, 9,14,20, 5, 9,14,20,
+    4,11,16,23, 4,11,16,23, 4,11,16,23, 4,11,16,23,
+    6,10,15,21, 6,10,15,21, 6,10,15,21, 6,10,15,21,
+};
+
+typedef struct {
+    uint32_t state[4];
+    uint64_t bitlen;
+    unsigned char buffer[64];
+    size_t buflen;
+} rech_md5_ctx;
+
+static void rech_md5_transform(rech_md5_ctx *ctx, const unsigned char *data) {
+    uint32_t m[16];
+    for (int i = 0; i < 16; i++) {
+        m[i] = (uint32_t)data[i * 4] | ((uint32_t)data[i * 4 + 1] << 8) |
+               ((uint32_t)data[i * 4 + 2] << 16) | ((uint32_t)data[i * 4 + 3] << 24);
+    }
+    uint32_t a = ctx->state[0], b = ctx->state[1], c = ctx->state[2], d = ctx->state[3];
+    for (int i = 0; i < 64; i++) {
+        uint32_t f;
+        int g;
+        if (i < 16) {
+            f = (b & c) | ((~b) & d);
+            g = i;
+        } else if (i < 32) {
+            f = (d & b) | ((~d) & c);
+            g = (5 * i + 1) %% 16;
+        } else if (i < 48) {
+            f = b ^ c ^ d;
+            g = (3 * i + 5) %% 16;
+        } else {
+            f = c ^ (b | (~d));
+            g = (7 * i) %% 16;
+        }
+        f = f + a + rech_md5_k[i] + m[g];
+        a = d; d = c; c = b;
+        b = b + RECH_ROTL32(f, rech_md5_s[i]);
+    }
+    ctx->state[0] += a; ctx->state[1] += b; ctx->state[2] += c; ctx->state[3] += d;
+}
+
+static void rech_md5_init(rech_md5_ctx *ctx) {
+    ctx->bitlen = 0;
+    ctx->buflen = 0;
+    ctx->state[0] = 0x67452301; ctx->state[1] = 0xefcdab89;
+    ctx->state[2] = 0x98badcfe; ctx->state[3] = 0x10325476;
+}
+
+static void rech_md5_update(rech_md5_ctx *ctx, const unsigned char *data, size_t len) {
+    for (size_t i = 0; i < len; i++) {
+        ctx->buffer[ctx->buflen++] = data[i];
+        if (ctx->buflen == 64) {
+            rech_md5_transform(ctx, ctx->buffer);
+            ctx->bitlen += 512;
+            ctx->buflen = 0;
+        }
+    }
+}
+
+static void rech_md5_final(rech_md5_ctx *ctx, unsigned char out[16]) {
+    size_t i = ctx->buflen;
+    ctx->bitlen += (uint64_t)ctx->buflen * 8;
+    ctx->buffer[i++] = 0x80;
+    if (i > 56) {
+        while (i < 64) {
+            ctx->buffer[i++] = 0;
+        }
+        rech_md5_transform(ctx, ctx->buffer);
+        i = 0;
+    }
+    while (i < 56) {
+        ctx->buffer[i++] = 0;
+    }
+    for (int j = 0; j < 8; j++) {
+        ctx->buffer[i++] = (unsigned char)((ctx->bitlen >> (j * 8)) & 0xff);
+    }
+    rech_md5_transform(ctx, ctx->buffer);
+    for (int j = 0; j < 4; j++) {
+        out[j * 4] = (unsigned char)(ctx->state[j] & 0xff);
+        out[j * 4 + 1] = (unsigned char)((ctx->state[j] >> 8) & 0xff);
+        out[j * 4 + 2] = (unsigned char)((ctx->state[j] >> 16) & 0xff);
+        out[j * 4 + 3] = (unsigned char)((ctx->state[j] >> 24) & 0xff);
+    }
+}
+
 static char *rech_bytes_to_hex(const unsigned char *data, size_t len) {
     static const char hexd[] = "0123456789abcdef";
     char *out = malloc(len * 2 + 1);
@@ -131,6 +326,24 @@ static char *rech_sha256_hex(const char *s) {
     unsigned char digest[32];
     rech_sha256_final(&ctx, digest);
     return rech_bytes_to_hex(digest, 32);
+}
+
+static char *rech_sha1_hex(const char *s) {
+    rech_sha1_ctx ctx;
+    rech_sha1_init(&ctx);
+    rech_sha1_update(&ctx, (const unsigned char *)s, strlen(s));
+    unsigned char digest[20];
+    rech_sha1_final(&ctx, digest);
+    return rech_bytes_to_hex(digest, 20);
+}
+
+static char *rech_md5_hex(const char *s) {
+    rech_md5_ctx ctx;
+    rech_md5_init(&ctx);
+    rech_md5_update(&ctx, (const unsigned char *)s, strlen(s));
+    unsigned char digest[16];
+    rech_md5_final(&ctx, digest);
+    return rech_bytes_to_hex(digest, 16);
 }
 
 // rech_hmac_sha256_hex - HMAC-SHA256 (FIPS 198-1), тот же алгоритм подписи,

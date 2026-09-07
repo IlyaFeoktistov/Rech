@@ -269,6 +269,15 @@ var All = []Func{
 	// без встроенных нулевых байт (JSON заголовка/тела токена), той же
 	// оговоркой, что и у самого HEX-выбора выше.
 	{Name: "хеш_sha256", Params: []Kind{KindString}, ReturnKind: KindString, HasReturn: true},
+
+	// "хеш_sha1"/"хеш_md5" - оба алгоритма криптографически сломаны
+	// (известны коллизии) - не для новых паролей/подписей (для этого уже
+	// есть "хеш_sha256"/"подпись_hmac_sha256" выше), а для совместимости с
+	// внешними форматами/протоколами, которые их требуют "как есть"
+	// (SHA-1 - объекты Git; MD5 - контрольные суммы/ETag старых API).
+	{Name: "хеш_sha1", Params: []Kind{KindString}, ReturnKind: KindString, HasReturn: true},
+	{Name: "хеш_md5", Params: []Kind{KindString}, ReturnKind: KindString, HasReturn: true},
+
 	{Name: "подпись_hmac_sha256", Params: []Kind{KindString, KindString}, ReturnKind: KindString, HasReturn: true},
 	{Name: "закодировать_base64url", Params: []Kind{KindString}, ReturnKind: KindString, HasReturn: true},
 	{Name: "декодировать_base64url", Params: []Kind{KindString}, ReturnKind: KindString, HasReturn: true},

@@ -39,6 +39,30 @@ func TestRunCryptoBuiltins(t *testing.T) {
 	}
 }
 
+// TestRunSHA1AndMD5Builtins - "хеш_sha1"/"хеш_md5" - значения сверены с
+// общеизвестными тестовыми векторами (пустая строка, "abc") - то же самое,
+// что и cbackend.TestGenerateFromIRSHA1AndMD5BuiltinCalls (там - только
+// присутствие вызова в сгенерированном C, не значение - см. package doc
+// crypto.go в cbackend про побайтовое совпадение).
+func TestRunSHA1AndMD5Builtins(t *testing.T) {
+	got := runSrc(t, `
+функция главная
+{
+    вывести хеш_sha1("")
+    вывести хеш_sha1("abc")
+    вывести хеш_md5("")
+    вывести хеш_md5("abc")
+}
+`)
+	want := "da39a3ee5e6b4b0d3255bfef95601890afd80709\n" +
+		"a9993e364706816aba3e25717850c26c9cd0d89d\n" +
+		"d41d8cd98f00b204e9800998ecf8427e\n" +
+		"900150983cd24fb0d6963f7d28e17f72\n"
+	if got != want {
+		t.Fatalf("ожидалось %q, получено %q", want, got)
+	}
+}
+
 func TestRunBase64URLDecodeInvalidCharPanics(t *testing.T) {
 	toks, err := lexer.New(`
 функция главная

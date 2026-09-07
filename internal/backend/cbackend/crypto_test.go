@@ -49,6 +49,35 @@ func TestGenerateFromIRCryptoBuiltinCalls(t *testing.T) {
 	}
 }
 
+func TestGenerateFromIRSHA1AndMD5BuiltinCalls(t *testing.T) {
+	prog := &ir.Program{
+		Functions: []*ir.Function{{Name: "главная", Body: []ir.Stmt{
+			&ir.PrintStmt{Value: &ir.CallExpr{
+				Callee: "хеш_sha1", Args: []ir.Expr{&ir.StringLiteral{Value: "abc"}},
+				Type: ir.TypeString, HasReturn: true,
+			}},
+			&ir.PrintStmt{Value: &ir.CallExpr{
+				Callee: "хеш_md5", Args: []ir.Expr{&ir.StringLiteral{Value: "abc"}},
+				Type: ir.TypeString, HasReturn: true,
+			}},
+		}}},
+	}
+	out, err := GenerateFromIR(prog)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	for _, want := range []string{
+		"rech_sha1_hex(",
+		"rech_md5_hex(",
+		"static char *rech_sha1_hex(const char *s)",
+		"static char *rech_md5_hex(const char *s)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ожидалось вхождение %q, получено:\n%s", want, out)
+		}
+	}
+}
+
 func TestGenerateFromIRWithoutCryptoOmitsHelpers(t *testing.T) {
 	prog := &ir.Program{
 		Functions: []*ir.Function{{Name: "главная", Body: []ir.Stmt{
@@ -60,6 +89,7 @@ func TestGenerateFromIRWithoutCryptoOmitsHelpers(t *testing.T) {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 	if strings.Contains(out, "rech_sha256_hex") || strings.Contains(out, "rech_hmac_sha256_hex") ||
+		strings.Contains(out, "rech_sha1_hex") || strings.Contains(out, "rech_md5_hex") ||
 		strings.Contains(out, "rech_base64url_encode") || strings.Contains(out, "rech_base64url_decode") {
 		t.Fatalf("не ожидались crypto-хелперы без использования соответствующих builtin'ов, получено:\n%s", out)
 	}

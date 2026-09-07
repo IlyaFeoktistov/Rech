@@ -672,6 +672,12 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 	case "хеш_sha256":
 		flags.usesCrypto = true
 		return fmt.Sprintf("rech_sha256_hex(%s)", args[0]), true
+	case "хеш_sha1":
+		flags.usesCrypto = true
+		return fmt.Sprintf("rech_sha1_hex(%s)", args[0]), true
+	case "хеш_md5":
+		flags.usesCrypto = true
+		return fmt.Sprintf("rech_md5_hex(%s)", args[0]), true
 	case "подпись_hmac_sha256":
 		flags.usesCrypto = true
 		return fmt.Sprintf("rech_hmac_sha256_hex(%s, %s)", args[0], args[1]), true
