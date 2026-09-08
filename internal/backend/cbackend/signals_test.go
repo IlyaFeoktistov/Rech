@@ -42,3 +42,39 @@ func TestGenerateFromIRSignalsEmitsSigactionAndPanicGuard(t *testing.T) {
 		t.Fatalf("ожидалась охрана SIGKILL/SIGSTOP (rtmsg.SignalUncatchable), получено:\n%s", out)
 	}
 }
+
+// TestGenerateFromIRSignalSendEmitsKillAndUnistdH - "отправить_сигнал"
+// эмитирует rech_send_signal (kill(2) на POSIX-ветке) и подключает
+// <unistd.h> (kill()/pid_t) только под "#ifndef _WIN32" - не безусловно.
+func TestGenerateFromIRSignalSendEmitsKillAndUnistdH(t *testing.T) {
+	src := `функция главная
+{
+    отправить_сигнал(1234, СигналОС.SIGTERM)
+}
+`
+	out := generateFromSrc(t, src)
+	if !strings.Contains(out, "rech_send_signal") {
+		t.Fatalf("ожидался rech_send_signal, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "kill((pid_t)pid, sig)") {
+		t.Fatalf("ожидался вызов kill(), получено:\n%s", out)
+	}
+	if !strings.Contains(out, "#ifndef _WIN32\n#include <unistd.h>\n#endif") {
+		t.Fatalf("ожидался условный #include <unistd.h>, получено:\n%s", out)
+	}
+}
+
+// TestGenerateFromIRSignalSendNotEmittedWithoutUse - симметрично первому
+// тесту файла - без единого вызова "получен_сигнал"/"отправить_сигнал"
+// программа не должна тащить rech_send_signal/<unistd.h> вовсе.
+func TestGenerateFromIRSignalSendNotEmittedWithoutUse(t *testing.T) {
+	src := `функция главная
+{
+    вывести "привет"
+}
+`
+	out := generateFromSrc(t, src)
+	if strings.Contains(out, "rech_send_signal") {
+		t.Fatalf("rech_send_signal не должен эмитироваться без вызова \"отправить_сигнал\":\n%s", out)
+	}
+}

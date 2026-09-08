@@ -213,6 +213,11 @@ type builtinFlags struct {
 	// usesConsole - нужен ли consoleRuntimeCode (console.go) - встроенные
 	// функции "установить_сырой_режим"/"ширина_терминала"/"высота_терминала".
 	usesConsole bool
+	// usesNonBlockingRead - нужен ли rech_can_read (nonblocking_read.go) -
+	// встроенная функция "можно_прочитать_байт" - отдельный от usesConsole флаг,
+	// хотя мотивирующее применение то же (TUI) - работает с ЛЮБЫМ Файл, не
+	// только терминалом, и не переключает режим терминала сама по себе.
+	usesNonBlockingRead bool
 	// usesActiveTaskWait - нужен ли rech_wait_all_tasks (active_tasks.go) -
 	// встроенная функция "дождаться_всех_задач" - отдельный от usesThreads
 	// флаг (irGenCtx, не builtinFlags - builtinCallCode не видит ctx
@@ -422,6 +427,10 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 		flags.usesSignals = true
 		flags.usesPanic = true
 		return fmt.Sprintf("rech_got_signal(%s)", args[0]), true
+	case "отправить_сигнал":
+		flags.usesSignals = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_send_signal(%s, %s)", args[0], args[1]), true
 	case "установить_сырой_режим":
 		flags.usesConsole = true
 		return fmt.Sprintf("rech_set_raw_mode(%s)", args[0]), true
@@ -431,6 +440,9 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 	case "высота_терминала":
 		flags.usesConsole = true
 		return "rech_terminal_height()", true
+	case "можно_прочитать_байт":
+		flags.usesNonBlockingRead = true
+		return fmt.Sprintf("rech_can_read(%s, %s)", args[0], args[1]), true
 	case "дождаться_всех_задач":
 		flags.usesActiveTaskWait = true
 		return fmt.Sprintf("rech_wait_all_tasks(%s)", args[0]), true

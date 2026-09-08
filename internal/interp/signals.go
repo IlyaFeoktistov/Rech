@@ -30,6 +30,22 @@ const (
 	sigOrdSIGSTOP
 	sigOrdSIGTSTP
 	sigOrdSIGWINCH
+	sigOrdSIGILL
+	sigOrdSIGTRAP
+	sigOrdSIGBUS
+	sigOrdSIGFPE
+	sigOrdSIGSEGV
+	sigOrdSIGSTKFLT
+	sigOrdSIGTTIN
+	sigOrdSIGTTOU
+	sigOrdSIGURG
+	sigOrdSIGXCPU
+	sigOrdSIGXFSZ
+	sigOrdSIGVTALRM
+	sigOrdSIGPROF
+	sigOrdSIGIO
+	sigOrdSIGPWR
+	sigOrdSIGSYS
 	signalOrdinalCount
 )
 
@@ -37,22 +53,43 @@ const (
 // syscall.Signal, уже правильный для ТЕКУЩЕЙ платформы (в отличие от
 // numeric-значений StandardEnums, которые платформо-независимый индекс, не
 // настоящий номер сигнала - syscall.SIGUSR1 и т. п. сам разрешается Go
-// компилятором в верное число для GOOS/GOARCH). SIGKILL/SIGSTOP - паникуют
-// раньше (signalReceived), их позиции здесь не используются вовсе.
+// компилятором в верное число для GOOS/GOARCH). SIGKILL/SIGSTOP ЗДЕСЬ ЕСТЬ
+// (в отличие от прежней версии) - "отправить_сигнал" использует ту же
+// таблицу для ЛЮБОГО ordinal (kill() отправить их можно, только перехватить
+// самому нельзя) - "получен_сигнал" по-прежнему паникует на них РАНЬШЕ, чем
+// заглянуть в таблицу (signalReceived).
 var signalOrdinalToOS = [signalOrdinalCount]syscall.Signal{
-	sigOrdSIGHUP:   syscall.SIGHUP,
-	sigOrdSIGINT:   syscall.SIGINT,
-	sigOrdSIGQUIT:  syscall.SIGQUIT,
-	sigOrdSIGABRT:  syscall.SIGABRT,
-	sigOrdSIGUSR1:  syscall.SIGUSR1,
-	sigOrdSIGUSR2:  syscall.SIGUSR2,
-	sigOrdSIGPIPE:  syscall.SIGPIPE,
-	sigOrdSIGALRM:  syscall.SIGALRM,
-	sigOrdSIGTERM:  syscall.SIGTERM,
-	sigOrdSIGCHLD:  syscall.SIGCHLD,
-	sigOrdSIGCONT:  syscall.SIGCONT,
-	sigOrdSIGTSTP:  syscall.SIGTSTP,
-	sigOrdSIGWINCH: syscall.SIGWINCH,
+	sigOrdSIGHUP:    syscall.SIGHUP,
+	sigOrdSIGINT:    syscall.SIGINT,
+	sigOrdSIGQUIT:   syscall.SIGQUIT,
+	sigOrdSIGABRT:   syscall.SIGABRT,
+	sigOrdSIGKILL:   syscall.SIGKILL,
+	sigOrdSIGUSR1:   syscall.SIGUSR1,
+	sigOrdSIGUSR2:   syscall.SIGUSR2,
+	sigOrdSIGPIPE:   syscall.SIGPIPE,
+	sigOrdSIGALRM:   syscall.SIGALRM,
+	sigOrdSIGTERM:   syscall.SIGTERM,
+	sigOrdSIGCHLD:   syscall.SIGCHLD,
+	sigOrdSIGCONT:   syscall.SIGCONT,
+	sigOrdSIGSTOP:   syscall.SIGSTOP,
+	sigOrdSIGTSTP:   syscall.SIGTSTP,
+	sigOrdSIGWINCH:  syscall.SIGWINCH,
+	sigOrdSIGILL:    syscall.SIGILL,
+	sigOrdSIGTRAP:   syscall.SIGTRAP,
+	sigOrdSIGBUS:    syscall.SIGBUS,
+	sigOrdSIGFPE:    syscall.SIGFPE,
+	sigOrdSIGSEGV:   syscall.SIGSEGV,
+	sigOrdSIGSTKFLT: syscall.SIGSTKFLT,
+	sigOrdSIGTTIN:   syscall.SIGTTIN,
+	sigOrdSIGTTOU:   syscall.SIGTTOU,
+	sigOrdSIGURG:    syscall.SIGURG,
+	sigOrdSIGXCPU:   syscall.SIGXCPU,
+	sigOrdSIGXFSZ:   syscall.SIGXFSZ,
+	sigOrdSIGVTALRM: syscall.SIGVTALRM,
+	sigOrdSIGPROF:   syscall.SIGPROF,
+	sigOrdSIGIO:     syscall.SIGIO,
+	sigOrdSIGPWR:    syscall.SIGPWR,
+	sigOrdSIGSYS:    syscall.SIGSYS,
 }
 
 var (
@@ -82,4 +119,18 @@ func signalReceived(ordinal int64) bool {
 		}()
 	})
 	return signalFlags[idx].Load()
+}
+
+// signalSend - "отправить_сигнал(pid: Целое, сигнал: СигналОС): Ничто" -
+// kill(pid, sig), не signalReceived - НЕ паникует на SIGKILL/SIGSTOP (в
+// отличие от получения, отправить их другому процессу - обычное дело,
+// "kill -9"), паникует только если сама отправка не удалась (процесс не
+// существует - ESRCH, нет прав - EPERM).
+func signalSend(pid, ordinal int64) {
+	if ordinal < 0 || ordinal >= signalOrdinalCount {
+		panicRuntime("%s", rtmsg.SignalSendFailed)
+	}
+	if err := syscall.Kill(int(pid), signalOrdinalToOS[ordinal]); err != nil {
+		panicRuntime("%s", rtmsg.SignalSendFailed)
+	}
 }

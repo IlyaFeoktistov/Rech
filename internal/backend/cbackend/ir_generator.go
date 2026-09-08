@@ -1115,6 +1115,20 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// завершение, не просто ошибка `write`/`send`).
 		sb.WriteString("#include <signal.h>\n")
 	}
+	if ctx.usesSignals {
+		// <unistd.h> - только POSIX-ветка "rech_send_signal" (signals.go,
+		// "отправить_сигнал"): kill()/pid_t объявлены там же, что и у
+		// остальных POSIX-специфичных вызовов процесса в этом компиляторе -
+		// на Windows не нужен, там используются GenerateConsoleCtrlEvent/
+		// TerminateProcess из уже подключённого <windows.h>.
+		sb.WriteString("#ifndef _WIN32\n#include <unistd.h>\n#endif\n")
+	}
+	if ctx.usesNonBlockingRead {
+		// <poll.h> - POSIX poll() (nonblocking_read.go, "можно_прочитать_байт").
+		// <io.h> - Windows _fileno/_get_osfhandle (windows.h уже подключён
+		// безусловно выше, WaitForSingleObject - оттуда же).
+		sb.WriteString("#ifndef _WIN32\n#include <poll.h>\n#else\n#include <io.h>\n#endif\n")
+	}
 	if ctx.usesSockets {
 		// <errno.h> - только POSIX-ветка: "принять"/"установить_таймаут"
 		// различают "истёк таймаут" (EAGAIN/EWOULDBLOCK) от настоящей
@@ -1514,6 +1528,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	appendCodeIf(&sb, ctx.usesShutdownFlag, shutdownFlagCode)
 	appendCodeIf(&sb, ctx.usesSignals, signalRuntimeCode())
 	appendCodeIf(&sb, ctx.usesConsole, consoleRuntimeCode())
+	appendCodeIf(&sb, ctx.usesNonBlockingRead, nonBlockingReadRuntimeCode())
 	// "rech_db_t" сам уже виден (dbHandleTypedefCode, эмитирован раньше
 	// typedefs/genericsCode выше) - здесь только остальной рантайм БД
 	// (подключение/запросы/подстановка параметров), который ссылается на
