@@ -185,6 +185,7 @@ func TestMissingLibHint(t *testing.T) {
 		{"gnu-ld-sqlite", "/usr/bin/ld: cannot find -lsqlite3: No such file or directory", "sqlite3"},
 		{"macos-ld64-pq", "ld: library not found for -lpq", "pq"},
 		{"msvc-mysql", "LINK : fatal error LNK1181: cannot open input file 'mysqlclient.lib'", "mysqlclient"},
+		{"gnu-ld-nghttp2", "/usr/bin/ld: cannot find -lnghttp2: No such file or directory", "nghttp2"},
 		{"unrelated-error", "undefined reference to `main'", ""},
 	}
 	for _, tc := range cases {

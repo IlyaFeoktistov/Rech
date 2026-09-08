@@ -276,6 +276,17 @@ func missingLibHint(linkerOutput string) string {
 	if mentionsJPEG && (mentionsMissing || strings.Contains(lower, "no such file")) {
 		fmt.Fprintf(&hint, "похоже, не хватает libjpeg (\"jpeg_декодировать_файл\"/\"jpeg_кодировать_файл\"): %s\n", installHintFor("jpeg"))
 	}
+	// -lnghttp2 (HTTP/2/gRPC-транспорт, http2.go) - тот же класс подсказки,
+	// что SSL/PNG/JPEG выше - ПРОБЕЛ, найденный при аудите установщиков
+	// (docs/ROADMAP.md): у missingLibHint были ветки для всех трёх новых
+	// внешних библиотек, добавленных Шагами 93-107 (SSL/PNG/JPEG), кроме
+	// именно этой - nghttp2 (Шаги 93-97, самый ранний из трёх) остался без
+	// подсказки, хотя линковка того же вида ("cannot find -lnghttp2") уже
+	// возможна с самого их появления.
+	mentionsNghttp2 := strings.Contains(lower, "-lnghttp2") || strings.Contains(lower, "nghttp2.lib") || strings.Contains(lower, "nghttp2/nghttp2.h")
+	if mentionsNghttp2 && (mentionsMissing || strings.Contains(lower, "no such file")) {
+		fmt.Fprintf(&hint, "похоже, не хватает nghttp2 (HTTP/2/gRPC-транспорт): %s\n", installHintFor("nghttp2"))
+	}
 	return strings.TrimRight(hint.String(), "\n")
 }
 
@@ -315,6 +326,11 @@ func installHintFor(lib string) string {
 			"linux":   "sudo apt install libjpeg-dev (Debian/Ubuntu) или sudo dnf install libjpeg-turbo-devel (Fedora)",
 			"darwin":  "brew install jpeg",
 			"windows": "vcpkg install libjpeg-turbo",
+		},
+		"nghttp2": {
+			"linux":   "sudo apt install libnghttp2-dev (Debian/Ubuntu) или sudo dnf install libnghttp2-devel (Fedora)",
+			"darwin":  "brew install nghttp2",
+			"windows": "vcpkg install nghttp2 (или MSYS2: pacman -S mingw-w64-x86_64-libnghttp2)",
 		},
 	}
 	if perOS, ok := hints[lib]; ok {

@@ -3,10 +3,15 @@
 # исходников этого репозитория (go build) и кладёт бинарник в каталог,
 # который пользователь укажет через --prefix (по умолчанию ~/.local/bin -
 # без sudo, обычно уже в PATH современных дистрибутивов/оболочек). Не
-# устанавливает C-компилятор/Boehm GC сам - это внешние зависимости самой
-# ОС (см. docs/MANUAL.md, "Зависимости для сборки"), только проверяет их
-# наличие и подсказывает команду установки под конкретную ОС/пакетный
-# менеджер, если чего-то не нашлось.
+# устанавливает C-компилятор/внешние библиотеки (Boehm GC, клиенты БД,
+# OpenSSL, nghttp2, libpng, libjpeg) сам - это внешние зависимости самой ОС
+# (см. README.md, "Зависимости для сборки"), только проверяет их наличие
+# (probe - пробная компиляция/линковка крошечной программы через найденный
+# компилятор) и подсказывает команду установки под конкретную ОС/пакетный
+# менеджер, если чего-то не нашлось. Ни одно предупреждение не прерывает
+# установку самого rech - все внешние библиотеки нужны не rech (Go-
+# бинарнику), а ПРОГРАММАМ, которые он в будущем соберёт, и то не любой, а
+# только использующей соответствующую фичу (см. таблицу в README.md).
 #
 # POSIX sh (не bash) - запускается и через "sh install.sh", и через
 # "./install.sh" на системах, где /bin/sh - dash (Debian/Ubuntu) или
@@ -74,7 +79,7 @@ case "$(os_name)" in
        brew install bdw-gc      # Boehm GC"
         ;;
     *)
-        PKG_HINT="(неизвестная ОС - см. docs/MANUAL.md, \"Зависимости для сборки\")"
+        PKG_HINT="(неизвестная ОС - см. README.md, \"Зависимости для сборки\")"
         ;;
 esac
 
@@ -87,7 +92,7 @@ else
 fi
 
 # Boehm GC (libgc) - нужна КАЖДОЙ скомпилированной Rech-программе (см.
-# docs/MANUAL.md) - probe пробной компиляцией/линковкой крошечной
+# README.md) - probe пробной компиляцией/линковкой крошечной
 # программы с "#include <gc.h>" через уже найденный компилятор, а не
 # поиском конкретных путей/имён пакетов (они разные на каждой ОС и
 # дистрибутиве).
@@ -141,11 +146,95 @@ EOF
                 echo "       brew install sqlite postgresql mysql-client" >&2
                 ;;
             *)
-                echo "       (неизвестная ОС - см. docs/MANUAL.md, \"Зависимости для сборки\")" >&2
+                echo "       (неизвестная ОС - см. README.md, \"Зависимости для сборки\")" >&2
                 ;;
         esac
     else
         echo "клиентские библиотеки БД (sqlite3/pq/mysqlclient) найдены"
+    fi
+fi
+
+# Опциональные внешние библиотеки (OpenSSL/nghttp2/libpng/libjpeg) - нужны
+# только программе, реально использующей соответствующую фичу (TLS/
+# шифрование, HTTP2/gRPC, PNG/JPEG-кодек), но, в отличие от клиентских
+# библиотек БД выше, cbackend ДЕЙСТВИТЕЛЬНО включает настоящие заголовки
+# этих библиотек ("#include <openssl/ssl.h>" и т. п.) - значит и probe
+# может честно include'ить тот же заголовок, не полагаясь на голое extern-
+# объявление символа. probe_header_lib - общая функция для всех четырёх
+# (тот же принцип "не копипастить", что и у остального install.sh) - первый
+# аргумент - СПИСОК заголовков через пробел (не один - "jpeglib.h"
+# ссылается на "FILE", объявленный в "stdio.h", сам его не подключает,
+# ровно тот же порядок, что cbackend эмитирует в сгенерированном C, см.
+# internal/backend/cbackend/ir_generator.go), остальные - флаги линковщика.
+# Результат: 0 (найдена) - echo "$1 найдена/найден", 1 (не найдена) -
+# ничего не печатает, оставляет вызывающему решить формулировку
+# предупреждения.
+probe_header_lib() {
+    headers="$1"
+    shift
+    : > "$PROBE_DIR/probe.c"
+    for h in $headers; do
+        echo "#include <$h>" >> "$PROBE_DIR/probe.c"
+    done
+    echo "int main(void) { return 0; }" >> "$PROBE_DIR/probe.c"
+    "$CC_BIN" "$PROBE_DIR/probe.c" "$@" -o "$PROBE_DIR/probe" >/dev/null 2>&1
+}
+
+if [ -n "$CC_BIN" ]; then
+    if probe_header_lib "openssl/ssl.h" -lssl -lcrypto; then
+        echo "OpenSSL (libssl/libcrypto) найден"
+    else
+        echo "предупреждение: не найден OpenSSL (нужен \"слушать_tcp_защищённо\"/TLS-клиенту/\"зашифровать\"/\"расшифровать\") - установите:" >&2
+        case "$(os_name)" in
+            Linux)
+                echo "       sudo apt install libssl-dev      # Debian/Ubuntu" >&2
+                echo "       sudo dnf install openssl-devel   # Fedora" >&2
+                ;;
+            Darwin) echo "       brew install openssl" >&2 ;;
+            *) echo "       (неизвестная ОС - см. README.md, \"Зависимости для сборки\")" >&2 ;;
+        esac
+    fi
+
+    if probe_header_lib "nghttp2/nghttp2.h" -lnghttp2; then
+        echo "nghttp2 найден"
+    else
+        echo "предупреждение: не найден nghttp2 (нужен HTTP/2- и gRPC-функциям, \"http2_*\"/\"grpc_*\"/\"слушать_grpcs\") - установите:" >&2
+        case "$(os_name)" in
+            Linux)
+                echo "       sudo apt install libnghttp2-dev      # Debian/Ubuntu" >&2
+                echo "       sudo dnf install libnghttp2-devel    # Fedora" >&2
+                ;;
+            Darwin) echo "       brew install nghttp2" >&2 ;;
+            *) echo "       (неизвестная ОС - см. README.md, \"Зависимости для сборки\")" >&2 ;;
+        esac
+    fi
+
+    if probe_header_lib "png.h" -lpng; then
+        echo "libpng найден"
+    else
+        echo "предупреждение: не найден libpng (нужен \"декодировать_изображение\"/\"закодировать_изображение\" с ФорматИзображения.PNG) - установите:" >&2
+        case "$(os_name)" in
+            Linux)
+                echo "       sudo apt install libpng-dev      # Debian/Ubuntu" >&2
+                echo "       sudo dnf install libpng-devel    # Fedora" >&2
+                ;;
+            Darwin) echo "       brew install libpng" >&2 ;;
+            *) echo "       (неизвестная ОС - см. README.md, \"Зависимости для сборки\")" >&2 ;;
+        esac
+    fi
+
+    if probe_header_lib "stdio.h jpeglib.h" -ljpeg; then
+        echo "libjpeg найден"
+    else
+        echo "предупреждение: не найден libjpeg (нужен \"декодировать_изображение\"/\"закодировать_изображение\" с ФорматИзображения.JPEG) - установите:" >&2
+        case "$(os_name)" in
+            Linux)
+                echo "       sudo apt install libjpeg-dev              # Debian/Ubuntu" >&2
+                echo "       sudo dnf install libjpeg-turbo-devel      # Fedora" >&2
+                ;;
+            Darwin) echo "       brew install jpeg" >&2 ;;
+            *) echo "       (неизвестная ОС - см. README.md, \"Зависимости для сборки\")" >&2 ;;
+        esac
     fi
 fi
 
