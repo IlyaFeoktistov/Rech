@@ -324,6 +324,17 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return stringValue(signHex(args[0].S, args[1].S)), true
 	case "проверить_подпись":
 		return boolValue(verifySignatureHex(args[0].S, args[1].S, args[2].S)), true
+	case "запустить_процесс":
+		elems := args[1].Obj.coll.elems
+		procArgs := make([]string, len(elems))
+		for i, e := range elems {
+			procArgs[i] = e.S
+		}
+		return spawnProcess(args[0].S, procArgs), true
+	case "дождаться_процесса":
+		return waitProcess(args[0]), true
+	case "выполнить_команду":
+		return runCommand(args[0].S, args[1].S), true
 	case "время_как_дата":
 		return timeToDate(args[0].I), true
 	case "дата_как_время":

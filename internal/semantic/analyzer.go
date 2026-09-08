@@ -502,6 +502,7 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 	registerGRPCSFuncs(funcs)
 	registerNumberBaseFuncs(funcs)
 	registerProcessFuncs(funcs)
+	registerSubprocessFuncs(a.entities, funcs)
 	registerImageCodecFuncs(funcs)
 	for _, fn := range prog.Functions {
 		if _, exists := funcs[fn.Name]; exists {
@@ -903,6 +904,8 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 		&ir.Entity{Name: "ОпцииКуки", IsStruct: true, Fields: cookieOptionsFields},
 		&ir.Entity{Name: "Дейтаграмма", IsStruct: true, Fields: datagramFields},
 		&ir.Entity{Name: "RGBЦвет", IsStruct: true, Fields: colorFields},
+		&ir.Entity{Name: "Процесс", IsStruct: true, Fields: processFields},
+		&ir.Entity{Name: "РезультатКоманды", IsStruct: true, Fields: commandResultFields},
 	)
 	// "Исключение" - ссылочная сущность (не структура): "выбросить"
 	// передаёт указатель на неё дальше по стеку вызовов без копирования,

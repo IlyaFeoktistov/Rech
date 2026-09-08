@@ -984,7 +984,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// объявленного заголовком (найдено живьём - examples/основы/
 	// внешние_функции.rech, strlen + <string.h>, включённый совсем по
 	// другой причине - memcpy захваченной лямбды).
-	ctx.includesStringH = ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesPanicCatch || ctx.usesStringSplit || ctx.usesRegex || ctx.usesHTTPHeaders || ctx.usesColor || hasStructTargets || prog.UsesReflection
+	ctx.includesStringH = ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesPanicCatch || ctx.usesStringSplit || ctx.usesRegex || ctx.usesHTTPHeaders || ctx.usesColor || ctx.usesSubprocess || hasStructTargets || prog.UsesReflection
 	ctx.includesStdlibH = ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesColor || ctx.usesQueryParams || ctx.usesCookies || ctx.usesRandom || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesRegex || ctx.usesHTTPHeaders || hasStructTargets || ctx.usesExit
 	ctx.includesMathH = ctx.usesMath
 	for _, ext := range prog.ExternFuncs {
@@ -1128,6 +1128,18 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// <io.h> - Windows _fileno/_get_osfhandle (windows.h уже подключён
 		// безусловно выше, WaitForSingleObject - оттуда же).
 		sb.WriteString("#ifndef _WIN32\n#include <poll.h>\n#else\n#include <io.h>\n#endif\n")
+	}
+	if ctx.usesSubprocess {
+		// <unistd.h> - fork/execvp/pipe/dup2/chdir/_exit. <sys/wait.h> -
+		// waitpid/WIFEXITED/WEXITSTATUS/WIFSIGNALED/WTERMSIG. <fcntl.h> -
+		// F_SETFD/FD_CLOEXEC (самопайп, см. package doc subprocess.go).
+		// <errno.h> - errno в потомке после неудачного execvp. <poll.h> -
+		// как и usesNonBlockingRead, но независимо от него (программа может
+		// вызвать "выполнить_команду" без единого "можно_прочитать_байт").
+		// На Windows ничего из этого не нужно - CreateProcessA/CreatePipe/
+		// CreateThread уже объявлены через windows.h, подключённый
+		// безусловно выше.
+		sb.WriteString("#ifndef _WIN32\n#include <unistd.h>\n#include <sys/wait.h>\n#include <fcntl.h>\n#include <errno.h>\n#include <poll.h>\n#endif\n")
 	}
 	if ctx.usesSockets {
 		// <errno.h> - только POSIX-ветка: "принять"/"установить_таймаут"
@@ -1527,6 +1539,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// небольшими самодостаточными хелперами.
 	appendCodeIf(&sb, ctx.usesShutdownFlag, shutdownFlagCode)
 	appendCodeIf(&sb, ctx.usesSignals, signalRuntimeCode())
+	appendCodeIf(&sb, ctx.usesSubprocess, subprocessRuntimeCode)
 	appendCodeIf(&sb, ctx.usesConsole, consoleRuntimeCode())
 	appendCodeIf(&sb, ctx.usesNonBlockingRead, nonBlockingReadRuntimeCode())
 	// "rech_db_t" сам уже виден (dbHandleTypedefCode, эмитирован раньше

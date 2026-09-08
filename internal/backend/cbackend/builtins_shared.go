@@ -240,6 +240,12 @@ type builtinFlags struct {
 	// встроенная функция "значение_заголовка" (заголовки, имя): ?Строка -
 	// общий разбор строки заголовков Запрос/Ответ, не привязан к cookies.
 	usesHTTPHeaders bool
+	// usesSubprocess - нужен ли subprocessRuntimeCode (subprocess.go) -
+	// встроенные функции "запустить_процесс"/"дождаться_процесса"/
+	// "выполнить_команду". Отдельный от usesSignals флаг (мотивирующее
+	// применение то же - управление внешними процессами, но "Процесс"/
+	// "РезультатКоманды" не имеют отношения к сигналам ОС как таковым).
+	usesSubprocess bool
 }
 
 // builtinCallCode генерирует C-вызов встроенной функции (internal/builtins,
@@ -431,6 +437,18 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 		flags.usesSignals = true
 		flags.usesPanic = true
 		return fmt.Sprintf("rech_send_signal(%s, %s)", args[0], args[1]), true
+	case "запустить_процесс":
+		flags.usesSubprocess = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_spawn_process(%s, %s)", args[0], args[1]), true
+	case "дождаться_процесса":
+		flags.usesSubprocess = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_wait_process(%s)", args[0]), true
+	case "выполнить_команду":
+		flags.usesSubprocess = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_run_command(%s, %s)", args[0], args[1]), true
 	case "установить_сырой_режим":
 		flags.usesConsole = true
 		return fmt.Sprintf("rech_set_raw_mode(%s)", args[0]), true

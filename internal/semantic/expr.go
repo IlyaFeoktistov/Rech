@@ -537,6 +537,11 @@ func analyzeCallExpr(sc *ctx, e *ast.CallExpr) (ir.Expr, error) {
 				return nil, fmt.Errorf("строка %d: встроенная функция \"регулярное\": %w", e.Line, err)
 			}
 		}
+		if callee == "запустить_процесс" {
+			if err := registerSubprocessTypesOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
+				return nil, fmt.Errorf("строка %d: встроенная функция \"запустить_процесс\": %w", e.Line, err)
+			}
+		}
 		if bytesIOFuncNames[callee] {
 			if err := registerByteListTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
 				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
