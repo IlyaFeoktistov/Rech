@@ -50,6 +50,39 @@ func TestAnalyzeModuleConstSelfReferenceCycleRejected(t *testing.T) {
 	}
 }
 
+// TestAnalyzeModuleConstVisibleInsideGenericFunction - константа уровня
+// модуля видна и внутри тела generic-функции/из места её вызова:
+// instantiateGenerics (internal/semantic/generics.go) строит НОВЫЙ
+// ast.Program для развёрнутых инстанциаций - раньше он не копировал
+// prog.Consts, из-за чего константа "исчезала" ровно в файлах, где
+// вообще есть хоть один generic (см. examples/бд/чанкование.rech).
+func TestAnalyzeModuleConstVisibleInsideGenericFunction(t *testing.T) {
+	prog := parseProgram(t, `
+константа РАЗМЕР = 3
+функция обернуть<T>(значение: T): T { вернуть значение }
+функция главная { вывести обернуть<Целое>(РАЗМЕР) }
+`)
+	var fn *ir.Function
+	for _, f := range prog.Functions {
+		if f.Name == "главная" {
+			fn = f
+			break
+		}
+	}
+	if fn == nil {
+		t.Fatalf("функция \"главная\" не найдена среди %+v", prog.Functions)
+	}
+	print := fn.Body[0].(*ir.PrintStmt)
+	call, ok := print.Value.(*ir.CallExpr)
+	if !ok || len(call.Args) != 1 {
+		t.Fatalf("ожидался вызов обернуть<Целое>(РАЗМЕР) с одним аргументом, получено %+v", print.Value)
+	}
+	lit, ok := call.Args[0].(*ir.IntLiteral)
+	if !ok || lit.Value != 3 {
+		t.Fatalf("ожидался IntLiteral(3) как аргумент (константа РАЗМЕР инлайнится), получено %+v", call.Args[0])
+	}
+}
+
 func TestAnalyzeModuleConstNameCollisionWithFunctionRejected(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 функция особая() { вывести "фн" }

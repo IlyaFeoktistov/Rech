@@ -823,7 +823,7 @@ func instantiateGenerics(prog *ast.Program) (*ast.Program, map[string][]constrai
 		}
 	}
 
-	out := &ast.Program{Uses: prog.Uses, ExternFuncs: prog.ExternFuncs, Enums: prog.Enums, Interfaces: prog.Interfaces}
+	out := &ast.Program{Uses: prog.Uses, ExternFuncs: prog.ExternFuncs, Enums: prog.Enums, Interfaces: prog.Interfaces, Consts: prog.Consts}
 	for _, ent := range prog.Entities {
 		if len(ent.TypeParams) == 0 {
 			out.Entities = append(out.Entities, ent)
