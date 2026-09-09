@@ -154,7 +154,9 @@ func TestCodeLensCountsReferencesFromOtherFiles(t *testing.T) {
     вернуть имя
 }
 `
-	const authSrc = `функция авторизовать(имя: Строка): Строка
+	const authSrc = `использовать создать_токен из "../токен/токен"
+
+функция авторизовать(имя: Строка): Строка
 {
     вернуть создать_токен(имя)
 }
@@ -171,5 +173,62 @@ func TestCodeLensCountsReferencesFromOtherFiles(t *testing.T) {
 	}
 	if len(cl.Refs) != 1 || cl.Refs[0].File != filepath.Join(authDir, "авторизация.rech") {
 		t.Fatalf("ожидалась 1 позиция ссылки в авторизация.rech, получено: %+v", cl.Refs)
+	}
+}
+
+// TestCodeLensDoesNotCrossUnrelatedNeighboringProjects - репортнуто
+// пользователем: если рядом на диске лежат ДВА НЕЗАВИСИМЫХ проекта (ничего
+// друг у друга не импортируют), под ОДНИМ общим .rechproj-деревом (типичная
+// раскладка - `examples/` основного репозитория Rech: множество
+// подкаталогов-примеров без СОБСТВЕННОГО .rechproj каждый, scanRoot
+// (workspace_scan.go) поднимается до ближайшего .rechproj ВЫШЕ них обоих),
+// и оба объявляют функцию с ОДНИМ И ТЕМ ЖЕ именем - "N ссылок" в проекте A
+// не должно учитывать текстовое совпадение имени в проекте Б (см. package
+// doc multifile.go/fileImportsTarget - раньше считалось ЛЮБОЕ совпадение
+// имени под общим каталогом-предком, независимо от реального
+// "использовать").
+func TestCodeLensDoesNotCrossUnrelatedNeighboringProjects(t *testing.T) {
+	root := t.TempDir()
+	projA := filepath.Join(root, "проект_а")
+	projB := filepath.Join(root, "проект_б")
+	if err := os.MkdirAll(projA, 0o755); err != nil {
+		t.Fatalf("не удалось создать каталог: %v", err)
+	}
+	if err := os.MkdirAll(projB, 0o755); err != nil {
+		t.Fatalf("не удалось создать каталог: %v", err)
+	}
+	// Один .rechproj в ОБЩЕМ корне (НЕ в каждом подпроекте по отдельности) -
+	// та же раскладка, что и у настоящего examples/ основного репозитория.
+	if err := os.WriteFile(filepath.Join(root, "тест.rechproj"), []byte("проект:\n  имя: тест\nфайлы:\n  главный: проект_а/главный.rech\n"), 0o644); err != nil {
+		t.Fatalf("не удалось записать .rechproj: %v", err)
+	}
+	const srcA = `функция обработать(имя: Строка): Строка
+{
+    вернуть имя
+}
+`
+	// Проект Б - СВОЁ, НИЧЕМ не связанное с А объявление "обработать" (то же
+	// имя, чистое совпадение) плюс настоящий вызов ЕГО СОБСТВЕННОЙ функции -
+	// чтобы отличить "0 ссылок в самом проекте Б" (сломанный тест) от "не
+	// подхватило чужой проект А" (то, что здесь проверяется).
+	const srcB = `функция обработать(имя: Строка): Строка
+{
+    вернуть имя
+}
+
+функция главная
+{
+    вывести обработать("б")
+}
+`
+	pathA := writeMultiFileSource(t, projA, "главный.rech", srcA)
+	writeMultiFileSource(t, projB, "главный.rech", srcB)
+
+	d := newDoc(fileURI(pathA), srcA)
+	lenses := d.codeLenses()
+	line := lineOf(t, srcA, "функция обработать")
+	cl := findLens(t, lenses, line)
+	if cl.Title != "0 ссылок" {
+		t.Fatalf("ожидалось \"0 ссылок\" (проект Б не связан с А) - получено %q, Refs=%+v", cl.Title, cl.Refs)
 	}
 }

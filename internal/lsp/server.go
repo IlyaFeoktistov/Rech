@@ -147,10 +147,12 @@ func (s *server) handleNotification(msg *Message) {
 // publishDiagnostics отправляет "textDocument/publishDiagnostics" для d -
 // d.diagnostics (ошибки разбора/анализа - diagnostics.go, может быть
 // несколько сразу, см. package doc document.go update), плюс по одной
-// записи на каждое вхождение "@устарело"-имени (deprecated.go) - пустой
-// список снимает раньше показанное подчёркивание/зачёркивание, когда
-// документ снова стал разбираться/анализироваться успешно, либо когда
-// устаревшее имя перестало где-либо встречаться.
+// записи на каждое вхождение "@устарело"-имени (deprecated.go), плюс
+// подсказки-упрощения (hints.go, hintSeverity - "три точки", не ошибка и
+// не устаревание) - пустой список снимает раньше показанное подчёркивание/
+// зачёркивание, когда документ снова стал разбираться/анализироваться
+// успешно, устаревшее имя перестало где-либо встречаться, либо предложенное
+// упрощение было применено/код изменился так, что предлагать больше нечего.
 func (s *server) publishDiagnostics(uri string, d *doc) {
 	diags := []any{}
 	for _, diag := range d.diagnostics {
@@ -158,6 +160,11 @@ func (s *server) publishDiagnostics(uri string, d *doc) {
 	}
 	for _, dep := range d.deprecatedDiagnostics() {
 		diags = append(diags, diagnosticJSON(dep))
+	}
+	for _, sug := range d.suggestions() {
+		diags = append(diags, diagnosticJSON(Diagnostic{
+			Line: sug.Line, Col: sug.Col, Len: sug.Len, Message: sug.Message, Severity: hintSeverity,
+		}))
 	}
 	_ = s.rpc.Notify("textDocument/publishDiagnostics", map[string]any{"uri": uri, "diagnostics": diags})
 }
@@ -364,11 +371,13 @@ func (s *server) handleDocumentHighlight(msg *Message) {
 	_ = s.rpc.Reply(msg.ID, highlights, nil)
 }
 
-// handleCodeAction отвечает на "textDocument/codeAction" - сейчас
-// единственный вид quick fix - автоимпорт (см. codeaction.go): не
-// зависит от диапазона/списка диагностик запроса (LSP это разрешает,
-// context.diagnostics - лишь ПОДСКАЗКА клиента, не обязательное условие) -
-// решает по d.diagnostics целиком.
+// handleCodeAction отвечает на "textDocument/codeAction" - два независимых
+// источника quick fix'ов: автоимпорт (codeaction.go, вставка новой строки
+// целиком) и подсказки-упрощения (hints.go, замена произвольного диапазона
+// существующего текста - "i = i + 1" -> "i++", "статический" перед именем
+// метода и т. п.). Не зависит от диапазона/списка диагностик запроса (LSP
+// это разрешает, context.diagnostics - лишь ПОДСКАЗКА клиента, не
+// обязательное условие) - решает по d.diagnostics/d.suggestions() целиком.
 func (s *server) handleCodeAction(msg *Message) {
 	var p struct {
 		TextDocument struct {
@@ -384,28 +393,43 @@ func (s *server) handleCodeAction(msg *Message) {
 		_ = s.rpc.Reply(msg.ID, []any{}, nil)
 		return
 	}
-	actions := d.codeActions()
-	out := make([]any, len(actions))
-	for i, a := range actions {
-		out[i] = map[string]any{
-			"title": a.Title,
-			"kind":  "quickfix",
-			"edit": map[string]any{
-				"changes": map[string]any{
-					p.TextDocument.URI: []any{
-						map[string]any{
-							"range": map[string]any{
-								"start": map[string]any{"line": a.NewLine - 1, "character": 0},
-								"end":   map[string]any{"line": a.NewLine - 1, "character": 0},
-							},
-							"newText": a.NewText,
+	var out []any
+	for _, a := range d.codeActions() {
+		out = append(out, quickFixJSON(p.TextDocument.URI, a.Title,
+			a.NewLine, 0, a.NewLine, 0, a.NewText))
+	}
+	for _, sug := range d.suggestions() {
+		out = append(out, quickFixJSON(p.TextDocument.URI, sug.Title,
+			sug.StartLine, sug.StartCol-1, sug.EndLine, sug.EndCol-1, sug.NewText))
+	}
+	if out == nil {
+		out = []any{}
+	}
+	_ = s.rpc.Reply(msg.ID, out, nil)
+}
+
+// quickFixJSON - один LSP CodeAction (kind "quickfix") - startLine/endLine
+// 1-индексные (как и весь остальной этот пакет), startChar/endChar - УЖЕ
+// 0-индексные (вызывающая сторона сама переводит из 1-индексных Col, где
+// это применимо - см. package doc handleCodeAction).
+func quickFixJSON(uri, title string, startLine, startChar, endLine, endChar int, newText string) map[string]any {
+	return map[string]any{
+		"title": title,
+		"kind":  "quickfix",
+		"edit": map[string]any{
+			"changes": map[string]any{
+				uri: []any{
+					map[string]any{
+						"range": map[string]any{
+							"start": map[string]any{"line": startLine - 1, "character": startChar},
+							"end":   map[string]any{"line": endLine - 1, "character": endChar},
 						},
+						"newText": newText,
 					},
 				},
 			},
-		}
+		},
 	}
-	_ = s.rpc.Reply(msg.ID, out, nil)
 }
 
 // handleCodeLens отвечает на "textDocument/codeLens" - "N ссылок" над

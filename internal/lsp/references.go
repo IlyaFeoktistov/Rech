@@ -114,8 +114,14 @@ type refLocation struct {
 // исходники/авторизация/авторизация.rech). Текущий документ ищется по
 // d.tokens (живой буфер, не то, что на диске - в отличие от остальных
 // файлов дерева, см. package doc listRechFiles/workspace_scan.go), каждый
-// ДРУГОЙ файл - читается и лексится с диска заново (приближённо, как и
-// весь пакет - см. package doc выше). d.path == "" (нет реального файла на
+// ДРУГОЙ файл-КАНДИДАТ - читается и лексится с диска заново (приближённо,
+// как и весь пакет - см. package doc выше), но засчитывается ТОЛЬКО если
+// fileImportsTarget подтверждает, что кандидат действительно (прямо или
+// транзитивно) использует d.path - иначе текстовое совпадение имени между
+// ДВУМЯ НЕСВЯЗАННЫМИ файлами (в т. ч. из разных .rechproj-проектов рядом
+// на диске) засчиталось бы как ссылка, хотя один файл вообще не видит
+// объявление другого (репортнуто пользователем, см. package doc
+// multifile.go/fileImportsTarget). d.path == "" (нет реального файла на
 // диске, см. multifile.go) - результат ограничен текущим документом, тем
 // же поведением, что и раньше.
 func (d *doc) crossFileRefs(matcher func([]lexer.Token, string) []lexer.Token, name string) []refLocation {
@@ -127,6 +133,9 @@ func (d *doc) crossFileRefs(matcher func([]lexer.Token, string) []lexer.Token, n
 		return out
 	}
 	for _, file := range listRechFiles(scanRoot(filepath.Dir(d.path)), d.path) {
+		if !fileImportsTarget(file, d.path) {
+			continue
+		}
 		toks, ok := d.foreignTokens(file)
 		if !ok {
 			continue

@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
@@ -158,6 +159,7 @@ type doc struct {
 // НИ ОДИН путь не сработал только если оба провалились.
 func (d *doc) update(text string) {
 	d.text = text
+	lines := strings.Split(text, "\n")
 	toks, err := lexer.New(text).Tokenize()
 	if err != nil {
 		d.setDiagnostic(err)
@@ -182,13 +184,13 @@ func (d *doc) update(text string) {
 		// linkErr, если линковка вообще пыталась (см. package doc tryLink) -
 		// обычно информативнее одиночного semErr одного файла.
 		if linkErr != nil {
-			d.setDiagnostics(append(parseDiagnostics(parseErrs), errToDiagnostic(linkErr)))
+			d.setDiagnostics(append(parseDiagnostics(parseErrs, lines), errToDiagnostic(linkErr, lines)))
 		} else {
-			d.setDiagnostics(append(parseDiagnostics(parseErrs), errToDiagnostic(semErr)))
+			d.setDiagnostics(append(parseDiagnostics(parseErrs, lines), errToDiagnostic(semErr, lines)))
 		}
 		return
 	}
-	d.setDiagnostics(parseDiagnostics(parseErrs))
+	d.setDiagnostics(parseDiagnostics(parseErrs, lines))
 	d.goodText = text
 
 	if linkOK {

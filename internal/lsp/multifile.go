@@ -29,6 +29,7 @@ package lsp
 import (
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
@@ -227,6 +228,41 @@ func (d *doc) applyLink(res linkResult) {
 // модуль стемпается module.Load СВОИМ путём, не d.uri - см. tryLink.
 func (d *doc) isCurrentFile(file string) bool {
 	return file == d.uri || (d.path != "" && file == d.path)
+}
+
+// fileImportsTarget - true, если candidate (прямо или транзитивно, через
+// цепочку "использовать") реально ссылается на target - candidate
+// разрешается СВОИМ собственным графом импортов (module.LoadWithRoot от
+// candidate КАК ГЛАВНОГО файла, тем же способом, что tryLink разрешает
+// открытый документ), target ищется среди получившихся Module.Path.
+//
+// Нужно crossFileRefs (references.go), чтобы не путать СЛУЧАЙНОЕ текстовое
+// совпадение имени с настоящей ссылкой: два файла (в том числе из ДВУХ
+// РАЗНЫХ проектов, соседствующих на диске - например, два открытых рядом
+// .rechproj под общим родительским каталогом) могут объявлять сущность/
+// функцию с одинаковым именем, ничего не зная друг о друге - раньше
+// "N ссылок" считало по всему поддереву каталога (workspace_scan.go,
+// scanRoot) ЛЮБОЕ текстовое совпадение, не проверяя, способен ли candidate
+// вообще ВИДЕТЬ объявление из target (репортнуто пользователем). false и
+// при любой ошибке разбора candidate (её граф не строится - не то, что
+// нужно ЭТОЙ проверке, показать её отдельной диагностикой не для чего) -
+// безопаснее занизить число ссылок, чем посчитать случайное совпадение.
+func fileImportsTarget(candidate, target string) bool {
+	root, err := project.RootFor(candidate)
+	if err != nil {
+		return false
+	}
+	prog, err := module.LoadWithRoot(candidate, compiler.NewFrontend(), nil, nil, root)
+	if err != nil {
+		return false
+	}
+	target = filepath.Clean(target)
+	for _, mod := range prog.Modules {
+		if mod.Path == target {
+			return true
+		}
+	}
+	return false
 }
 
 // foreignTokens - токены ДРУГОГО файла графа импортов, прочитанного и
