@@ -79,9 +79,14 @@ func normalizeBraceStyle(src string) (string, error) {
 			continue
 		}
 		headerLine := significant[i-1].Line
-		class, multilineParams := classifyBrace(significant, match, i)
+		class, isLambda, multilineParams := classifyBrace(significant, match, i)
 		switch {
-		case class == braceControl:
+		case class == braceControl || isLambda:
+			// Лямбда (анонимная "функция(...)", без имени - колбэк) - K&R,
+			// как управляющая конструкция, а не Allman как у ИМЕНОВАННОГО
+			// объявления - пользователь попросил явно (иначе колбэк с
+			// однострочным телом занимал бы неоправданно много вертикального
+			// места посреди списка аргументов вызова).
 			if headerLine != t.Line {
 				lu.union(headerLine, t.Line)
 			}
@@ -138,8 +143,12 @@ var continuationBraceKeywords = map[lexer.TokenType]bool{
 // сканирование управляющим/декларативным ключевым словом - оно уже
 // проверено парсером на корректность). multilineParams - true, если
 // САМЫЙ БЛИЖНИЙ к "{" список параметров (первая ")" по пути назад)
-// открывается на другой физической строке, чем закрывается.
-func classifyBrace(sig []lexer.Token, match []int, lbraceIdx int) (class braceClass, multilineParams bool) {
+// открывается на другой физической строке, чем закрывается. isLambda -
+// true, если найденное ключевое слово - KwFunction БЕЗ имени сразу за ним
+// (анонимная "функция(...)", колбэк) - единственное исключение внутри
+// declBraceKeywords, которое всё равно K&R, не Allman (см. вызывающую
+// сторону, normalizeBraceStyle).
+func classifyBrace(sig []lexer.Token, match []int, lbraceIdx int) (class braceClass, isLambda bool, multilineParams bool) {
 	class = braceDecl // по умолчанию - метод без ведущего ключевого слова
 	firstRParen := -1
 	k := lbraceIdx - 1
@@ -164,6 +173,9 @@ func classifyBrace(sig []lexer.Token, match []int, lbraceIdx int) (class braceCl
 		}
 		if declBraceKeywords[t.Type] {
 			class = braceDecl
+			if t.Type == lexer.KwFunction && k+1 < len(sig) && sig[k+1].Type == lexer.LPAREN {
+				isLambda = true
+			}
 			break
 		}
 		k--
@@ -171,7 +183,7 @@ func classifyBrace(sig []lexer.Token, match []int, lbraceIdx int) (class braceCl
 	if firstRParen != -1 && match[firstRParen] >= 0 {
 		multilineParams = sig[match[firstRParen]].Line != sig[firstRParen].Line
 	}
-	return class, multilineParams
+	return class, isLambda, multilineParams
 }
 
 // matchAllBrackets сопоставляет КАЖДУЮ "()"/"[]"/"{}" её парой одним

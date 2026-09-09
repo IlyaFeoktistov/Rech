@@ -19,8 +19,9 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 )
 
-// matchFunctionRefs - IDENT-токен name в toks, за которым сразу "(" (вызов)
-// или перед которым "&" (FuncRefExpr) - НЕ считая само объявление ("функция
+// matchFunctionRefs - IDENT-токен name в toks, за которым сразу "(" (вызов,
+// в т. ч. generic - "имя<Тип, ...>(...)", см. isCallSite) или перед
+// которым "&" (FuncRefExpr) - НЕ считая само объявление ("функция
 // имя(...)", отличается предшествующим KwFunction) и не считая
 // "получатель.имя(...)" (это вызов МЕТОДА с тем же именем, см.
 // matchMethodRefs).
@@ -40,23 +41,80 @@ func matchFunctionRefs(toks []lexer.Token, name string) []lexer.Token {
 			out = append(out, tok)
 			continue
 		}
-		if i+1 < len(toks) && toks[i+1].Type == lexer.LPAREN {
+		if isCallSite(toks, i) {
 			out = append(out, tok)
 		}
 	}
 	return out
 }
 
-// matchMethodRefs - "получатель.имя(...)" в toks - объявление метода само
-// не подходит (методы объявляются без ведущей "." перед именем).
+// matchMethodRefs - "получатель.имя(...)" в toks (в т. ч. generic-вызов
+// метода - "получатель.имя<Тип>(...)", см. isCallSite) - объявление
+// метода само не подходит (методы объявляются без ведущей "." перед
+// именем).
 func matchMethodRefs(toks []lexer.Token, name string) []lexer.Token {
 	var out []lexer.Token
 	for i, tok := range toks {
-		if tok.Type == lexer.IDENT && tok.Value == name && i > 0 && toks[i-1].Type == lexer.DOT && i+1 < len(toks) && toks[i+1].Type == lexer.LPAREN {
+		if tok.Type == lexer.IDENT && tok.Value == name && i > 0 && toks[i-1].Type == lexer.DOT && isCallSite(toks, i) {
 			out = append(out, tok)
 		}
 	}
 	return out
+}
+
+// isCallSite - true, если IDENT на позиции i в toks - место ВЫЗОВА (сразу
+// "(", либо список аргументов типа generic-вызова "<Тип, ...>" перед "(" -
+// "имя<Тип>(...)"/"получатель.имя<Тип>(...)") - без этого случая счётчик
+// ссылок (codelens.go) не находил ни одного вызова generic-функции/метода
+// вообще, показывая "0 ссылок" при реальном использовании (репортнуто
+// пользователем, examples/бд/чанкование.rech - "чанковать_по_полю<T>",
+// вызывается дважды в том же файле).
+func isCallSite(toks []lexer.Token, i int) bool {
+	next := i + 1
+	if next < len(toks) && toks[next].Type == lexer.LT {
+		if closeIdx, ok := skipGenericArgs(toks, next); ok {
+			next = closeIdx + 1
+		}
+	}
+	return next < len(toks) && toks[next].Type == lexer.LPAREN
+}
+
+// skipGenericArgs - от индекса ПЕРВОЙ "<" (ltIdx) пытается найти индекс
+// закрывающей ">"/половины ">>" списка АРГУМЕНТОВ ТИПА generic-вызова -
+// тем же классом эвристики, что и остальной пакет (не настоящий парсер,
+// приближение, см. package doc выше): содержимое между "<" и ">" обязано
+// выглядеть как список имён типов (IDENT/","/"?" nullable/вложенные
+// "<...>") - при первом токене, не подходящем под этот класс, сдаётся
+// (ok=false - это НЕ generic-список, а обычное "<" сравнения).
+func skipGenericArgs(toks []lexer.Token, ltIdx int) (closeIdx int, ok bool) {
+	depth := 0
+	for i := ltIdx; i < len(toks); i++ {
+		switch toks[i].Type {
+		case lexer.LT:
+			depth++
+		case lexer.GT:
+			depth--
+			if depth == 0 {
+				return i, true
+			}
+			if depth < 0 {
+				return 0, false
+			}
+		case lexer.SHR:
+			depth -= 2
+			if depth == 0 {
+				return i, true
+			}
+			if depth < 0 {
+				return 0, false
+			}
+		case lexer.IDENT, lexer.COMMA, lexer.QUESTION:
+			// часть списка имён типов - продолжаем.
+		default:
+			return 0, false
+		}
+	}
+	return 0, false
 }
 
 // matchMemberRefs - "получатель.имя" (поле или константа) в toks - без
@@ -67,6 +125,31 @@ func matchMemberRefs(toks []lexer.Token, name string) []lexer.Token {
 		if tok.Type == lexer.IDENT && tok.Value == name && i > 0 && toks[i-1].Type == lexer.DOT {
 			out = append(out, tok)
 		}
+	}
+	return out
+}
+
+// matchModuleConstRefs - IDENT(name) как самостоятельная ссылка на
+// константу МОДУЛЬНОГО уровня ("голым именем" в теле функции, docs/
+// SPEC.md) - не считает саму декларацию ("константа ИМЯ = ...", отличается
+// предшествующим KwConst) и не считает "получатель.ИМЯ" (чтение ПОЛЯ/
+// константы сущности с тем же именем - не модульная константа, тот же
+// принцип, что и у matchFunctionRefs про DOT). Имя модульной константы
+// гарантированно уникально среди функций/сущностей/перечислений/констант
+// этого файла (collectModuleConsts, internal/semantic/analyzer.go) -
+// совпадение с именем чего-то ещё в ЭТОМ файле исключено. Раньше
+// codelens.go вообще не строил "N ссылок" для модульных констант
+// (репортнуто пользователем).
+func matchModuleConstRefs(toks []lexer.Token, name string) []lexer.Token {
+	var out []lexer.Token
+	for i, tok := range toks {
+		if tok.Type != lexer.IDENT || tok.Value != name {
+			continue
+		}
+		if i > 0 && (toks[i-1].Type == lexer.KwConst || toks[i-1].Type == lexer.DOT) {
+			continue
+		}
+		out = append(out, tok)
 	}
 	return out
 }

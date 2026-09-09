@@ -64,6 +64,10 @@ func Format(src string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	src, err = insertLambdaSpace(src)
+	if err != nil {
+		return "", err
+	}
 	src, err = alignEntityFields(src)
 	if err != nil {
 		return "", err

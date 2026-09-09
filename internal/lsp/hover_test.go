@@ -103,7 +103,23 @@ func TestHoverOnLocalVariableShowsType(t *testing.T) {
 	if !ok {
 		t.Fatalf("ожидался hover на локальной переменной")
 	}
-	if !strings.Contains(text, "итог: Целое") {
+	if !strings.Contains(text, "переменная итог: Целое") {
+		t.Fatalf("неожиданный текст hover: %q", text)
+	}
+}
+
+// TestHoverOnParameterShowsParamLabel - параметр функции отличается от
+// обычной локальной переменной ("параметр", не "переменная") -
+// пользователь попросил явно показывать, что именно это.
+func TestHoverOnParameterShowsParamLabel(t *testing.T) {
+	d := newDoc("test://a.rech", hoverTestSrc)
+	line := lineOf(t, hoverTestSrc, "переменная итог = кого + кому")
+	col := runeCol(t, "    переменная итог = кого + кому", "кого")
+	text, ok := d.hover(line, col)
+	if !ok {
+		t.Fatalf("ожидался hover на параметре")
+	}
+	if !strings.Contains(text, "параметр кого: Целое") {
 		t.Fatalf("неожиданный текст hover: %q", text)
 	}
 }

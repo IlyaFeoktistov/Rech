@@ -46,6 +46,9 @@ func (d *doc) codeLenses() []CodeLens {
 			out = append(out, d.newCodeLens(m.Line, matchMethodRefs, m.Name))
 		}
 	}
+	for _, c := range d.astProg.Consts {
+		out = append(out, d.newCodeLens(c.Line, matchModuleConstRefs, c.Name))
+	}
 	return out
 }
 

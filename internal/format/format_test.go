@@ -245,7 +245,7 @@ func TestFormatSwitchCaseBodyIndentedDeeperThanLabel(t *testing.T) {
 // строки - только вложенное тело колбэка.
 func TestFormatCallbackNotLastArgumentStaysFlat(t *testing.T) {
 	src := "функция чанковать(ф: Вызываемый(), доп: Строка)\n{\n    ф()\n}\nфункция главная\n{\n    чанковать(функция()\n    {\n    вывести 1\n}, \"доп\")\n}\n"
-	want := "функция чанковать(ф: Вызываемый(), доп: Строка)\n{\n    ф()\n}\n\nфункция главная\n{\n    чанковать(функция()\n    {\n        вывести 1\n    }, \"доп\")\n}\n"
+	want := "функция чанковать(ф: Вызываемый(), доп: Строка)\n{\n    ф()\n}\n\nфункция главная\n{\n    чанковать(функция () {\n        вывести 1\n    }, \"доп\")\n}\n"
 	got, err := Format(src)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
@@ -375,6 +375,31 @@ func TestFormatMultilineParamsExceptionAttachesBrace(t *testing.T) {
 func TestFormatAlignsFieldsLikeATable(t *testing.T) {
 	src := "структура Пользователь\n{\n    имеет:\n        id: Целое\n        имя: Строка = \"аноним\" `sql:name`\n        возраст: Целое = 0\n}\n"
 	want := "структура Пользователь\n{\n    имеет:\n        id:      Целое\n        имя:     Строка = \"аноним\" `sql:name`\n        возраст: Целое  = 0\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != want {
+		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
+	}
+	got2, err := Format(got)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка при повторном форматировании: %v", err)
+	}
+	if got2 != got {
+		t.Fatalf("не идемпотентно:\nпервый проход:\n%q\nвторой проход:\n%q", got, got2)
+	}
+}
+
+// TestFormatFieldAlignmentSkipsUnusedColumnGap - ни у одной строки пробега
+// нет "=" (значения по умолчанию), но у одной есть тег - раньше text/
+// tabwriter всё равно резервировал под несуществующий столбец "="
+// минимальный паддинг (1 пробел), в сумме с паддингом самого Типа
+// получались ДВА пробела перед тегом там, где выравнивать было нечего
+// (репортнуто пользователем - "имя: Строка  `sql:name`").
+func TestFormatFieldAlignmentSkipsUnusedColumnGap(t *testing.T) {
+	src := "структура Пользователь\n{\n    имеет:\n        id: Целое\n        имя: Строка `sql:name`\n}\n"
+	want := "структура Пользователь\n{\n    имеет:\n        id:  Целое\n        имя: Строка `sql:name`\n}\n"
 	got, err := Format(src)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
@@ -606,9 +631,86 @@ func TestFormatVarDeclAlignmentBreaksOnOtherStatement(t *testing.T) {
 	}
 }
 
+// TestFormatRemovesBlankLineAfterMultilineDocComment - пустая строка между
+// закрывающей "*/" многострочного doc-комментария и объявлением, которое
+// он документирует (тут - "перечисление") - убирается, doc-комментарий
+// обязан прилегать (репортнуто пользователем).
+func TestFormatRemovesBlankLineAfterMultilineDocComment(t *testing.T) {
+	src := "/**\n * Виды клавиш.\n */\n\nперечисление ТипКлавиши\n{\n    Стрелка = 1\n}\n"
+	want := "/**\n * Виды клавиш.\n */\nперечисление ТипКлавиши\n{\n    Стрелка = 1\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != want {
+		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
+	}
+	got2, err := Format(got)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка при повторном форматировании: %v", err)
+	}
+	if got2 != got {
+		t.Fatalf("не идемпотентно:\nпервый проход:\n%q\nвторой проход:\n%q", got, got2)
+	}
+}
+
+// TestFormatRemovesBlankLineAfterSingleLineDocComment - то же самое для
+// однострочного doc-комментария (сам он не переоформляется, но пустая
+// строка после него всё равно лишняя).
+func TestFormatRemovesBlankLineAfterSingleLineDocComment(t *testing.T) {
+	src := "/** Виды клавиш. */\n\nперечисление ТипКлавиши\n{\n    Стрелка = 1\n}\n"
+	want := "/** Виды клавиш. */\nперечисление ТипКлавиши\n{\n    Стрелка = 1\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != want {
+		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
+	}
+}
+
+// TestFormatLambdaBraceIsKAndRNotAllman - анонимная лямбда-колбэк
+// ("функция(...)", без имени) - K&R ("{" на строке заголовка), НЕ Allman
+// (в отличие от ИМЕНОВАННОГО объявления функции/метода) - пользователь
+// попросил явно, колбэк не должен занимать лишнюю вертикальную строку
+// только ради общего правила именованных объявлений.
+func TestFormatLambdaBraceIsKAndRNotAllman(t *testing.T) {
+	src := "функция главная\n{\n    чанковать(бд, функция(строка: Значение)\n    {\n        вывести строка\n    })\n}\n"
+	want := "функция главная\n{\n    чанковать(бд, функция (строка: Значение) {\n        вывести строка\n    })\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != want {
+		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
+	}
+	got2, err := Format(got)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка при повторном форматировании: %v", err)
+	}
+	if got2 != got {
+		t.Fatalf("не идемпотентно:\nпервый проход:\n%q\nвторой проход:\n%q", got, got2)
+	}
+}
+
+// TestFormatLambdaGetsSpaceBeforeParen - "функция(" (лямбда, без пробела) ->
+// "функция (" - именованное объявление ("функция имя(...)") не задевается
+// вовсе (между ключевым словом и "(" уже есть имя).
+func TestFormatLambdaGetsSpaceBeforeParen(t *testing.T) {
+	src := "функция главная\n{\n    вывести применить(1, функция(x: Целое): Целое { вернуть x + 1 })\n}\n"
+	want := "функция главная\n{\n    вывести применить(1, функция (x: Целое): Целое { вернуть x + 1 })\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != want {
+		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
+	}
+}
+
 func TestFormatMultilineCallTrailingBraceParen(t *testing.T) {
 	src := "функция обработать(ф: Вызываемый())\n{\n    ф()\n}\nфункция главная\n{\n    обработать(функция()\n    {\n    вывести 1\n})\n}\n"
-	want := "функция обработать(ф: Вызываемый())\n{\n    ф()\n}\n\nфункция главная\n{\n    обработать(функция()\n    {\n        вывести 1\n    })\n}\n"
+	want := "функция обработать(ф: Вызываемый())\n{\n    ф()\n}\n\nфункция главная\n{\n    обработать(функция () {\n        вывести 1\n    })\n}\n"
 	got, err := Format(src)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)

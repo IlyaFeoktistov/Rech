@@ -378,14 +378,30 @@ func (s *server) handleDocumentHighlight(msg *Message) {
 // источника quick fix'ов: автоимпорт (codeaction.go, вставка новой строки
 // целиком) и подсказки-упрощения (hints.go, замена произвольного диапазона
 // существующего текста - "i = i + 1" -> "i++", "статический" перед именем
-// метода и т. п.). Не зависит от диапазона/списка диагностик запроса (LSP
+// метода и т. п.). Автоимпорт НЕ зависит от запрошенного диапазона (LSP
 // это разрешает, context.diagnostics - лишь ПОДСКАЗКА клиента, не
-// обязательное условие) - решает по d.diagnostics/d.suggestions() целиком.
+// обязательное условие - сама ошибка "не объявлено и не импортировано"
+// обычно ровно там, где курсор, а вот МЕСТО ВСТАВКИ строки "использовать" -
+// нет, фильтровать по нему было бы неверно). Подсказки-упрощения, В
+// ОТЛИЧИЕ от автоимпорта, - ОБЯЗАНЫ фильтроваться по запрошенному
+// диапазону: каждая относится ровно к ОДНОМУ конкретному месту кода, без
+// фильтра меню "Быстрое исправление" в любой точке документа предлагало бы
+// ВСЕ найденные в файле упрощения разом, не только то, что под курсором
+// (репортнуто пользователем - "j = j + 1" на одной строке показывало
+// quick fix ещё и для "i++"/"+=" с других, ничем не связанных строк файла).
 func (s *server) handleCodeAction(msg *Message) {
 	var p struct {
 		TextDocument struct {
 			URI string `json:"uri"`
 		} `json:"textDocument"`
+		Range struct {
+			Start struct {
+				Line int `json:"line"`
+			} `json:"start"`
+			End struct {
+				Line int `json:"line"`
+			} `json:"end"`
+		} `json:"range"`
 	}
 	if err := json.Unmarshal(msg.Params, &p); err != nil {
 		_ = s.rpc.Reply(msg.ID, nil, err)
@@ -396,12 +412,16 @@ func (s *server) handleCodeAction(msg *Message) {
 		_ = s.rpc.Reply(msg.ID, []any{}, nil)
 		return
 	}
+	reqStart, reqEnd := p.Range.Start.Line+1, p.Range.End.Line+1 // 1-индексные, как и весь остальной пакет
 	var out []any
 	for _, a := range d.codeActions() {
 		out = append(out, quickFixJSON(p.TextDocument.URI, a.Title,
 			a.NewLine, 0, a.NewLine, 0, a.NewText))
 	}
 	for _, sug := range d.suggestions() {
+		if sug.EndLine < reqStart || sug.StartLine > reqEnd {
+			continue // не пересекается с запрошенным диапазоном - см. package doc выше
+		}
 		out = append(out, quickFixJSON(p.TextDocument.URI, sug.Title,
 			sug.StartLine, sug.StartCol-1, sug.EndLine, sug.EndCol-1, sug.NewText))
 	}

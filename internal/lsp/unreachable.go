@@ -69,6 +69,13 @@ func (d *doc) unreachableDiagnostics() []Diagnostic {
 			case *ast.GerundStmt:
 				walkBody(st.Body)
 			}
+			// Лямбда-колбэк, спрятанная в выражении этой инструкции
+			// (аргумент вызова и т. п.) - тоже отдельное тело, со своей
+			// собственной недостижимостью (та же дыра, что нашёл
+			// пользователь для hints.go - см. package doc walkLambdaBodies).
+			for _, e := range immediateExprs(s) {
+				walkLambdaBodies(e, walkBody)
+			}
 		}
 	}
 

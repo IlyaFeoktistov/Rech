@@ -69,8 +69,17 @@ func (d *doc) hoverBareName(name string, line int) (string, bool) {
 		return codeBlock(fmt.Sprintf("этот: %s", scope.entityName)), true
 	}
 	if scope != nil {
+		// Параметр - от обычной локальной переменной, чтобы hover сразу
+		// говорил, что это (пользователь попросил явно - "надо выводить
+		// переменная это или константа") - scope.params отдельно ПЕРЕД
+		// localsAt (тот сливает оба в одну карту без различения).
+		for _, p := range scope.params {
+			if p.Name == name {
+				return codeBlock(fmt.Sprintf("параметр %s: %s", name, d.dispType(p.Type))), true
+			}
+		}
 		if t, ok := localsAt(scope, line)[name]; ok {
-			return codeBlock(fmt.Sprintf("%s: %s", name, d.dispType(t))), true
+			return codeBlock(fmt.Sprintf("переменная %s: %s", name, d.dispType(t))), true
 		}
 	}
 	if fn, ok := d.funcs[name]; ok {

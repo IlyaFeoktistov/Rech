@@ -20,7 +20,7 @@
     // (internal/semantic/db.go, dbNoParamsDefault).
     выполнить(бд, "CREATE TABLE users (username TEXT PRIMARY KEY, password_hash TEXT, salt TEXT)")
 
-    переменная соль = сгенерировать_соль()
+    переменная соль      = сгенерировать_соль()
     переменная параметры = новый Список<Значение>()
     параметры.добавить((Значение) "admin")
     параметры.добавить((Значение) хешировать_пароль("secret123", соль))

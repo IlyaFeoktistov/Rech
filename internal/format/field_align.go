@@ -196,10 +196,32 @@ func buildFieldRow(lines []string, lineToks map[int][]lexer.Token, f ast.Field) 
 // нём вообще участвуют, у более коротких строк не появляется хвостовых
 // пробелов сверх того, что нужно для сдвига следующей реальной ячейки.
 func renderFieldRun(lines []string, run []fieldRow) {
+	// Столбец ("=", тег), ПУСТОЙ У ВСЕХ строк пробега целиком - убирается
+	// из КАЖДОЙ строки полностью (не только с хвоста своей отдельной
+	// строки, как ниже) - иначе text/tabwriter всё равно резервирует под
+	// него минимальную ширину паддинга (1 пробел) даже когда выравнивать
+	// там нечему (ни у одной строки пробега нет значения в этом столбце) -
+	// лишний пробел между Типом и следующим непустым столбцом другой
+	// строки (репортнуто пользователем - "Строка  `sql:name`", два пробела
+	// вместо одного).
+	activeCols := map[int]bool{0: true}
+	for _, row := range run {
+		for i, c := range row.cells {
+			if c != "" {
+				activeCols[i] = true
+			}
+		}
+	}
+
 	var buf strings.Builder
 	tw := tabwriter.NewWriter(&buf, 0, 0, 1, ' ', 0)
 	for _, row := range run {
-		cells := row.cells[:]
+		var cells []string
+		for i, c := range row.cells {
+			if activeCols[i] {
+				cells = append(cells, c)
+			}
+		}
 		for len(cells) > 0 && cells[len(cells)-1] == "" {
 			cells = cells[:len(cells)-1]
 		}

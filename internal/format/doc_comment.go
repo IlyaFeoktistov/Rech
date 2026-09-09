@@ -22,15 +22,24 @@ import (
 // Пользователь попросил явно - "докблоки должны тоже сами
 // форматироваться". ОДНОСТРОЧНЫЙ doc-комментарий ("/** Коротко. */", без
 // единого переноса строки внутри - подавляющее большинство комментариев в
-// этом репозитории) НЕ трогается вовсе - взрывать их в блок ради
+// этом репозитории) НЕ переоформляется - взрывать его в блок ради
 // единообразия было бы масштабным переформатированием, которого не просили
 // (см. package doc format.go про "не переформатировать походя").
 //
+// ЛЮБОЙ doc-комментарий (однострочный и многострочный) - если между его
+// закрывающей "*/" и следующей непустой строкой есть пустые строки, они
+// убираются: doc-комментарий обязан ПРИЛЕГАТЬ к тому, что документирует -
+// парсер сам это терпит (consumeDoc, internal/parser/parser.go,
+// skipNewlines - молча пропускает пустые строки между комментарием и
+// объявлением), но пустая строка там - визуальный разрыв, которого автор
+// почти наверняка не хотел (репортнуто пользователем - "` */`\n\nперечисление
+// ...").
+//
 // Работает НАД ИСХОДНЫМ ТЕКСТОМ, ДО остальных проходов - заменяет диапазон
-// физических строк, которые занимал токен, на новый (другой длины) набор
-// строк; собственный отступ каждой новой строки не важен -
-// computeLineDepths пересчитывает его с нуля позже, как и у остальных
-// проходов этого пакета.
+// физических строк, которые занимал токен (плюс любые пустые строки сразу
+// после него), на новый (другой длины) набор строк; собственный отступ
+// каждой новой строки не важен - computeLineDepths пересчитывает его с
+// нуля позже, как и у остальных проходов этого пакета.
 func canonicalizeDocComments(src string) (string, error) {
 	toks, err := lexer.New(src).Tokenize()
 	if err != nil {
@@ -46,14 +55,23 @@ func canonicalizeDocComments(src string) (string, error) {
 	}
 	var reps []replacement
 	for _, t := range toks {
-		if t.Type != lexer.DOC_COMMENT || !strings.Contains(t.Value, "\n") {
+		if t.Type != lexer.DOC_COMMENT {
 			continue
 		}
 		endLine := t.Line + strings.Count(t.Value, "\n")
-		reps = append(reps, replacement{
-			startLine: t.Line, endLine: endLine,
-			newLines: strings.Split(canonicalDocCommentText(t.Value), "\n"),
-		})
+		var newLines []string
+		if strings.Contains(t.Value, "\n") {
+			newLines = strings.Split(canonicalDocCommentText(t.Value), "\n")
+		} else if endLine >= 1 && endLine <= len(lines) {
+			newLines = []string{lines[endLine-1]} // однострочный - как есть
+		}
+		// Пустые строки СРАЗУ после "*/" - не настоящий разделитель (см.
+		// package doc выше), поглощаются в "хвост" этой же замены, вместо
+		// того чтобы попасть в вывод как есть.
+		for endLine < len(lines) && strings.TrimSpace(lines[endLine]) == "" {
+			endLine++
+		}
+		reps = append(reps, replacement{startLine: t.Line, endLine: endLine, newLines: newLines})
 	}
 	if len(reps) == 0 {
 		return src, nil

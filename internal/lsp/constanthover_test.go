@@ -26,8 +26,8 @@ func TestHoverOnModuleConstShowsValueAndDoc(t *testing.T) {
 	if !ok {
 		t.Fatalf("ожидался hover на имени модульной константы")
 	}
-	if !strings.Contains(text, "МАКС_ВОЗРАСТ = 120") {
-		t.Fatalf("значение константы не попало в hover: %q", text)
+	if !strings.Contains(text, "МАКС_ВОЗРАСТ: Целое = 120") {
+		t.Fatalf("значение/тип константы не попали в hover: %q", text)
 	}
 	if !strings.Contains(text, "Максимально допустимый возраст.") {
 		t.Fatalf("doc-комментарий не попал в hover: %q", text)

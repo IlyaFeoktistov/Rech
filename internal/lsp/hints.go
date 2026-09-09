@@ -205,21 +205,26 @@ func sliceRunes(runes []rune, fromCol, toCol int) string {
 }
 
 // walkStmts обходит stmts И ВСЕ вложенные блоки (тело если/иначе/пока/для/
-// попытаться/поймать/окончательно/ветки "выбрать") рекурсивно - onStmt
-// вызывается на КАЖДОЙ инструкции (включая саму составную - "если"/"пока" и
-// т. п. - раньше, чем на её вложенном теле), onExpr - на каждом
-// НЕПОСРЕДСТВЕННОМ выражении этой инструкции (условие/значение/аргументы -
-// НЕ то, что внутри вложенных блоков, те придут отдельно через собственные
-// инструкции вложенного тела). Общий обход для обеих задач этого файла -
-// поиска Assign (compoundAssignSuggestions, по onStmt) и поиска
-// использования "этот" где угодно в теле (staticMethodSuggestion, по
-// onExpr + exprContainsThis).
+// попытаться/поймать/окончательно/ветки "выбрать", А ТАКЖЕ тело любой
+// лямбды, найденной где-либо среди выражений инструкции - callback-
+// аргумент вызова, значение переменной и т. п., см. walkLambdaBodies)
+// рекурсивно - onStmt вызывается на КАЖДОЙ инструкции (включая саму
+// составную - "если"/"пока" и т. п. - раньше, чем на её вложенном теле),
+// onExpr - на каждом НЕПОСРЕДСТВЕННОМ выражении этой инструкции (условие/
+// значение/аргументы - НЕ то, что внутри вложенных блоков, те придут
+// отдельно через собственные инструкции вложенного тела). Общий обход для
+// обеих задач этого файла - поиска Assign (compoundAssignSuggestions, по
+// onStmt) и поиска использования "этот" где угодно в теле
+// (staticMethodSuggestion, по onExpr + exprContainsThis) - оба ОБЯЗАНЫ
+// видеть код внутри лямбды-колбэка тоже (репортнуто пользователем -
+// "j = j + 1" внутри колбэка не подсвечивалось, examples/бд/чанкование.rech).
 func walkStmts(stmts []ast.Stmt, onStmt func(ast.Stmt), onExpr func(ast.Expr)) {
 	for _, s := range stmts {
 		onStmt(s)
 		for _, e := range immediateExprs(s) {
 			if e != nil {
 				onExpr(e)
+				walkLambdaBodies(e, func(body []ast.Stmt) { walkStmts(body, onStmt, onExpr) })
 			}
 		}
 		switch st := s.(type) {
@@ -237,6 +242,7 @@ func walkStmts(stmts []ast.Stmt, onStmt func(ast.Stmt), onExpr func(ast.Expr)) {
 				onStmt(st.Init)
 				if st.Init.Value != nil {
 					onExpr(st.Init.Value)
+					walkLambdaBodies(st.Init.Value, func(body []ast.Stmt) { walkStmts(body, onStmt, onExpr) })
 				}
 			}
 			if st.Post != nil {
@@ -244,6 +250,7 @@ func walkStmts(stmts []ast.Stmt, onStmt func(ast.Stmt), onExpr func(ast.Expr)) {
 				for _, e := range immediateExprs(st.Post) {
 					if e != nil {
 						onExpr(e)
+						walkLambdaBodies(e, func(body []ast.Stmt) { walkStmts(body, onStmt, onExpr) })
 					}
 				}
 			}
@@ -323,6 +330,77 @@ func immediateExprs(s ast.Stmt) []ast.Expr {
 		return []ast.Expr{st.Value}
 	default:
 		return nil
+	}
+}
+
+// walkLambdaBodies находит КАЖДУЮ ast.LambdaExpr, достижимую из e
+// (рекурсивно - callback-аргумент вызова, значение переменной/
+// присваивания и т. п.), и вызывает onLambda с её телом - НЕ спускается
+// рекурсивно ВНУТРЬ найденной лямбды сама (вложенные лямбды/присваивания
+// внутри её тела обрабатывает уже сам вызывающий walkStmts, который зовёт
+// эту функцию заново для КАЖДОЙ инструкции этого тела). Тот же список
+// вариантов ast.Expr, что и у exprContainsThis (см. её package doc) -
+// нужен отдельно от неё, потому что exprContainsThis ищет "этот" именно
+// внутри ОДНОЙ лямбды через собственный ad-hoc вызов walkStmts, а этой
+// функции нужно найти лямбду САМУ, не заглядывая внутрь.
+func walkLambdaBodies(e ast.Expr, onLambda func([]ast.Stmt)) {
+	if e == nil {
+		return
+	}
+	switch v := e.(type) {
+	case *ast.LambdaExpr:
+		onLambda(v.Body)
+	case *ast.BinaryExpr:
+		walkLambdaBodies(v.Left, onLambda)
+		walkLambdaBodies(v.Right, onLambda)
+	case *ast.UnaryExpr:
+		walkLambdaBodies(v.Operand, onLambda)
+	case *ast.TernaryExpr:
+		walkLambdaBodies(v.Cond, onLambda)
+		walkLambdaBodies(v.Then, onLambda)
+		walkLambdaBodies(v.Else, onLambda)
+	case *ast.CallExpr:
+		for _, a := range v.Args {
+			walkLambdaBodies(a, onLambda)
+		}
+	case *ast.MethodCallExpr:
+		walkLambdaBodies(v.Receiver, onLambda)
+		for _, a := range v.Args {
+			walkLambdaBodies(a, onLambda)
+		}
+	case *ast.NewExpr:
+		for _, a := range v.Args {
+			walkLambdaBodies(a, onLambda)
+		}
+	case *ast.FieldAccess:
+		walkLambdaBodies(v.Receiver, onLambda)
+	case *ast.IndexExpr:
+		walkLambdaBodies(v.Receiver, onLambda)
+		walkLambdaBodies(v.Index, onLambda)
+	case *ast.ListLiteral:
+		for _, e2 := range v.Elems {
+			walkLambdaBodies(e2, onLambda)
+		}
+	case *ast.CastExpr:
+		walkLambdaBodies(v.Value, onLambda)
+	case *ast.AsExpr:
+		walkLambdaBodies(v.Value, onLambda)
+	case *ast.IsExpr:
+		walkLambdaBodies(v.Value, onLambda)
+	case *ast.ParseExpr:
+		walkLambdaBodies(v.Source, onLambda)
+	case *ast.SerializeExpr:
+		walkLambdaBodies(v.Value, onLambda)
+	case *ast.AwaitExpr:
+		walkLambdaBodies(v.Task, onLambda)
+	case *ast.LaunchExpr:
+		if v.Call != nil {
+			walkLambdaBodies(v.Call, onLambda)
+		}
+	case *ast.DerefExpr:
+		walkLambdaBodies(v.Value, onLambda)
+	case *ast.AddressOfExpr:
+		walkLambdaBodies(v.Index, onLambda)
 	}
 }
 

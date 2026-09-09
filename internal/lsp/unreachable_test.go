@@ -104,6 +104,29 @@ func TestUnreachableNotFlaggedWhenReturnIsLast(t *testing.T) {
 	}
 }
 
+// TestUnreachableInsideLambdaCallback - недостижимый код внутри тела
+// лямбды-колбэка (аргумент вызова) - та же дыра, что нашёл пользователь
+// для hints.go (лямбды раньше не обходились вообще).
+func TestUnreachableInsideLambdaCallback(t *testing.T) {
+	d := newDoc("test://a.rech", `
+функция чанковать(обработчик: Вызываемый(Целое))
+{
+    обработчик(1)
+}
+функция главная
+{
+    чанковать(функция(x: Целое)
+    {
+        вернуть
+        вывести "недостижимо"
+    })
+}
+`)
+	if diags := d.unreachableDiagnostics(); len(diags) != 1 {
+		t.Fatalf("ожидалась 1 диагностика внутри лямбды, получено %+v", diags)
+	}
+}
+
 // TestUnreachableNotFlaggedInsideIfElseBothBranches - обе ветки "если"
 // заканчиваются "вернуть", но код ПОСЛЕ самого "если" не анализируется
 // (см. package doc unreachable.go про границы этого среза) - не ошибка,

@@ -124,6 +124,54 @@ func TestCodeLensShowsReferenceCountForConstant(t *testing.T) {
 	}
 }
 
+// TestCodeLensCountsGenericFunctionCall - "имя<Тип>(...)" (явный аргумент
+// типа generic-вызова) - тоже вызов, должен считаться "N ссылок" - раньше
+// matchFunctionRefs требовал "(" СРАЗУ за именем, а после generic-имени
+// сразу идёт "<", не "(" - вызов вообще не находился, "N ссылок" всегда
+// показывало 0 (репортнуто пользователем, examples/бд/чанкование.rech -
+// "чанковать_по_полю<T>", вызывается дважды в том же файле).
+func TestCodeLensCountsGenericFunctionCall(t *testing.T) {
+	src := `функция обернуть<T>(значение: T): T
+{
+    вернуть значение
+}
+
+функция главная
+{
+    вывести обернуть<Целое>(1)
+    вывести обернуть<Целое>(2)
+}
+`
+	d := newDoc("test://a.rech", src)
+	lenses := d.codeLenses()
+	line := lineOf(t, src, "функция обернуть")
+	cl := findLens(t, lenses, line)
+	if cl.Title != "2 ссылки" {
+		t.Fatalf("ожидалось \"2 ссылки\" на generic-вызов, получено %q (Refs=%+v)", cl.Title, cl.Refs)
+	}
+}
+
+// TestCodeLensCountsModuleConstReference - модульная константа тоже
+// получает "N ссылок" (раньше codelens.go для неё вообще не строил
+// CodeLens - репортнуто пользователем).
+func TestCodeLensCountsModuleConstReference(t *testing.T) {
+	src := `константа МАКС = 3
+
+функция главная
+{
+    вывести МАКС
+    вывести МАКС
+}
+`
+	d := newDoc("test://a.rech", src)
+	lenses := d.codeLenses()
+	line := lineOf(t, src, "константа МАКС")
+	cl := findLens(t, lenses, line)
+	if cl.Title != "2 ссылки" {
+		t.Fatalf("ожидалось \"2 ссылки\" на модульную константу, получено %q (Refs=%+v)", cl.Title, cl.Refs)
+	}
+}
+
 // TestCodeLensCountsReferencesFromOtherFiles - функция, объявленная в
 // ОДНОМ файле дерева и вызываемая ТОЛЬКО из ДРУГОГО (обычное дело для
 // многофайлового проекта, см. package doc references.go/crossFileRefs) -

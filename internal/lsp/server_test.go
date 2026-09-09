@@ -192,6 +192,55 @@ func TestLSPServerFullSession(t *testing.T) {
 	}
 }
 
+// TestLSPServerCodeActionFiltersByRange - "textDocument/codeAction" не
+// должен возвращать подсказки-упрощения (hints.go), относящиеся к СОВСЕМ
+// ДРУГИМ строкам документа - только те, чей диапазон пересекается с
+// запрошенным (репортнуто пользователем: меню "Быстрое исправление" на
+// "j = j + 1" показывало ЕЩЁ и "i++"/"+=" с других, ничем не связанных
+// строк того же файла).
+func TestLSPServerCodeActionFiltersByRange(t *testing.T) {
+	client, serverR, serverW := newFakeClient(t)
+	done := make(chan error, 1)
+	go func() { done <- Run(serverR, serverW) }()
+
+	client.request("initialize", map[string]any{})
+	client.response(2 * time.Second)
+
+	src := "функция главная\n{\n    переменная i = 0\n    i = i + 1\n    переменная j = 0\n    j = j + 1\n}\n"
+	client.notify("textDocument/didOpen", map[string]any{
+		"textDocument": map[string]any{"uri": "test://range.rech", "text": src},
+	})
+	client.response(2 * time.Second) // publishDiagnostics
+
+	line := lineOf(t, src, "j = j + 1")
+	client.request("textDocument/codeAction", map[string]any{
+		"textDocument": map[string]any{"uri": "test://range.rech"},
+		"range": map[string]any{
+			"start": map[string]any{"line": line - 1, "character": 0},
+			"end":   map[string]any{"line": line - 1, "character": 20},
+		},
+		"context": map[string]any{"diagnostics": []any{}},
+	})
+	resp := client.response(2 * time.Second)
+	actions, ok := resp["result"].([]any)
+	if !ok || len(actions) != 1 {
+		t.Fatalf("ожидалось ровно 1 действие (только для \"j = j + 1\"), получено: %+v", resp)
+	}
+	if actions[0].(map[string]any)["title"] != `Сократить до "j++"` {
+		t.Fatalf("неожиданное действие: %+v", actions[0])
+	}
+
+	client.notify("exit", nil)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run завершился с ошибкой: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("Run не завершился после exit")
+	}
+}
+
 // TestLSPServerImplementationOverWire - "textDocument/implementation" по
 // настоящему JSON-RPC 2.0 (не напрямую d.implementations(), см.
 // implementation_test.go) - initialize должен объявить

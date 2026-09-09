@@ -13,18 +13,23 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 )
 
-// hoverModuleConst - "константа ИМЯ = значение" - курсор на самом имени
-// константы модульного уровня (не на константе сущности - та резолвится
-// через ir.Entity.Constants, см. hoverMember/literalText, hover.go: модульная
-// константа в IR не сохраняется, значение читается прямо из AST).
+// hoverModuleConst - "константа ИМЯ: Тип = значение" - курсор на самом
+// имени константы модульного уровня (не на константе сущности - та
+// резолвится через ir.Entity.Constants, см. hoverMember/literalText,
+// hover.go: модульная константа в IR не сохраняется, значение и тип
+// читаются прямо из AST). Тип показывается, только если значение -
+// простой литерал (literalTextAST ниже) - тем же ограничением, что и у
+// значения: не пытаемся заново вычислить/типизировать произвольное
+// выражение (арифметика, обращение к другой константе, вызов функции)
+// заново вне настоящего семантического анализа.
 func (d *doc) hoverModuleConst(name string) (string, bool) {
 	c, ok := d.astConsts[name]
 	if !ok {
 		return "", false
 	}
 	block := codeBlock(fmt.Sprintf("константа %s", c.Name))
-	if lit, ok := literalTextAST(c.Value); ok {
-		block = codeBlock(fmt.Sprintf("константа %s = %s", c.Name, lit))
+	if lit, typ, ok := literalTextAST(c.Value); ok {
+		block = codeBlock(fmt.Sprintf("константа %s: %s = %s", c.Name, typ, lit))
 	}
 	return withDoc(block, c.Doc), true
 }
@@ -33,25 +38,25 @@ func (d *doc) hoverModuleConst(name string) (string, bool) {
 // ir.Expr - модульная константа не резолвится семантикой ни во что
 // сохраняемое (в отличие от константы сущности, ir.Entity.Constants),
 // поэтому у hoverModuleConst нет типизированного ir.Expr, только исходное
-// AST-выражение сразу после парсера. Тот же принцип - "", false для
+// AST-выражение сразу после парсера. Тот же принцип - "", "", false для
 // любого не-литерала (арифметика, обращение к другой константе, вызов
 // функции), не пытаясь заново вычислить произвольное выражение.
-func literalTextAST(v ast.Expr) (string, bool) {
+func literalTextAST(v ast.Expr) (text, typeName string, ok bool) {
 	switch v := v.(type) {
 	case *ast.IntLiteral:
-		return fmt.Sprintf("%d", v.Value), true
+		return fmt.Sprintf("%d", v.Value), "Целое", true
 	case *ast.FloatLiteral:
-		return fmt.Sprintf("%g", v.Value), true
+		return fmt.Sprintf("%g", v.Value), "Действительное", true
 	case *ast.StringLiteral:
-		return fmt.Sprintf("%q", v.Value), true
+		return fmt.Sprintf("%q", v.Value), "Строка", true
 	case *ast.BoolLiteral:
 		if v.Value {
-			return "истина", true
+			return "истина", "Логическое", true
 		}
-		return "ложь", true
+		return "ложь", "Логическое", true
 	case *ast.CharLiteral:
-		return "'" + string(v.Value) + "'", true
+		return "'" + string(v.Value) + "'", "Символ", true
 	default:
-		return "", false
+		return "", "", false
 	}
 }

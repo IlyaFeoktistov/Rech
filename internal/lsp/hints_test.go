@@ -107,6 +107,33 @@ func TestSuggestionsSkipsUnrelatedAssign(t *testing.T) {
 	}
 }
 
+// TestSuggestionsFindsCompoundAssignInsideLambdaCallback - "j = j + 1"
+// внутри тела лямбды-колбэка (аргумент вызова) - репортнуто пользователем
+// (examples/бд/чанкование.rech): раньше walkStmts не спускался внутрь
+// выражений вообще, значит never видел тело лямбды, спрятанное там.
+func TestSuggestionsFindsCompoundAssignInsideLambdaCallback(t *testing.T) {
+	d := newDoc("test://a.rech", `
+функция чанковать(обработчик: Вызываемый(Целое))
+{
+    обработчик(1)
+}
+функция главная
+{
+    чанковать(функция(страница: Целое)
+    {
+        переменная j = 0
+        пока j < страница
+        {
+            j = j + 1
+        }
+    })
+}
+`)
+	if _, ok := findSuggestion(d.suggestions(), `Сократить до "j++"`); !ok {
+		t.Fatalf("ожидалась подсказка \"Сократить до j++\" внутри тела лямбды, получено %+v", d.suggestions())
+	}
+}
+
 func TestSuggestionsStaticMethodNotUsingThis(t *testing.T) {
 	d := newDoc("test://a.rech", `
 структура Калькулятор
