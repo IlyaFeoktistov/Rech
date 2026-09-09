@@ -50,6 +50,17 @@ const indentUnit = "    "
 // parser: форматирование кода с синтаксической ошибкой не определено,
 // поэтому просто отказ, а не попытка угадать).
 func Format(src string) (string, error) {
+	crlf := strings.Contains(src, "\r\n")
+
+	src, err := normalizeBraceStyle(src)
+	if err != nil {
+		return "", err
+	}
+	src, err = alignEntityFields(src)
+	if err != nil {
+		return "", err
+	}
+
 	toks, err := lexer.New(src).Tokenize()
 	if err != nil {
 		return "", fmt.Errorf("лексер: %w", err)
@@ -59,7 +70,6 @@ func Format(src string) (string, error) {
 		return "", fmt.Errorf("парсер: %w", err)
 	}
 
-	crlf := strings.Contains(src, "\r\n")
 	normalized := strings.ReplaceAll(src, "\r\n", "\n")
 	lines := strings.Split(normalized, "\n")
 

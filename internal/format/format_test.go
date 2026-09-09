@@ -4,7 +4,7 @@ import "testing"
 
 func TestFormatReindentsNestedBlocks(t *testing.T) {
 	src := "функция главная\n{\nпеременная i = 0\nпока i < 3\n{\nвывести i\ni = i + 1\n}\n}\n"
-	want := "функция главная\n{\n    переменная i = 0\n    пока i < 3\n    {\n        вывести i\n        i = i + 1\n    }\n}\n"
+	want := "функция главная\n{\n    переменная i = 0\n    пока i < 3 {\n        вывести i\n        i = i + 1\n    }\n}\n"
 	got, err := Format(src)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
@@ -137,7 +137,7 @@ func TestFormatEscapedNewlineInStringDoesNotDesyncLineTracking(t *testing.T) {
 // уже не как поля вовсе (internal/parser/entity.go, parseFieldsSection).
 func TestFormatHasSectionFieldsIndentedDeeperThanLabel(t *testing.T) {
 	src := "структура Пользователь\n{\nимеет:\n id: Целое\n имя: Строка\n}\n"
-	want := "структура Пользователь\n{\n    имеет:\n        id: Целое\n        имя: Строка\n}\n"
+	want := "структура Пользователь\n{\n    имеет:\n        id:  Целое\n        имя: Строка\n}\n"
 	got, err := Format(src)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
@@ -187,7 +187,7 @@ func TestFormatDanglingPlainCommentDoesNotExtendHasSection(t *testing.T) {
 // решает сам токен "когда"/"иначе:"/закрывающая "}", не Col).
 func TestFormatSwitchCaseBodyIndentedDeeperThanLabel(t *testing.T) {
 	src := "функция главная\n{\n    выбрать x\n    {\n    когда 1:\n    вывести \"один\"\n    иначе:\n    вывести \"другое\"\n    }\n}\n"
-	want := "функция главная\n{\n    выбрать x\n    {\n        когда 1:\n            вывести \"один\"\n        иначе:\n            вывести \"другое\"\n    }\n}\n"
+	want := "функция главная\n{\n    выбрать x {\n        когда 1:\n            вывести \"один\"\n        иначе:\n            вывести \"другое\"\n    }\n}\n"
 	got, err := Format(src)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
@@ -234,6 +234,136 @@ func TestFormatMultilineParamsWithTrailingCommaGetOwnDepth(t *testing.T) {
 // TestFormatMultilineCallTrailingBraceParen - строка "})" (конец лямбды,
 // сразу закрывающая внешний вызов) получает отступ ПЕРВОГО закрывающего
 // токена строки.
+// TestFormatIfElseChainMergesBraces - управляющие конструкции (если/
+// иначе/для/пока/попытаться/поймать/окончательно/выбрать) - K&R: "{"
+// заголовка и "}" предыдущей ветки/следующее продолжение - на одной
+// строке, даже если автор развёл их по разным строкам (Allman).
+func TestFormatIfElseChainMergesBraces(t *testing.T) {
+	src := "функция главная\n{\n    если x > 5\n    {\n        вывести 1\n    }\n    иначе\n    {\n        если x > 2\n        {\n            вывести 2\n        }\n        иначе\n        {\n            вывести 3\n        }\n    }\n}\n"
+	want := "функция главная\n{\n    если x > 5 {\n        вывести 1\n    } иначе {\n        если x > 2 {\n            вывести 2\n        } иначе {\n            вывести 3\n        }\n    }\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != want {
+		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
+	}
+	// Идемпотентность - повторное форматирование уже канонического текста
+	// не меняет его.
+	got2, err := Format(got)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка при повторном форматировании: %v", err)
+	}
+	if got2 != got {
+		t.Fatalf("не идемпотентно:\nпервый проход:\n%q\nвторой проход:\n%q", got, got2)
+	}
+}
+
+// TestFormatTryCatchFinallyMergesBraces - "попытаться { ... } поймать
+// (...) { ... } окончательно { ... }" - та же K&R-цепочка, что и у
+// если/иначе, включая несколько "поймать" подряд.
+func TestFormatTryCatchFinallyMergesBraces(t *testing.T) {
+	src := "функция главная\n{\n    попытаться\n    {\n        вывести 1\n    }\n    поймать (е: ОшибкаА)\n    {\n        вывести 2\n    }\n    поймать (е: ОшибкаБ)\n    {\n        вывести 3\n    }\n    окончательно\n    {\n        вывести 4\n    }\n}\n"
+	want := "функция главная\n{\n    попытаться {\n        вывести 1\n    } поймать (е: ОшибкаА) {\n        вывести 2\n    } поймать (е: ОшибкаБ) {\n        вывести 3\n    } окончательно {\n        вывести 4\n    }\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != want {
+		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
+	}
+}
+
+// TestFormatFunctionKeepsAllmanBraceOnOwnLine - объявление функции с
+// однострочным списком параметров - "{" остаётся (или переносится) на
+// СОБСТВЕННУЮ строку (Allman), в отличие от управляющих конструкций.
+func TestFormatFunctionKeepsAllmanBraceOnOwnLine(t *testing.T) {
+	src := "функция сложить(а: Целое, б: Целое): Целое {\n    вернуть а + б\n}\n"
+	want := "функция сложить(а: Целое, б: Целое): Целое\n{\n    вернуть а + б\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != want {
+		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
+	}
+	got2, err := Format(got)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка при повторном форматировании: %v", err)
+	}
+	if got2 != got {
+		t.Fatalf("не идемпотентно:\nпервый проход:\n%q\nвторой проход:\n%q", got, got2)
+	}
+}
+
+// TestFormatEntityMethodKeepsAllmanBraceOnOwnLine - метод сущности (без
+// ведущего "функция") - то же самое объявление с точки зрения стиля
+// скобок, хотя у него нет собственного ключевого слова вовсе.
+func TestFormatEntityMethodKeepsAllmanBraceOnOwnLine(t *testing.T) {
+	src := "структура Точка\n{\n    длина(): Целое {\n        вернуть 1\n    }\n}\n"
+	want := "структура Точка\n{\n    длина(): Целое\n    {\n        вернуть 1\n    }\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != want {
+		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
+	}
+}
+
+// TestFormatMultilineParamsExceptionAttachesBrace - у функции с
+// многострочным списком параметров (висячая запятая) "{" ОСТАЁТСЯ
+// прикреплённой к строке "): Тип", даже если автор написал её отдельной
+// строкой (Allman) - единственное исключение из правила выше.
+func TestFormatMultilineParamsExceptionAttachesBrace(t *testing.T) {
+	src := "функция сложить(\n    а: Целое,\n    б: Целое,\n): Целое\n{\n    вернуть а + б\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	want := "функция сложить(\n    а: Целое,\n    б: Целое,\n): Целое {\n    вернуть а + б\n}\n"
+	if got != want {
+		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
+	}
+}
+
+// TestFormatAlignsFieldsLikeATable - "имеет:" секция без пустой строки
+// между полями выравнивается в таблицу: по ":"/Тип - всегда, по "=" и
+// тегу - только у тех полей, у которых они вообще есть (рваные строки,
+// см. package doc alignEntityFields).
+func TestFormatAlignsFieldsLikeATable(t *testing.T) {
+	src := "структура Пользователь\n{\n    имеет:\n        id: Целое\n        имя: Строка = \"аноним\" `sql:name`\n        возраст: Целое = 0\n}\n"
+	want := "структура Пользователь\n{\n    имеет:\n        id:      Целое\n        имя:     Строка = \"аноним\" `sql:name`\n        возраст: Целое  = 0\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != want {
+		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
+	}
+	got2, err := Format(got)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка при повторном форматировании: %v", err)
+	}
+	if got2 != got {
+		t.Fatalf("не идемпотентно:\nпервый проход:\n%q\nвторой проход:\n%q", got, got2)
+	}
+}
+
+// TestFormatFieldAlignmentBreaksOnBlankLine - пустая строка между полями
+// начинает НОВЫЙ пробег выравнивания, независимый от предыдущего.
+func TestFormatFieldAlignmentBreaksOnBlankLine(t *testing.T) {
+	src := "структура Точка\n{\n    имеет:\n        x: Целое\n        игрек: Целое\n\n        z: Целое\n}\n"
+	want := "структура Точка\n{\n    имеет:\n        x:     Целое\n        игрек: Целое\n\n        z: Целое\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != want {
+		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
+	}
+}
+
 func TestFormatMultilineCallTrailingBraceParen(t *testing.T) {
 	src := "функция обработать(ф: Вызываемый())\n{\n    ф()\n}\nфункция главная\n{\n    обработать(функция()\n    {\n    вывести 1\n})\n}\n"
 	want := "функция обработать(ф: Вызываемый())\n{\n    ф()\n}\nфункция главная\n{\n    обработать(функция()\n    {\n        вывести 1\n    })\n}\n"
