@@ -50,6 +50,28 @@ func TestHoverOnBuiltinTypeShowsDoc(t *testing.T) {
 	}
 }
 
+// TestHoverOnReservedEntityShowsRealConstructor - зарезервированные
+// сущности ("Совпадение"/"HTTP2Поток"/"ДекодированноеИзображение" и т. п.)
+// регистрируются лениво (internal/semantic/analyzer.go) - в документе, где
+// их имя ещё НИ РАЗУ не встретилось (d.entities их не содержит), hover для
+// голого имени падает в статический fallback builtinTypeDocs - без
+// reservedEntityFields (builtindocs.go) там не было бы конструктора вовсе.
+// Пользователь попросил явно показывать реальные параметры конструктора и
+// для зарезервированных сущностей тоже, не только для пользовательских.
+func TestHoverOnReservedEntityShowsRealConstructor(t *testing.T) {
+	d := newDoc("test://a.rech", "функция главная { вывести 1 }\n")
+	if _, ok := d.entities["Совпадение"]; ok {
+		t.Fatalf("\"Совпадение\" не должна быть в d.entities в этом документе - тест проверяет именно случай ДО регистрации")
+	}
+	text, ok := d.hoverBareName("Совпадение", 1)
+	if !ok {
+		t.Fatalf("ожидался hover на \"Совпадение\"")
+	}
+	if !strings.Contains(text, "новый Совпадение(текст: Строка, начало: Целое, группы: Список<Строка>)") {
+		t.Fatalf("ожидалась сигнатура конструктора с реальными полями, получено: %q", text)
+	}
+}
+
 func TestHoverOnBuiltinFuncFromAllShowsSignature(t *testing.T) {
 	d := newDoc("test://a.rech", builtinHoverTestSrc)
 	if d.irProg == nil {

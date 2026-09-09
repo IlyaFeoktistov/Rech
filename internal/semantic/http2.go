@@ -21,11 +21,11 @@ import "github.com/IlyaFeoktistov/Rech/internal/ir"
 // http2StreamType - см. package doc.
 const http2StreamType = "HTTP2Поток"
 
-// http2StreamFields - "сессия" (та, что вернула http2_принять_сессию/
+// HTTP2StreamFields - "сессия" (та, что вернула http2_принять_сессию/
 // новая_http2_сессия) + "ид" (номер потока внутри неё, назначенный
 // http2_принять_поток/http2_открыть_поток) - вместе однозначно
 // идентифицируют один запрос/ответ для остальных http2_*-функций.
-var http2StreamFields = []ir.Field{
+var HTTP2StreamFields = []ir.Field{
 	{Name: "сессия", Type: ir.TypeHTTP2Session},
 	{Name: "ид", Type: ir.TypeInt},
 }

@@ -901,11 +901,11 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 		&ir.Entity{Name: "Запрос", IsStruct: true, Fields: httpRequestFields},
 		&ir.Entity{Name: "Ответ", IsStruct: true, Fields: httpResponseFields},
 		&ir.Entity{Name: "ДатаВремя", IsStruct: true, Fields: dateTimeFields},
-		&ir.Entity{Name: "ОпцииКуки", IsStruct: true, Fields: cookieOptionsFields},
-		&ir.Entity{Name: "Дейтаграмма", IsStruct: true, Fields: datagramFields},
-		&ir.Entity{Name: "RGBЦвет", IsStruct: true, Fields: colorFields},
-		&ir.Entity{Name: "Процесс", IsStruct: true, Fields: processFields},
-		&ir.Entity{Name: "РезультатКоманды", IsStruct: true, Fields: commandResultFields},
+		&ir.Entity{Name: "ОпцииКуки", IsStruct: true, Fields: CookieOptionsFields},
+		&ir.Entity{Name: "Дейтаграмма", IsStruct: true, Fields: DatagramFields},
+		&ir.Entity{Name: "RGBЦвет", IsStruct: true, Fields: ColorFields},
+		&ir.Entity{Name: "Процесс", IsStruct: true, Fields: ProcessFields},
+		&ir.Entity{Name: "РезультатКоманды", IsStruct: true, Fields: CommandResultFields},
 	)
 	// "Исключение" - ссылочная сущность (не структура): "выбросить"
 	// передаёт указатель на неё дальше по стеку вызовов без копирования,
@@ -1034,7 +1034,7 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	// ДО всех typedef сущностей (genericsCode, cbackend/ir_generator.go),
 	// независимо от места regex.go в этом списке.
 	if _, ok := a.entities["Совпадение"]; ok {
-		out.Entities = append(out.Entities, &ir.Entity{Name: "Совпадение", IsStruct: true, Fields: matchFields})
+		out.Entities = append(out.Entities, &ir.Entity{Name: "Совпадение", IsStruct: true, Fields: MatchFields})
 	}
 	// "ЧастьФормы" - тот же принцип, что "Совпадение" выше.
 	if _, ok := a.entities[formPartType]; ok {
@@ -1051,14 +1051,14 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	}
 	// "HTTP2Поток" - тот же принцип, что "ЗапросБайты"/"ОтветБайты" выше.
 	if _, ok := a.entities[http2StreamType]; ok {
-		out.Entities = append(out.Entities, &ir.Entity{Name: http2StreamType, IsStruct: true, Fields: http2StreamFields})
+		out.Entities = append(out.Entities, &ir.Entity{Name: http2StreamType, IsStruct: true, Fields: HTTP2StreamFields})
 	}
 	// "ДекодированноеИзображение" - тот же принцип, что "ЗапросБайты"/
 	// "ОтветБайты"/"HTTP2Поток" выше - зарегистрирована в a.entities только
 	// при реальном вызове "декодировать_изображение"/"закодировать_
 	// изображение" (registerImageCodecEntityOnCall, imagecodec.go).
 	if _, ok := a.entities[imageCodecEntityName]; ok {
-		out.Entities = append(out.Entities, &ir.Entity{Name: imageCodecEntityName, IsStruct: true, Fields: imageCodecFields})
+		out.Entities = append(out.Entities, &ir.Entity{Name: imageCodecEntityName, IsStruct: true, Fields: ImageCodecFields})
 	}
 	// "Блокировка" - проверка ЗДЕСЬ (не раньше цикла по prog.Entities/
 	// prog.Functions выше), потому что она может встретиться впервые не

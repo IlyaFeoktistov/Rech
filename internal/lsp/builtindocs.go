@@ -5,8 +5,49 @@ import (
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/builtins"
+	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
+	"github.com/IlyaFeoktistov/Rech/internal/semantic"
 )
+
+// reservedEntityFields - поля зарезервированных сущностей (internal/
+// builtins.ReservedEntityNames), которые компилятор регистрирует лениво -
+// только когда программа реально их использует (internal/semantic/
+// analyzer.go, "тот же принцип, что и Совпадение") - значит документ, ещё
+// НЕ дошедший до места использования, не находит их в d.entities вовсе, и
+// hover для голого имени такой сущности падает в статический fallback
+// builtinTypeDocs ниже, у которого своего конструктора не было (репортнуто
+// пользователем - "на сущности hover должен выводить конструктор... и на
+// зарезервированных тоже так надо"). Те же СЛАЙСЫ полей, что и настоящая
+// регистрация (internal/semantic/*.go, registerHTTPEntity) - не
+// дублирование данных, один источник истины.
+var reservedEntityFields = map[string][]ir.Field{
+	"RGBЦвет":                   semantic.ColorFields,
+	"Дейтаграмма":               semantic.DatagramFields,
+	"ОпцииКуки":                 semantic.CookieOptionsFields,
+	"Совпадение":                semantic.MatchFields,
+	"HTTP2Поток":                semantic.HTTP2StreamFields,
+	"ДекодированноеИзображение": semantic.ImageCodecFields,
+	"Процесс":                   semantic.ProcessFields,
+	"РезультатКоманды":          semantic.CommandResultFields,
+}
+
+// reservedEntityCtorSignature - "новый Тип(поле: Тип, ...)" для name из
+// reservedEntityFields выше, той же позиционной формой, что и у структуры
+// без явного конструктора (entityCtorSignature, hover.go) - все эти
+// сущности регистрируются с IsStruct: true (registerHTTPEntity), значит
+// именно эта форма конструктора им и доступна на самом деле.
+func (d *doc) reservedEntityCtorSignature(name string) (string, bool) {
+	fields, ok := reservedEntityFields[name]
+	if !ok {
+		return "", false
+	}
+	params := make([]ir.Param, len(fields))
+	for i, f := range fields {
+		params[i] = ir.Param{Name: f.Name, Type: f.Type}
+	}
+	return d.functionSignature("новый "+name, params, false, ir.Type{}), true
+}
 
 // keywordDocs - однострочная документация ключевых слов языка для hover -
 // курируемый словарь (internal/lexer/token.go, keywords), синхронизируется
@@ -126,6 +167,9 @@ var builtinTypeDocs = map[string]string{
 	"ОтветБайты":     "как `Ответ`, но `тело: Список<Байт>` - бинарно-безопасно - аргумент `отправить_http_ответ_байты(...)`",
 	"ЧастьФормы":     "одна часть multipart/form-data (имя/имя_файла/тип_содержимого/данные) - элемент результата `разобрать_multipart(...)`",
 	"Исключение":     "базовый тип для пользовательского исключения (`сущность X наследует Исключение`)",
+	"Совпадение":     "одно совпадение регулярного выражения (текст/начало/группы: Список<Строка>) - элемент результата `регулярное(...)`",
+	"HTTP2Поток":     "сессия + номер потока внутри неё (сессия: HTTP2Сессия, ид: Целое) - один запрос/ответ HTTP/2, параметр/результат `http2_*`-функций",
+	"ДекодированноеИзображение": "результат `png_декодировать_файл`/`jpeg_декодировать_файл` - ширина/высота/пиксели: Список<Байт>",
 }
 
 // mutexMethodDocs - "захватить"/"освободить" на "Блокировке" (без

@@ -52,11 +52,31 @@ const indentUnit = "    "
 func Format(src string) (string, error) {
 	crlf := strings.Contains(src, "\r\n")
 
-	src, err := normalizeBraceStyle(src)
+	src, err := canonicalizeDocComments(src)
+	if err != nil {
+		return "", err
+	}
+	src, err = explodeInlineExitStatements(src)
+	if err != nil {
+		return "", err
+	}
+	src, err = normalizeBraceStyle(src)
 	if err != nil {
 		return "", err
 	}
 	src, err = alignEntityFields(src)
+	if err != nil {
+		return "", err
+	}
+	src, err = insertBlankLinesBetweenDecls(src)
+	if err != nil {
+		return "", err
+	}
+	src, err = enforceTrailingCommas(src)
+	if err != nil {
+		return "", err
+	}
+	src, err = alignVarDecls(src)
 	if err != nil {
 		return "", err
 	}

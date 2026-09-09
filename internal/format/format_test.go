@@ -56,16 +56,56 @@ func TestFormatLeavesMultilineTemplateStringVerbatim(t *testing.T) {
 	}
 }
 
-// TestFormatLeavesDocCommentVerbatim - doc-комментарий (docs/SPEC.md) со
-// своим собственным ручным выравниванием строк ("* ...") не переотступается.
-func TestFormatLeavesDocCommentVerbatim(t *testing.T) {
+// TestFormatCanonicalizesDocCommentAlignment - многострочный
+// doc-комментарий с "кривым" авторским выравниванием (текст сразу за
+// "/**", соседняя строка - под другим отступом) приводится к канону
+// Javadoc/JSDoc - "/**" само по себе, каждая строка - " * <текст>" (см.
+// package doc doc_comment.go - пользователь попросил явно, "докблоки
+// должны тоже сами форматироваться").
+func TestFormatCanonicalizesDocCommentAlignment(t *testing.T) {
 	src := "/** Первая строка\n  * Вторая строка, отступ автора, не 4 пробела\n */\nфункция главная\n{\n    вывести 1\n}\n"
+	want := "/**\n * Первая строка\n * Вторая строка, отступ автора, не 4 пробела\n */\nфункция главная\n{\n    вывести 1\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != want {
+		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
+	}
+	got2, err := Format(got)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка при повторном форматировании: %v", err)
+	}
+	if got2 != got {
+		t.Fatalf("не идемпотентно:\nпервый проход:\n%q\nвторой проход:\n%q", got, got2)
+	}
+}
+
+// TestFormatSingleLineDocCommentUntouched - однострочный doc-комментарий
+// ("/** ... */" без единого переноса строки, подавляющее большинство в
+// репозитории) НЕ трогается вовсе.
+func TestFormatSingleLineDocCommentUntouched(t *testing.T) {
+	src := "/** Коротко. */\nфункция главная\n{\n    вывести 1\n}\n"
 	got, err := Format(src)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 	if got != src {
-		t.Fatalf("doc-комментарий искажён:\nполучено:\n%q\nисходно:\n%q", got, src)
+		t.Fatalf("получено:\n%q\nожидалось (без изменений):\n%q", got, src)
+	}
+}
+
+// TestFormatDocCommentPreservesBlankParagraphLine - пустая строка СРЕДИ
+// содержимого (разрыв абзаца) сохраняется как " *"; пустая строка сразу
+// после "/**"/перед "*/" - нет (см. package doc doc_comment.go).
+func TestFormatDocCommentPreservesBlankParagraphLine(t *testing.T) {
+	src := "/**\n * Первый абзац.\n *\n * Второй абзац.\n */\nфункция главная\n{\n    вывести 1\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != src {
+		t.Fatalf("получено:\n%q\nожидалось (без изменений):\n%q", got, src)
 	}
 }
 
@@ -104,12 +144,13 @@ func TestFormatCommentOnlyLineRightAfterOpenBraceGetsInnerDepth(t *testing.T) {
 // комментария в исходнике (лексер не даёт ему токена вовсе).
 func TestFormatGerundNestedBodyDanglingCommentUsesOwnColumn(t *testing.T) {
 	src := "функция сложить(а: Целое, б: Целое): Целое\n{\n    вернуть а + б\n}\nфункция умножить(а: Целое, б: Целое): Целое\n{\n    вернуть а * б\n}\nфункция главная\n{\n    сложив(10, 20)\n        вывести результат\n        умножив(результат, 2)\n            вывести результат\n        // комментарий на уровне внешнего тела, без пустой строки перед ним\n        вывести результат\n}\n"
+	want := "функция сложить(а: Целое, б: Целое): Целое\n{\n    вернуть а + б\n}\n\nфункция умножить(а: Целое, б: Целое): Целое\n{\n    вернуть а * б\n}\n\nфункция главная\n{\n    сложив(10, 20)\n        вывести результат\n        умножив(результат, 2)\n            вывести результат\n        // комментарий на уровне внешнего тела, без пустой строки перед ним\n        вывести результат\n}\n"
 	got, err := Format(src)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if got != src {
-		t.Fatalf("получено:\n%q\nожидалось (без изменений):\n%q", got, src)
+	if got != want {
+		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
 	}
 }
 
@@ -204,7 +245,7 @@ func TestFormatSwitchCaseBodyIndentedDeeperThanLabel(t *testing.T) {
 // строки - только вложенное тело колбэка.
 func TestFormatCallbackNotLastArgumentStaysFlat(t *testing.T) {
 	src := "функция чанковать(ф: Вызываемый(), доп: Строка)\n{\n    ф()\n}\nфункция главная\n{\n    чанковать(функция()\n    {\n    вывести 1\n}, \"доп\")\n}\n"
-	want := "функция чанковать(ф: Вызываемый(), доп: Строка)\n{\n    ф()\n}\nфункция главная\n{\n    чанковать(функция()\n    {\n        вывести 1\n    }, \"доп\")\n}\n"
+	want := "функция чанковать(ф: Вызываемый(), доп: Строка)\n{\n    ф()\n}\n\nфункция главная\n{\n    чанковать(функция()\n    {\n        вывести 1\n    }, \"доп\")\n}\n"
 	got, err := Format(src)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
@@ -364,9 +405,210 @@ func TestFormatFieldAlignmentBreaksOnBlankLine(t *testing.T) {
 	}
 }
 
+// TestFormatExplodesInlineReturnInsideIf - "если x { вернуть 0 }" внутри
+// НЕ функции (управляющая конструкция) - "вернуть" переносится на
+// собственную строку, легко проглядеть иначе.
+func TestFormatExplodesInlineReturnInsideIf(t *testing.T) {
+	src := "функция ф(x: Целое): Целое\n{\n    если x < 0 { вернуть 0 }\n    вернуть x\n}\n"
+	want := "функция ф(x: Целое): Целое\n{\n    если x < 0 {\n        вернуть 0\n    }\n    вернуть x\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != want {
+		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
+	}
+	got2, err := Format(got)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка при повторном форматировании: %v", err)
+	}
+	if got2 != got {
+		t.Fatalf("не идемпотентно:\nпервый проход:\n%q\nвторой проход:\n%q", got, got2)
+	}
+}
+
+// TestFormatExplodesInlineBreakContinueInsideLoop - то же самое для
+// "прервать"/"продолжить" внутри "пока".
+func TestFormatExplodesInlineBreakContinueInsideLoop(t *testing.T) {
+	src := "функция главная\n{\n    переменная i = 0\n    пока i < 10\n    {\n        если i == 5 { прервать }\n        если i == 2 { продолжить }\n        i++\n    }\n}\n"
+	want := "функция главная\n{\n    переменная i = 0\n    пока i < 10 {\n        если i == 5 {\n            прервать\n        }\n        если i == 2 {\n            продолжить\n        }\n        i++\n    }\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != want {
+		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
+	}
+}
+
+// TestFormatDoesNotExplodeInlineReturnInFunctionBody - однострочное тело
+// ФУНКЦИИ ("функция ф(): Целое { вернуть 1 }") - исключение, не трогается
+// (см. package doc explode_exit_stmt.go).
+func TestFormatDoesNotExplodeInlineReturnInFunctionBody(t *testing.T) {
+	src := "функция ф(): Целое { вернуть 1 }\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != src {
+		t.Fatalf("однострочное тело функции не должно меняться:\nполучено:\n%q\nисходно:\n%q", got, src)
+	}
+}
+
+// TestFormatAlreadyExplodedReturnStaysUnchanged - идемпотентность
+// напрямую: уже правильно оформленный "если" не должен меняться вовсе.
+func TestFormatAlreadyExplodedReturnStaysUnchanged(t *testing.T) {
+	src := "функция ф(x: Целое): Целое\n{\n    если x < 0 {\n        вернуть 0\n    }\n    вернуть x\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != src {
+		t.Fatalf("получено:\n%q\nожидалось (без изменений):\n%q", got, src)
+	}
+}
+
+// TestFormatInsertsBlankLineBetweenGluedFunctions - две функции без единой
+// пустой строки между ними - вставляется ровно одна.
+func TestFormatInsertsBlankLineBetweenGluedFunctions(t *testing.T) {
+	src := "функция а(): Целое\n{\n    вернуть 1\n}\nфункция б(): Целое\n{\n    вернуть 2\n}\n"
+	want := "функция а(): Целое\n{\n    вернуть 1\n}\n\nфункция б(): Целое\n{\n    вернуть 2\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != want {
+		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
+	}
+	got2, err := Format(got)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка при повторном форматировании: %v", err)
+	}
+	if got2 != got {
+		t.Fatalf("не идемпотентно:\nпервый проход:\n%q\nвторой проход:\n%q", got, got2)
+	}
+}
+
+// TestFormatInsertsBlankLineBetweenGluedMethods - то же самое для методов
+// одной сущности - первый метод (сразу после "{" сущности) НЕ получает
+// лишнюю пустую строку, второй (слитно после первого) - получает.
+func TestFormatInsertsBlankLineBetweenGluedMethods(t *testing.T) {
+	src := "структура Точка\n{\n    x(): Целое\n    {\n        вернуть 1\n    }\n    y(): Целое\n    {\n        вернуть 2\n    }\n}\n"
+	want := "структура Точка\n{\n    x(): Целое\n    {\n        вернуть 1\n    }\n\n    y(): Целое\n    {\n        вернуть 2\n    }\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != want {
+		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
+	}
+}
+
+// TestFormatDoesNotSeparateDocCommentFromItsFunction - doc-комментарий,
+// слитно предшествующий второй функции - пустая строка вставляется ПЕРЕД
+// ним, не между ним и функцией.
+func TestFormatDoesNotSeparateDocCommentFromItsFunction(t *testing.T) {
+	src := "функция а(): Целое\n{\n    вернуть 1\n}\n/** Документация б. */\nфункция б(): Целое\n{\n    вернуть 2\n}\n"
+	want := "функция а(): Целое\n{\n    вернуть 1\n}\n\n/** Документация б. */\nфункция б(): Целое\n{\n    вернуть 2\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != want {
+		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
+	}
+}
+
+// TestFormatAddsTrailingCommaToMultilineParamList - список параметров,
+// реально разложенный по одному на строку (уже есть перенос после первой
+// запятой), но БЕЗ висячей запятой у последнего - она добавляется.
+func TestFormatAddsTrailingCommaToMultilineParamList(t *testing.T) {
+	src := "функция сложить(\n    а: Целое,\n    б: Целое\n): Целое {\n    вернуть а + б\n}\n"
+	want := "функция сложить(\n    а: Целое,\n    б: Целое,\n): Целое {\n    вернуть а + б\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != want {
+		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
+	}
+	got2, err := Format(got)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка при повторном форматировании: %v", err)
+	}
+	if got2 != got {
+		t.Fatalf("не идемпотентно:\nпервый проход:\n%q\nвторой проход:\n%q", got, got2)
+	}
+}
+
+// TestFormatDoesNotAddTrailingCommaOnSingleLine - однострочный список
+// (даже если он длинный) НЕ получает висячую запятую - грамматика
+// (internal/parser/parser.go, skipNewlinesAfterListComma) требует, чтобы
+// висячая запятая сопровождалась переносом закрывающей скобки на свою
+// строку, значит на одной строке такая запятая в принципе невозможна.
+func TestFormatDoesNotAddTrailingCommaOnSingleLine(t *testing.T) {
+	src := "функция сложить(а: Целое, б: Целое): Целое\n{\n    вернуть а + б\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != src {
+		t.Fatalf("получено:\n%q\nожидалось (без изменений):\n%q", got, src)
+	}
+}
+
+// TestFormatAddsTrailingCommaToMultilineListLiteral - то же самое для
+// литерала списка "[...]".
+func TestFormatAddsTrailingCommaToMultilineListLiteral(t *testing.T) {
+	src := "функция главная\n{\n    переменная x = [\n        1,\n        2\n    ]\n}\n"
+	want := "функция главная\n{\n    переменная x = [\n        1,\n        2,\n    ]\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != want {
+		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
+	}
+}
+
+// TestFormatAlignsConsecutiveVarDecls - соседние "переменная имя = ..."
+// выравниваются по "=" (то же самое, что gofmt делает внутри "var (...)").
+func TestFormatAlignsConsecutiveVarDecls(t *testing.T) {
+	src := "функция главная\n{\n    переменная i = 0\n    переменная сумма = 0\n    вывести сумма\n}\n"
+	want := "функция главная\n{\n    переменная i     = 0\n    переменная сумма = 0\n    вывести сумма\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != want {
+		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
+	}
+	got2, err := Format(got)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка при повторном форматировании: %v", err)
+	}
+	if got2 != got {
+		t.Fatalf("не идемпотентно:\nпервый проход:\n%q\nвторой проход:\n%q", got, got2)
+	}
+}
+
+// TestFormatVarDeclAlignmentBreaksOnOtherStatement - инструкция МЕЖДУ
+// двумя "переменная" обрывает пробег выравнивания - второй "переменная" не
+// выравнивается с первым.
+func TestFormatVarDeclAlignmentBreaksOnOtherStatement(t *testing.T) {
+	src := "функция главная\n{\n    переменная i = 0\n    вывести i\n    переменная сумма = 0\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != src {
+		t.Fatalf("получено:\n%q\nожидалось (без изменений):\n%q", got, src)
+	}
+}
+
 func TestFormatMultilineCallTrailingBraceParen(t *testing.T) {
 	src := "функция обработать(ф: Вызываемый())\n{\n    ф()\n}\nфункция главная\n{\n    обработать(функция()\n    {\n    вывести 1\n})\n}\n"
-	want := "функция обработать(ф: Вызываемый())\n{\n    ф()\n}\nфункция главная\n{\n    обработать(функция()\n    {\n        вывести 1\n    })\n}\n"
+	want := "функция обработать(ф: Вызываемый())\n{\n    ф()\n}\n\nфункция главная\n{\n    обработать(функция()\n    {\n        вывести 1\n    })\n}\n"
 	got, err := Format(src)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)

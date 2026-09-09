@@ -6,14 +6,14 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
-// datagramFields - фиксированные поля встроенной сущности "Дейтаграмма" -
+// DatagramFields - фиксированные поля встроенной сущности "Дейтаграмма" -
 // результат "получить_от" (recvfrom на udp-узле, полученном "сетевой_узел"
 // БЕЗ хоста, см. registerBuiltinFuncs/internal/builtins.All) - одно
 // входящее UDP-сообщение вместе с адресом ЕГО ОТПРАВИТЕЛЯ (в отличие от
 // "получить" на подключённом сокете, где собеседник уже зафиксирован
 // самим соединением) - "адрес"/"порт" здесь и есть тот отправитель,
 // нужный, чтобы ответить именно ему через "отправить_в".
-var datagramFields = []ir.Field{
+var DatagramFields = []ir.Field{
 	{Name: "данные", Type: ir.TypeString},
 	{Name: "адрес", Type: ir.TypeString},
 	{Name: "порт", Type: ir.TypeInt},
@@ -28,7 +28,7 @@ var datagramFields = []ir.Field{
 // регистрируется здесь (в отличие от прежней версии) - см. package doc
 // registerSocketNullableOnCall.
 func registerNetworkFuncs(entities map[string]entitySig, funcs map[string]funcSig) {
-	registerHTTPEntity(entities, "Дейтаграмма", datagramFields)
+	registerHTTPEntity(entities, "Дейтаграмма", DatagramFields)
 	funcs["получить_от"] = funcSig{Params: []ir.Type{ir.TypeSocket, ir.TypeInt}, ReturnType: ir.EntityType("Дейтаграмма"), HasReturn: true}
 	funcs["отправить_в"] = funcSig{Params: []ir.Type{ir.TypeSocket, ir.TypeString, ir.TypeString, ir.TypeInt}, HasReturn: false}
 

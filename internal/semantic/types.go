@@ -118,13 +118,13 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 		registerHTTPEntity(entities, formPartType, formPartFields)
 		return ir.EntityType(formPartType), nil
 	case http2StreamType:
-		registerHTTPEntity(entities, http2StreamType, http2StreamFields)
+		registerHTTPEntity(entities, http2StreamType, HTTP2StreamFields)
 		return ir.EntityType(http2StreamType), nil
 	case imageCodecEntityName:
 		if _, err := resolveTypeName(entities, methods, aliases, interfaces, byteListType); err != nil {
 			return ir.TypeUnknown, err
 		}
-		registerHTTPEntity(entities, imageCodecEntityName, imageCodecFields)
+		registerHTTPEntity(entities, imageCodecEntityName, ImageCodecFields)
 		return ir.EntityType(imageCodecEntityName), nil
 	case "Совпадение":
 		// "группы" (Список<Строка>) - зарегистрировать ДО самой "Совпадение",
@@ -134,7 +134,7 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 		if _, err := resolveTypeName(entities, methods, aliases, interfaces, regexGroupsType); err != nil {
 			return ir.TypeUnknown, err
 		}
-		registerHTTPEntity(entities, "Совпадение", matchFields)
+		registerHTTPEntity(entities, "Совпадение", MatchFields)
 		return ir.EntityType("Совпадение"), nil
 	}
 	if _, ok := interfaces[name]; ok {

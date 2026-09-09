@@ -12,7 +12,7 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
-// cookieOptionsFields - поля встроенной сущности "ОпцииКуки" (структура,
+// CookieOptionsFields - поля встроенной сущности "ОпцииКуки" (структура,
 // как "Запрос"/"Ответ"/"ДатаВремя" - копируется по значению, без общего
 // состояния). Пустая строка/false - "атрибут не выставлять" для каждого
 // поля, КРОМЕ "максимальный_возраст" - `?Целое`, не голое `Целое`: 0 -
@@ -21,7 +21,7 @@ import (
 // значение по умолчанию (см. registerCookieOptionsEntity) - "новый
 // ОпцииКуки(путь: "/", ...)" называет только нужные атрибуты, остальные
 // молча принимают "не выставлен".
-var cookieOptionsFields = []ir.Field{
+var CookieOptionsFields = []ir.Field{
 	{Name: "путь", Type: ir.TypeString},
 	{Name: "домен", Type: ir.TypeString},
 	{Name: "максимальный_возраст", Type: ir.NullableType(ir.TypeInt)},
@@ -43,7 +43,7 @@ func registerCookieOptionsEntity(entities map[string]entitySig) {
 		return
 	}
 	sig := entitySig{IsStruct: true}
-	for _, f := range cookieOptionsFields {
+	for _, f := range CookieOptionsFields {
 		sig.FieldNames = append(sig.FieldNames, f.Name)
 		sig.FieldTypes = append(sig.FieldTypes, f.Type)
 		sig.FieldVisibility = append(sig.FieldVisibility, ast.Public)

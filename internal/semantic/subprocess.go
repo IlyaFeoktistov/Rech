@@ -5,20 +5,20 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
-// processFields - поля встроенной сущности "Процесс" (результат "запустить_
+// ProcessFields - поля встроенной сущности "Процесс" (результат "запустить_
 // процесс") - только "pid": этого достаточно, чтобы использовать уже
 // существующий "отправить_сигнал(pid, сигнал)" для завершения дочернего
 // процесса - отдельного метода вроде "завершить" здесь нарочно нет,
 // отправка сигнала уже есть как общая функция, дублировать её под другим
 // именем только потому, что pid теперь приходит из сущности, а не
 // напрямую от пользователя, незачем.
-var processFields = []ir.Field{
+var ProcessFields = []ir.Field{
 	{Name: "pid", Type: ir.TypeInt},
 }
 
-// commandResultFields - поля встроенной сущности "РезультатКоманды"
+// CommandResultFields - поля встроенной сущности "РезультатКоманды"
 // (результат "выполнить_команду").
-var commandResultFields = []ir.Field{
+var CommandResultFields = []ir.Field{
 	{Name: "вывод", Type: ir.TypeString},
 	{Name: "ошибка", Type: ir.TypeString},
 	{Name: "код_возврата", Type: ir.TypeInt},
@@ -49,8 +49,8 @@ var subprocessDirDefault = &ast.StringLiteral{Value: ""}
 //     рабочий каталог ЭТОЙ команды (пустая строка - унаследовать текущий
 //     рабочий каталог программы, не менять его).
 func registerSubprocessFuncs(entities map[string]entitySig, funcs map[string]funcSig) {
-	registerHTTPEntity(entities, "Процесс", processFields)
-	registerHTTPEntity(entities, "РезультатКоманды", commandResultFields)
+	registerHTTPEntity(entities, "Процесс", ProcessFields)
+	registerHTTPEntity(entities, "РезультатКоманды", CommandResultFields)
 	funcs["запустить_процесс"] = funcSig{
 		Params:     []ir.Type{ir.TypeString, ir.EntityType(splitResultType)},
 		ReturnType: ir.EntityType("Процесс"),

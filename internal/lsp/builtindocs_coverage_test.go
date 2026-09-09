@@ -8,6 +8,29 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 )
 
+// TestHoverCoversAllReservedEntityNames - каждое имя из internal/
+// builtins.ReservedEntityNames должно давать непустой hover
+// (builtinTypeDocs, internal/lsp/builtindocs.go) - репортнуто пользователем
+// ("подсказки hover есть не на всех новых функциях и сущностях"): каждая
+// зарезервированная сущность, добавленная позже первоначального списка
+// (RGBЦвет/ДекодированноеИзображение/Процесс/РезультатКоманды - Шаги про
+// картинки/внешние процессы, Дейтаграмма/ОпцииКуки/Совпадение/HTTP2Поток -
+// более ранние сетевые шаги) не получила записи в builtinTypeDocs вовсе -
+// та же забывчивость, что уже однажды поймал сам компилятор для
+// "RGBЦвет" на уровне ReservedEntityNames (internal/builtins/builtins.go,
+// комментарий там же), только уровнем выше - hover.
+func TestHoverCoversAllReservedEntityNames(t *testing.T) {
+	d := newDoc("test://a.rech", "функция главная\n{\n}\n")
+	for name := range builtins.ReservedEntityNames {
+		if name == "Паника" {
+			continue // псевдо-тип, распознаётся только в "поймать (x: Паника)" - не настоящая сущность, hover для голого имени не ожидается
+		}
+		if _, ok := d.hoverBareName(name, 1); !ok {
+			t.Errorf("нет hover для зарезервированной сущности %q (builtins.ReservedEntityNames)", name)
+		}
+	}
+}
+
 // TestHoverKeywordCoversAllTokenTypes - каждое ключевое слово языка (internal/
 // lexer.KeywordTokenTypes) должно иметь запись в keywordDocs - находка при
 // сборке справочника документации ("документацию тоже надо сверить, вдруг

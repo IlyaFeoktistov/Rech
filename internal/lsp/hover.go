@@ -93,7 +93,11 @@ func (d *doc) hoverBareName(name string, line int) (string, bool) {
 		return block, true
 	}
 	if doc, ok := builtinTypeDocs[name]; ok {
-		return codeBlock(name) + "\n\n" + doc, true
+		header := name
+		if ctor, ok := d.reservedEntityCtorSignature(name); ok {
+			header = ctor
+		}
+		return codeBlock(header) + "\n\n" + doc, true
 	}
 	if block, ok := hoverBuiltinFunc(name); ok {
 		return block, true

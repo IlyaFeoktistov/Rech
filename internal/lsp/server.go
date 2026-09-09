@@ -166,6 +166,9 @@ func (s *server) publishDiagnostics(uri string, d *doc) {
 			Line: sug.Line, Col: sug.Col, Len: sug.Len, Message: sug.Message, Severity: hintSeverity,
 		}))
 	}
+	for _, diag := range d.unreachableDiagnostics() {
+		diags = append(diags, diagnosticJSON(diag))
+	}
 	_ = s.rpc.Notify("textDocument/publishDiagnostics", map[string]any{"uri": uri, "diagnostics": diags})
 }
 

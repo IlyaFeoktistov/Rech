@@ -41,7 +41,7 @@ import "github.com/IlyaFeoktistov/Rech/internal/ir"
 // притвориться пользовательским типом).
 const imageCodecEntityName = "ДекодированноеИзображение"
 
-var imageCodecFields = []ir.Field{
+var ImageCodecFields = []ir.Field{
 	{Name: "ширина", Type: ir.TypeInt},
 	{Name: "высота", Type: ir.TypeInt},
 	{Name: "пиксели", Type: ir.EntityType(byteListType)},
@@ -85,6 +85,6 @@ func registerImageCodecEntityOnCall(entities map[string]entitySig, methods map[s
 	if err := registerByteListTypeOnCall(entities, methods, aliases, interfaces); err != nil {
 		return err
 	}
-	registerHTTPEntity(entities, imageCodecEntityName, imageCodecFields)
+	registerHTTPEntity(entities, imageCodecEntityName, ImageCodecFields)
 	return nil
 }
