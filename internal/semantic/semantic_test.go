@@ -816,6 +816,94 @@ func TestAnalyzeTryCatchOnlyOneBranchReturningStillFails(t *testing.T) {
 	}
 }
 
+// TestAnalyzeEndingWithThrowCountsAsFinalReturn - функция, тело которой
+// заканчивается безусловным "выбросить" (без значения - оно и не нужно,
+// исключение всё равно не даёт исполнению провалиться дальше) - должна
+// проходить проверку "должна заканчиваться вернуть <значение>" без
+// лишнего "вернуть" после "выбросить" (репортнуто пользователем - именно
+// такой лишний "вернуть строка" в examples/бд/чанкование.rech,
+// значение_курсора).
+func TestAnalyzeEndingWithThrowCountsAsFinalReturn(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция х(): Целое
+{
+    выбросить новое Исключение("нет значения")
+}
+функция главная { вывести х() }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
+// TestAnalyzeIfElseBothReturningCountsAsFinalReturn - функция, тело
+// которой заканчивается "если <усл> {...вернуть...} иначе {...вернуть...}"
+// с возвратом значения в ОБЕИХ ветках - тоже не должно требовать ничего
+// после (та же логика, что и у try/catch выше, распространённая на
+// если/иначе).
+func TestAnalyzeIfElseBothReturningCountsAsFinalReturn(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция х(а: Целое): Целое
+{
+    если а > 0
+    {
+        вернуть а
+    }
+    иначе
+    {
+        вернуть 0
+    }
+}
+функция главная { вывести х(1) }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
+// TestAnalyzeIfWithoutElseStillFails - "если <усл> {...вернуть...}" БЕЗ
+// "иначе" - ошибка "должна заканчиваться" остаётся (путь, где условие
+// ложно, ничего не возвращает и не расходится).
+func TestAnalyzeIfWithoutElseStillFails(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция х(а: Целое): Целое
+{
+    если а > 0
+    {
+        вернуть а
+    }
+}
+функция главная { вывести х(1) }
+`)
+	if err == nil || !strings.Contains(err.Error(), "должна заканчиваться") {
+		t.Fatalf("ожидалась ошибка про отсутствие \"вернуть <значение>\" в конце, получено: %v", err)
+	}
+}
+
+// TestAnalyzeIfElseOnlyOneBranchThrowingCountsAsFinalReturn - "если
+// {...вернуть...} иначе {...выбросить...}" - смешанная форма (одна ветка
+// возвращает значение, другая безусловно расходится через исключение) -
+// тоже должна проходить проверку.
+func TestAnalyzeIfElseOnlyOneBranchThrowingCountsAsFinalReturn(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция х(а: Целое): Целое
+{
+    если а > 0
+    {
+        вернуть а
+    }
+    иначе
+    {
+        выбросить новое Исключение("отрицательное")
+    }
+}
+функция главная { вывести х(1) }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
 func TestAnalyzeEntityFieldsConstructorAndFieldAccess(t *testing.T) {
 	irProg := parseProgram(t, `
 сущность Пользователь
