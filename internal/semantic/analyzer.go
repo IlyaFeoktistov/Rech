@@ -18,7 +18,35 @@ type Analyzer struct {
 	entities    map[string]entitySig
 	methods     map[string]map[string]funcSig
 	funcs       map[string]funcSig
-	aliases     map[string]string
+	// funcOverloads - имя перегруженной свободной функции -> её сигнатуры
+	// (funcSig.MangledName у каждой уже заполнено) - пусто (nil-запись) для
+	// любого имени без перегрузки, funcs хранит его сигнатуру напрямую под
+	// голым именем, как и раньше (см. package doc funcSig.MangledName,
+	// resolveFuncSigForCall).
+	funcOverloads map[string][]funcSig
+	// funcDeclNames - *ast.FunctionDecl -> ключ, под которым его сигнатура
+	// зарегистрирована в funcs (голое имя - без перегрузки этого имени,
+	// иначе MangledName) - собственный анализ тела функции (analyzeFunction)
+	// не может просто взять funcs[fn.Name]: при перегрузке под голым именем
+	// в funcs нет записи вовсе, а с каким именно объявлением (fn) из группы
+	// сейчас работает вызывающая сторона, funcs по одному голому имени не
+	// определить.
+	funcDeclNames map[*ast.FunctionDecl]string
+	// methodOverloads - имя сущности -> имя метода -> её сигнатуры
+	// (funcSig.MangledName у каждой уже заполнено) - ТРАНЗИТИВНО сплющенные
+	// с перегрузками БАЗОВОЙ сущности (applyInheritance), тем же принципом,
+	// что и methods[Сущность] в целом. Пусто (нет записи под именем метода)
+	// для любого имени без перегрузки - methods[Сущность][имя] хранит
+	// сигнатуру напрямую под голым именем, как и раньше.
+	methodOverloads map[string]map[string][]funcSig
+	// methodDeclNames - *ast.MethodDecl -> ключ, под которым его сигнатура
+	// зарегистрирована в methods[ent.Name] (голое имя без перегрузки этого
+	// имени у ЭТОЙ сущности, иначе MangledName) - тот же принцип, что и
+	// funcDeclNames у свободных функций (см. её package doc), нужен
+	// analyzeMethod по той же причине: methods[ent.Name][m.Name] не годится
+	// напрямую при перегрузке.
+	methodDeclNames map[*ast.MethodDecl]string
+	aliases         map[string]string
 	aliasState  map[string]string
 	enums       map[string]map[string]int64
 	interfaces  map[string]interfaceSig
@@ -222,6 +250,8 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 	methods := map[string]map[string]funcSig{}
 	aliases := map[string]string{}
 	aliasState := map[string]string{}
+	a.methodOverloads = map[string]map[string][]funcSig{}
+	a.methodDeclNames = map[*ast.MethodDecl]string{}
 	// enums - собран здесь, а не позже (a.enums, collectEnums идёт ПОСЛЕ
 	// collectEntities) - тем же приёмом-плейсхолдером, что paramEntities у
 	// collectInterfaces: полю/параметру/типу результата метода сущности
@@ -387,47 +417,64 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 		// не меняется (имя типа - не сама сигнатура по значению).
 		entities[ent.Name] = sig
 
-		ownMethods := map[string]funcSig{}
+		// byMethodName/methodOrder - та же группировка по имени, что и в
+		// collectFuncSigs (см. package doc funcSig.MangledName) - метод
+		// может быть объявлен более одного раза ТОЛЬКО как перегрузка
+		// (разный список типов параметров).
+		byMethodName := map[string][]*ast.MethodDecl{}
+		var methodOrder []string
 		for _, m := range ent.Methods {
-			if _, exists := ownMethods[m.Name]; exists {
-				return fmt.Errorf("сущность %q: метод %q объявлен более одного раза", ent.Name, m.Name)
+			if _, seen := byMethodName[m.Name]; !seen {
+				methodOrder = append(methodOrder, m.Name)
 			}
-			params := make([]ir.Type, len(m.Params))
-			paramStates := make([]string, len(m.Params))
-			paramDefaults := make([]ast.Expr, len(m.Params))
-			for i, p := range m.Params {
-				typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, p.Type)
+			byMethodName[m.Name] = append(byMethodName[m.Name], m)
+		}
+		// overloadedMethodNames - нужно ДО построения любой сигнатуры:
+		// resolveOpposesTag (тег `` `противоположность:X` ``) ищет X ПО
+		// ИМЕНИ среди ent.Methods - при перегруженном X нашёл бы ПЕРВОЕ
+		// попавшееся объявление с этим именем, произвольно (см. package doc
+		// resolveOpposesTag) - явно запрещаем такую комбинацию, а не тихо
+		// выбираем не ту перегрузку.
+		overloadedMethodNames := map[string]bool{}
+		for _, name := range methodOrder {
+			if len(byMethodName[name]) > 1 {
+				overloadedMethodNames[name] = true
+			}
+		}
+		ownMethods := map[string]funcSig{}
+		ownOverloads := map[string][]funcSig{}
+		for _, name := range methodOrder {
+			decls := byMethodName[name]
+			if len(decls) == 1 {
+				msig, err := a.buildMethodSig(entities, methods, aliases, aliasState, enums, ent, decls[0], sig.States, overloadedMethodNames)
 				if err != nil {
-					return fmt.Errorf("сущность %q: метод %q: параметр %q: %w", ent.Name, m.Name, p.Name, err)
+					return err
 				}
-				params[i] = typ
-				paramStates[i] = aliasState[p.Type]
-				paramDefaults[i] = p.Default
+				ownMethods[name] = msig
+				a.methodDeclNames[decls[0]] = name
+				continue
 			}
-			revokes, err := resolveOpposesTag(m, ent.Methods, sig.States)
-			if err != nil {
-				return fmt.Errorf("сущность %q: %w", ent.Name, err)
-			}
-			msig := funcSig{Params: params, ParamStates: paramStates, ParamDefaults: paramDefaults, Visibility: m.Visibility, IsAbstract: m.IsAbstract, IsStatic: m.IsStatic, RevokesStates: revokes}
-			switch {
-			case m.SelfReturn:
-				// "этот" как тип результата - собственный метод сущности X
-				// резолвится в EntityType(X) сразу же: applyInheritance
-				// перерезолвит копию этой сигнатуры в EntityType(Y) для
-				// каждой Y, которая унаследует метод без переопределения -
-				// см. package doc funcSig.SelfReturn.
-				msig.ReturnType = ir.EntityType(ent.Name)
-				msig.HasReturn = true
-				msig.SelfReturn = true
-			case m.ReturnType != "":
-				typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, m.ReturnType)
+			// Перегрузка - несколько методов с одним и тем же именем, разным
+			// списком типов параметров (см. package doc funcSig.MangledName).
+			var group []funcSig
+			for _, m := range decls {
+				if m.IsAbstract || m.IsStatic {
+					return fmt.Errorf("сущность %q: метод %q: перегрузка не поддерживается для абстрактных/статических методов в этой версии", ent.Name, name)
+				}
+				msig, err := a.buildMethodSig(entities, methods, aliases, aliasState, enums, ent, m, sig.States, overloadedMethodNames)
 				if err != nil {
-					return fmt.Errorf("сущность %q: метод %q: тип результата: %w", ent.Name, m.Name, err)
+					return err
 				}
-				msig.ReturnType = typ
-				msig.HasReturn = true
+				for _, other := range group {
+					if sameParamTypeList(other.Params, msig.Params) {
+						return fmt.Errorf("сущность %q: метод %q: две перегрузки с одинаковым списком типов параметров (%s) - неотличимы ни на одном вызове", ent.Name, name, paramTypesString(msig.Params))
+					}
+				}
+				msig.MangledName = overloadMangledName(name, msig.Params)
+				a.methodDeclNames[m] = msig.MangledName
+				group = append(group, msig)
 			}
-			ownMethods[m.Name] = msig
+			ownOverloads[name] = group
 		}
 
 		if ent.Ctor != nil {
@@ -452,11 +499,14 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 		// Наследование ("наследует")/интерфейсы ("реализует") -
 		// сплющивает sig/ownMethods с базовой сущностью, если она есть, и
 		// проверяет соответствие каждому объявленному интерфейсу - см.
-		// internal/semantic/inheritance.go.
-		flatSig, flatMethods, err := a.applyInheritance(entities, methods, ent, sig, ownMethods)
+		// internal/semantic/inheritance.go. methodOverloads - ТРАНЗИТИВНО
+		// сплющенные (своя группа + унаследованные от базовой) перегрузки
+		// методов этой сущности, см. package doc Analyzer.methodOverloads.
+		flatSig, flatMethods, methodOverloads, err := a.applyInheritance(entities, methods, ent, sig, ownMethods, ownOverloads)
 		if err != nil {
 			return err
 		}
+		a.methodOverloads[ent.Name] = methodOverloads
 		if !ent.IsAbstract {
 			for name, msig := range flatMethods {
 				if msig.IsAbstract {
@@ -510,39 +560,67 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 	registerProcessFuncs(funcs)
 	registerSubprocessFuncs(a.entities, funcs)
 	registerImageCodecFuncs(funcs)
+	// byName - объявления функций программы, сгруппированные по имени, в
+	// порядке первого появления имени (order) - функция может быть
+	// объявлена более одного раза ТОЛЬКО как перегрузка (разный список
+	// типов параметров, см. ниже); порядок внутри группы - порядок
+	// объявления в файле (не важен для резолюции вызова - только для
+	// сообщений об ошибках).
+	byName := map[string][]*ast.FunctionDecl{}
+	var order []string
 	for _, fn := range prog.Functions {
-		if _, exists := funcs[fn.Name]; exists {
-			if builtins.IsReservedName(fn.Name) {
-				return fmt.Errorf("функция %q - зарезервированное имя встроенной функции, нельзя объявить свою функцию с этим именем", fn.Name)
-			}
-			return fmt.Errorf("функция %q объявлена более одного раза", fn.Name)
+		if _, seen := byName[fn.Name]; !seen {
+			order = append(order, fn.Name)
 		}
-		if err := a.checkGenericConstraints(a.entities, a.methods, a.aliases, enums, fn.Name); err != nil {
+		byName[fn.Name] = append(byName[fn.Name], fn)
+	}
+	declNames := map[*ast.FunctionDecl]string{}
+	funcOverloads := map[string][]funcSig{}
+	for _, name := range order {
+		decls := byName[name]
+		if _, exists := funcs[name]; exists {
+			if builtins.IsReservedName(name) {
+				return fmt.Errorf("функция %q - зарезервированное имя встроенной функции, нельзя объявить свою функцию с этим именем", name)
+			}
+			return fmt.Errorf("функция %q объявлена более одного раза", name)
+		}
+		if err := a.checkGenericConstraints(a.entities, a.methods, a.aliases, enums, name); err != nil {
 			return err
 		}
-		params := make([]ir.Type, len(fn.Params))
-		paramStates := make([]string, len(fn.Params))
-		paramDefaults := make([]ast.Expr, len(fn.Params))
-		for i, p := range fn.Params {
-			typ, err := resolveTypeName(a.entities, a.methods, a.aliases, a.interfaces, enums, p.Type)
+		if len(decls) == 1 {
+			sig, err := a.buildFreeFuncSig(decls[0], enums)
 			if err != nil {
-				return fmt.Errorf("функция %q: параметр %q: %w", fn.Name, p.Name, err)
+				return err
 			}
-			params[i] = typ
-			paramStates[i] = a.aliasState[p.Type]
-			paramDefaults[i] = p.Default
+			funcs[name] = sig
+			declNames[decls[0]] = name
+			continue
 		}
-		sig := funcSig{Params: params, ParamStates: paramStates, ParamDefaults: paramDefaults}
-		if fn.ReturnType != "" {
-			typ, err := resolveTypeName(a.entities, a.methods, a.aliases, a.interfaces, enums, fn.ReturnType)
+		// Перегрузка - несколько объявлений с одним и тем же именем, разным
+		// списком типов параметров (см. package doc funcSig.MangledName).
+		var group []funcSig
+		for _, fn := range decls {
+			if fn.Exported {
+				return fmt.Errorf("функция %q: перегрузка не поддерживается для \"экспортировать\" в этой версии - C-символ вычисляется из настоящего имени функции без учёта списка параметров, коллизия с другой перегрузкой той же группы", name)
+			}
+			sig, err := a.buildFreeFuncSig(fn, enums)
 			if err != nil {
-				return fmt.Errorf("функция %q: тип результата: %w", fn.Name, err)
+				return err
 			}
-			sig.ReturnType = typ
-			sig.HasReturn = true
+			for _, other := range group {
+				if sameParamTypeList(other.Params, sig.Params) {
+					return fmt.Errorf("функция %q: две перегрузки с одинаковым списком типов параметров (%s) - неотличимы ни на одном вызове", name, paramTypesString(sig.Params))
+				}
+			}
+			sig.MangledName = overloadMangledName(name, sig.Params)
+			funcs[sig.MangledName] = sig
+			declNames[fn] = sig.MangledName
+			group = append(group, sig)
 		}
-		funcs[fn.Name] = sig
+		funcOverloads[name] = group
 	}
+	a.funcOverloads = funcOverloads
+	a.funcDeclNames = declNames
 	externFuncs, err := a.collectExternFuncSigs(funcs, a.entities, a.methods, a.aliases, enums, prog)
 	if err != nil {
 		return err
@@ -550,6 +628,84 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 	a.funcs = funcs
 	a.externFuncs = externFuncs
 	return nil
+}
+
+// buildFreeFuncSig разбирает ОДНО объявление свободной функции в funcSig -
+// без учёта перегрузки (коллизия имени с builtin/другой функцией
+// проверяется вызывающей стороной, collectFuncSigs, один раз на имя, не на
+// каждое объявление группы).
+func (a *Analyzer) buildFreeFuncSig(fn *ast.FunctionDecl, enums map[string]map[string]int64) (funcSig, error) {
+	params := make([]ir.Type, len(fn.Params))
+	paramStates := make([]string, len(fn.Params))
+	paramDefaults := make([]ast.Expr, len(fn.Params))
+	for i, p := range fn.Params {
+		typ, err := resolveTypeName(a.entities, a.methods, a.aliases, a.interfaces, enums, p.Type)
+		if err != nil {
+			return funcSig{}, fmt.Errorf("функция %q: параметр %q: %w", fn.Name, p.Name, err)
+		}
+		params[i] = typ
+		paramStates[i] = a.aliasState[p.Type]
+		paramDefaults[i] = p.Default
+	}
+	sig := funcSig{Params: params, ParamStates: paramStates, ParamDefaults: paramDefaults}
+	if fn.ReturnType != "" {
+		typ, err := resolveTypeName(a.entities, a.methods, a.aliases, a.interfaces, enums, fn.ReturnType)
+		if err != nil {
+			return funcSig{}, fmt.Errorf("функция %q: тип результата: %w", fn.Name, err)
+		}
+		sig.ReturnType = typ
+		sig.HasReturn = true
+	}
+	return sig, nil
+}
+
+// buildMethodSig разбирает ОДНО объявление метода сущности ent в funcSig -
+// без учёта перегрузки (арность/уникальность имени внутри сущности
+// проверяется вызывающей стороной, collectEntities). states - sig.States
+// СОБСТВЕННОЙ (ещё не сплющенной с базовой) сигнатуры ent, нужен
+// resolveOpposesTag для перевода полной формы `` `становится` `` в краткую.
+// overloadedNames - имена методов ent, перегруженных (2+ объявления) в этой
+// же сущности - resolveOpposesTag отказывает явной ошибкой, если тег
+// `` `противоположность:X` `` называет одно из них (см. package doc вызова
+// в collectEntities: X ПО ИМЕНИ среди siblings, при перегруженном X
+// нашёл бы первое попавшееся объявление произвольно).
+func (a *Analyzer) buildMethodSig(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, aliasState map[string]string, enums map[string]map[string]int64, ent *ast.EntityDecl, m *ast.MethodDecl, states map[string]string, overloadedNames map[string]bool) (funcSig, error) {
+	params := make([]ir.Type, len(m.Params))
+	paramStates := make([]string, len(m.Params))
+	paramDefaults := make([]ast.Expr, len(m.Params))
+	for i, p := range m.Params {
+		typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, p.Type)
+		if err != nil {
+			return funcSig{}, fmt.Errorf("сущность %q: метод %q: параметр %q: %w", ent.Name, m.Name, p.Name, err)
+		}
+		params[i] = typ
+		paramStates[i] = aliasState[p.Type]
+		paramDefaults[i] = p.Default
+	}
+	revokes, err := resolveOpposesTag(m, ent.Methods, states, overloadedNames)
+	if err != nil {
+		return funcSig{}, fmt.Errorf("сущность %q: %w", ent.Name, err)
+	}
+	msig := funcSig{Params: params, ParamStates: paramStates, ParamDefaults: paramDefaults, Visibility: m.Visibility, IsAbstract: m.IsAbstract, IsStatic: m.IsStatic, RevokesStates: revokes}
+	switch {
+	case m.SelfReturn:
+		// "этот" как тип результата - собственный метод сущности X
+		// резолвится в EntityType(X) сразу же: applyInheritance перерезолвит
+		// копию этой сигнатуры в EntityType(Y) для каждой Y, которая
+		// унаследует метод без переопределения - см. package doc
+		// funcSig.SelfReturn.
+		msig.ReturnType = ir.EntityType(ent.Name)
+		msig.HasReturn = true
+		msig.SelfReturn = true
+	case m.ReturnType != "":
+		typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, m.ReturnType)
+		if err != nil {
+			return funcSig{}, fmt.Errorf("сущность %q: метод %q: тип результата: %w", ent.Name, m.Name, err)
+		}
+		msig.ReturnType = typ
+		msig.HasReturn = true
+	}
+	return msig, nil
 }
 
 // collectExternFuncSigs - "внешняя функция": та же коллизия имени с
@@ -843,7 +999,12 @@ func (a *Analyzer) analyzeConstructor(ent *ast.EntityDecl) (*ir.Method, error) {
 }
 
 func (a *Analyzer) analyzeMethod(ent *ast.EntityDecl, m *ast.MethodDecl) (*ir.Method, error) {
-	sig := a.methods[ent.Name][m.Name]
+	// name - ключ, под которым сигнатура ЭТОГО КОНКРЕТНОГО объявления
+	// зарегистрирована в methods[ent.Name]: голое m.Name без перегрузки
+	// этого имени у ent, иначе - мангл-имя (см. package doc
+	// Analyzer.methodDeclNames) - тот же приём, что и analyzeFunction.
+	name := a.methodDeclNames[m]
+	sig := a.methods[ent.Name][name]
 	sc := newCtx(a, a.funcs, a.entities, a.methods, a.aliases, a.interfaces, a.enums, ent.Name, sig.ReturnType, sig.HasReturn, a.resolvedConsts, a.resolvingConsts)
 	params, body, sig, err := a.analyzeParamsAndBody(sc, m.Params, sig, m.Body)
 	if err != nil {
@@ -853,9 +1014,9 @@ func (a *Analyzer) analyzeMethod(ent *ast.EntityDecl, m *ast.MethodDecl) (*ir.Me
 		return nil, fmt.Errorf("с объявленным типом результата %s должен заканчиваться \"вернуть <значение>\"", sig.ReturnType)
 	}
 	sig.GuaranteedThisStates = sc.thisEstablished
-	a.methods[ent.Name][m.Name] = sig
+	a.methods[ent.Name][name] = sig
 	return &ir.Method{
-		Name:       m.Name,
+		Name:       name,
 		Params:     params,
 		ReturnType: sig.ReturnType,
 		HasReturn:  sig.HasReturn,
@@ -869,7 +1030,13 @@ func (a *Analyzer) analyzeMethod(ent *ast.EntityDecl, m *ast.MethodDecl) (*ir.Me
 }
 
 func (a *Analyzer) analyzeFunction(fn *ast.FunctionDecl) (*ir.Function, error) {
-	sig := a.funcs[fn.Name]
+	// name - ключ, под которым сигнатура ЭТОГО КОНКРЕТНОГО объявления
+	// зарегистрирована в a.funcs: голое fn.Name без перегрузки этого имени,
+	// иначе - мангл-имя (см. package doc Analyzer.funcDeclNames) -
+	// funcs[fn.Name] не годится напрямую: при перегрузке под голым именем в
+	// funcs нет записи вовсе.
+	name := a.funcDeclNames[fn]
+	sig := a.funcs[name]
 	sc := newCtx(a, a.funcs, a.entities, a.methods, a.aliases, a.interfaces, a.enums, "", sig.ReturnType, sig.HasReturn, a.resolvedConsts, a.resolvingConsts)
 	params, body, sig, err := a.analyzeParamsAndBody(sc, fn.Params, sig, fn.Body)
 	if err != nil {
@@ -879,7 +1046,7 @@ func (a *Analyzer) analyzeFunction(fn *ast.FunctionDecl) (*ir.Function, error) {
 		return nil, fmt.Errorf("с объявленным типом результата %s должна заканчиваться \"вернуть <значение>\"", sig.ReturnType)
 	}
 	return &ir.Function{
-		Name:       fn.Name,
+		Name:       name,
 		Params:     params,
 		ReturnType: sig.ReturnType,
 		HasReturn:  sig.HasReturn,

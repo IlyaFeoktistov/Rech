@@ -37,9 +37,25 @@ func analyzeLaunchExpr(sc *ctx, e *ast.LaunchExpr) (ir.Expr, error) {
 	if builtins.IsReservedName(name) {
 		return nil, fmt.Errorf("строка %d: \"запустить\" не поддерживает встроенные функции - только обычные функции программы", e.Line)
 	}
-	sig, ok := sc.funcs[name]
-	if !ok {
-		return nil, fmt.Errorf("строка %d: функция %q не объявлена", e.Line, name)
+	// callee - имя, которое реально попадёт в ir.LaunchExpr.Callee (и, через
+	// ir.TaskType(Callee), в тип результата "запустить") - мангл-имя у
+	// перегруженной функции, голое имя иначе (см. package doc
+	// funcSig.MangledName, resolveFuncSigForCall). analyzeAwaitExpr находит
+	// сигнатуру заново по этому же имени (sc.funcs[t.Entity]) - оба места
+	// автоматически согласованы.
+	callee := name
+	sig, mangled, overloaded, err := resolveFuncSigForCall(sc, name, sc.a.funcOverloads[name], e.Call.Args, e.Line)
+	if overloaded {
+		if err != nil {
+			return nil, err
+		}
+		callee = mangled
+	} else {
+		var ok bool
+		sig, ok = sc.funcs[name]
+		if !ok {
+			return nil, fmt.Errorf("строка %d: функция %q не объявлена", e.Line, name)
+		}
 	}
 	if sig.IsExtern {
 		return nil, fmt.Errorf("строка %d: \"запустить\" не поддерживает внешние функции (\"внешняя функция\") - нет гарантии потокобезопасности произвольного C-символа", e.Line)
@@ -48,7 +64,7 @@ func analyzeLaunchExpr(sc *ctx, e *ast.LaunchExpr) (ir.Expr, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ir.LaunchExpr{Callee: name, Args: args}, nil
+	return &ir.LaunchExpr{Callee: callee, Args: args}, nil
 }
 
 // analyzeAwaitExpr - "дождаться <выражение>": Task обязан быть значением

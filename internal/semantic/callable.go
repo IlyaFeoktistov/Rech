@@ -153,6 +153,9 @@ func analyzeFuncRefExpr(sc *ctx, e *ast.FuncRefExpr) (ir.Expr, error) {
 	if builtins.IsReservedName(e.Name) {
 		return nil, fmt.Errorf("строка %d: \"&%s\" не поддерживает встроенные функции - только обычные функции программы", e.Line, e.Name)
 	}
+	if _, overloaded := sc.a.funcOverloads[e.Name]; overloaded {
+		return nil, fmt.Errorf("строка %d: функция %q перегружена - \"&\" не поддерживает перегрузку в этой версии, снимать адрес можно только с неперегруженной функции", e.Line, e.Name)
+	}
 	sig, ok := sc.funcs[e.Name]
 	if !ok {
 		if varType, isVar := sc.lookup(e.Name); isVar {

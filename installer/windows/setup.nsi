@@ -163,6 +163,17 @@ Section "Install"
     File "rech.exe"
     WriteUninstaller "$INSTDIR\uninstall.exe"
 
+    ; Часовые пояса (IANA tzdata, формат TZif) - собственный читатель
+    ; cbackend (internal/backend/cbackend/tzdata.go, "время_как_дата_в_
+    ; поясе"/"дата_в_поясе_как_время"/"д.в_поясе(...)") читает ВШИТУЮ
+    ; копию (нет системного "/usr/share/zoneinfo" на Windows вообще) -
+    ; путь рядом с rech.exe ($INSTDIR\zoneinfo), тот же принцип, что
+    ; tzdataDir (tzdata.go) вычисляет независимо во время "rech build"/
+    ; "rech run" на этой машине.
+    SetOutPath "$INSTDIR\zoneinfo"
+    File /r "..\..\runtime\zoneinfo\*.*"
+    SetOutPath "$INSTDIR"
+
     ReadRegStr $0 HKCU "Environment" "Path"
     ${If} $0 == ""
         WriteRegExpandStr HKCU "Environment" "Path" "$INSTDIR"
@@ -283,5 +294,6 @@ SectionEnd
 Section "Uninstall"
     Delete "$INSTDIR\rech.exe"
     Delete "$INSTDIR\uninstall.exe"
+    RMDir /r "$INSTDIR\zoneinfo"
     RMDir "$INSTDIR"
 SectionEnd

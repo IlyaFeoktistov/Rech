@@ -343,6 +343,16 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return intValue(dateToTime(args[0])), true
 	case "дату_в_строку":
 		return stringValue(dateToString(args[0])), true
+	case "разобрать_дату":
+		return parseDateValue(args[0].S), true
+	case "время_как_дата_в_поясе":
+		return timeToDateInZoneValue(args[0].I, args[1].S), true
+	case "дата_в_поясе_как_время":
+		return dateInZoneToTimeValue(args[0], args[1].S), true
+	case "день_недели":
+		return dayOfWeekValue(args[0]), true
+	case "дату_в_читаемом_виде":
+		return humanDateValue(args[0]), true
 	case "rgbцвет_из_hex":
 		return hexToColor(args[0].S), true
 	case "rgbцвет_в_hex":

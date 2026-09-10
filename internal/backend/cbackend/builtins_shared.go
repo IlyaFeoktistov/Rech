@@ -119,6 +119,24 @@ type builtinFlags struct {
 	// rech_date_to_time/rech_date_to_string (datetime.go) - встроенные
 	// функции "время"/"время_как_дата"/"дата_как_время"/"дату_в_строку".
 	usesDateTime bool
+	// usesDateParse - нужен ли rech_parse_date (dateparse.go) - встроенная
+	// функция "разобрать_дату". НЕ подразумевает usesDateTime - разбор
+	// строки не зависит от rech_days_from_civil/rech_time_to_date.
+	usesDateParse bool
+	// usesTZ - нужен ли собственный TZif-читатель (tzdata.go) -
+	// "время_как_дата_в_поясе"/"дата_в_поясе_как_время" (и метод
+	// "д.в_поясе(...)", desugar в первую из них, internal/semantic/
+	// datetime_methods.go) - подразумевает usesDateTime (rech_time_to_date_tz/
+	// rech_date_to_time_tz зовут rech_time_to_date/rech_date_to_time).
+	usesTZ bool
+	// usesDayOfWeek - нужен ли rech_day_of_week (datetime_human.go) -
+	// встроенная функция "день_недели" (и "д.является_выходным()") -
+	// подразумевает usesDateTime (зовёт rech_days_from_civil).
+	usesDayOfWeek bool
+	// usesHumanDate - нужен ли rech_date_to_human (datetime_human.go) -
+	// встроенная функция "дату_в_читаемом_виде" (и "д.в_читаемом_виде()") -
+	// подразумевает usesDateTime (зовёт rech_date_to_time/rech_time_now).
+	usesHumanDate bool
 	// usesColor - нужны ли rech_hex_to_color/rech_color_to_hex (color.go) -
 	// встроенные функции "rgbцвет_из_hex"/"rgbцвет_в_hex".
 	usesColor bool
@@ -681,6 +699,25 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 	case "дату_в_строку":
 		flags.usesDateTime = true
 		return fmt.Sprintf("rech_date_to_string(%s)", args[0]), true
+	case "разобрать_дату":
+		flags.usesDateParse = true
+		return fmt.Sprintf("rech_parse_date(%s)", args[0]), true
+	case "время_как_дата_в_поясе":
+		flags.usesDateTime = true
+		flags.usesTZ = true
+		return fmt.Sprintf("rech_time_to_date_tz(%s, %s)", args[0], args[1]), true
+	case "дата_в_поясе_как_время":
+		flags.usesDateTime = true
+		flags.usesTZ = true
+		return fmt.Sprintf("rech_date_to_time_tz(%s, %s)", args[0], args[1]), true
+	case "день_недели":
+		flags.usesDateTime = true
+		flags.usesDayOfWeek = true
+		return fmt.Sprintf("rech_day_of_week(%s)", args[0]), true
+	case "дату_в_читаемом_виде":
+		flags.usesDateTime = true
+		flags.usesHumanDate = true
+		return fmt.Sprintf("rech_date_to_human(%s)", args[0]), true
 	case "rgbцвет_из_hex":
 		flags.usesColor = true
 		flags.usesPanic = true

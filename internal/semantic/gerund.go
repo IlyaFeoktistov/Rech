@@ -17,9 +17,23 @@ import (
 // только вокруг s.Body) - "результат" не должна быть видна снаружи этого
 // блока, тем же принципом, что и переменная цикла "для".
 func analyzeGerundStmt(sc *ctx, s *ast.GerundStmt) (ir.Stmt, error) {
-	sig, ok := sc.funcs[s.Callee]
-	if !ok {
-		return nil, fmt.Errorf("строка %d: функция %q не объявлена", s.Line, s.Callee)
+	// callee - имя, которое реально попадёт в ir.CallExpr.Callee - мангл-имя
+	// у перегруженной функции, голое имя иначе (см. package doc
+	// funcSig.MangledName, resolveFuncSigForCall) - тот же приём, что и
+	// analyzeLaunchExpr.
+	callee := s.Callee
+	sig, mangled, overloaded, err := resolveFuncSigForCall(sc, s.Callee, sc.a.funcOverloads[s.Callee], s.Args, s.Line)
+	if overloaded {
+		if err != nil {
+			return nil, err
+		}
+		callee = mangled
+	} else {
+		var ok bool
+		sig, ok = sc.funcs[s.Callee]
+		if !ok {
+			return nil, fmt.Errorf("строка %d: функция %q не объявлена", s.Line, s.Callee)
+		}
 	}
 	if !sig.HasReturn {
 		return nil, fmt.Errorf("строка %d: деепричастие требует функцию с объявленным типом результата - у %q его нет, \"результат\" не от чего образовать",
@@ -29,7 +43,7 @@ func analyzeGerundStmt(sc *ctx, s *ast.GerundStmt) (ir.Stmt, error) {
 	if err != nil {
 		return nil, err
 	}
-	call := &ir.CallExpr{Callee: s.Callee, Args: args, Type: sig.ReturnType, HasReturn: true}
+	call := &ir.CallExpr{Callee: callee, Args: args, Type: sig.ReturnType, HasReturn: true}
 
 	sc.push()
 	if err := sc.declare("результат", sig.ReturnType); err != nil {

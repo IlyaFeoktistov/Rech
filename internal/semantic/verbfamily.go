@@ -16,13 +16,22 @@ import (
 // funcSig.RevokesStates. siblings - все методы той же сущности (для поиска
 // названного в теге), states - уже собранный sig.States сущности (полная
 // форма -> краткая). nil, nil - у метода нет такого тега.
-func resolveOpposesTag(m *ast.MethodDecl, siblings []*ast.MethodDecl, states map[string]string) (map[string]bool, error) {
+// overloadedNames - имена методов той же сущности, перегруженных (2+
+// объявления) - target ПО ИМЕНИ среди siblings ниже не различает разные
+// перегрузки одного имени (siblings - плоский список всех ast.MethodDecl
+// сущности, включая все объявления группы), поэтому перегруженный target
+// отклоняется явной ошибкой, а не резолвится в первое попавшееся
+// объявление произвольно.
+func resolveOpposesTag(m *ast.MethodDecl, siblings []*ast.MethodDecl, states map[string]string, overloadedNames map[string]bool) (map[string]bool, error) {
 	target := structtag.Parse(m.Tag).Get("противоположность")
 	if target == "" {
 		return nil, nil
 	}
 	if target == m.Name {
 		return nil, fmt.Errorf("метод %q: нельзя объявить противоположностью самому себе", m.Name)
+	}
+	if overloadedNames[target] {
+		return nil, fmt.Errorf("метод %q: противоположность %q - метод с таким именем перегружен (несколько объявлений), неоднозначно, какую из перегрузок отменяет тег", m.Name, target)
 	}
 	var other *ast.MethodDecl
 	for _, s := range siblings {

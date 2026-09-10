@@ -1026,8 +1026,8 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// объявленного заголовком (найдено живьём - examples/основы/
 	// внешние_функции.rech, strlen + <string.h>, включённый совсем по
 	// другой причине - memcpy захваченной лямбды).
-	ctx.includesStringH = ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesPanicCatch || ctx.usesStringSplit || ctx.usesRegex || ctx.usesHTTPHeaders || ctx.usesColor || ctx.usesSubprocess || hasStructTargets || prog.UsesReflection
-	ctx.includesStdlibH = ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesColor || ctx.usesQueryParams || ctx.usesCookies || ctx.usesRandom || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesRegex || ctx.usesHTTPHeaders || hasStructTargets || ctx.usesExit
+	ctx.includesStringH = ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesPanicCatch || ctx.usesStringSplit || ctx.usesRegex || ctx.usesHTTPHeaders || ctx.usesColor || ctx.usesSubprocess || hasStructTargets || prog.UsesReflection || ctx.usesTZ || ctx.usesDateParse
+	ctx.includesStdlibH = ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesColor || ctx.usesQueryParams || ctx.usesCookies || ctx.usesRandom || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesRegex || ctx.usesHTTPHeaders || hasStructTargets || ctx.usesExit || ctx.usesTZ || ctx.usesHumanDate
 	ctx.includesMathH = ctx.usesMath
 	for _, ext := range prog.ExternFuncs {
 		protoStr, err := externPrototypeOfIR(ctx, ext)
@@ -1606,6 +1606,26 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// После typedefs - rech_time_to_date/rech_date_to_time/
 	// rech_date_to_string принимают/возвращают ДатаВремя по значению.
 	appendCodeIf(&sb, ctx.usesDateTime, datetimeHelpers)
+	// После typedefs (rech_T_n_data_vremya - "?ДатаВремя" - уже объявлен,
+	// если usesDateParse) - rech_parse_date не зависит от datetimeHelpers
+	// выше (чистый разбор строки, без календарной арифметики).
+	appendCodeIf(&sb, ctx.usesDateParse, dateParseHelpers(mangleType("ДатаВремя"),
+		mangleField("год"), mangleField("месяц"), mangleField("день"),
+		mangleField("час"), mangleField("минута"), mangleField("секунда"),
+		mangleType("?ДатаВремя")))
+	// После datetimeHelpers выше (rech_time_to_date_tz/rech_date_to_time_tz
+	// зовут rech_time_to_date/rech_date_to_time/rech_days_from_civil/
+	// rech_civil_from_days) и после typedefs ("?ДатаВремя"/"?Целое").
+	appendCodeIf(&sb, ctx.usesTZ, tzHelpers(tzdataDir(), mangleType("ДатаВремя"),
+		mangleField("год"), mangleField("месяц"), mangleField("день"),
+		mangleField("час"), mangleField("минута"), mangleField("секунда"),
+		mangleType("?ДатаВремя"), mangleType("?Целое")))
+	// После datetimeHelpers выше (rech_day_of_week зовёт rech_days_from_civil).
+	appendCodeIf(&sb, ctx.usesDayOfWeek, dayOfWeekHelper(mangleType("ДатаВремя"),
+		mangleField("год"), mangleField("месяц"), mangleField("день")))
+	// После datetimeHelpers выше (rech_date_to_human зовёт rech_date_to_time/
+	// rech_time_now).
+	appendCodeIf(&sb, ctx.usesHumanDate, humanDateHelper(mangleType("ДатаВремя")))
 	appendCodeIf(&sb, ctx.usesColor, colorHelpers)
 	// numbase.go - "целое_в_*"/"целое_из_*" - не зависит от typedefs, только
 	// примитивы (Целое/Строка) - "из_*" зовёт rech_panic (panicHelper выше).

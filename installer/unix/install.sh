@@ -244,6 +244,21 @@ echo "Сборка rech..."
 chmod +x "$PREFIX/rech"
 echo "Установлено: $PREFIX/rech"
 
+# Часовые пояса (IANA tzdata, формат TZif) - собственный читатель
+# cbackend (internal/backend/cbackend/tzdata.go, "время_как_дата_в_поясе"/
+# "дата_в_поясе_как_время"/"д.в_поясе(...)") читает ВШИТУЮ копию, не
+# системную "/usr/share/zoneinfo" - в отличие от OpenSSL/libpng/nghttp2/
+# Boehm GC выше (probe системной библиотеки), здесь пользователь явно
+# выбрал одну и ту же версию базы независимо от ОС/дистрибутива. Кладётся
+# рядом с бинарником, тем же принципом bin/share, что и у обычных Unix-
+# пакетов - "$PREFIX" обычно оканчивается на "bin", "share/rech/zoneinfo" -
+# его сосед на уровень выше (см. tzdataDir, tzdata.go - тот же путь
+# вычисляется независимо во время "rech build"/"rech run").
+ZONEINFO_DEST="$(dirname "$PREFIX")/share/rech/zoneinfo"
+mkdir -p "$ZONEINFO_DEST"
+cp -r "$REPO_ROOT/runtime/zoneinfo/." "$ZONEINFO_DEST/"
+echo "Часовые пояса (IANA tzdata) установлены: $ZONEINFO_DEST"
+
 case ":$PATH:" in
     *":$PREFIX:"*)
         echo "$PREFIX уже в PATH - готово."

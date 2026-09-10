@@ -221,7 +221,7 @@ func TestApplyInheritanceTooManyStatesFails(t *testing.T) {
 	methods := map[string]map[string]funcSig{"База": {}}
 	ent := &ast.EntityDecl{Name: "Потомок", BaseName: "База", Line: 1}
 	ownSig := entitySig{StateNames: ownStates, HasStateFlags: true}
-	_, _, err := a.applyInheritance(entities, methods, ent, ownSig, map[string]funcSig{})
+	_, _, _, err := a.applyInheritance(entities, methods, ent, ownSig, map[string]funcSig{}, map[string][]funcSig{})
 	if err == nil || !strings.Contains(err.Error(), "вмещает не больше 64") {
 		t.Fatalf("ожидалась ошибка о переполнении хранилища состояний, получено: %v", err)
 	}

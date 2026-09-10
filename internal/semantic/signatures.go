@@ -16,6 +16,18 @@ type funcSig struct {
 	ReturnType ir.Type
 	HasReturn  bool
 
+	// MangledName - "" у функции/метода без перегрузки (сигнатура
+	// используется под исходным именем как есть - нулевой риск для
+	// существующего кода). У ОДНОЙ ИЗ перегрузок группы (funcOverloads[имя]
+	// - свободные функции, methodOverloads[Сущность][имя] - методы) -
+	// уникальное на всю программу имя вида "имя(Тип1,Тип2)"
+	// (overloadMangledName, internal/semantic/overload.go), под которым ЭТА
+	// конкретная сигнатура зарегистрирована в funcs/methods[Сущность] (не
+	// под голым именем - там перегруженного имени вовсе нет ключом) и
+	// которое становится Callee/Method в ir.CallExpr/ir.MethodCallExpr/
+	// ir.LaunchExpr вместо исходного имени (resolveFuncSigForCall).
+	MangledName string
+
 	// ParamDefaults - значение по умолчанию параметра ("параметр: Тип =
 	// <выражение>", docs/SPEC.md) - той же длины, что и Params, nil на
 	// позиции параметра без значения по умолчанию. Только ХВОСТ параметров

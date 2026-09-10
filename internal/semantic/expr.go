@@ -186,6 +186,9 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 			}
 			return call, nil
 		}
+		if desugared, handled, derr := maybeDesugarDateTimeMethod(sc, e); handled {
+			return desugared, derr
+		}
 		call, err := analyzeMethodCallExpr(sc, e)
 		if err != nil {
 			return nil, err
@@ -412,6 +415,10 @@ func analyzeMethodCallExpr(sc *ctx, e *ast.MethodCallExpr) (*ir.MethodCallExpr, 
 	// `x.метод1().метод2()` любой глубины допустима для ЛЮБОГО типа
 	// получателя, не только ссылочного.
 	var sig funcSig
+	// method - имя, которое реально попадёт в ir.MethodCallExpr.Method -
+	// мангл-имя у перегруженного метода, e.Method (как есть) иначе (см.
+	// package doc funcSig.MangledName, resolveFuncSigForCall).
+	method := e.Method
 	switch typ.Kind {
 	case ir.KindInterface:
 		// Интерфейс - методы без видимости (не бывает "приватный
@@ -427,10 +434,19 @@ func analyzeMethodCallExpr(sc *ctx, e *ast.MethodCallExpr) (*ir.MethodCallExpr, 
 		}
 		sig = iface.MethodSigs[idx]
 	case ir.KindEntity:
-		var ok bool
-		sig, ok = sc.methods[typ.Entity][e.Method]
-		if !ok {
-			return nil, fmt.Errorf("строка %d: у сущности %q нет метода %q", e.Line, typ.Entity, e.Method)
+		osig, mangled, overloaded, oerr := resolveFuncSigForCall(sc, e.Method, sc.a.methodOverloads[typ.Entity][e.Method], e.Args, e.Line)
+		if overloaded {
+			if oerr != nil {
+				return nil, oerr
+			}
+			sig = osig
+			method = mangled
+		} else {
+			var ok bool
+			sig, ok = sc.methods[typ.Entity][e.Method]
+			if !ok {
+				return nil, fmt.Errorf("строка %d: у сущности %q нет метода %q", e.Line, typ.Entity, e.Method)
+			}
 		}
 		if err := checkMethodVisibility(sc, typ.Entity, e.Method, sig.Visibility, e.Line); err != nil {
 			return nil, err
@@ -501,7 +517,7 @@ func analyzeMethodCallExpr(sc *ctx, e *ast.MethodCallExpr) (*ir.MethodCallExpr, 
 	for st := range sig.RevokesStates {
 		revokes = append(revokes, st)
 	}
-	return &ir.MethodCallExpr{Receiver: receiver, Entity: typ.Entity, Method: e.Method, Args: args, Type: sig.ReturnType, HasReturn: sig.HasReturn, RevokesStates: revokes}, nil
+	return &ir.MethodCallExpr{Receiver: receiver, Entity: typ.Entity, Method: method, Args: args, Type: sig.ReturnType, HasReturn: sig.HasReturn, RevokesStates: revokes}, nil
 }
 
 // analyzeCallExpr - общий разбор вызова функции для ExprStmt (результат
@@ -525,6 +541,22 @@ func analyzeCallExpr(sc *ctx, e *ast.CallExpr) (ir.Expr, error) {
 	callee := e.Callee
 	if len(e.TypeArgs) > 0 {
 		callee = mangleGenericCallName(e.Callee, e.TypeArgs)
+	}
+	// Перегруженное имя (funcOverloads[callee] != nil) резолвится ДО
+	// обычной ветки sc.funcs[callee] ниже - под голым именем в sc.funcs нет
+	// записи вовсе (см. package doc funcSig.MangledName). Перегруженное имя
+	// НИКОГДА не встроенное (builtin никогда не заводится в funcOverloads) -
+	// все спецслучаи "if callee == X { registerXOnCall }" ниже относятся
+	// только к builtin-функциям и намеренно пропускаются для этой ветки.
+	if osig, mangled, ok, err := resolveFuncSigForCall(sc, callee, sc.a.funcOverloads[callee], e.Args, e.Line); ok {
+		if err != nil {
+			return nil, err
+		}
+		args, err := checkCallArgs(sc, e.Args, osig, e.Line, fmt.Sprintf("функция %q", callee), fmt.Sprintf("вызова %q", callee))
+		if err != nil {
+			return nil, err
+		}
+		return &ir.CallExpr{Callee: mangled, Args: args, Type: osig.ReturnType, HasReturn: osig.HasReturn}, nil
 	}
 	if sig, ok := sc.funcs[callee]; ok {
 		if callee == "параметры_пути" {
@@ -621,6 +653,11 @@ func analyzeCallExpr(sc *ctx, e *ast.CallExpr) (ir.Expr, error) {
 		}
 		if optionalStringFuncNames[callee] {
 			if err := registerOptionalStringOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
+				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
+			}
+		}
+		if optionalDateTimeFuncNames[callee] {
+			if err := registerOptionalDateTimeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
 				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
 			}
 		}
