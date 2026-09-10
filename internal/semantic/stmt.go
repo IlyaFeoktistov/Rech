@@ -157,8 +157,12 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			return nil, err
 		}
 		value = maybeUnwrapNarrowed(sc, value)
-		if typ := ir.TypeOf(value); typ.Kind == ir.KindNullable {
+		typ := ir.TypeOf(value)
+		if typ.Kind == ir.KindNullable {
 			return nil, fmt.Errorf("строка %d: нельзя напрямую вывести значение nullable-типа %s - разверните его сначала (\"?? запасное\" или явный каст)", s.Line, typ)
+		}
+		if wrapped := wrapStringerPrint(sc, value, typ); wrapped != nil {
+			value = wrapped
 		}
 		return &ir.PrintStmt{Value: value, Line: s.Line}, nil
 
@@ -177,7 +181,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		var declared ir.Type
 		var hasAnnotation bool
 		if s.Type != "" {
-			t, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, s.Type)
+			t, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, s.Type)
 			if err != nil {
 				return nil, fmt.Errorf("строка %d: %w", s.Line, err)
 			}

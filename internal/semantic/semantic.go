@@ -23,6 +23,10 @@ func Analyze(prog *ast.Program) (*ir.Program, error) {
 	}
 	prog = instantiated
 
+	// Строчный - до collectInterfaces (см. package doc stringer.go): дальше
+	// ведёт себя как обычный объявленный интерфейс программы.
+	injectStringerInterface(prog)
+
 	a := &Analyzer{
 		resolvedConsts:        map[string]ir.Expr{},
 		resolvingConsts:       map[string]bool{},

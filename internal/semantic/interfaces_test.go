@@ -7,6 +7,21 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
+// findInterface ищет интерфейс по имени в irProg.Interfaces - irProg.Interfaces
+// всегда несёт ещё и встроенный "Строчный" (injectStringerInterface,
+// stringer.go), поэтому тесты ниже не могут полагаться на длину списка/
+// индекс 0 как раньше.
+func findInterface(t *testing.T, ifaces []*ir.Interface, name string) *ir.Interface {
+	t.Helper()
+	for _, iface := range ifaces {
+		if iface.Name == name {
+			return iface
+		}
+	}
+	t.Fatalf("интерфейс %q не найден среди %+v", name, ifaces)
+	return nil
+}
+
 func TestAnalyzeInterfaceMethodCallResolvesThroughContract(t *testing.T) {
 	irProg := parseProgram(t, `
 интерфейс Звучащий
@@ -30,9 +45,7 @@ func TestAnalyzeInterfaceMethodCallResolvesThroughContract(t *testing.T) {
     вывести озвучить(кошка)
 }
 `)
-	if len(irProg.Interfaces) != 1 || irProg.Interfaces[0].Name != "Звучащий" {
-		t.Fatalf("ожидался один интерфейс \"Звучащий\", получено %+v", irProg.Interfaces)
-	}
+	findInterface(t, irProg.Interfaces, "Звучащий")
 }
 
 func TestAnalyzeEntityNotImplementingInterfaceFails(t *testing.T) {
@@ -301,10 +314,11 @@ func TestAnalyzeInterfaceMethodAcceptsEntityParam(t *testing.T) {
     н.на_событие(событие)
 }
 `)
-	if len(irProg.Interfaces) != 1 || len(irProg.Interfaces[0].Methods) != 1 {
-		t.Fatalf("ожидался один интерфейс с одним методом, получено %+v", irProg.Interfaces)
+	iface := findInterface(t, irProg.Interfaces, "Наблюдатель")
+	if len(iface.Methods) != 1 {
+		t.Fatalf("ожидался один метод, получено %+v", iface.Methods)
 	}
-	params := irProg.Interfaces[0].Methods[0].Params
+	params := iface.Methods[0].Params
 	if len(params) != 1 || params[0].Type != ir.EntityType("Событие") {
 		t.Fatalf("ожидался параметр типа \"Событие\", получено %+v", params)
 	}
@@ -337,10 +351,11 @@ func TestAnalyzeInterfaceMethodAcceptsGenericCollectionParam(t *testing.T) {
     вывести ф.создать(пустой).длина()
 }
 `)
-	if len(irProg.Interfaces) != 1 || len(irProg.Interfaces[0].Methods) != 1 {
-		t.Fatalf("ожидался один интерфейс с одним методом, получено %+v", irProg.Interfaces)
+	iface := findInterface(t, irProg.Interfaces, "ФабрикаСписков")
+	if len(iface.Methods) != 1 {
+		t.Fatalf("ожидался один метод, получено %+v", iface.Methods)
 	}
-	m := irProg.Interfaces[0].Methods[0]
+	m := iface.Methods[0]
 	if len(m.Params) != 1 || m.Params[0].Type != ir.EntityType("Список<Строка>") {
 		t.Fatalf("ожидался параметр типа \"Список<Строка>\", получено %+v", m.Params)
 	}
