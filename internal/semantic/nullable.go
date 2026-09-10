@@ -50,6 +50,19 @@ func registerOptionalStringOnCall(entities map[string]entitySig, methods map[str
 	return err
 }
 
+// registerOptionalAnyOnCall - тот же приём, что registerOptionalStringOnCall
+// выше, но для "?Значение" ("Значение".получить_поле_по_тегу,
+// internal/semantic/reflect.go, anyMethodSigs) - в отличие от "?Целое"
+// (обёртка поля "код" встроенного "Исключение", зарегистрирована
+// безусловно при настройке анализатора, см. analyzer.go) "?Значение" не
+// нужен НИ ОДНОЙ другой части языка, поэтому регистрируется лениво, ровно
+// тем же путём, что и "?Строка"/"?Сокет" - вызывается из
+// analyzeMethodCallExpr (expr.go) при каждом реальном вызове.
+func registerOptionalAnyOnCall(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64) error {
+	_, err := resolveTypeName(entities, methods, aliases, interfaces, enums, "?Значение")
+	return err
+}
+
 // optionalStringFuncNames - имена всех функций, возвращающих "?Строка" через
 // registerOptionalStringOnCall (analyzeCallExpr, expr.go) - тем же принципом
 // lookup-таблицы, что и dbFuncNames (db.go), вместо трёх отдельных "if

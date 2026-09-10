@@ -32,6 +32,14 @@ var anyMethodSigs = map[string]funcSig{
 	"получить_поле":   {Params: []ir.Type{ir.TypeString}, ReturnType: ir.TypeAny, HasReturn: true},
 	"установить_поле": {Params: []ir.Type{ir.TypeString, ir.TypeAny}, HasReturn: false},
 	"вызвать":         {Params: []ir.Type{ir.TypeString, listOfAnyType}, ReturnType: ir.TypeAny, HasReturn: true},
+	// "получить_поле_по_тегу" - docs/ROADMAP.md, обратное направление к
+	// "получить_поле": дан (ключ, значение) тега поля ("sql", "username"),
+	// не его имя - типичный ORM-сценарий "дана колонка БД, нужно значение
+	// поля сущности, привязанного к ней через тег" без ручного перебора
+	// всех полей через "тип_значения().число_полей()"/тег_поля(i, ключ).
+	// "ничего" (не паника) - тег с таким ключом/значением не найден ни у
+	// одного поля, тот же принцип, что у Словарь.содержит.
+	"получить_поле_по_тегу": {Params: []ir.Type{ir.TypeString, ir.TypeString}, ReturnType: ir.NullableType(ir.TypeAny), HasReturn: true},
 }
 
 // typeInfoMethodSigs - методы "Тип" (дескриптор типа - имя, поля, методы).
@@ -57,7 +65,15 @@ var typeInfoMethodSigs = map[string]funcSig{
 	// ВСЕМ ключам тега (не только своему одному) или разобрать его
 	// собственным форматом, нужен доступ к исходной строке - тем же
 	// принципом, что и у "тег_метода_текст"/"тег_текст" ниже.
-	"тег_поля_текст":          {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeString, HasReturn: true},
+	"тег_поля_текст": {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeString, HasReturn: true},
+	// "индекс_поля_по_тегу" - обратное направление к "тег_поля" выше: дан
+	// (ключ, значение) тега ("sql", "username"), не индекс поля - тот же
+	// ORM-сценарий, что и у "Значение".получить_поле_по_тегу
+	// (internal/semantic/reflect.go, anyMethodSigs), но возвращает ИНДЕКС,
+	// не значение поля - вызывающий код сам получает по нему имя/значение
+	// через уже существующие индексные методы "Тип"/".получить_поле".
+	// "ничего" - тег с таким ключом/значением не найден ни у одного поля.
+	"индекс_поля_по_тегу":     {Params: []ir.Type{ir.TypeString, ir.TypeString}, ReturnType: ir.NullableType(ir.TypeInt), HasReturn: true},
 	"число_методов":           {Params: nil, ReturnType: ir.TypeInt, HasReturn: true},
 	"имя_метода":              {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeString, HasReturn: true},
 	"число_параметров_метода": {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeInt, HasReturn: true},
@@ -130,6 +146,14 @@ func analyzeAsExpr(sc *ctx, e *ast.AsExpr) (ir.Expr, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Доказанная непустота ("если поле != Ничто {...}") разворачивает
+	// "?Значение" ДО проверки KindAny ниже - тем же приёмом и по той же
+	// причине, что и analyzeCastExpr (cast.go) для явного "(Тип) значение" -
+	// НАЙДЕННЫЙ живой пробел: "как" - единственный потребитель "Значение",
+	// не звавший maybeUnwrapNarrowed вовсе, пока "получить_поле_по_тегу"
+	// (reflect.go, anyMethodSigs) не завёл первый в языке способ получить
+	// именно nullable "Значение".
+	value = maybeUnwrapNarrowed(sc, value)
 	if valType := ir.TypeOf(value); valType.Kind == ir.KindEntity && valType.Entity == dbResultType {
 		to, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, e.TypeName)
 		if err != nil {

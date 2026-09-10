@@ -1437,6 +1437,20 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 			sb.WriteString(reflectDispatchHelpersCode())
 			sb.WriteString("\n")
 		}
+		// reflectFieldIndexByTagHelperCode/reflectGetFieldByTagHelperCode -
+		// см. их package doc (reflect.go) - тем же принципом "после
+		// nullablesCode", что и hasReflectAnyList выше.
+		sb.WriteString(reflectFieldIndexByTagHelperCode())
+		hasReflectAnyField := false
+		for _, n := range prog.Nullables {
+			if n.Name == ir.NullableType(ir.TypeAny).Entity {
+				hasReflectAnyField = true
+				break
+			}
+		}
+		if hasReflectAnyField {
+			sb.WriteString(reflectGetFieldByTagHelperCode())
+		}
 	}
 	appendCodeIf(&sb, typedefs.Len() > 0, typedefs.String())
 	appendCodeIf(&sb, staticDecl != "", staticDecl)

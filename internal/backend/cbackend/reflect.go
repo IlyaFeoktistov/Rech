@@ -262,6 +262,48 @@ const reflectTagLookupHelper = `static const char *rech_tag_lookup(const char *t
 }
 `
 
+// reflectFieldIndexByTagHelperCode/reflectGetFieldByTagHelperCode -
+// "Тип".индекс_поля_по_тегу/"Значение".получить_поле_по_тегу (docs/
+// ROADMAP.md - обратное направление к тег_поля/получить_поле: дан (ключ,
+// значение) тега, нужно поле/его индекс, не наоборот) - линейный проход по
+// полям, тем же способом сравнения тега, что и rech_tag_lookup
+// (reflectTagLookupHelper выше). В ОТЛИЧИЕ от reflectLookupHelpers/
+// reflectTagLookupHelper (эмитируются до genericsCode/nullablesCode, см.
+// generateSource) эти две функции возвращают "?Целое"/"?Значение" -
+// эмитируются ОТДЕЛЬНО, ПОСЛЕ nullablesCode (их вызов в ir_generator.go),
+// когда обёртки _wrap/_empty уже существуют. "?Целое" зарегистрирован
+// безусловно (поле "код" встроенного "Исключение", internal/semantic/
+// analyzer.go) - reflectFieldIndexByTagHelperCode эмитируется всегда,
+// когда prog.UsesReflection; "?Значение" - лениво, только при реальном
+// вызове получить_поле_по_тегу (internal/semantic/nullable.go,
+// registerOptionalAnyOnCall) - reflectGetFieldByTagHelperCode эмитируется,
+// только если prog.Nullables его содержит.
+func reflectFieldIndexByTagHelperCode() string {
+	nullableInt := mangleType(ir.NullableType(ir.TypeInt).Entity)
+	return fmt.Sprintf(`static %[1]s rech_field_index_by_tag(const rech_type_meta_t *t, const char *key, const char *value) {
+    for (int i = 0; i < t->field_count; i++) {
+        if (strcmp(rech_tag_lookup(t->fields[i].tag, key), value) == 0) {
+            return %[1]s_wrap((long long)i);
+        }
+    }
+    return %[1]s_empty();
+}
+`, nullableInt)
+}
+
+func reflectGetFieldByTagHelperCode() string {
+	nullableAny := mangleType(ir.NullableType(ir.TypeAny).Entity)
+	return fmt.Sprintf(`static %[1]s rech_reflect_get_field_by_tag(rech_any_t self, const char *key, const char *value) {
+    for (int i = 0; i < self.type->field_count; i++) {
+        if (strcmp(rech_tag_lookup(self.type->fields[i].tag, key), value) == 0) {
+            return %[1]s_wrap(self.type->fields[i].get(self.v.ptr));
+        }
+    }
+    return %[1]s_empty();
+}
+`, nullableAny)
+}
+
 // reflectAnyListType/reflectAnyListCType - "Список<Значение>", тип
 // аргументов "вызвать"/"создать" - та же строка, которую строит
 // internal/semantic.resolveGenericTypeName для реального "новый
@@ -432,6 +474,17 @@ func reflectBoxExprCode(ctx *irGenCtx, t ir.Type, cExpr string) string {
 			return fmt.Sprintf("(rech_any_t){.type = &%s, .v.ptr = (void *)(%s)}", meta, cExpr)
 		}
 		return fmt.Sprintf("%s(%s)", reflectBoxStructFuncName(t.Entity), cExpr)
+	case ir.KindAny:
+		// НАЙДЕННЫЙ БАГ: раньше падал в default ниже - "Значение" УЖЕ САМО
+		// rech_any_t (со своим собственным, настоящим дескриптором типа
+		// внутри), боксирование "Значение" в "Значение" (поле/метод/
+		// "?Значение" с ВНУТРЕННИМ типом "Значение" - см. reflectBoxExprCode
+		// KindNullable ниже, получить_поле_по_тегу) - identity, не обёртка
+		// с фиктивным дескриптором "&rech_type_meta_znachenie" (такого
+		// дескриптора не существует вовсе - "Значение" не примитив с
+		// ОДНИМ фиксированным типом, у каждого экземпляра свой, уже несомый
+		// cExpr).
+		return cExpr
 	case ir.KindNullable:
 		// НАЙДЕННЫЙ БАГ: раньше падал в default ниже - "?Тип" (например,
 		// "?Задача" у "ХранилищеЗадач.статус") ЭТО СТРУКТУРА (has/value,
@@ -605,6 +658,8 @@ func generateIRAnyMethodCall(ctx *irGenCtx, e *ir.MethodCallExpr) (string, value
 		return fmt.Sprintf("(%s).type", recvCode), typeTypeInfo, nil
 	case "получить_поле":
 		return fmt.Sprintf("rech_reflect_get_field(%s, %s)", recvCode, argCodes[0]), typeAny, nil
+	case "получить_поле_по_тегу":
+		return fmt.Sprintf("rech_reflect_get_field_by_tag(%s, %s, %s)", recvCode, argCodes[0], argCodes[1]), fromIRType(ir.NullableType(ir.TypeAny)), nil
 	case "установить_поле":
 		return fmt.Sprintf("rech_reflect_set_field(%s, %s, %s)", recvCode, argCodes[0], argCodes[1]), typeUnknown, nil
 	case "вызвать":
@@ -637,6 +692,8 @@ func generateIRTypeInfoMethodCall(ctx *irGenCtx, e *ir.MethodCallExpr) (string, 
 		return fmt.Sprintf("rech_tag_lookup(rech_field_at(%s, %s)->tag, %s)", recvCode, argCodes[0], argCodes[1]), typeString, nil
 	case "тег_поля_текст":
 		return fmt.Sprintf("rech_field_at(%s, %s)->tag", recvCode, argCodes[0]), typeString, nil
+	case "индекс_поля_по_тегу":
+		return fmt.Sprintf("rech_field_index_by_tag(%s, %s, %s)", recvCode, argCodes[0], argCodes[1]), fromIRType(ir.NullableType(ir.TypeInt)), nil
 	case "число_методов":
 		return fmt.Sprintf("(%s)->method_count", recvCode), typeInt, nil
 	case "имя_метода":

@@ -147,6 +147,13 @@ func (in *Interp) evalTypeInfoMethod(recv Value, e *ir.MethodCallExpr, env *Env,
 	case "тег_поля_текст":
 		f := indexField(ent, args[0].I, recv.S)
 		return stringValue(f.Tag), nil
+	case "индекс_поля_по_тегу":
+		idx := findFieldIndexByTag(ent, args[0].S, args[1].S)
+		if idx < 0 {
+			return Value{Type: ir.NullableType(ir.TypeInt)}, nil
+		}
+		i := intValue(int64(idx))
+		return Value{Type: ir.NullableType(ir.TypeInt), Nullable: &i}, nil
 	case "число_методов":
 		if iface != nil {
 			return intValue(int64(len(iface.Methods))), nil
@@ -279,6 +286,18 @@ func (in *Interp) evalAnyMethod(recv Value, e *ir.MethodCallExpr, env *Env, cc *
 		return typeInfoValue(recv.Boxed.Type), nil
 	case "получить_поле":
 		return in.reflectGetField(recv.Boxed, args[0].S)
+	case "получить_поле_по_тегу":
+		nullableType := ir.NullableType(ir.TypeAny)
+		ent := in.entities[recv.Boxed.Type.Entity]
+		idx := findFieldIndexByTag(ent, args[0].S, args[1].S)
+		if idx < 0 {
+			return Value{Type: nullableType}, nil
+		}
+		fv, err := in.reflectGetField(recv.Boxed, ent.Fields[idx].Name)
+		if err != nil {
+			return Value{}, err
+		}
+		return Value{Type: nullableType, Nullable: &fv}, nil
 	case "установить_поле":
 		in.reflectSetField(recv.Boxed, args[0].S, args[1])
 		return Value{}, nil
@@ -314,6 +333,23 @@ func indexField(ent *ir.Entity, idx int64, typeName string) ir.Field {
 		panicRuntime("%s", rtmsg.ReflectIndexOutOfRangeFormat("поле", typeName))
 	}
 	return ent.Fields[idx]
+}
+
+// findFieldIndexByTag ищет индекс поля ent с тегом key:value - обратное
+// направление к indexField+tag-разбору выше (дан ключ/значение тега,
+// нужно поле/его индекс, не наоборот) - используется индекс_поля_по_тегу/
+// получить_поле_по_тегу. -1 - совпадения нет, в том числе ent == nil
+// (примитив/значение не сущность - у него нет полей вообще).
+func findFieldIndexByTag(ent *ir.Entity, key, value string) int {
+	if ent == nil {
+		return -1
+	}
+	for i, f := range ent.Fields {
+		if structtag.Parse(f.Tag).Get(key) == value {
+			return i
+		}
+	}
+	return -1
 }
 
 func indexMethod(methods []*ir.Method, idx int64, typeName string) *ir.Method {

@@ -441,6 +441,11 @@ func analyzeMethodCallExpr(sc *ctx, e *ast.MethodCallExpr) (*ir.MethodCallExpr, 
 		if !ok {
 			return nil, fmt.Errorf("строка %d: у \"Значение\" нет метода %q", e.Line, e.Method)
 		}
+		if e.Method == "получить_поле_по_тегу" {
+			if err := registerOptionalAnyOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
+				return nil, fmt.Errorf("строка %d: метод \"получить_поле_по_тегу\": %w", e.Line, err)
+			}
+		}
 		sc.a.markUsesReflection()
 	case ir.KindTypeInfo:
 		var ok bool

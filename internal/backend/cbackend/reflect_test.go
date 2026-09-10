@@ -513,3 +513,50 @@ func TestGenerateFromIREntityMethodAndFieldTagReflection(t *testing.T) {
 		}
 	}
 }
+
+// TestGenerateFromIRFieldByTagReflection - "индекс_поля_по_тегу"/
+// "получить_поле_по_тегу" (docs/ROADMAP.md, обратное направление к
+// тег_поля/получить_поле - дан ключ/значение тега, нужно поле, не
+// наоборот) - обе возвращают nullable ("?Целое"/"?Значение"), их
+// C-хелперы (reflect.go, reflectFieldIndexByTagHelperCode/
+// reflectGetFieldByTagHelperCode) эмитируются ПОСЛЕ обёрток nullable
+// (nullablesCode, ir_generator.go), в отличие от остальных методов "Тип"/
+// "Значение" выше - тест проверяет, что GenerateFromIR не падает на этом
+// порядке эмиссии и оба хелпера действительно вызываются.
+func TestGenerateFromIRFieldByTagReflection(t *testing.T) {
+	recv := &ir.Identifier{Name: "т", Type: ir.TypeTypeInfo}
+	boxed := &ir.Identifier{Name: "бокс", Type: ir.TypeAny}
+	entity := &ir.Entity{
+		Name: "Пользователь",
+		Fields: []ir.Field{
+			{Name: "имя", Type: ir.TypeString, Tag: "sql:user_name"},
+		},
+	}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "т", Value: &ir.TypeOfExpr{Type: ir.EntityType("Пользователь")}},
+		&ir.VarDecl{Name: "бокс", Value: &ir.NullLiteral{Type: ir.TypeAny}},
+		&ir.PrintStmt{Value: &ir.MethodCallExpr{Receiver: recv, Method: "индекс_поля_по_тегу", Args: []ir.Expr{&ir.StringLiteral{Value: "sql"}, &ir.StringLiteral{Value: "user_name"}}, Type: ir.NullableType(ir.TypeInt), HasReturn: true}},
+		&ir.PrintStmt{Value: &ir.MethodCallExpr{Receiver: boxed, Method: "получить_поле_по_тегу", Args: []ir.Expr{&ir.StringLiteral{Value: "sql"}, &ir.StringLiteral{Value: "user_name"}}, Type: ir.NullableType(ir.TypeAny), HasReturn: true}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{
+		Entities: []*ir.Entity{entity}, Functions: []*ir.Function{main},
+		UsesReflection: true, ReflectTargets: []ir.Type{ir.EntityType("Пользователь")},
+		Nullables: []ir.NullableInstantiation{
+			{Name: "?Целое", Inner: ir.TypeInt},
+			{Name: "?Значение", Inner: ir.TypeAny},
+		},
+	})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	for _, want := range []string{
+		`rech_field_index_by_tag(v_t, "sql", "user_name")`,
+		`rech_reflect_get_field_by_tag(v_boks, "sql", "user_name")`,
+		"static rech_T_n_celoe rech_field_index_by_tag(",
+		"static rech_T_n_znachenie rech_reflect_get_field_by_tag(",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ожидалось %q, получено:\n%s", want, out)
+		}
+	}
+}
