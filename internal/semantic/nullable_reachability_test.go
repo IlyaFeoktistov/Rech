@@ -29,7 +29,7 @@ func TestNullablesOmitSocketWithoutNetworkCall(t *testing.T) {
 func TestNullablesIncludeSocketOnAcceptCall(t *testing.T) {
 	prog, err := AnalyzeSource(t, `
 функция главная {
-    переменная слушатель = сетевой_узел("tcp", "", 18080)
+    переменная слушатель = сетевой_узел(СетевойПротокол.TCP, "", 18080)
     переменная соединение = принять(слушатель)
     закрыть_сокет(слушатель)
 }
@@ -60,7 +60,7 @@ func TestNullablesIncludeSocketOnAcceptCall(t *testing.T) {
 func TestNullablesIncludeSocketOnClientCallWithoutAccept(t *testing.T) {
 	prog, err := AnalyzeSource(t, `
 функция главная {
-    переменная соединение = сетевой_узел("tcp", "127.0.0.1", 18080)
+    переменная соединение = сетевой_узел(СетевойПротокол.TCP, "127.0.0.1", 18080)
     отправить(соединение, "привет")
     закрыть_сокет(соединение)
 }

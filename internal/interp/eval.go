@@ -388,6 +388,15 @@ func valuesEqual(l, r Value) bool {
 		return l.B == r.B
 	case l.Type == ir.TypeFloat || r.Type == ir.TypeFloat || l.Type == ir.TypeFloat32 || r.Type == ir.TypeFloat32:
 		return toFloat(l) == toFloat(r)
+	case l.Type.Kind == ir.KindEntity:
+		// Сравнение по ССЫЛКЕ ("==" для сущности/класса, НАЙДЕНО по ходу
+		// examples/проекты/чат_сервер - раньше не поддерживалось вовсе, см.
+		// её проверку в analyzeBinaryExpr, expr.go) - Obj это тот же
+		// Go-указатель, что несёт identity объекта (см. package doc Value.
+		// Obj, interp.go) - идентично cbackend, где сущность-ссылка - C-
+		// указатель, "==" на ней уже безусловно пойнтерное сравнение
+		// (generateIRBinaryExpr, default-ветка).
+		return l.Obj == r.Obj
 	default:
 		return l.I == r.I
 	}
@@ -653,6 +662,15 @@ func (in *Interp) evalCollectionMethod(obj *entityObj, e *ir.MethodCallExpr, env
 		}
 		obj.coll.elems[idx] = in.cloneValue(args[1])
 		return Value{}, nil
+
+	case "удалить":
+		idx := args[0].I
+		if idx < 0 || idx >= int64(len(obj.coll.elems)) {
+			panicRuntime("%s", rtmsg.IndexOutOfRange(obj.typeName))
+		}
+		v := obj.coll.elems[idx]
+		obj.coll.elems = append(obj.coll.elems[:idx], obj.coll.elems[idx+1:]...)
+		return v, nil
 
 	case "снять":
 		n := len(obj.coll.elems)

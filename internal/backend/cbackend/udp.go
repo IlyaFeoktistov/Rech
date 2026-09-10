@@ -8,7 +8,7 @@ import (
 
 // udpDatagramHelpers - "получить_от"/"отправить_в" (internal/semantic,
 // registerNetworkFuncs) - recvfrom/sendto над udp-узлом, полученным
-// "сетевой_узел("udp", "", порт)" (см. rech_listen_udp, builtins_shared.go) -
+// "сетевой_узел(СетевойПротокол.UDP, "", порт)" (см. rech_listen_udp, builtins_shared.go) -
 // в отличие от rech_recv/rech_send (подключённый сокет, собеседник уже
 // зафиксирован connect()), здесь каждый вызов сам несёт адрес - "Дейтаграмма"
 // (result "получить_от") несёт АДРЕС ОТПРАВИТЕЛЯ, чтобы ответить именно ему

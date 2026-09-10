@@ -30,3 +30,13 @@ func stringFind(s, needle string) int64 {
 	}
 	return int64(utf8.RuneCountInString(before))
 }
+
+// trimSpace - "обрезать" - НАМЕРЕННО только ' '/'\t'/'\n'/'\r' (не
+// strings.TrimSpace/unicode.IsSpace, оба шире), тем же набором, что и
+// cbackend.rech_string_trim - оба backend'а обязаны давать идентичный
+// результат.
+func trimSpace(s string) string {
+	return strings.TrimFunc(s, func(r rune) bool {
+		return r == ' ' || r == '\t' || r == '\n' || r == '\r'
+	})
+}

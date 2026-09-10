@@ -174,7 +174,14 @@ func (l *Lexer) next() (Token, error) {
 			l.advance()
 			return Token{Type: NEQ, Value: "!=", Line: line, Col: col}, nil
 		}
-		return Token{}, fmt.Errorf("строка %d, столбец %d: одиночный \"!\" не поддерживается, используйте \"не\"", line, col)
+		// Одиночный "!" - ПРЕФИКС, синоним "x == Ничто" (docs/SPEC.md) - НЕ
+		// общее логическое отрицание (для него по-прежнему только "не",
+		// сознательное решение - см. историю этого места) - парсер
+		// (parseUnary) десахаривает "!x" в BinaryExpr("==", x, Ничто),
+		// поэтому семантика применима только к nullable-значению, для
+		// остальных типов - обычная ошибка типов "==" уже дальше по
+		// конвейеру, не здесь.
+		return Token{Type: BANG, Value: "!", Line: line, Col: col}, nil
 	case r == '<':
 		l.advance()
 		if l.peek() == '=' {

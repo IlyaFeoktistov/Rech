@@ -75,7 +75,7 @@ func TestHoverBuiltinFuncNetworkNode(t *testing.T) {
 	if !ok {
 		t.Fatalf("ожидался hover \"сетевой_узел\"")
 	}
-	if !strings.Contains(text, "сетевой_узел(Строка, Строка, Целое): Сокет") {
+	if !strings.Contains(text, "сетевой_узел(Целое, Строка, Целое): Сокет") {
 		t.Fatalf("неожиданная сигнатура: %q", text)
 	}
 }

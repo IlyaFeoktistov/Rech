@@ -60,6 +60,10 @@ func Format(src string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	src, err = insertBlankLineBeforeExitStmt(src)
+	if err != nil {
+		return "", err
+	}
 	src, err = normalizeBraceStyle(src)
 	if err != nil {
 		return "", err

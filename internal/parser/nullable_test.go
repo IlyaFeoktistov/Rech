@@ -45,6 +45,43 @@ func TestParseVarDeclWithoutAnnotationStillWorks(t *testing.T) {
 	}
 }
 
+// TestParseBangDesugarsToEqualNichto - "!x" (НАЙДЕННЫЙ по ходу
+// examples/проекты/чат_сервер запрос пользователя, docs/ROADMAP.md) -
+// лексер/парсер производят ТОТ ЖЕ AST, что и явное "x == Ничто" -
+// BinaryExpr("==", x, NullLiteral), не отдельный узел - вся семантика
+// (internal/semantic/nullable.go, analyzeNullCheck) переиспользуется
+// бесплатно.
+func TestParseBangDesugarsToEqualNichto(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная {
+    если !а {
+        вернуть
+    }
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	ifStmt, ok := prog.Functions[0].Body[0].(*ast.IfStmt)
+	if !ok {
+		t.Fatalf("ожидался IfStmt, получено %T", prog.Functions[0].Body[0])
+	}
+	cond, ok := ifStmt.Cond.(*ast.BinaryExpr)
+	if !ok {
+		t.Fatalf("ожидался BinaryExpr, получено %+v", ifStmt.Cond)
+	}
+	if cond.Op != "==" {
+		t.Fatalf("ожидался оператор \"==\", получено %q", cond.Op)
+	}
+	if _, ok := cond.Right.(*ast.NullLiteral); !ok {
+		t.Fatalf("ожидался NullLiteral справа, получено %+v", cond.Right)
+	}
+	ident, ok := cond.Left.(*ast.Identifier)
+	if !ok || ident.Name != "а" {
+		t.Fatalf("ожидался Identifier \"а\" слева, получено %+v", cond.Left)
+	}
+}
+
 func TestParseNullCoalesce(t *testing.T) {
 	prog, err := parseSource(t, `
 функция главная {

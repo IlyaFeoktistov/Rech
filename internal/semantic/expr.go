@@ -898,6 +898,17 @@ func analyzeBinaryExpr(sc *ctx, e *ast.BinaryExpr) (ir.Expr, error) {
 		if lt == ir.TypeString && rt == ir.TypeString {
 			return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: ir.TypeBool}, nil
 		}
+		// Сущность/класс (не "структура" - см. entityIsRefType ниже) -
+		// сравнение по ССЫЛКЕ (НАЙДЕНО по ходу examples/проекты/чат_сервер:
+		// раньше "==" не поддерживался вообще ни для одной сущности) - тот
+		// же принцип, что и у Go/Java/C# (ссылочные типы сравниваются по
+		// identity через "==" безусловно, содержимое - отдельным методом,
+		// которого здесь пока нет). "структура" (значение, не identity) -
+		// сознательно НЕ включена: потребовалось бы поле-в-поле рекурсивное
+		// сравнение, отдельная, более крупная задача.
+		if lt.Kind == ir.KindEntity && lt == rt && entityIsRefType(sc.entities, lt.Entity) {
+			return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: ir.TypeBool}, nil
+		}
 		if lt != rt || !equatableTypes[lt] {
 			return nil, fmt.Errorf("строка %d: оператор %q не поддерживается для типов %s и %s", e.Line, e.Op, lt, rt)
 		}

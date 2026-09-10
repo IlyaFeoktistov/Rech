@@ -708,6 +708,58 @@ func TestFormatLambdaGetsSpaceBeforeParen(t *testing.T) {
 	}
 }
 
+// TestFormatInsertsBlankLineBeforeReturnInsideIf - "вернуть" ПОСЛЕ другой
+// инструкции внутри "если" (не первая в блоке) получает пустую строку перед
+// собой - см. package doc insertBlankLineBeforeExitStmt.
+func TestFormatInsertsBlankLineBeforeReturnInsideIf(t *testing.T) {
+	src := "функция ф(x: Целое): Целое\n{\n    если x > 0 {\n        переменная y = x * 2\n        вернуть y\n    }\n    вернуть 0\n}\n"
+	want := "функция ф(x: Целое): Целое\n{\n    если x > 0 {\n        переменная y = x * 2\n\n        вернуть y\n    }\n    вернуть 0\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != want {
+		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
+	}
+	got2, err := Format(got)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка при повторном форматировании: %v", err)
+	}
+	if got2 != got {
+		t.Fatalf("не идемпотентно:\nпервый проход:\n%q\nвторой проход:\n%q", got, got2)
+	}
+}
+
+// TestFormatSkipsBlankLineBeforeReturnAtFunctionTopLevel - тот же случай, но
+// НАД "вернуть" - guard clause на верхнем уровне функции, не внутри
+// управляющей конструкции - НЕ трогается (тот же controlLevel-принцип, что
+// и у explodeInlineExitStatements).
+func TestFormatSkipsBlankLineBeforeReturnAtFunctionTopLevel(t *testing.T) {
+	src := "функция ф(x: Целое): Целое\n{\n    если x < 0 {\n        вернуть 0\n    }\n    вернуть x\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != src {
+		t.Fatalf("получено:\n%q\nожидалось без изменений:\n%q", got, src)
+	}
+}
+
+// TestFormatBlankLineBeforeBreakKeepsLeadingCommentAttached - "//"-комментарий
+// прямо над "прервать" (поясняет её) сдвигается вместе с ней, пустая строка
+// встаёт НАД комментарием.
+func TestFormatBlankLineBeforeBreakKeepsLeadingCommentAttached(t *testing.T) {
+	src := "функция ф()\n{\n    пока истина {\n        переменная x = 1\n        // хватит одного прохода\n        прервать\n    }\n}\n"
+	want := "функция ф()\n{\n    пока истина {\n        переменная x = 1\n\n        // хватит одного прохода\n        прервать\n    }\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != want {
+		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
+	}
+}
+
 func TestFormatMultilineCallTrailingBraceParen(t *testing.T) {
 	src := "функция обработать(ф: Вызываемый())\n{\n    ф()\n}\nфункция главная\n{\n    обработать(функция()\n    {\n    вывести 1\n})\n}\n"
 	want := "функция обработать(ф: Вызываемый())\n{\n    ф()\n}\n\nфункция главная\n{\n    обработать(функция () {\n        вывести 1\n    })\n}\n"

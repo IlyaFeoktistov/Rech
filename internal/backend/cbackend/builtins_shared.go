@@ -659,6 +659,9 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 	case "позиция_в_строке":
 		flags.usesStringOps = true
 		return fmt.Sprintf("rech_string_find(%s, %s)", args[0], args[1]), true
+	case "обрезать":
+		flags.usesStringOps = true
+		return fmt.Sprintf("rech_string_trim(%s)", args[0]), true
 	case "случайное":
 		flags.usesRandom = true
 		return "rech_random()", true
@@ -1241,7 +1244,7 @@ static void rech_append_file(const char *path, const char *content) {
 // использовать один и тот же send/recv, что и у TCP), rech_send/rech_recv/
 // rech_close_socket. rech_network_node - единая точка входа
 // ("сетевой_узел(режим, хост, порт)"): host[0] == '\0' решает "слушать"
-// вместо "подключиться", mode строкой ("tcp"/"udp") - какой из четырёх
+// вместо "подключиться", mode - индекс СетевойПротокол (0=tcp/1=udp) - какой из четырёх
 // вариантов. rech_socket_t - int на POSIX, SOCKET на Windows (оба -
 // непрозрачные дескрипторы, как rech_file_t выше, только другого
 // системного API).
@@ -1420,15 +1423,18 @@ static rech_socket_t rech_connect_udp(const char *host, long long port) {
 // rech_network_node - "сетевой_узел(режим, хост, порт)" - единая точка
 // входа вместо отдельных rech_listen_tcp/rech_connect_tcp/rech_connect_udp/
 // rech_listen_udp выше: host[0] == '\0' решает "слушать" (bind, для tcp -
-// ещё и listen), непустой host - "подключиться" (connect). mode строкой -
-// неизвестный режим (не "tcp"/"udp") - паника в рантайме, не ошибка
-// компиляции (строковый параметр решается только здесь).
-static rech_socket_t rech_network_node(const char *mode, const char *host, long long port) {
+// ещё и listen), непустой host - "подключиться" (connect). mode - индекс
+// СетевойПротокол (types.go: TCP=0, UDP=1), не строка (была строкой "tcp"/
+// "udp" - НАЙДЕНО по ходу examples/проекты/чат_сервер: опечатка в такой
+// строке молча давала бы рантайм-панику вместо ошибки компиляции) -
+// значение вне этих двух достижимо только явным целочисленным литералом
+// мимо самого перечисления - паника в рантайме, не ошибка компиляции.
+static rech_socket_t rech_network_node(long long mode, const char *host, long long port) {
     bool listening = host[0] == '\0';
-    if (strcmp(mode, "tcp") == 0) {
+    if (mode == 0) {
         return listening ? rech_listen_tcp(port) : rech_connect_tcp(host, port);
     }
-    if (strcmp(mode, "udp") == 0) {
+    if (mode == 1) {
         return listening ? rech_listen_udp(port) : rech_connect_udp(host, port);
     }
     rech_panic("%[11]s");
@@ -1532,7 +1538,7 @@ static void rech_close_socket(rech_socket_t s) {
 // использовать один и тот же send/recv, что и у TCP), rech_send/rech_recv/
 // rech_close_socket. rech_network_node - единая точка входа
 // ("сетевой_узел(режим, хост, порт)"): host[0] == '\0' решает "слушать"
-// вместо "подключиться", mode строкой ("tcp"/"udp") - какой из четырёх
+// вместо "подключиться", mode - индекс СетевойПротокол (0=tcp/1=udp) - какой из четырёх
 // вариантов. rech_socket_t - int на POSIX, SOCKET на Windows (оба -
 // непрозрачные дескрипторы, как rech_file_t выше, только другого
 // системного API). См. socketHelpersTLS (tls.go) - вариант этого же текста

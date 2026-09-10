@@ -29,6 +29,7 @@ func listCollectionCCode(name, elemC string) string {
 	add := mangleMethod(name, "добавить")
 	get := mangleMethod(name, "получить")
 	set := mangleMethod(name, "установить")
+	remove := mangleMethod(name, "удалить")
 	length := mangleMethod(name, "длина")
 	empty := mangleMethod(name, "пусто")
 	outOfRange := escapeCString(rtmsg.IndexOutOfRange(name))
@@ -75,6 +76,26 @@ static void %[5]s(%[2]s *this_, long long index, %[1]s value) {
     this_->data[index] = value;
 }
 
+// %[10]s - сдвигает хвост (индексы после index) на одну позицию влево
+// поэлементно (обычным присваиванием, не memmove - тот же приём, что и у
+// "извлечь" очереди ниже, queueCollectionCCode: не добавляет новую
+// зависимость от <string.h> одним только использованием Список) и
+// возвращает удалённый элемент - та же семантика, что list.pop(i) в
+// Python/ArrayList.remove(int) в Java. O(n) от длины хвоста, как и любое
+// удаление из растущего массива - документированная плата за O(1) %[9]s/
+// %[4]s остальных элементов по индексу.
+static %[1]s %[10]s(%[2]s *this_, long long index) {
+    if (index < 0 || index >= this_->len) {
+        rech_panic("%[7]s");
+    }
+    %[1]s removed = this_->data[index];
+    for (long long i = index; i < this_->len - 1; i++) {
+        this_->data[i] = this_->data[i + 1];
+    }
+    this_->len--;
+    return removed;
+}
+
 static long long %[6]s(%[2]s *this_) {
     return this_->len;
 }
@@ -83,7 +104,7 @@ static bool %[8]s(%[2]s *this_) {
     return this_->len == 0;
 }
 
-`, elemC, structName, add, get, set, length, outOfRange, empty, addr)
+`, elemC, structName, add, get, set, length, outOfRange, empty, addr, remove)
 }
 
 // stackCollectionCCode - как listCollectionCCode, для "Стопка<T>" (LIFO).

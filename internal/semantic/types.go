@@ -293,6 +293,18 @@ var StandardEnums = map[string]map[string]int64{
 		"SIGXCPU": 24, "SIGXFSZ": 25, "SIGVTALRM": 26, "SIGPROF": 27,
 		"SIGIO": 28, "SIGPWR": 29, "SIGSYS": 30,
 	},
+	// СетевойПротокол - для "сетевой_узел(СетевойПротокол.TCP, хост, порт)"
+	// (docs/ROADMAP.md - найденный по ходу examples/проекты/чат_сервер
+	// недочёт: голая строка "tcp"/"udp" - опечатка ("тcp"/"Tcp") молча
+	// давала бы рантайм-панику вместо ошибки компиляции, ни один
+	// инструмент (LSP/автодополнение) не мог подсказать допустимые
+	// значения) - тот же принцип, что у АлгоритмХеша/АлгоритмПодписи
+	// ниже: builtin принимает Целое (индекс), а не Строка, само сравнение
+	// значения - внутри диспетчера (rech_network_node/networkNode), не
+	// строковым strcmp.
+	"СетевойПротокол": {
+		"TCP": 0, "UDP": 1,
+	},
 	// АлгоритмХеша - для "хеш(АлгоритмХеша.SHA256, данные)" - один builtin
 	// на семейство хеш-функций вместо отдельного имени на каждый алгоритм
 	// (хеш_sha256/хеш_sha1/хеш_md5/... - как было в исходной версии этого
@@ -366,8 +378,15 @@ func genericMethodSigs(template string, elem ir.Type) (map[string]funcSig, bool)
 			"добавить":   {Params: []ir.Type{elem}},
 			"получить":   {Params: []ir.Type{ir.TypeInt}, ReturnType: elem, HasReturn: true},
 			"установить": {Params: []ir.Type{ir.TypeInt, elem}},
-			"длина":      {ReturnType: ir.TypeInt, HasReturn: true},
-			"пусто":      {ReturnType: ir.TypeBool, HasReturn: true},
+			// "удалить" - НАЙДЕННЫЙ по ходу examples/проекты/чат_сервер
+			// недочёт (docs/ROADMAP.md): у Список не было способа удалить
+			// элемент вовсе (только у Словарь) - сдвигает хвост на одну
+			// позицию влево (та же семантика, что list.pop(i) в Python/
+			// ArrayList.remove(int) в Java), возвращает удалённый элемент -
+			// тем же принципом, что "снять"/"извлечь" у Стопка/Очередь.
+			"удалить": {Params: []ir.Type{ir.TypeInt}, ReturnType: elem, HasReturn: true},
+			"длина":   {ReturnType: ir.TypeInt, HasReturn: true},
+			"пусто":   {ReturnType: ir.TypeBool, HasReturn: true},
 		}, true
 	case "Стопка":
 		return map[string]funcSig{
@@ -403,36 +422,6 @@ func isBuiltinCollectionType(entities map[string]entitySig, t ir.Type) bool {
 		return false
 	}
 	return entities[t.Entity].ElemType != ir.TypeUnknown
-}
-
-// collectionRealEntityElem - t сам является встроенной generic-коллекцией
-// (isBuiltinCollectionType) с элементом (у "Словарь" - значением, тот же
-// ElemType) - ПОЛЬЗОВАТЕЛЬСКОЙ сущностью/структурой (не примитивом и не
-// вложенной другой встроенной коллекцией) - возвращает эту сущность и true.
-// Используется ТОЛЬКО для запрета такой коллекции ПОЛЕМ сущности/структуры
-// (см. её вызов в collectEntities) - самим Список<T>/Словарь<К, В>
-// сущность элементом разрешена (resolveGenericTypeName), но C-typedef
-// такой коллекции (cbackend) должен идти строго ПОСЛЕ typedef самой
-// сущности-элемента (анонимные typedef struct - без forward-declaration в
-// C), а entity/structure-typedef этой же сущности местами (её поле -
-// generic-коллекция ПО ЗНАЧЕНИЮ) должен идти РАНЬШЕ typedef коллекции,
-// которую несёт - при сущности-элементе одновременно оба требования
-// решаются полным топологическим порядком typedef'ов, которого сейчас нет
-// (только фиксированный порядок "коллекции -> сущности", плюс отдельные
-// группы под "Вызываемый"/nullable-обёртки, cbackend/ir_generator.go) -
-// вместо него простой запрет: сущность-элемент коллекции не может быть
-// полем (только локальная переменная/параметр/результат функции, где такой
-// проблемы порядка нет - typedef коллекции синтезируется в отдельный блок
-// ПОСЛЕ всех typedef сущностей, см. genericsCodeAfterEntities).
-func collectionRealEntityElem(entities map[string]entitySig, t ir.Type) (ir.Type, bool) {
-	if !isBuiltinCollectionType(entities, t) {
-		return ir.TypeUnknown, false
-	}
-	elem := entities[t.Entity].ElemType
-	if elem.Kind != ir.KindEntity || isBuiltinCollectionType(entities, elem) {
-		return ir.TypeUnknown, false
-	}
-	return elem, true
 }
 
 // topoSortGenericNames упорядочивает generic-инстанциации (names) так,

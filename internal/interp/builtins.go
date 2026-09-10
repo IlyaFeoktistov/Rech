@@ -180,7 +180,7 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 	case "содержит":
 		return boolValue(strings.Contains(args[0].S, args[1].S)), true
 	case "сетевой_узел":
-		return in.networkNode(args[0].S, args[1].S, args[2].I), true
+		return in.networkNode(args[0].I, args[1].S, args[2].I), true
 	case "принять":
 		return in.acceptWithTimeout(args[0]), true
 	case "установить_таймаут":
@@ -298,6 +298,8 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return stringValue(substring(args[0].S, args[1].I, args[2].I)), true
 	case "позиция_в_строке":
 		return intValue(stringFind(args[0].S, args[1].S)), true
+	case "обрезать":
+		return stringValue(trimSpace(args[0].S)), true
 	case "случайное":
 		return floatValue(randomFloat()), true
 	case "случайное_целое":

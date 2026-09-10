@@ -94,7 +94,7 @@ func TestRunHTTPServerBuiltins(t *testing.T) {
 	got := runSrc(t, fmt.Sprintf(`
 функция главная
 {
-    переменная слушатель = сетевой_узел("tcp", "", %d)
+    переменная слушатель = сетевой_узел(СетевойПротокол.TCP, "", %d)
     переменная соединение = принять(слушатель)
     если соединение != Ничто
     {
@@ -174,7 +174,7 @@ func TestRunHTTPServerDecodesPercentEncodedPath(t *testing.T) {
 	got := runSrc(t, fmt.Sprintf(`
 функция главная
 {
-    переменная слушатель = сетевой_узел("tcp", "", %d)
+    переменная слушатель = сетевой_узел(СетевойПротокол.TCP, "", %d)
     переменная соединение = принять(слушатель)
     если соединение != Ничто
     {
@@ -249,7 +249,7 @@ func TestRunHTTPServerRejectsOversizedBody(t *testing.T) {
 	err = runSrcWithHTTPMaxRequestBytes(t, fmt.Sprintf(`
 функция главная
 {
-    переменная слушатель = сетевой_узел("tcp", "", %d)
+    переменная слушатель = сетевой_узел(СетевойПротокол.TCP, "", %d)
     переменная соединение = принять(слушатель)
     если соединение != Ничто
     {
@@ -314,7 +314,7 @@ func TestRunHTTPServerRejectsUnterminatedHeaders(t *testing.T) {
 	err = runSrcWithHTTPMaxRequestBytes(t, fmt.Sprintf(`
 функция главная
 {
-    переменная слушатель = сетевой_узел("tcp", "", %d)
+    переменная слушатель = сетевой_узел(СетевойПротокол.TCP, "", %d)
     переменная соединение = принять(слушатель)
     если соединение != Ничто
     {

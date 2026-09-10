@@ -39,6 +39,7 @@ const (
 	PERCENT // % (остаток от деления, только Целое)
 	EQ      // ==
 	NEQ     // !=
+	BANG    // ! (префикс - "!x", синоним "x == Ничто", только для nullable - docs/SPEC.md)
 	LT      // <
 	GT      // >
 	LE      // <=
@@ -311,6 +312,8 @@ func (t TokenType) String() string {
 		return "=="
 	case NEQ:
 		return "!="
+	case BANG:
+		return "!"
 	case LT:
 		return "<"
 	case GT:

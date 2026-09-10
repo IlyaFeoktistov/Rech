@@ -225,7 +225,7 @@ func TestAnalyzeExplicitCastToOtherTypeUnwrapsNarrowedNullable(t *testing.T) {
 func TestAnalyzeExplicitCastUnwrapsNullableOpaqueType(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 функция главная {
-    переменная слушатель = сетевой_узел("tcp", "", 18080)
+    переменная слушатель = сетевой_узел(СетевойПротокол.TCP, "", 18080)
     переменная соединение = принять(слушатель)
     переменная развёрнутое = (Сокет) соединение
     закрыть_сокет(развёрнутое)
@@ -313,5 +313,94 @@ func TestAnalyzeNullableListElementRejected(t *testing.T) {
 `)
 	if err == nil || !strings.Contains(err.Error(), "nullable-типы") {
 		t.Fatalf("ожидалась ошибка компиляции для \"Список<?Целое>\", получено: %v", err)
+	}
+}
+
+// TestAnalyzeBangIsSugarForEqualNichto - "!x" (НАЙДЕННЫЙ по ходу
+// examples/проекты/чат_сервер запрос пользователя, docs/ROADMAP.md) -
+// парсер десахаривает в BinaryExpr("==", x, Ничто) ДО семантики (см.
+// package doc lexer.BANG/parseUnary) - сужение внутри Then работает тем же
+// established-механизмом, что и у написанного явно "x == Ничто", без
+// единой строчки нового кода в этом пакете.
+func TestAnalyzeBangIsSugarForEqualNichto(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция главная {
+    переменная а: ?Целое = Ничто
+    а = 5
+    если !а {
+        вернуть
+    }
+    вывести а + 1
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
+// TestAnalyzeBangInElseNarrowsValue - симметрично "x == Ничто {...}
+// иначе {...}" - "!x {...} иначе {...использовать x...}".
+func TestAnalyzeBangInElseNarrowsValue(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция главная {
+    переменная а: ?Целое = Ничто
+    а = 5
+    если !а {
+        вывести 0
+    } иначе {
+        вывести а + 1
+    }
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
+// TestAnalyzeNullableNarrowedAfterContinueOnBang - НАЙДЕННЫЙ по ходу
+// examples/проекты/чат_сервер недочёт (docs/ROADMAP.md): "если !а {
+// продолжить }" внутри цикла раньше НЕ сужало "а" для кода после "если" в
+// том же теле - blockDiverges (stmt.go) не считал "прервать"/"продолжить"
+// расходящимися инструкциями, хотя код текстово после них в ЭТОМ теле
+// доказанно не достижим этим путём, точно как у "вернуть"/"выбросить".
+func TestAnalyzeNullableNarrowedAfterContinueOnBang(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция главная {
+    переменная i = 0
+    пока i < 3 {
+        i = i + 1
+        переменная а: ?Целое = Ничто
+        а = i
+        если !а {
+            продолжить
+        }
+        вывести а + 1
+    }
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
+// TestAnalyzeNullableNarrowedAfterBreakOnEqualNichto - тот же принцип для
+// "прервать".
+func TestAnalyzeNullableNarrowedAfterBreakOnEqualNichto(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция главная {
+    переменная i = 0
+    пока i < 3 {
+        i = i + 1
+        переменная а: ?Целое = Ничто
+        а = i
+        если а == Ничто {
+            прервать
+        }
+        вывести а + 1
+    }
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 }

@@ -14,13 +14,17 @@ import (
 // вместо прежних "слушать_tcp"/"подключиться_tcp"/"подключиться_udp": host
 // == "" решает "слушать" (net.Listen для tcp, net.ListenPacket для udp -
 // см. package doc interp.go, Value.PacketConn), непустой host -
-// "подключиться" (net.Dial). mode строкой - неизвестный режим (не
-// "tcp"/"udp") - паника в рантайме, тем же принципом, что и у cbackend
-// (rech_network_node, builtins_shared.go).
-func (in *Interp) networkNode(mode, host string, port int64) Value {
+// "подключиться" (net.Dial). mode - индекс СетевойПротокол (types.go: TCP=0,
+// UDP=1), не строка (была строкой "tcp"/"udp" - НАЙДЕНО по ходу
+// examples/проекты/чат_сервер: опечатка молча давала бы рантайм-панику
+// вместо ошибки компиляции) - значение вне этих двух достижимо только
+// явным целочисленным литералом мимо самого перечисления - паника в
+// рантайме, тем же принципом, что и у cbackend (rech_network_node,
+// builtins_shared.go).
+func (in *Interp) networkNode(mode int64, host string, port int64) Value {
 	listening := host == ""
 	switch mode {
-	case "tcp":
+	case 0:
 		if listening {
 			l, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 			if err != nil {
@@ -33,7 +37,7 @@ func (in *Interp) networkNode(mode, host string, port int64) Value {
 			panicRuntime("%s", rtmsg.SocketConnectFailed)
 		}
 		return connValue(c)
-	case "udp":
+	case 1:
 		if listening {
 			pc, err := net.ListenPacket("udp", fmt.Sprintf(":%d", port))
 			if err != nil {

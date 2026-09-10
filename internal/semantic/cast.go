@@ -45,6 +45,20 @@ var orderableTypes = map[ir.Type]bool{
 	ir.TypeByte:    true,
 }
 
+// entityIsRefType - name ссылочная (entitySig.IsStruct == false) - тот же
+// признак, что cbackend.entityIsRef (ir_generator.go), только через
+// entitySig, уже доступную в internal/semantic (cbackend её видит через
+// свою копию ir.Entity.IsStruct - обе стороны читают ОДНО И ТО ЖЕ поле,
+// заполненное buildIR из entitySig.IsStruct, не дублируют логику разными
+// путями). "Настоящая" пользовательская сущность ("сущность"/"класс") - как
+// и generic-инстанциация (Список<T> и т. п. - synthесized entitySig без
+// IsStruct, см. resolveGenericTypeName - всегда ссылочная тоже) - true;
+// "структура" - false.
+func entityIsRefType(entities map[string]entitySig, name string) bool {
+	sig, ok := entities[name]
+	return ok && !sig.IsStruct
+}
+
 // equatableTypes - типы, поддерживающие "==" "!=" помимо Строка (сравнение
 // содержимого) и уже отдельно проверяемого случая "оба операнда - одна и та
 // же сущность/Строка".

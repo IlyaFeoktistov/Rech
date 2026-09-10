@@ -190,7 +190,7 @@ func TestGenerateFromIRHTTPResponseAnnouncesKeepAlive(t *testing.T) {
 	out := generateFromSrc(t, `
 функция главная
 {
-    переменная л = сетевой_узел("tcp", "", 8080)
+    переменная л = сетевой_узел(СетевойПротокол.TCP, "", 8080)
     переменная клиент = принять(л)
     если клиент != Ничто
     {
@@ -218,7 +218,7 @@ func TestGenerateFromIRSocketCreationIgnoresSigpipe(t *testing.T) {
 	out := generateFromSrc(t, `
 функция главная
 {
-    переменная л = сетевой_узел("tcp", "", 8080)
+    переменная л = сетевой_узел(СетевойПротокол.TCP, "", 8080)
     закрыть_сокет(л)
 }
 `)
