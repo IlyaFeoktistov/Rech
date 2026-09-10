@@ -1413,6 +1413,52 @@ func TestAnalyzeAssertNonBoolConditionFails(t *testing.T) {
 	}
 }
 
+// TestAnalyzeAssertStmtWithMessage - "утверждать <условие>, <сообщение>"
+// (docs/ROADMAP.md - внятные сообщения о несовпадении) - сообщение
+// анализируется и требует Строка.
+func TestAnalyzeAssertStmtWithMessage(t *testing.T) {
+	irProg := parseProgram(t, `
+функция главная
+{
+    переменная а = 2
+    утверждать а + 3 == 5, "а + 3 должно быть 5"
+}
+`)
+	main := irProg.Functions[0]
+	assert, ok := main.Body[1].(*ir.AssertStmt)
+	if !ok {
+		t.Fatalf("ожидался *ir.AssertStmt, получено %+v", main.Body[1])
+	}
+	if assert.Message == nil {
+		t.Fatal("ожидалось непустое Message")
+	}
+	if ir.TypeOf(assert.Message) != ir.TypeString {
+		t.Fatalf("сообщение должно быть Строка, получено %s", ir.TypeOf(assert.Message))
+	}
+}
+
+// TestAnalyzeAssertMessageNonStringFails - сообщение обязано быть Строка,
+// не любой тип (в отличие от "показать", который умеет любой).
+func TestAnalyzeAssertMessageNonStringFails(t *testing.T) {
+	toks, err := lexer.New(`
+функция главная
+{
+    утверждать 1 == 2, 42
+}
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	_, err = Analyze(prog)
+	if err == nil || !strings.Contains(err.Error(), "должно быть Строка") {
+		t.Fatalf("ожидалась ошибка про тип сообщения, получено: %v", err)
+	}
+}
+
 func TestAnalyzeListConstructorMethodsAndForEach(t *testing.T) {
 	irProg := parseProgram(t, `
 функция главная

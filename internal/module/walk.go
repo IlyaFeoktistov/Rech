@@ -427,7 +427,13 @@ func (r *rewriter) rewriteStmt(s ast.Stmt) error {
 		}
 		return r.rewriteExpr(s.Value)
 	case *ast.AssertStmt:
-		return r.rewriteExpr(s.Cond)
+		if err := r.rewriteExpr(s.Cond); err != nil {
+			return err
+		}
+		if s.Message == nil {
+			return nil
+		}
+		return r.rewriteExpr(s.Message)
 	case *ast.IfStmt:
 		if err := r.rewriteExpr(s.Cond); err != nil {
 			return err

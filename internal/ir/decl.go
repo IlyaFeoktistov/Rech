@@ -249,6 +249,13 @@ type GenericInstantiation struct {
 	// принципом, что и NeedsSafeIndex, но для построения из литерала, не
 	// для чтения по индексу. Валидно только у Template == "Список".
 	NeedsListLiteral bool
+	// Equatable - у ЭТОЙ инстанциации есть метод "равен" (глубокое
+	// сравнение содержимого - internal/semantic.entitySig.Equatable уже
+	// решил, что элемент/значение сам сравним, см. её package doc) -
+	// backend доверяет этому полю и просто эмитит функцию сравнения
+	// безусловно, когда оно true, не пересчитывая проверку сам (см.
+	// internal/backend/cbackend/collection_eq.go).
+	Equatable bool
 }
 
 // CallableSig - конкретная сигнатура "функции как значения" (

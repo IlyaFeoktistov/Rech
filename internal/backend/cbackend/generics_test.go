@@ -55,3 +55,67 @@ func TestGenerateFromIRMultiParamGenericMangling(t *testing.T) {
 		t.Fatalf("в мангл-имени просочился разделитель аргументов как есть, получено:\n%s", out)
 	}
 }
+
+// TestGenerateFromIRListEqualPrimitiveElement - Equatable:true у
+// "Список<Целое>" (internal/semantic уже решил, что "равен" существует, IR
+// доверяет полю - см. package doc ir.GenericInstantiation.Equatable)
+// эмитит функцию поэлементного сравнения, вызываемую как обычный метод.
+func TestGenerateFromIRListEqualPrimitiveElement(t *testing.T) {
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "а", Value: &ir.NewExpr{Entity: "Список<Целое>"}},
+		&ir.VarDecl{Name: "б", Value: &ir.NewExpr{Entity: "Список<Целое>"}},
+		&ir.PrintStmt{Value: &ir.MethodCallExpr{
+			Receiver: &ir.Identifier{Name: "а", Type: ir.EntityType("Список<Целое>")},
+			Entity:   "Список<Целое>", Method: "равен", Type: ir.TypeBool,
+			Args: []ir.Expr{&ir.Identifier{Name: "б", Type: ir.EntityType("Список<Целое>")}},
+		}},
+	}}
+	prog := &ir.Program{
+		Functions: []*ir.Function{main},
+		Generics:  []ir.GenericInstantiation{{Name: "Список<Целое>", Template: "Список", ElemType: ir.TypeInt, Equatable: true}},
+	}
+	out, err := GenerateFromIR(prog)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "rech_M_spisok_of_celoe_raven(") {
+		t.Fatalf("ожидался вызов rech_M_spisok_of_celoe_raven, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "this_->len != other->len") {
+		t.Fatalf("ожидалось тело функции сравнения по длине, получено:\n%s", out)
+	}
+}
+
+// TestGenerateFromIRListEqualStructElementOrdersStructEqBeforeUse -
+// РЕГРЕССИЯ найденной при живом прогоне ошибки: элемент "структура" -
+// "Список<Точка>.равен" (её dest - genericsCodeAfterEntities, package doc
+// entitySig.Equatable) зовёт rech_struct_eq_tochka - её прототип/тело
+// (structEqProtos/structEqFuncs) обязаны идти РАНЬШЕ в тексте C, иначе
+// "implicit declaration"/"conflicting types" у cc (см. правку порядка в
+// generateSource).
+func TestGenerateFromIRListEqualStructElementOrdersStructEqBeforeUse(t *testing.T) {
+	tochka := &ir.Entity{Name: "Точка", IsStruct: true, Fields: []ir.Field{{Name: "x", Type: ir.TypeInt}}}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "а", Value: &ir.NewExpr{Entity: "Список<Точка>"}},
+		&ir.VarDecl{Name: "б", Value: &ir.NewExpr{Entity: "Список<Точка>"}},
+		&ir.PrintStmt{Value: &ir.MethodCallExpr{
+			Receiver: &ir.Identifier{Name: "а", Type: ir.EntityType("Список<Точка>")},
+			Entity:   "Список<Точка>", Method: "равен", Type: ir.TypeBool,
+			Args: []ir.Expr{&ir.Identifier{Name: "б", Type: ir.EntityType("Список<Точка>")}},
+		}},
+	}}
+	prog := &ir.Program{
+		Entities:  []*ir.Entity{tochka},
+		Functions: []*ir.Function{main},
+		Generics:  []ir.GenericInstantiation{{Name: "Список<Точка>", Template: "Список", ElemType: ir.EntityType("Точка"), Equatable: true}},
+	}
+	out, err := GenerateFromIR(prog)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	protoIdx := strings.Index(out, "static bool rech_struct_eq_tochka(")
+	useIdx := strings.Index(out, "rech_M_spisok_of_tochka_raven(")
+	if protoIdx < 0 || useIdx < 0 || protoIdx > useIdx {
+		t.Fatalf("rech_struct_eq_tochka должна быть объявлена РАНЬШЕ Список<Точка>.равен, получено:\n%s", out)
+	}
+}

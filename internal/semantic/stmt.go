@@ -149,6 +149,18 @@ func analyzeLoopBody(sc *ctx, declareVar string, declareType ir.Type, body []ast
 	return analyzed, nil
 }
 
+// checkLoopJumpDepth проверяет числовой аргумент "прервать N"/"продолжить N"
+// (PHP-стиль - не именованная метка, число уровней вложенности циклов,
+// считая текущий) - N обязан укладываться в РЕАЛЬНУЮ вложенность циклов в
+// этой точке (sc.loopDepth, уже >0 - проверено вызывающим кодом). word -
+// "прервать"/"продолжить", только для текста ошибки.
+func checkLoopJumpDepth(sc *ctx, word string, depth, line int) error {
+	if depth > sc.loopDepth {
+		return fmt.Errorf("строка %d: \"%s %d\" - глубина вложенности циклов в этой точке только %d", line, word, depth, sc.loopDepth)
+	}
+	return nil
+}
+
 func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 	switch s := s.(type) {
 	case *ast.PrintStmt:
@@ -264,7 +276,17 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if typ := ir.TypeOf(cond); typ != ir.TypeBool {
 			return nil, fmt.Errorf("строка %d: условие \"утверждать\" должно быть логическим, получено %s", s.Line, typ)
 		}
-		return &ir.AssertStmt{Cond: cond, Line: s.Line}, nil
+		var message ir.Expr
+		if s.Message != nil {
+			message, err = analyzeExpr(sc, s.Message)
+			if err != nil {
+				return nil, err
+			}
+			if typ := ir.TypeOf(message); typ != ir.TypeString {
+				return nil, fmt.Errorf("строка %d: сообщение \"утверждать <условие>, <сообщение>\" должно быть Строка, получено %s", s.Line, typ)
+			}
+		}
+		return &ir.AssertStmt{Cond: cond, Message: message, Line: s.Line}, nil
 
 	case *ast.IfStmt:
 		cond, err := analyzeExpr(sc, s.Cond)
@@ -504,13 +526,19 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if sc.loopDepth == 0 {
 			return nil, fmt.Errorf("строка %d: \"прервать\" допустимо только внутри цикла", s.Line)
 		}
-		return &ir.BreakStmt{Line: s.Line}, nil
+		if err := checkLoopJumpDepth(sc, "прервать", s.Depth, s.Line); err != nil {
+			return nil, err
+		}
+		return &ir.BreakStmt{Depth: s.Depth, Line: s.Line}, nil
 
 	case *ast.ContinueStmt:
 		if sc.loopDepth == 0 {
 			return nil, fmt.Errorf("строка %d: \"продолжить\" допустимо только внутри цикла", s.Line)
 		}
-		return &ir.ContinueStmt{Line: s.Line}, nil
+		if err := checkLoopJumpDepth(sc, "продолжить", s.Depth, s.Line); err != nil {
+			return nil, err
+		}
+		return &ir.ContinueStmt{Depth: s.Depth, Line: s.Line}, nil
 
 	case *ast.ReturnStmt:
 		if s.Value == nil {

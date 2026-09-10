@@ -199,6 +199,141 @@ func TestRunBreakInsideTryRunsFinally(t *testing.T) {
 	}
 }
 
+// TestRunBreakDepthStopsOuterLoop - "прервать N" (docs/ROADMAP.md) прерывает
+// N-й по счёту охватывающий цикл, считая текущий - "прервать 2" изнутри
+// вложенного "для" прекращает ОБА цикла сразу, не только ближний.
+func TestRunBreakDepthStopsOuterLoop(t *testing.T) {
+	got := runSrc(t, `
+функция главная
+{
+    для i от 1 до 3 {
+        для j от 1 до 3 {
+            если j == 2 {
+                прервать 2
+            }
+            вывести i
+            вывести j
+        }
+        вывести 900
+    }
+    вывести "конец"
+}
+`)
+	want := "1\n1\nконец\n"
+	if got != want {
+		t.Fatalf("получено %q, ожидалось %q", got, want)
+	}
+}
+
+// TestRunContinueDepthSkipsOuterIteration - "продолжить N" прекращает ТЕКУЩИЙ
+// (ближний) цикл целиком и переходит к следующей итерации N-го по счёту
+// цикла - "продолжить 2" изнутри вложенного "для" переходит сразу к
+// следующему i, пропуская остаток тела внешнего цикла ПОСЛЕ внутреннего
+// "для" (900 не печатается ни разу).
+func TestRunContinueDepthSkipsOuterIteration(t *testing.T) {
+	got := runSrc(t, `
+функция главная
+{
+    для i от 1 до 3 {
+        для j от 1 до 3 {
+            если j == 2 {
+                продолжить 2
+            }
+            вывести i
+            вывести j
+        }
+        вывести 900
+    }
+}
+`)
+	want := "1\n1\n2\n1\n3\n1\n"
+	if got != want {
+		t.Fatalf("получено %q, ожидалось %q", got, want)
+	}
+}
+
+// TestRunBreakDepthThreeLevels - "прервать 3" через три уровня вложенности -
+// каждый промежуточный цикл сам останавливается и пробрасывает сигнал дальше
+// (handleLoopCtrl, exec.go), не только ближайший к целевому.
+func TestRunBreakDepthThreeLevels(t *testing.T) {
+	got := runSrc(t, `
+функция главная
+{
+    для i от 1 до 2 {
+        для j от 1 до 2 {
+            для k от 1 до 2 {
+                если i == 2 && j == 1 && k == 1 {
+                    прервать 3
+                }
+                вывести i
+                вывести j
+                вывести k
+            }
+        }
+    }
+    вывести "конец"
+}
+`)
+	want := "1\n1\n1\n1\n1\n2\n1\n2\n1\n1\n2\n2\nконец\n"
+	if got != want {
+		t.Fatalf("получено %q, ожидалось %q", got, want)
+	}
+}
+
+// TestRunBreakDepthInsideTryRunsFinally - "прервать N" изнутри "попытаться"
+// вложенного цикла всё равно обязан выполнить "окончательно" каждого
+// пройденного "попытаться" на пути наружу (тот же принцип, что и у обычного
+// "прервать" - TestRunBreakInsideTryRunsFinally выше, cleanupStack/
+// cleanupBase - см. package doc irGenCtx.loopStack в cbackend).
+func TestRunBreakDepthInsideTryRunsFinally(t *testing.T) {
+	got := runSrc(t, `
+функция главная
+{
+    для i от 1 до 3 {
+        для j от 1 до 3 {
+            попытаться {
+                если j == 2 {
+                    прервать 2
+                }
+            } окончательно {
+                вывести "ок " + (Строка) i + " " + (Строка) j
+            }
+        }
+    }
+    вывести "конец"
+}
+`)
+	want := "ок 1 1\nок 1 2\nконец\n"
+	if got != want {
+		t.Fatalf("получено %q, ожидалось %q", got, want)
+	}
+}
+
+// TestRunBreakDepthExceedsNestingIsCompileError - "прервать N" с N больше
+// реальной вложенности циклов в этой точке - ошибка семантического анализа
+// (checkLoopJumpDepth), не паника/некорректный индекс во время выполнения.
+func TestRunBreakDepthExceedsNestingIsCompileError(t *testing.T) {
+	src := `
+функция главная
+{
+    для i от 1 до 3 {
+        прервать 2
+    }
+}
+`
+	toks, err := lexer.New(src).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	if _, err := semantic.Analyze(prog); err == nil {
+		t.Fatal("ожидалась ошибка семантического анализа для \"прервать 2\" при вложенности 1, получено nil")
+	}
+}
+
 // TestRunBreakOutsideLoopIsCompileError - "прервать"/"продолжить" вне
 // цикла - ошибка семантического анализа, не паника времени выполнения.
 func TestRunBreakOutsideLoopIsCompileError(t *testing.T) {

@@ -163,6 +163,13 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 			return ctrl{}, err
 		}
 		if !cond.B {
+			if s.Message != nil {
+				msg, err := in.evalExpr(s.Message, env, cc)
+				if err != nil {
+					return ctrl{}, err
+				}
+				panicRuntime("%s: %s", rtmsg.AssertFailed(s.Line), msg.S)
+			}
 			panicRuntime("%s", rtmsg.AssertFailed(s.Line))
 		}
 		return ctrl{}, nil
@@ -202,14 +209,11 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 			if err != nil {
 				return ctrl{}, err
 			}
-			if c.kind == ctrlReturn {
-				return c, nil
+			if out, ok := handleLoopCtrl(c); !ok {
+				return out, nil
 			}
-			if c.kind == ctrlBreak {
-				return ctrl{}, nil
-			}
-			// ctrlContinue/ctrlNone - следующая итерация, повторная
-			// проверка условия.
+			// ctrlContinue (depth<=1)/ctrlNone - следующая итерация,
+			// повторная проверка условия.
 		}
 
 	case *ir.ForStmt:
@@ -228,11 +232,8 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 			if err != nil {
 				return ctrl{}, err
 			}
-			if c.kind == ctrlReturn {
-				return c, nil
-			}
-			if c.kind == ctrlBreak {
-				return ctrl{}, nil
+			if out, ok := handleLoopCtrl(c); !ok {
+				return out, nil
 			}
 		}
 		return ctrl{}, nil
@@ -253,11 +254,8 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 			if err != nil {
 				return ctrl{}, err
 			}
-			if c.kind == ctrlReturn {
-				return c, nil
-			}
-			if c.kind == ctrlBreak {
-				return ctrl{}, nil
+			if out, ok := handleLoopCtrl(c); !ok {
+				return out, nil
 			}
 		}
 		return ctrl{}, nil
@@ -285,14 +283,11 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 			if err != nil {
 				return ctrl{}, err
 			}
-			if c.kind == ctrlReturn {
-				return c, nil
+			if out, ok := handleLoopCtrl(c); !ok {
+				return out, nil
 			}
-			if c.kind == ctrlBreak {
-				return ctrl{}, nil
-			}
-			// ctrlContinue/ctrlNone - Post всё равно исполняется, ровно как
-			// в C, ПЕРЕД повторной проверкой условия.
+			// ctrlContinue (depth<=1)/ctrlNone - Post всё равно исполняется,
+			// ровно как в C, ПЕРЕД повторной проверкой условия.
 			if s.Post != nil {
 				if _, err := in.execStmt(s.Post, loopEnv, cc); err != nil {
 					return ctrl{}, err
@@ -301,10 +296,10 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 		}
 
 	case *ir.BreakStmt:
-		return ctrl{kind: ctrlBreak}, nil
+		return ctrl{kind: ctrlBreak, depth: s.Depth}, nil
 
 	case *ir.ContinueStmt:
-		return ctrl{kind: ctrlContinue}, nil
+		return ctrl{kind: ctrlContinue, depth: s.Depth}, nil
 
 	case *ir.ReturnStmt:
 		if s.Value == nil {
@@ -371,14 +366,45 @@ func (in *Interp) execForEachFileLine(f *os.File, s *ir.ForEachStmt, env *Env, c
 		if err != nil {
 			return ctrl{}, err
 		}
-		if c.kind == ctrlReturn {
-			return c, nil
-		}
-		if c.kind == ctrlBreak {
-			return ctrl{}, nil
+		if out, ok := handleLoopCtrl(c); !ok {
+			return out, nil
 		}
 		if readErr != nil {
 			return ctrl{}, nil
 		}
+	}
+}
+
+// handleLoopCtrl - единая точка, где цикл (WhileStmt/ForStmt/ForEachStmt/
+// CStyleForStmt, оба варианта - коллекция и построчное чтение файла)
+// решает, что делать с ctrl, полученным от одной итерации своего тела.
+// ok=false - вызывающий цикл обязан немедленно вернуть out как СВОЙ
+// результат (сам он больше не итерирует): настоящее "вернуть" (out - тот же
+// ctrlReturn без изменений), "прервать"/"продолжить" ЭТОГО цикла (depth<=1 -
+// возвращённый out - ctrl{} - обычное завершение цикла, "прервать"/
+// "продолжить" полностью поглощены здесь), либо "прервать N"/"продолжить N"
+// (docs/ROADMAP.md), нацеленные на цикл СНАРУЖИ (depth>1) - этот цикл тоже
+// обязан остановиться (как при "прервать"), но пробрасывает out дальше с
+// depth-1 - на следующем уровне наружу depth снова сравнивается с 1, и так
+// далее, пока не дойдёт до нужного цикла.
+// ok=true - сигнал не требовал остановки ЭТОГО цикла (ctrlNone или
+// ctrlContinue с depth<=1 - "своё" продолжение) - вызывающий код продолжает
+// как раньше (у CStyleForStmt - сначала исполнив Post).
+func handleLoopCtrl(c ctrl) (out ctrl, ok bool) {
+	switch c.kind {
+	case ctrlReturn:
+		return c, false
+	case ctrlBreak:
+		if c.depth > 1 {
+			return ctrl{kind: ctrlBreak, depth: c.depth - 1}, false
+		}
+		return ctrl{}, false
+	case ctrlContinue:
+		if c.depth > 1 {
+			return ctrl{kind: ctrlContinue, depth: c.depth - 1}, false
+		}
+		return ctrl{}, true
+	default: // ctrlNone
+		return ctrl{}, true
 	}
 }

@@ -155,7 +155,7 @@ func substStmt(s ast.Stmt, subst map[string]string) ast.Stmt {
 	case *ast.BecomeStmt:
 		return &ast.BecomeStmt{Receiver: substExpr(s.Receiver, subst), State: s.State, Line: s.Line}
 	case *ast.AssertStmt:
-		return &ast.AssertStmt{Cond: substExpr(s.Cond, subst), Line: s.Line}
+		return &ast.AssertStmt{Cond: substExpr(s.Cond, subst), Message: substExpr(s.Message, subst), Line: s.Line}
 	case *ast.IfStmt:
 		return &ast.IfStmt{Cond: substExpr(s.Cond, subst), Then: substStmts(s.Then, subst), Else: substStmts(s.Else, subst), Line: s.Line}
 	case *ast.WhileStmt:
@@ -575,7 +575,10 @@ func (inst *instantiator) scanStmt(s ast.Stmt) error {
 	case *ast.BecomeStmt:
 		return inst.scanExpr(s.Receiver)
 	case *ast.AssertStmt:
-		return inst.scanExpr(s.Cond)
+		if err := inst.scanExpr(s.Cond); err != nil {
+			return err
+		}
+		return inst.scanExpr(s.Message)
 	case *ast.IfStmt:
 		if err := inst.scanExpr(s.Cond); err != nil {
 			return err

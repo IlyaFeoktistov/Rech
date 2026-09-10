@@ -36,25 +36,105 @@ func TestAnalyzeEntityEqualityComparesByReference(t *testing.T) {
 	}
 }
 
-// TestAnalyzeStructEqualityStillRejected - "структура" (значение, не
-// ссылка) сознательно НЕ включена - потребовалось бы поле-в-поле
-// сравнение, отдельная задача.
-func TestAnalyzeStructEqualityStillRejected(t *testing.T) {
+// TestAnalyzeStructEqualityFieldByField - "структура" (значение, не ссылка) -
+// "=="/"!=" сравнивает поле за полем (docs/ROADMAP.md), а не по identity -
+// две РАЗНЫЕ структуры с одинаковыми полями равны, structFieldsEquatable
+// (cast.go) допускает примитивные/Строка поля без ограничений.
+func TestAnalyzeStructEqualityFieldByField(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 структура Точка
 {
     имеет:
         x: Целое
+        имя: Строка
 }
 функция главная
 {
-    переменная а = новая Точка(1)
-    переменная б = новая Точка(1)
+    переменная а = новая Точка(1, "а")
+    переменная б = новая Точка(1, "а")
+    утверждать а == б
+    утверждать не (а != б)
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
+// TestAnalyzeStructEqualityNestedStruct - вложенная "структура" полем -
+// рекурсивное сравнение (structFieldsEquatable рекурсирует в неё же).
+func TestAnalyzeStructEqualityNestedStruct(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+структура Точка
+{
+    имеет:
+        x: Целое
+        y: Целое
+}
+структура Отрезок
+{
+    имеет:
+        начало: Точка
+        конец: Точка
+}
+функция главная
+{
+    переменная а = новый Отрезок(новая Точка(0, 0), новая Точка(1, 1))
+    переменная б = новый Отрезок(новая Точка(0, 0), новая Точка(1, 1))
+    утверждать а == б
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
+// TestAnalyzeStructEqualityAllowsGenericCollectionField - generic-коллекция
+// полем ("товары: Список<Строка>") - тоже KindEntity, той же ref-семантикой,
+// что и обычная сущность полем (entityIsRefType, cast.go считает generic-
+// инстанциацию ссылочной безусловно) - разрешена, сравнивается по IDENTITY
+// самой коллекции (тот же ли это список), не по содержимому - тот же
+// принцип, что и у обычного ref-поля в generateIRStructEqFunc.
+func TestAnalyzeStructEqualityAllowsGenericCollectionField(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+структура Корзина
+{
+    имеет:
+        товары: Список<Строка>
+}
+функция главная
+{
+    переменная список = новый Список<Строка>()
+    переменная а = новая Корзина(список)
+    переменная б = новая Корзина(список)
+    утверждать а == б
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
+// TestAnalyzeStructEqualityRejectsUnsupportedField - структура с полем,
+// которое НЕ сравнимо field-by-field (nullable - ни equatableTypes, ни
+// KindEntity) - "==" отвергается компиляцией с понятным именем проблемного
+// поля.
+func TestAnalyzeStructEqualityRejectsUnsupportedField(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+структура Корзина
+{
+    имеет:
+        скидка: ?Целое
+}
+функция главная
+{
+    переменная а = новая Корзина(Ничто)
+    переменная б = новая Корзина(Ничто)
     вывести а == б
 }
 `)
-	if err == nil || !strings.Contains(err.Error(), "не поддерживается для типов") {
-		t.Fatalf("ожидалась ошибка про неподдерживаемое сравнение структур, получено: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "скидка") {
+		t.Fatalf("ожидалась ошибка про несравнимое поле \"скидка\", получено: %v", err)
 	}
 }
 

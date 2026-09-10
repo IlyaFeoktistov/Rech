@@ -493,7 +493,15 @@ func resolveGenericTypeName(entities map[string]entitySig, methods map[string]ma
 		return ir.TypeUnknown, fmt.Errorf("неизвестный generic-тип %q", template)
 	}
 	if _, exists := entities[name]; !exists {
-		entities[name] = entitySig{IsList: template == "Список", ElemType: elem}
+		// "равен" (глубокое сравнение содержимого, в отличие от "==" -
+		// identity) - только у "Список<T>" и только когда элемент сам
+		// сравним (elemEquatable, cast.go); "Стопка"/"Очередь" осознанно
+		// не участвуют - см. package doc entitySig.Equatable.
+		eq := template == "Список" && elemEquatable(entities, elem)
+		if eq {
+			sigs["равен"] = funcSig{Params: []ir.Type{ir.EntityType(name)}, ReturnType: ir.TypeBool, HasReturn: true}
+		}
+		entities[name] = entitySig{IsList: template == "Список", ElemType: elem, Equatable: eq}
 		methods[name] = sigs
 	}
 	return ir.EntityType(name), nil
@@ -535,8 +543,9 @@ func resolveDictTypeName(entities map[string]entitySig, methods map[string]map[s
 		return ir.TypeUnknown, fmt.Errorf("%q: значения встроенного словаря пока не поддерживают nullable-типы", name)
 	}
 	if _, exists := entities[name]; !exists {
-		entities[name] = entitySig{IsDict: true, KeyType: key, ElemType: val}
-		methods[name] = map[string]funcSig{
+		eq := elemEquatable(entities, val)
+		entities[name] = entitySig{IsDict: true, KeyType: key, ElemType: val, Equatable: eq}
+		sigs := map[string]funcSig{
 			"установить": {Params: []ir.Type{key, val}},
 			"получить":   {Params: []ir.Type{key}, ReturnType: val, HasReturn: true},
 			"содержит":   {Params: []ir.Type{key}, ReturnType: ir.TypeBool, HasReturn: true},
@@ -544,6 +553,14 @@ func resolveDictTypeName(entities map[string]entitySig, methods map[string]map[s
 			"длина":      {ReturnType: ir.TypeInt, HasReturn: true},
 			"пусто":      {ReturnType: ir.TypeBool, HasReturn: true},
 		}
+		// "равен" - см. package doc entitySig.Equatable/elemEquatable
+		// (cast.go) - тот же принцип, что и у "Список<T>"
+		// (resolveGenericTypeName), только по значению В (ключ К уже
+		// всегда сравним - dictKeyKinds ограничивает его примитивами).
+		if eq {
+			sigs["равен"] = funcSig{Params: []ir.Type{ir.EntityType(name)}, ReturnType: ir.TypeBool, HasReturn: true}
+		}
+		methods[name] = sigs
 	}
 	return ir.EntityType(name), nil
 }

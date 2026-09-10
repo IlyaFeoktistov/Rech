@@ -289,9 +289,9 @@ func (in *Interp) evalBinary(e *ir.BinaryExpr, env *Env, cc *callCtx) (Value, er
 	case "-", "*", "/", "%":
 		return arithmetic(e.Op, l, r)
 	case "==":
-		return boolValue(valuesEqual(l, r)), nil
+		return boolValue(in.valuesEqual(l, r)), nil
 	case "!=":
-		return boolValue(!valuesEqual(l, r)), nil
+		return boolValue(!in.valuesEqual(l, r)), nil
 	case "<", ">", "<=", ">=":
 		return compareOrdered(e.Op, l, r), nil
 	case "&":
@@ -380,7 +380,10 @@ func toFloat(v Value) float64 {
 	return float64(v.I)
 }
 
-func valuesEqual(l, r Value) bool {
+// valuesEqual - метод (не свободная функция), потому что "структура" (ниже)
+// нуждается в entities (IsStruct/FieldNames) для рекурсивного сравнения поля
+// за полем - того же доступа, что уже есть у *Interp везде в этом пакете.
+func (in *Interp) valuesEqual(l, r Value) bool {
 	switch {
 	case l.Type == ir.TypeString:
 		return l.S == r.S
@@ -389,6 +392,20 @@ func valuesEqual(l, r Value) bool {
 	case l.Type == ir.TypeFloat || r.Type == ir.TypeFloat || l.Type == ir.TypeFloat32 || r.Type == ir.TypeFloat32:
 		return toFloat(l) == toFloat(r)
 	case l.Type.Kind == ir.KindEntity:
+		if ent, ok := in.entities[l.Type.Entity]; ok && ent.IsStruct {
+			// "структура" - значение, не identity (docs/ROADMAP.md, "==" для
+			// структур - поле-в-поле) - семантический анализ
+			// (structFieldsEquatable, cast.go) уже гарантировал, что КАЖДОЕ
+			// поле (рекурсивно, у вложенных структур тоже) - сравнимый тип,
+			// значит рекурсивный valuesEqual по каждому полю корректен без
+			// дополнительных проверок здесь.
+			for _, f := range ent.Fields {
+				if !in.valuesEqual(l.Obj.fields[f.Name], r.Obj.fields[f.Name]) {
+					return false
+				}
+			}
+			return true
+		}
 		// Сравнение по ССЫЛКЕ ("==" для сущности/класса, НАЙДЕНО по ходу
 		// examples/проекты/чат_сервер - раньше не поддерживалось вовсе, см.
 		// её проверку в analyzeBinaryExpr, expr.go) - Obj это тот же
@@ -708,6 +725,9 @@ func (in *Interp) evalCollectionMethod(obj *entityObj, e *ir.MethodCallExpr, env
 	case "пусто":
 		return boolValue(len(obj.coll.elems) == 0), nil
 
+	case "равен":
+		return boolValue(in.collectionsDeepEqual(obj.coll, args[0].Obj.coll)), nil
+
 	default:
 		return Value{}, fmt.Errorf("встроенная коллекция %q: неизвестный метод %q", obj.typeName, e.Method)
 	}
@@ -753,9 +773,65 @@ func (in *Interp) evalDictMethod(obj *entityObj, e *ir.MethodCallExpr, env *Env,
 	case "пусто":
 		return boolValue(len(obj.coll.pairs) == 0), nil
 
+	case "равен":
+		return boolValue(in.collectionsDeepEqual(obj.coll, args[0].Obj.coll)), nil
+
 	default:
 		return Value{}, fmt.Errorf("встроенный словарь %q: неизвестный метод %q", obj.typeName, e.Method)
 	}
+}
+
+// collectionsDeepEqual - сравнение СОДЕРЖИМОГО двух встроенных коллекций
+// (метод "равен" у Список<T>/Словарь<К, В>, evalCollectionMethod/
+// evalDictMethod выше) - НАМЕРЕННО отдельная от valuesEqual (которая
+// обслуживает "==" и оставляет коллекции сравнением по identity, как и
+// раньше - см. её package doc, l.Obj == r.Obj в общем случае KindEntity):
+// смешивать их означало бы незаметно поменять семантику уже
+// существовавшего "==" для Список/Словарь, чего не просили. a.pairs != nil
+// отличает Словарь (сравнение по ключам - хеш-таблица неупорядочена) от
+// Список/Стопка/Очередь (a.elems, поэлементно по индексу - упорядоченная
+// коллекция) - internal/semantic регистрирует "равен" только у Список и
+// Словарь (entitySig.Equatable), но сама проверка здесь годится для любого
+// collection-хранилища одинаково.
+func (in *Interp) collectionsDeepEqual(a, b *collection) bool {
+	if a.pairs != nil || b.pairs != nil {
+		if len(a.pairs) != len(b.pairs) {
+			return false
+		}
+		for k, v := range a.pairs {
+			bv, ok := b.pairs[k]
+			if !ok || !in.valueDeepEqual(v, bv) {
+				return false
+			}
+		}
+		return true
+	}
+	if len(a.elems) != len(b.elems) {
+		return false
+	}
+	for i := range a.elems {
+		if !in.valueDeepEqual(a.elems[i], b.elems[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// valueDeepEqual - как valuesEqual, но рекурсивно сравнивает вложенную
+// встроенную коллекцию (элемент Список<Список<T>>/значение Словарь<К,
+// Список<T>>) по СОДЕРЖИМОМУ (collectionsDeepEqual), а не по identity -
+// иначе Список<Список<Целое>>.равен(...) сравнил бы вложенные списки
+// указателями и был бы бесполезен для ровно того случая, ради которого
+// "равен" завели (docs/ROADMAP.md). Не подменяет valuesEqual саму - только
+// используется РЯДОМ с ней, из collectionsDeepEqual выше.
+func (in *Interp) valueDeepEqual(l, r Value) bool {
+	if l.Type.Kind == ir.KindEntity && l.Obj != nil && l.Obj.coll != nil {
+		if r.Obj == nil || r.Obj.coll == nil {
+			return false
+		}
+		return in.collectionsDeepEqual(l.Obj.coll, r.Obj.coll)
+	}
+	return in.valuesEqual(l, r)
 }
 
 // printValue печатает v в in.out ровно в том же текстовом виде, что и

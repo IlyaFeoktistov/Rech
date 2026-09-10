@@ -284,6 +284,9 @@ func immediateExprs(s ast.Stmt) []ast.Expr {
 	case *ast.BecomeStmt:
 		return []ast.Expr{st.Receiver}
 	case *ast.AssertStmt:
+		if st.Message != nil {
+			return []ast.Expr{st.Cond, st.Message}
+		}
 		return []ast.Expr{st.Cond}
 	case *ast.IfStmt:
 		return []ast.Expr{st.Cond}

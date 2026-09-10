@@ -85,10 +85,18 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 		return p.parseForStmt()
 	case lexer.KwBreak:
 		tok := p.advance()
-		return &ast.BreakStmt{Line: tok.Line}, nil
+		depth, err := p.parseOptionalLoopDepth()
+		if err != nil {
+			return nil, err
+		}
+		return &ast.BreakStmt{Depth: depth, Line: tok.Line}, nil
 	case lexer.KwContinue:
 		tok := p.advance()
-		return &ast.ContinueStmt{Line: tok.Line}, nil
+		depth, err := p.parseOptionalLoopDepth()
+		if err != nil {
+			return nil, err
+		}
+		return &ast.ContinueStmt{Depth: depth, Line: tok.Line}, nil
 	case lexer.KwReturn:
 		return p.parseReturnStmt()
 	case lexer.KwParent:
@@ -213,6 +221,29 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 	}
 }
 
+// parseOptionalLoopDepth разбирает необязательный числовой аргумент после
+// "прервать"/"продолжить" ("прервать 2" - прервать два уровня вложенности
+// циклов, считая текущий) - PHP-стиль "break N"/"continue N", не именованная
+// метка. Без аргумента (следующий токен - не INT, обычно конец инструкции)
+// возвращает 1 - ближайший охватывающий цикл, как и раньше. Сама глубина
+// (не выходит ли она за пределы реальной вложенности циклов в этой точке)
+// проверяется позже, семантическим анализом (sc.loopDepth) - здесь только
+// синтаксис.
+func (p *Parser) parseOptionalLoopDepth() (int, error) {
+	if p.cur().Type != lexer.INT {
+		return 1, nil
+	}
+	tok := p.advance()
+	v, err := parseIntTokenValue(tok.Value)
+	if err != nil {
+		return 0, fmt.Errorf("строка %d, столбец %d: некорректный целочисленный литерал %q", tok.Line, tok.Col, tok.Value)
+	}
+	if v < 1 {
+		return 0, fmt.Errorf("строка %d: глубина вложенности цикла должна быть не меньше 1, получено %d", tok.Line, v)
+	}
+	return int(v), nil
+}
+
 // parseDotStatement разбирает инструкцию, начинающуюся с получателя (IDENT
 // или "этот"), за которым следует "." - присваивание полю (receiver.поле =
 // выражение, в том числе вложенное - "x.a.b = значение", получатель
@@ -308,7 +339,18 @@ func (p *Parser) parseAssertStmt() (ast.Stmt, error) {
 	if err != nil {
 		return nil, fmt.Errorf("после \"утверждать\" ожидалось выражение: %w", err)
 	}
-	return &ast.AssertStmt{Cond: cond, Line: kw.Line}, nil
+	// "утверждать <условие>, <сообщение>" - необязательное второе
+	// выражение (docs/ROADMAP.md - внятные сообщения о несовпадении),
+	// разбирается ровно как второй аргумент вызова - через ту же запятую.
+	var message ast.Expr
+	if p.cur().Type == lexer.COMMA {
+		p.advance()
+		message, err = p.parseExpr()
+		if err != nil {
+			return nil, fmt.Errorf("после \"утверждать <условие>,\" ожидалось выражение сообщения: %w", err)
+		}
+	}
+	return &ast.AssertStmt{Cond: cond, Message: message, Line: kw.Line}, nil
 }
 
 // parseVarDecl разбирает "переменная <имя> = <выражение>" - тип выводится

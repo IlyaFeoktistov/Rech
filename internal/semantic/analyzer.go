@@ -980,6 +980,7 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 			KeyType:          a.entities[name].KeyType,
 			NeedsSafeIndex:   a.indexedCollections[name],
 			NeedsListLiteral: a.listLiteralCollections[name],
+			Equatable:        a.entities[name].Equatable,
 		})
 	}
 

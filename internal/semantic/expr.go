@@ -903,10 +903,19 @@ func analyzeBinaryExpr(sc *ctx, e *ast.BinaryExpr) (ir.Expr, error) {
 		// раньше "==" не поддерживался вообще ни для одной сущности) - тот
 		// же принцип, что и у Go/Java/C# (ссылочные типы сравниваются по
 		// identity через "==" безусловно, содержимое - отдельным методом,
-		// которого здесь пока нет). "структура" (значение, не identity) -
-		// сознательно НЕ включена: потребовалось бы поле-в-поле рекурсивное
-		// сравнение, отдельная, более крупная задача.
+		// которого здесь пока нет).
 		if lt.Kind == ir.KindEntity && lt == rt && entityIsRefType(sc.entities, lt.Entity) {
+			return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: ir.TypeBool}, nil
+		}
+		// "структура" (значение, не identity) - поле-в-поле (docs/
+		// ROADMAP.md, "== для структур") - тот же ir.BinaryExpr, что и у
+		// ссылочной сущности выше: cbackend/interp сами решают, как именно
+		// сравнивать конкретный KindEntity (указатель vs рекурсивно по
+		// полям) по IsStruct, см. structFieldsEquatable ниже.
+		if lt.Kind == ir.KindEntity && lt == rt && !entityIsRefType(sc.entities, lt.Entity) {
+			if err := structFieldsEquatable(sc.entities, lt.Entity); err != nil {
+				return nil, fmt.Errorf("строка %d: оператор %q не поддерживается для структуры %s - %w", e.Line, e.Op, lt, err)
+			}
 			return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: ir.TypeBool}, nil
 		}
 		if lt != rt || !equatableTypes[lt] {

@@ -54,6 +54,20 @@ type irGenCtx struct {
 	// usesShow - нужны ли функции показа (rech_show_...) - генерируются
 	// только если "показать" реально встретилось в программе.
 	usesShow bool
+	// structEqEntities - какие именно "структуры" программы нуждаются в
+	// rech_struct_eq_... (struct_eq.go, docs/ROADMAP.md - "==" для
+	// структур) - В ОТЛИЧИЕ от usesShow/showFuncs выше (генерируются для
+	// ВСЕХ сущностей программы разом, раз показ умеет напечатать ЛЮБОЕ
+	// поле каким-нибудь способом, generateIRShowExpr), здесь так нельзя:
+	// semantic (structFieldsEquatable, internal/semantic/cast.go) проверяет
+	// поля ТОЛЬКО той структуры, что реально сравнивается "==" (и,
+	// рекурсивно, вложенные структуры-поля) - непроверенная сторонняя
+	// структура программы (например, внутренний builtin-тип с nullable-
+	// полем) не переживёт слепую попытку сравнить её поля через "==" -
+	// значит генерировать можно ТОЛЬКО для того множества, что
+	// registerStructEqEntity реально собрал (struct_eq.go), не для всех
+	// prog.Entities. nil - "==" структуры ни разу не встретился.
+	structEqEntities map[string]bool
 	// usesDictString - хотя бы один "Словарь<Строка, ...>" использован в
 	// программе - хеш/сравнение ключа-строки (dictCollectionCCode)
 	// используют strcmp, значит нужен "#include <string.h>" - отдельный от
@@ -296,36 +310,51 @@ type irGenCtx struct {
 	curIndent        string
 
 	// loopStack - один кадр на каждый ОХВАТЫВАЮЩИЙ в точке генерации цикл
-	// (WhileStmt/ForStmt/ForEachStmt/CStyleForStmt) - читается только
+	// (WhileStmt/ForStmt/ForEachStmt/CStyleForStmt), от САМОГО ВНЕШНЕГО
+	// (индекс 0) до самого внутреннего (последний) - читается только
 	// ir.BreakStmt/ir.ContinueStmt (emitLoopJump, break_continue.go).
-	// cleanupBase - len(cleanupStack) В МОМЕНТ входа в тело ЭТОГО цикла:
-	// "прервать"/"продолжить" обязаны прогнать (restoreCatchTop/
-	// "окончательно") только действия, добавленные ВНУТРИ цикла (вложенным
-	// "попытаться" МЕЖДУ началом цикла и самой инструкцией) - НЕ действия
-	// внешних "попытаться", охватывающих цикл СНАРУЖИ (тот кадр перехвата
-	// остаётся активным - цикл прерывается, "попытаться" вокруг него ещё
-	// не закончилось). continueTarget - "" у While/For/ForEach (Post
-	// встроен прямо в C `while`/`for` заголовок - raw C `continue`
-	// корректен сам по себе), непустая метка у CStyleForStmt (Post -
+	// "прервать N"/"продолжить N" (docs/ROADMAP.md) индексирует его с конца:
+	// loopStack[len(loopStack)-N] - N-й по счёту цикл, считая текущий (N=1 -
+	// как раньше, ближайший). cleanupBase - len(cleanupStack) В МОМЕНТ входа
+	// в тело ЭТОГО цикла: "прервать"/"продолжить" обязаны прогнать
+	// (restoreCatchTop/"окончательно") только действия, добавленные ВНУТРИ
+	// цикла (вложенным "попытаться" МЕЖДУ началом цикла и самой инструкцией,
+	// в т. ч. и вложенными циклами МЕЖДУ целевым циклом и инструкцией при
+	// N>1) - НЕ действия внешних "попытаться", охватывающих цикл СНАРУЖИ
+	// (тот кадр перехвата остаётся активным - цикл прерывается,
+	// "попытаться" вокруг него ещё не закончилось). continueTarget/
+	// breakTarget - всегда непустые уникальные метки (loopLabelCounter) -
+	// раньше (до "прервать N") While/For/ForEach обходились голым C
+	// `break`/`continue` (корректны сами по себе для БЛИЖАЙШЕГО цикла) и
+	// только CStyleForStmt заводил метку continueTarget (Post -
 	// произвольная Rech-инструкция, НЕ помещается в заголовок C `for` как
 	// выражение - "продолжить" обязан сначала исполнить её, что raw C
 	// `continue` там сделать не может, см. package doc generateIRCStyleFor
-	// в break_continue.go). Сохраняется/восстанавливается вокруг тела
-	// лямбды тем же принципом, что и cleanupStack/capturedRedirect выше -
-	// "прервать"/"продолжить" внутри лямбды не могут видеть цикл, в
-	// котором эта лямбда лексически объявлена (её тело - СОБСТВЕННАЯ
-	// C-функция).
+	// в break_continue.go) - с "прервать N"/"продолжить N" цель может быть
+	// ЛЮБЫМ охватывающим циклом, не только ближайшим, а raw `break`/
+	// `continue` способны адресовать только ближайший - единый label-based
+	// `goto` для ВСЕХ четырёх видов цикла проще и надёжнее, чем два разных
+	// кодовых пути в зависимости от N. continueTarget - метка сразу ПЕРЕД
+	// закрывающей "}" тела цикла (у CStyleForStmt - перед Post, как и
+	// раньше); breakTarget - метка СРАЗУ ПОСЛЕ всего цикла целиком (после
+	// Post у CStyleForStmt - "прервать" не должен его исполнять). Кадр
+	// сохраняется/восстанавливается вокруг тела лямбды тем же принципом,
+	// что и cleanupStack/capturedRedirect выше - "прервать"/"продолжить"
+	// внутри лямбды не могут видеть цикл, в котором эта лямбда лексически
+	// объявлена (её тело - СОБСТВЕННАЯ C-функция).
 	loopStack []loopFrame
-	// forLabelCounter - счётчик уникальных меток "continue" у CStyleForStmt
-	// (rech_for_continue_N) - как tryCounter у попытаться, растёт на
-	// каждый узел, никогда не переиспользуется в пределах одной программы.
-	forLabelCounter int
+	// loopLabelCounter - счётчик уникальных меток break/continue у ЛЮБОГО
+	// вида цикла (rech_loop_break_N/rech_loop_continue_N) - как tryCounter у
+	// попытаться, растёт на каждый узел, никогда не переиспользуется в
+	// пределах одной программы.
+	loopLabelCounter int
 }
 
 // loopFrame - см. package doc irGenCtx.loopStack.
 type loopFrame struct {
 	cleanupBase    int
 	continueTarget string
+	breakTarget    string
 }
 
 // materializeIfNeeded - получатель вызова метода/присваивания полю не
@@ -771,6 +800,9 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		case "Список":
 			dest.WriteString(listCollectionCCode(g.Name, elemC))
 			dest.WriteString(genericCtorCCode(g.Name))
+			if g.Equatable {
+				dest.WriteString(listEqualCCode(ctx, g))
+			}
 			if g.NeedsSafeIndex {
 				indexSafeGetCode.WriteString(listIndexSafeGetCCode(g.Name, mangleType("?"+g.ElemType.String())))
 			}
@@ -791,6 +823,9 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 			}
 			dest.WriteString(dictCollectionCCode(g.Name, keyC, elemC, isStringKey))
 			dest.WriteString(genericCtorCCode(g.Name))
+			if g.Equatable {
+				dest.WriteString(dictEqualCCode(ctx, g))
+			}
 			if g.NeedsSafeIndex {
 				indexSafeGetCode.WriteString(dictIndexSafeGetCCode(g.Name, keyC, mangleType("?"+g.ElemType.String())))
 			}
@@ -863,6 +898,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// эмитируется в СВОЙ, более ранний блок sb - см. её появление там: protos
 	// сам заполняется/сбрасывается позже, ПОСЛЕ showFuncs).
 	var showFuncs, showProtos strings.Builder
+	// structEqFuncs/structEqProtos - тот же принцип, что и showFuncs/
+	// showProtos выше (заполняются НИЖЕ, после генерации тел - ctx.
+	// usesStructEq взводится "==" структуры внутри них, см. struct_eq.go).
+	var structEqFuncs, structEqProtos strings.Builder
 
 	var protos strings.Builder
 	if ctx.usesMutex {
@@ -1036,6 +1075,29 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		}
 		for _, ent := range prog.Entities {
 			showFuncs.WriteString(generateIREntityShowFunc(ctx, ent))
+		}
+	}
+
+	if len(ctx.structEqEntities) > 0 {
+		// structEqProtos - прототип rech_struct_eq_... для КАЖДОЙ структуры
+		// из ctx.structEqEntities (не всех prog.Entities - см. её package
+		// doc), ДО единых определений ниже - та же причина, что и у
+		// showProtos выше (вложенная "структура" полем - настоящий цикл
+		// между определениями возможен). Перебор prog.Entities (не самого
+		// ctx.structEqEntities) - только ради детерминированного порядка
+		// вывода (порядок итерации по map в Go не гарантирован).
+		for _, ent := range prog.Entities {
+			if !ctx.structEqEntities[ent.Name] {
+				continue
+			}
+			cName := entityCName(ctx, ent.Name)
+			fmt.Fprintf(&structEqProtos, "static bool %s(%s, %s);\n", structEqFuncName(ent.Name), cName, cName)
+		}
+		for _, ent := range prog.Entities {
+			if !ctx.structEqEntities[ent.Name] {
+				continue
+			}
+			structEqFuncs.WriteString(generateIRStructEqFunc(ctx, ent))
 		}
 	}
 
@@ -1413,8 +1475,17 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	appendCodeIf(&sb, callableTypedefs.Len() > 0, callableTypedefs.String())
 	// После callableTypedefs - см. её package doc выше (genericsCode).
 	appendCodeIf(&sb, genericsCodeAfterCallables.Len() > 0, genericsCodeAfterCallables.String())
-	// После genericsCodeAfterCallables - см. её package doc выше (typedefs).
+	// После ОБЕИХ групп typedefs/typedefsAfterCallables (rech_struct_eq_...
+	// сравнивает только уже объявленные поля структуры - typedef структуры
+	// достаточно, ничего из generic-коллекций ей не нужно) и ДО
+	// genericsCodeAfterEntities ниже - "Список<Структура>.равен" (её dest -
+	// именно genericsCodeAfterEntities, см. package doc entitySig.Equatable)
+	// зовёт rech_struct_eq_... элемента, прототип/тело обязаны быть уже
+	// видны C здесь, а не после (как structEqProtos/structEqFuncs стояли
+	// раньше, ДО того, как "равен" начал ссылаться на них извне struct_eq.go).
 	appendCodeIf(&sb, typedefsAfterCallables.Len() > 0, typedefsAfterCallables.String())
+	appendCodeIf(&sb, structEqProtos.Len() > 0, structEqProtos.String())
+	appendCodeIf(&sb, structEqFuncs.Len() > 0, structEqFuncs.String())
 	// После ОБЕИХ групп typedefs/typedefsAfterCallables (коллекция с
 	// сущностью-элементом ждёт typedef именно этой сущности, а та могла
 	// попасть в любую из двух групп) - см. package doc genericsCodeAfterEntities
@@ -2255,7 +2326,7 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 			return err
 		}
 		fmt.Fprintf(sb, "%swhile (%s) {\n", ind, cond)
-		ctx.pushLoop("")
+		lf := ctx.pushLoop()
 		for _, st := range s.Body {
 			if err := generateIRStmt(sb, ctx, st, depth+1); err != nil {
 				ctx.popLoop()
@@ -2263,14 +2334,16 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 			}
 		}
 		ctx.popLoop()
+		fmt.Fprintf(sb, "%s%s: ;\n", indent(depth+1), lf.continueTarget)
 		fmt.Fprintf(sb, "%s}\n", ind)
+		fmt.Fprintf(sb, "%s%s: ;\n", ind, lf.breakTarget)
 		return nil
 
 	case *ir.BreakStmt:
-		return generateIRBreakStmt(sb, ctx, depth)
+		return generateIRBreakStmt(sb, ctx, depth, s.Depth)
 
 	case *ir.ContinueStmt:
-		return generateIRContinueStmt(sb, ctx, depth)
+		return generateIRContinueStmt(sb, ctx, depth, s.Depth)
 
 	case *ir.CStyleForStmt:
 		return generateIRCStyleFor(sb, ctx, s, depth)
@@ -2393,7 +2466,23 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 			return err
 		}
 		ctx.usesPanic = true
-		fmt.Fprintf(sb, "%sif (!(%s)) { rech_panic(\"%s\"); }\n", ind, cond, escapeCString(rtmsg.AssertFailed(s.Line)))
+		if s.Message == nil {
+			fmt.Fprintf(sb, "%sif (!(%s)) { rech_panic(\"%s\"); }\n", ind, cond, escapeCString(rtmsg.AssertFailed(s.Line)))
+			return nil
+		}
+		// "утверждать <условие>, <сообщение>" (docs/ROADMAP.md - внятные
+		// сообщения о несовпадении) - сообщение конкатенируется с обычным
+		// текстом ("утверждение не выполнено (строка N): <сообщение>"),
+		// вычисляется в тексте самого "if" (C сам не вычисляет его, если
+		// условие истинно - обычное короткое замыкание условного блока, тот
+		// же принцип, что и у ветки тернарного оператора).
+		msgCode, _, err := generateIRExpr(ctx, s.Message)
+		if err != nil {
+			return err
+		}
+		ctx.usesConcat = true
+		prefix := escapeCString(rtmsg.AssertFailed(s.Line) + ": ")
+		fmt.Fprintf(sb, "%sif (!(%s)) { rech_panic(rech_str_concat(\"%s\", %s)); }\n", ind, cond, prefix, msgCode)
 		return nil
 
 	case *ir.ExprStmt:
@@ -2428,7 +2517,7 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 		}
 		varC := mangleVar(s.Var)
 		fmt.Fprintf(sb, "%sfor (long long %s = %s; %s <= %s; %s++) {\n", ind, varC, fromCode, varC, toCode, varC)
-		ctx.pushLoop("")
+		lf := ctx.pushLoop()
 		for _, st := range s.Body {
 			if err := generateIRStmt(sb, ctx, st, depth+1); err != nil {
 				ctx.popLoop()
@@ -2436,7 +2525,9 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 			}
 		}
 		ctx.popLoop()
+		fmt.Fprintf(sb, "%s%s: ;\n", indent(depth+1), lf.continueTarget)
 		fmt.Fprintf(sb, "%s}\n", ind)
+		fmt.Fprintf(sb, "%s%s: ;\n", ind, lf.breakTarget)
 		return nil
 
 	case *ir.ThrowStmt:
@@ -2463,7 +2554,7 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 			fmt.Fprintf(sb, "%sbool %s = false;\n", indent(depth+1), okC)
 			fmt.Fprintf(sb, "%sconst char *%s = rech_read_line_from_file(%s, &%s);\n", indent(depth+1), varC, collCode, okC)
 			fmt.Fprintf(sb, "%sif (!%s) { break; }\n", indent(depth+1), okC)
-			ctx.pushLoop("")
+			lf := ctx.pushLoop()
 			for _, st := range s.Body {
 				if err := generateIRStmt(sb, ctx, st, depth+1); err != nil {
 					ctx.popLoop()
@@ -2471,14 +2562,16 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 				}
 			}
 			ctx.popLoop()
+			fmt.Fprintf(sb, "%s%s: ;\n", indent(depth+1), lf.continueTarget)
 			fmt.Fprintf(sb, "%s}\n", ind)
+			fmt.Fprintf(sb, "%s%s: ;\n", ind, lf.breakTarget)
 			return nil
 		}
 		varC := mangleVar(s.Var)
 		idxC := "rech_fe_i_" + varC
 		fmt.Fprintf(sb, "%sfor (long long %s = 0; %s < %s->len; %s++) {\n", ind, idxC, idxC, collCode, idxC)
 		fmt.Fprintf(sb, "%s%s %s = %s->data[%s];\n", indent(depth+1), fromIRType(s.ElemType).cType(ctx), varC, collCode, idxC)
-		ctx.pushLoop("")
+		lf := ctx.pushLoop()
 		for _, st := range s.Body {
 			if err := generateIRStmt(sb, ctx, st, depth+1); err != nil {
 				ctx.popLoop()
@@ -2486,7 +2579,9 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 			}
 		}
 		ctx.popLoop()
+		fmt.Fprintf(sb, "%s%s: ;\n", indent(depth+1), lf.continueTarget)
 		fmt.Fprintf(sb, "%s}\n", ind)
+		fmt.Fprintf(sb, "%s%s: ;\n", ind, lf.breakTarget)
 		return nil
 
 	default:
@@ -2865,6 +2960,18 @@ func generateIRBinaryExpr(ctx *irGenCtx, e *ir.BinaryExpr) (string, valueType, e
 				return fmt.Sprintf("(%s == 0)", cmp), typeBool, nil
 			}
 			return fmt.Sprintf("(%s != 0)", cmp), typeBool, nil
+		}
+		if lt.Kind == ir.KindEntity && lt == rt && !ctx.entityIsRef(lt.Entity) {
+			// "структура" (значение) - поле-в-поле через сгенерированную
+			// rech_struct_eq_... (docs/ROADMAP.md, struct_eq.go) - semantic
+			// (structFieldsEquatable) уже проверил, что это разрешимо.
+			// Ссылочная сущность/класс идёт ниже, обычным пойнтерным "==".
+			registerStructEqEntity(ctx, lt.Entity)
+			cmp := fmt.Sprintf("%s(%s, %s)", structEqFuncName(lt.Entity), lc, rc)
+			if e.Op == "==" {
+				return cmp, typeBool, nil
+			}
+			return fmt.Sprintf("(!%s)", cmp), typeBool, nil
 		}
 		return fmt.Sprintf("(%s %s %s)", lc, e.Op, rc), typeBool, nil
 

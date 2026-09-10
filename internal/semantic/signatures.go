@@ -201,6 +201,19 @@ type entitySig struct {
 	IsDict  bool
 	KeyType ir.Type
 
+	// Equatable - заполнено только у IsList/IsDict: элемент (ElemType)
+	// сам поддерживает содержательное сравнение (elemEquatable, cast.go) -
+	// решает, добавлен ли у ЭТОЙ инстанциации метод "равен" (глубокое
+	// сравнение содержимого, в отличие от "==" - identity, как и раньше,
+	// см. package doc entitySig.IsList выше). Вычисляется один раз при
+	// первой встрече инстанциации (resolveGenericTypeName/
+	// resolveDictTypeName) и переносится в ir.GenericInstantiation.Equatable
+	// (analyzer.go) - cbackend доверяет этому полю, не пересчитывает
+	// эквивалентную проверку сам (тот же принцип, что structFieldsEquatable
+	// проверяется только в semantic, generateIRStructEqFunc уже не
+	// перепроверяет).
+	Equatable bool
+
 	// IsNullable - синтезированная запись для "?Тип" (resolveNullableTypeName,
 	// internal/semantic/nullable.go), тем же принципом лениво-регистрируемой
 	// entitySig, что IsList/IsDict - ElemType несёт внутренний Тип (то же

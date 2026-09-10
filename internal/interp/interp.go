@@ -769,7 +769,14 @@ const (
 )
 
 type ctrl struct {
-	kind  ctrlKind
+	kind ctrlKind
+	// depth - только для ctrlBreak/ctrlContinue: "прервать N"/"продолжить N"
+	// (1 - ближайший охватывающий цикл, как и раньше). handleLoopCtrl
+	// (exec.go) - единая точка, где цикл решает, предназначен ли сигнал ЕМУ
+	// (depth<=1, обрабатывает сам) или охватывающему циклу снаружи (depth>1,
+	// пробрасывает дальше с depth-1, сам при этом всё равно останавливается -
+	// см. package doc handleLoopCtrl).
+	depth int
 	value Value
 }
 

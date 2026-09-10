@@ -46,6 +46,9 @@ func stmtExprRoots(s ir.Stmt) []ir.Expr {
 	case *ir.ShowStmt:
 		return []ir.Expr{s.Value}
 	case *ir.AssertStmt:
+		if s.Message != nil {
+			return []ir.Expr{s.Cond, s.Message}
+		}
 		return []ir.Expr{s.Cond}
 	case *ir.VarDecl:
 		return []ir.Expr{s.Value}

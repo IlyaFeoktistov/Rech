@@ -71,6 +71,72 @@ var equatableTypes = map[ir.Type]bool{
 	ir.TypeByte:    true,
 }
 
+// structFieldsEquatable проверяет, годится ли "структура" name для "=="/
+// "!=" (поле-в-поле, docs/ROADMAP.md) - КАЖДОЕ поле обязано быть либо уже
+// equatableTypes/Строка (сравнение содержимого), либо KindEntity -
+// сущностью-ссылкой ИЛИ generic-коллекцией (Список<T> и т. п. -
+// entityIsRefType считает их ссылочными безусловно, см. её package doc) -
+// сравнивается по IDENTITY, не по содержимому (та же семантика, что и у
+// самого "==" для ссылочной сущности верхнего уровня), либо вложенной
+// "структурой" (рекурсивно, той же проверкой - структура физически не может
+// содержать сама себя полем, C не допустил бы такой typedef, значит
+// рекурсия гарантированно конечна, циклы невозможны). Любой ДРУГОЙ тип поля
+// (nullable/Вызываемый/Указатель<T>/интерфейс и т. п. - НЕ KindEntity)
+// делает саму "структуру" целиком НЕ сравнимой - имя и тип проблемного поля
+// называются в ошибке явно, не молча пропускаются и не сравниваются неверно
+// во время выполнения.
+func structFieldsEquatable(entities map[string]entitySig, name string) error {
+	sig := entities[name]
+	for i, ft := range sig.FieldTypes {
+		if ft == ir.TypeString || equatableTypes[ft] {
+			continue
+		}
+		if ft.Kind == ir.KindEntity {
+			if entityIsRefType(entities, ft.Entity) {
+				continue
+			}
+			if err := structFieldsEquatable(entities, ft.Entity); err != nil {
+				return fmt.Errorf("поле %q (структура %s): %w", sig.FieldNames[i], ft, err)
+			}
+			continue
+		}
+		return fmt.Errorf("поле %q имеет тип %s, сравнение структур с таким полем не поддерживается", sig.FieldNames[i], ft)
+	}
+	return nil
+}
+
+// elemEquatable - t годится элементом (значением) "Список<T>"/"Словарь<К,
+// В>" для метода "равен" (глубокое сравнение содержимого - docs/ROADMAP.md,
+// найдено по ходу разбора юнит-тестирования: "==" у самих коллекций
+// сравнивает по identity, содержимое сравнить было нечем без ручного
+// цикла) - той же трёхчастной проверкой, что и structFieldsEquatable выше
+// (примитив/Строка, ссылочная сущность - identity, "структура" - рекурсивно
+// поле-в-поле), плюс четвёртый случай, которого нет у полей структуры:
+// вложенная встроенная коллекция (Список<Список<Целое>>) - тогда решает уже
+// вычисленное Equatable ЭТОЙ инстанциации (entitySig.Equatable) - к моменту
+// вызова оно уже заполнено, потому что resolveTypeName сперва рекурсивно
+// разрешает внутренний тип-аргумент, значит внешний resolveGenericTypeName/
+// resolveDictTypeName видит его entitySig уже полностью готовой.
+func elemEquatable(entities map[string]entitySig, t ir.Type) bool {
+	if t == ir.TypeString || equatableTypes[t] {
+		return true
+	}
+	if t.Kind != ir.KindEntity {
+		return false
+	}
+	sig, ok := entities[t.Entity]
+	if !ok {
+		return false
+	}
+	if sig.IsList || sig.IsDict {
+		return sig.Equatable
+	}
+	if entityIsRefType(entities, t.Entity) {
+		return true
+	}
+	return structFieldsEquatable(entities, t.Entity) == nil
+}
+
 // fixedWidthIntTypes - Целое8/16/32/64 и Натуральное/8/16/32/64 - в отличие
 // от Целое (numericRanks, неявная промоция к Дробное/Действительное),
 // участвуют в "< > <= >= == !=" и в арифметике (+ - * /, analyzeArithmetic)

@@ -20,6 +20,7 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 	"github.com/IlyaFeoktistov/Rech/internal/module"
 	"github.com/IlyaFeoktistov/Rech/internal/parser"
+	"github.com/IlyaFeoktistov/Rech/internal/project"
 	"github.com/IlyaFeoktistov/Rech/internal/semantic"
 )
 
@@ -496,11 +497,29 @@ func (c *Compiler) parseFileRaw(srcPath string) (*ast.Program, error) {
 // (module.Load/Program.Link, включая обнаружение циклических импортов) - у
 // файла без единого "использовать" результат не отличается от обычного
 // разбора одного файла.
+//
+// НАЙДЕННЫЙ БАГ (docs/ROADMAP.md): srcPath не обязательно pf.MainPath() -
+// главный файл своего .rechproj (cmd/rech/main.go подставляет его только
+// когда пользователь передал САМ .rechproj; обычный "rech build/run
+// <файл.rech>" передаёт srcPath как есть, даже если файл лежит глубоко
+// внутри дерева проекта - например, тестовый файл internal/testrunner
+// рядом с исходниками, использующий "использовать ... из "@путь""). Без
+// project.RootFor "@путь" резолвился бы от каталога САМОГО srcPath
+// (module.LoadWithRoot с root == "" - её package doc), а не от корня
+// проекта - расходилось с "rech test" на ТОМ ЖЕ файле (internal/
+// testrunner.RunFile уже вызывает project.RootFor) и с LSP. project.
+// RootFor возвращает "" без ошибки, если .rechproj не найден - тогда
+// LoadWithRoot ведёт себя как прежде (каталог srcPath), никакой разницы
+// для обычных отдельно стоящих файлов вне проекта.
 func (c *Compiler) parseFile(srcPath string) (*ast.Program, error) {
 	if err := validateSourceFileName(srcPath); err != nil {
 		return nil, err
 	}
-	prog, err := module.LoadWithGraph(srcPath, c.Frontend, c.Deps, c.DepScopes)
+	root, err := project.RootFor(srcPath)
+	if err != nil {
+		return nil, err
+	}
+	prog, err := module.LoadWithRoot(srcPath, c.Frontend, c.Deps, c.DepScopes, root)
 	if err != nil {
 		return nil, err
 	}
