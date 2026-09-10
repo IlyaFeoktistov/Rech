@@ -52,8 +52,8 @@ func TestAnalyzeListLiteralMixedTypesRejected(t *testing.T) {
 }
 
 // TestAnalyzeListLiteralEntityElementAllowed - "[а]" с сущностью-элементом
-// допустим как локальная переменная (не поле, см. package doc
-// internal/semantic.collectionRealEntityElem).
+// допустим как локальная переменная (как и полем сущности/структуры -
+// см. TestAnalyzeCollectionEntityFieldAllowed в semantic_test.go).
 func TestAnalyzeListLiteralEntityElementAllowed(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 сущность Точка {

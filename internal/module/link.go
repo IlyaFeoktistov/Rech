@@ -186,6 +186,32 @@ func (p *Program) Link() (*ast.Program, error) {
 			}
 			r.typeParams = nil
 		}
+		// НАЙДЕННЫЙ БАГ (исправлен здесь): методы m.AST.Interfaces не
+		// проходили через rewriteParams/rewriteReturnType вообще - тот же
+		// класс бага, что и у конструктора выше (см. её комментарий), только
+		// для сигнатур методов интерфейса. Пока параметр/тип результата
+		// метода интерфейса мог быть только примитивом или именем другого
+		// интерфейса (оба не манглятся, см. package doc unmangledCategoryName)
+		// это было незаметно; как только collectInterfaces
+		// (internal/semantic/interfaces.go) стал разрешать ссылки на
+		// сущность/структуру программы в сигнатуре метода интерфейса, ссылка
+		// на сущность из НЕ-entry модуля (мангленную) осталась бы написанной
+		// её исходным, ещё не смангленным именем - "неизвестный тип" у
+		// semantic, даже если сущность объявлена и видна через "использовать".
+		for _, iface := range m.AST.Interfaces {
+			for i := range iface.Methods {
+				meth := &iface.Methods[i]
+				r.locals = nil
+				if err := r.rewriteParams(meth.Params); err != nil {
+					return nil, fmt.Errorf("%s: интерфейс %q: метод %q: %w", m.Path, iface.Name, meth.Name, err)
+				}
+				resolved, err := r.rewriteReturnType(meth.ReturnType)
+				if err != nil {
+					return nil, fmt.Errorf("%s: интерфейс %q: метод %q: тип результата: %w", m.Path, iface.Name, meth.Name, err)
+				}
+				meth.ReturnType = resolved
+			}
+		}
 		for _, ext := range m.AST.ExternFuncs {
 			if err := r.rewriteParams(ext.Params); err != nil {
 				return nil, fmt.Errorf("%s: внешняя функция %q: %w", m.Path, ext.Alias, err)

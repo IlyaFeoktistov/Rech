@@ -37,9 +37,8 @@ func TestAnalyzeDictRejectsFloatKey(t *testing.T) {
 }
 
 // TestAnalyzeDictAllowsEntityValueOutsideField - Словарь<К, Сущность>
-// допустим как локальная переменная (не поле другой сущности/структуры,
-// см. TestAnalyzeCollectionEntityFieldRejected в semantic_test.go) -
-// internal/semantic.collectionRealEntityElem.
+// допустим как локальная переменная (как и полем другой сущности/структуры -
+// см. TestAnalyzeCollectionEntityFieldAllowed в semantic_test.go).
 func TestAnalyzeDictAllowsEntityValueOutsideField(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 сущность Точка

@@ -44,7 +44,7 @@ func TestGenerateFromIRListIndexEmitsSafeGetOnlyWhenUsed(t *testing.T) {
 	// _get_safe должна идти ПОСЛЕ typedef'а самой коллекции и ПОСЛЕ
 	// typedef'а её nullable-обёртки - иначе тип возврата/параметр функции
 	// не объявлен на момент её собственного объявления.
-	listTypedefIdx := strings.Index(out, "} "+structName+";")
+	listTypedefIdx := strings.Index(out, "struct "+structName+" {")
 	nullableTypedefIdx := strings.Index(out, "} "+mangleType(nullableType.Entity)+";")
 	getSafeIdx := strings.Index(out, "static "+mangleType(nullableType.Entity)+" "+getSafe)
 	if listTypedefIdx == -1 || nullableTypedefIdx == -1 || getSafeIdx == -1 {

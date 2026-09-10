@@ -1471,10 +1471,9 @@ func TestAnalyzeStackAndQueueGenerics(t *testing.T) {
 	}
 }
 
-// TestAnalyzeCollectionEntityElementAllowed - Список<Сущность> как ЛОКАЛЬНАЯ
-// переменная (не поле сущности/структуры) - допустимо (см. package doc
-// internal/semantic.collectionRealEntityElem про сам запрет только полем -
-// TestAnalyzeCollectionEntityFieldRejected ниже).
+// TestAnalyzeCollectionEntityElementAllowed - Список<Сущность> как локальная
+// переменная - допустимо (как и полем сущности/структуры,
+// см. TestAnalyzeCollectionEntityFieldAllowed ниже).
 func TestAnalyzeCollectionEntityElementAllowed(t *testing.T) {
 	toks, err := lexer.New(`
 сущность Пользователь
@@ -1505,14 +1504,19 @@ func TestAnalyzeCollectionEntityElementAllowed(t *testing.T) {
 	}
 }
 
-// TestAnalyzeCollectionEntityFieldRejected - в отличие от локальной
-// переменной выше, ПОЛЕ сущности/структуры не может быть встроенной
-// коллекцией с сущностью-элементом (internal/semantic.collectEntities,
-// collectionRealEntityElem) - иначе понадобился бы полный топологический
-// порядок typedef'ов вперемешку с сущностями в cbackend вместо
-// фиксированного порядка бакетов (см. её package doc в internal/backend/
-// cbackend/ir_generator.go, genericsCodeAfterEntities).
-func TestAnalyzeCollectionEntityFieldRejected(t *testing.T) {
+// TestAnalyzeCollectionEntityFieldAllowed - ПОЛЕ сущности/структуры МОЖЕТ
+// быть встроенной коллекцией с сущностью-элементом (например, "Отдел" со
+// "Список<Пользователь> сотрудники" ниже) - раньше это было запрещено
+// (internal/semantic.collectEntities, collectionRealEntityElem), потому что
+// понадобился бы полный топологический порядок typedef'ов вперемешку с
+// сущностями в cbackend вместо фиксированного порядка бакетов; теперь
+// cbackend forward-декларирует C-typedef КАЖДОЙ generic-коллекции ДО всех
+// остальных typedef'ов (opaque "typedef struct rech_T_... rech_T_...;" -
+// см. package doc genericForwardDecl, internal/backend/cbackend/
+// ir_generator.go) - полю достаточно указателя на ещё неполный тип, само
+// тело коллекции по-прежнему эмитится в свой обычный бакет
+// (genericsCodeAfterEntities и т. п.), после typedef сущности-элемента.
+func TestAnalyzeCollectionEntityFieldAllowed(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 сущность Пользователь
 {
@@ -1529,8 +1533,8 @@ func TestAnalyzeCollectionEntityFieldRejected(t *testing.T) {
     вывести "ок"
 }
 `)
-	if err == nil || !strings.Contains(err.Error(), "допустима только вне полей сущностей/структур") {
-		t.Fatalf("ожидалась ошибка про недопустимое поле-коллекцию с сущностью-элементом, получено: %v", err)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 }
 

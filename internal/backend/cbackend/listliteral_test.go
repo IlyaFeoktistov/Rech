@@ -37,7 +37,7 @@ func TestGenerateFromIRListLiteralEmitsFromLiteralHelper(t *testing.T) {
 	if !strings.Contains(out, fn+"(2LL, (long long[]){1LL, 2LL})") {
 		t.Fatalf("ожидался вызов с готовым массивом элементов, получено:\n%s", out)
 	}
-	typedefIdx := strings.Index(out, "} "+structName+";")
+	typedefIdx := strings.Index(out, "struct "+structName+" {")
 	fnIdx := strings.Index(out, "static "+structName+" *"+fn)
 	if typedefIdx == -1 || fnIdx == -1 || fnIdx < typedefIdx {
 		t.Fatalf("_from_literal должна идти после typedef'а коллекции, получено:\n%s", out)

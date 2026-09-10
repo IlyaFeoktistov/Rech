@@ -294,6 +294,49 @@ func TestLinkResolvesInterfaceTypeInNonEntryModule(t *testing.T) {
 	}
 }
 
+// TestLinkResolvesInterfaceMethodEntityParamInNonEntryModule - НАЙДЕННЫЙ
+// БАГ (исправлен здесь, docs/ROADMAP.md - "examples/проекты - показать
+// полноценное ООП на Rech"): методы m.AST.Interfaces никогда не проходили
+// через rewriteParams/rewriteReturnType вообще - в отличие от
+// TestLinkResolvesInterfaceTypeInNonEntryModule выше (тот про ИМЯ самого
+// интерфейса, не про типы ЕГО методов), ссылка на сущность из НЕ-entry
+// модуля внутри сигнатуры метода интерфейса оставалась написанной
+// исходным, ещё не смангленным именем - "неизвестный тип" у semantic, даже
+// если сущность объявлена и видна через "использовать" в том же файле, что
+// и сам интерфейс.
+func TestLinkResolvesInterfaceMethodEntityParamInNonEntryModule(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "модель.rech", `интерфейс Наблюдатель
+{
+    на_событие(событие: Событие): Пусто
+}
+
+структура Событие
+{
+    имеет:
+        сообщение: Строка
+}
+`)
+	entry := writeFile(t, dir, "главный.rech", "использовать Наблюдатель, Событие из \"модель\"\n\nфункция главная\n{\n    вывести \"ок\"\n}\n")
+
+	prog, err := Load(entry, testFrontend{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	merged, err := prog.Link()
+	if err != nil {
+		t.Fatalf("Link: %v", err)
+	}
+	if len(merged.Interfaces) != 1 || len(merged.Interfaces[0].Methods) != 1 {
+		t.Fatalf("ожидался один интерфейс с одним методом, получено: %+v", merged.Interfaces)
+	}
+	m := merged.Interfaces[0].Methods[0]
+	wantType := "Модель_Событие"
+	if len(m.Params) != 1 || m.Params[0].Type != wantType {
+		t.Fatalf("ожидался параметр типа %q (смангленное имя сущности из НЕ-entry модуля), получено: %+v", wantType, m.Params)
+	}
+}
+
 // TestLinkImportsInterfaceByName - найденная находка (docs/ROADMAP.md, Шаг
 // 41, http_сервер): "использовать" не умело импортировать интерфейс по
 // имени вовсе (declaredNames/moduleVisibility не знали про

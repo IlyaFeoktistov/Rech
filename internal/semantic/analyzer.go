@@ -320,9 +320,6 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 			if err != nil {
 				return fmt.Errorf("сущность %q: поле %q: %w", ent.Name, f.Name, err)
 			}
-			if elemEnt, ok := collectionRealEntityElem(entities, typ); ok {
-				return fmt.Errorf("сущность %q: поле %q имеет тип %s - встроенная коллекция с сущностью %q элементом допустима только вне полей сущностей/структур (локальная переменная, параметр, тип результата функции), не полем другой сущности/структуры", ent.Name, f.Name, typ, elemEnt)
-			}
 			if ent.IsExternStruct && typ.Kind == ir.KindCallable {
 				// "Вызываемый(...)" полем внешней структуры (WNDPROC-в-структуре
 				// стиль, WNDCLASS.lpfnWndProc и т. п.) - НЕ реализовано (docs/

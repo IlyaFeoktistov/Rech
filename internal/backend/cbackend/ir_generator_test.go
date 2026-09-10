@@ -627,7 +627,7 @@ func TestGenerateFromIRListGenericAndForEach(t *testing.T) {
 	if !strings.Contains(out, "#include <stdlib.h>") || !strings.Contains(out, "static void rech_panic(") {
 		t.Fatalf("ожидались stdlib.h и rech_panic (нужны generic-коллекциям), получено:\n%s", out)
 	}
-	if !strings.Contains(out, "} rech_T_spisok_of_celoe;") {
+	if !strings.Contains(out, "struct rech_T_spisok_of_celoe {") {
 		t.Fatalf("ожидался typedef struct для Список<Целое>, получено:\n%s", out)
 	}
 	if !strings.Contains(out, "rech_M_spisok_of_celoe_dobavit((v_chisla), 5LL);") {
@@ -1127,8 +1127,12 @@ func TestGenerateFromIRShowEntityWithGenericFieldOrdersGenericShowFuncFirst(t *t
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	genericShowIdx := strings.Index(out, "static void rech_show_spisok_of_stroka(")
-	entityShowIdx := strings.Index(out, "static void rech_show_gruppa(")
+	// LastIndex - не первое вхождение (то может быть прототип в showProtos,
+	// чей порядок между собой не важен - прототипы снимают вопрос порядка
+	// определений полностью, см. package doc showProtos, ir_generator.go),
+	// а само ОПРЕДЕЛЕНИЕ (тело) функции показа.
+	genericShowIdx := strings.LastIndex(out, "static void rech_show_spisok_of_stroka(")
+	entityShowIdx := strings.LastIndex(out, "static void rech_show_gruppa(")
 	if genericShowIdx == -1 || entityShowIdx == -1 || genericShowIdx > entityShowIdx {
 		t.Fatalf("функция показа generic-коллекции должна идти раньше функции показа сущности, несущей её полем, получено:\n%s", out)
 	}
@@ -1227,7 +1231,7 @@ func TestGenerateFromIREntityWithGenericFieldOrdering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	listDefPos := strings.Index(out, "} "+mangleType("Список<Строка>")+";")
+	listDefPos := strings.Index(out, "struct "+mangleType("Список<Строка>")+" {")
 	entityDefPos := strings.Index(out, "} "+mangleType("Корзина")+";")
 	if listDefPos < 0 || entityDefPos < 0 {
 		t.Fatalf("не найдены оба typedef в выводе:\n%s", out)
@@ -1319,7 +1323,7 @@ func TestGenerateFromIRCollectionHoldingCallableOrdersCallableTypedefFirst(t *te
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 	callableDefPos := strings.Index(out, "} "+mangleCallableType(sig.Name)+";")
-	listDefPos := strings.Index(out, "} "+mangleType("Список<Вызываемый(Целое)Целое>")+";")
+	listDefPos := strings.Index(out, "struct "+mangleType("Список<Вызываемый(Целое)Целое>")+" {")
 	if callableDefPos < 0 || listDefPos < 0 {
 		t.Fatalf("не найдены оба typedef в выводе:\n%s", out)
 	}

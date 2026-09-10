@@ -48,14 +48,27 @@ func (s interfaceSig) methodIndex(name string) int {
 // collectInterfaces - предварительный проход: сигнатуры методов всех
 // интерфейсов программы, до collectEntities ("реализует" сущности должен
 // резолвиться против уже готовых interfaceSig) - тот же принцип, что и
-// collectFuncSigs/collectEntities. Известное ограничение: параметры/тип
-// результата метода интерфейса могут быть только примитивами
-// или именами УЖЕ собранных интерфейсов (не сущностей - у collectEntities
-// собственная, более сложная граница видимости, интерфейсы сознательно её
-// не используют, чтобы не заводить двухпроходное разрешение вперёд/назад
-// между сущностями и интерфейсами).
+// collectFuncSigs/collectEntities. Параметры/тип результата метода
+// интерфейса при этом МОГУТ ссылаться на сущность/структуру программы
+// (Наблюдатель.на_событие(событие: СобытиеПроцесса) и т. п.) - без этого
+// интерфейсы не годились бы для типичных ООП-паттернов вроде Observer/
+// Strategy, у которых метод контракта принимает доменный объект, не только
+// примитив. paramEntities ниже даёт resolveTypeName увидеть ИМЕНА всех
+// сущностей программы заранее - placeholder entitySig{} (без полей/
+// методов) достаточно, полные сигнатуры соберёт collectEntities позже, уже
+// для тел функций/сущностей - collectInterfaces никогда не заглядывает в
+// entitySig глубже самого факта, что имя существует. Настоящего
+// двухпроходного резолвинга это не заводит: "реализует" (обратная
+// сторона - сущность против интерфейса) по-прежнему проверяется только в
+// collectEntities, здесь сущности используются исключительно КАК ТИПЫ
+// параметров/результата, без всякой связи с "реализует".
 func (a *Analyzer) collectInterfaces(prog *ast.Program) error {
 	interfaces := map[string]interfaceSig{}
+	paramEntities := map[string]entitySig{}
+	for _, ent := range prog.Entities {
+		paramEntities[ent.Name] = entitySig{IsStruct: ent.IsStruct}
+	}
+	paramMethods := map[string]map[string]funcSig{}
 	for _, iface := range prog.Interfaces {
 		if _, exists := interfaces[iface.Name]; exists {
 			return fmt.Errorf("интерфейс %q объявлен более одного раза", iface.Name)
@@ -88,7 +101,7 @@ func (a *Analyzer) collectInterfaces(prog *ast.Program) error {
 			}
 			params := make([]ir.Type, len(m.Params))
 			for i, p := range m.Params {
-				typ, err := resolveTypeName(nil, nil, nil, interfaces, p.Type)
+				typ, err := resolveTypeName(paramEntities, paramMethods, nil, interfaces, p.Type)
 				if err != nil {
 					return fmt.Errorf("интерфейс %q: метод %q: параметр %q: %w", iface.Name, m.Name, p.Name, err)
 				}
@@ -107,7 +120,7 @@ func (a *Analyzer) collectInterfaces(prog *ast.Program) error {
 				msig.HasReturn = true
 				msig.SelfReturn = true
 			case m.ReturnType != "":
-				typ, err := resolveTypeName(nil, nil, nil, interfaces, m.ReturnType)
+				typ, err := resolveTypeName(paramEntities, paramMethods, nil, interfaces, m.ReturnType)
 				if err != nil {
 					return fmt.Errorf("интерфейс %q: метод %q: тип результата: %w", iface.Name, m.Name, err)
 				}

@@ -858,8 +858,11 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 
 	// showFuncs - функции показа ("показать") для каждой сущности и
 	// generic-коллекции программы - заполняется НИЖЕ, после генерации тел
-	// (body), а не здесь - см. package doc там.
-	var showFuncs strings.Builder
+	// (body), а не здесь - см. package doc там. showProtos - их прототипы
+	// (та же роль, что и у protos ниже для методов/конструкторов, но
+	// эмитируется в СВОЙ, более ранний блок sb - см. её появление там: protos
+	// сам заполняется/сбрасывается позже, ПОСЛЕ showFuncs).
+	var showFuncs, showProtos strings.Builder
 
 	var protos strings.Builder
 	if ctx.usesMutex {
@@ -1007,31 +1010,32 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// "Символ" молча тянула за собой чужой конфликтующий системный
 	// заголовок в любой программе с "внешняя функция").
 	if ctx.usesShow {
-		// Generics - ПЕРЕД сущностями: сущность может нести generic-
-		// коллекцию ПОЛЕМ ("участники: Список<Строка>") и её функция
-		// показа зовёт rech_show_<коллекция> - обратная зависимость (в
-		// обычном случае) невозможна: элемент встроенной коллекции - либо
-		// примитив/другая встроенная коллекция (эта ветка), либо настоящая
-		// пользовательская сущность (см. internal/semantic.
-		// resolveGenericTypeName) - но такая коллекция уже не может быть
-		// полем сущности (internal/semantic.collectEntities,
-		// collectionRealEntityElem), значит цикла тоже нет - её функция
-		// показа просто откладывается на третий проход ниже, ПОСЛЕ функций
-		// показа сущностей (она зовёт rech_show_<Сущность>, ему нужно уже
-		// существовать).
-		for _, g := range prog.Generics {
-			if g.ElemType.Kind == ir.KindEntity && entities[g.ElemType.Entity] != nil {
-				continue
+		// showProtos - "static void rech_show_...(...);" для КАЖДОЙ функции
+		// показа программы, ДО единой их определений ниже - сущность может
+		// нести generic-коллекцию ПОЛЕМ ("сотрудники: Список<Пользователь>",
+		// см. TestAnalyzeCollectionEntityFieldAllowed), чья функция показа
+		// зовёт rech_show_<Сущность>, а функция показа самой "Пользователь"
+		// тоже может (рекурсивно, через ДРУГОЕ своё поле) звать
+		// rech_show_<та же или другая коллекция> - настоящий цикл между
+		// определениями, ЛЮБОЙ фиксированный порядок проходов (как раньше -
+		// сначала generics-без-сущности, потом сущности, потом остальные
+		// generics) его не решает. Прототипы снимают вопрос порядка
+		// полностью - как и у protos ниже для методов/конструкторов.
+		for _, ent := range prog.Entities {
+			paramType := entityCName(ctx, ent.Name)
+			if ctx.entityIsRef(ent.Name) {
+				paramType += " *"
 			}
+			fmt.Fprintf(&showProtos, "static void %s(%s);\n", showFuncName(ent.Name), paramType)
+		}
+		for _, g := range prog.Generics {
+			fmt.Fprintf(&showProtos, "static void %s(%s *);\n", showFuncName(g.Name), mangleType(g.Name))
+		}
+		for _, g := range prog.Generics {
 			showFuncs.WriteString(generateIRGenericShowFunc(ctx, g))
 		}
 		for _, ent := range prog.Entities {
 			showFuncs.WriteString(generateIREntityShowFunc(ctx, ent))
-		}
-		for _, g := range prog.Generics {
-			if g.ElemType.Kind == ir.KindEntity && entities[g.ElemType.Entity] != nil {
-				showFuncs.WriteString(generateIRGenericShowFunc(ctx, g))
-			}
 		}
 	}
 
@@ -1316,15 +1320,34 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		sb.WriteString(http2CallbacksCode(ctx.usesTLS))
 	}
 
-	// Перед typedefs - сущность может нести поле generic-коллекции по
-	// значению (например, "товары: Список<Строка>"), значит её C-typedef
-	// (типа rech_T_spisok_of_stroka) обязан быть уже объявлен раньше
-	// typedef самой сущности - обратная зависимость невозможна
-	// (элементы встроенных коллекций - только примитивы, коллекция не
-	// может нести сущность как элемент). Коллекции, несущие "Вызываемый" по
-	// значению (genericsCodeAfterCallables ниже) - отдельная группа, им
-	// нужен ОБРАТНЫЙ порядок (callableTypedefs, а через него - и typedefs,
-	// раньше их самих - см. её package doc).
+	// genericForwardDecl - "typedef struct rech_T_... rech_T_...;" для
+	// КАЖДОЙ generic-инстанциации программы (Список/Стопка/Очередь/Словарь) -
+	// опережает ЛЮБОЙ typedef ниже (genericsCode/typedefs/
+	// genericsCodeAfterEntities/...), тем же приёмом, что и у header.go
+	// (generateHeader, opaque forward declaration ссылочных сущностей для
+	// потребителя библиотеки): generic-коллекция - ВСЕГДА ссылочный тип
+	// (ctx.entityIsRef, generics-ветка), значит поле сущности/структуры,
+	// которое несёт коллекцию, - это на C-уровне всего лишь указатель
+	// (rech_T_...  *) и ему не нужно ничего, кроме имени типа, объявленного
+	// ХОТЯ БЫ неполным (opaque) - настоящее тело (listCollectionCCode/
+	// stackCollectionCCode/queueCollectionCCode/dictCollectionCCode, теперь
+	// "struct rech_T_... {...};", а не анонимный "typedef struct {...}
+	// rech_T_...;" - анонимную структуру нельзя было бы объявить неполной
+	// заранее, у неё попросту нет тега) по-прежнему эмитится в СВОЙ обычный
+	// бакет (genericsCode/genericsCodeAfterCallables/genericsCodeAfterEntities,
+	// ниже) - порядок между самими бакетами не меняется, коллекция с
+	// сущностью/структурой-элементом всё так же ждёт typedef этой
+	// сущности/структуры для СВОЕГО тела (см. package doc
+	// genericsCodeAfterEntities). Снимает единственную причину, по которой
+	// internal/semantic раньше запрещал такой коллекции быть полем сущности/
+	// структуры (collectionRealEntityElem, теперь не вызывается).
+	var genericForwardDecl strings.Builder
+	for _, g := range prog.Generics {
+		structName := mangleType(g.Name)
+		fmt.Fprintf(&genericForwardDecl, "typedef struct %[1]s %[1]s;\n", structName)
+	}
+	appendCodeIf(&sb, genericForwardDecl.Len() > 0, genericForwardDecl.String())
+
 	appendCodeIf(&sb, genericsCode.Len() > 0, genericsCode.String())
 
 	// После genericsCode (внутренний тип "?Тип" может сам быть Список/
@@ -1400,6 +1423,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	appendCodeIf(&sb, genericsCodeAfterEntities.Len() > 0, genericsCodeAfterEntities.String())
 	// После genericsCodeAfterEntities - см. package doc callableTypedefsAfterEntities выше.
 	appendCodeIf(&sb, callableTypedefsAfterEntities.Len() > 0, callableTypedefsAfterEntities.String())
+	appendCodeIf(&sb, showProtos.Len() > 0, showProtos.String())
 	appendCodeIf(&sb, ctx.usesShow && showFuncs.Len() > 0, showFuncs.String())
 	// rech_dup - общий для HTTP-клиента/сервера и получить_от (адрес
 	// отправителя UDP-датаграммы копируется через rech_dup) - эмитится
@@ -2553,6 +2577,21 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 		callee := funcCName(ctx, e.Callee)
 		if isExtern {
 			callee = cName
+		}
+		if e.Callee == entryPointName {
+			// "главная" манглится в настоящий C "main" (mangleName) - у НЕГО,
+			// в отличие от любой другой функции программы, сигнатура ВСЕГДА
+			// "(int argc, char **argv)" (см. package doc про paramList "int
+			// argc, char **argv" в generateIRFunction), а не та, что вывелась
+			// бы из ir.Function.Params самой "главная" (у неё их нет вовсе,
+			// docs/SPEC.md - "главная" не принимает аргументы командной
+			// строки, они читаются отдельными builtin'ами). Аргументы самого
+			// Rech-вызова ("главная()") поэтому всегда пусты - C-вызов обязан
+			// передать (rech_argc, rech_argv), не "()" - иначе "main()" не
+			// совпадает с собственным прототипом "main(int, char**)" и cc
+			// отказывается собирать (найдено живьём при проверке, можно ли
+			// вообще вызвать "главная" из самого же Rech-кода).
+			return fmt.Sprintf("%s(rech_argc, rech_argv)", callee), fromIRType(e.Type), nil
 		}
 		return fmt.Sprintf("%s(%s)", callee, strings.Join(argCodes, ", ")), fromIRType(e.Type), nil
 

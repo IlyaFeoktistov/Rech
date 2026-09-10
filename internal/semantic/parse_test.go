@@ -118,11 +118,9 @@ func TestAnalyzeParseExprListOfPrimitivesTarget(t *testing.T) {
 	}
 }
 
-// TestAnalyzeParseExprListOfEntitiesAllowed - Список<Сущность> как ЛОКАЛЬНАЯ
-// переменная (не поле) - допустимая цель разбора JSON, structCompatible уже
-// рекурсирует в ElemType для sig.IsList независимо от того, элемент -
-// примитив или сущность (см. package doc internal/semantic.
-// collectionRealEntityElem про сам запрет только полем).
+// TestAnalyzeParseExprListOfEntitiesAllowed - Список<Сущность> - допустимая
+// цель разбора JSON, structCompatible уже рекурсирует в ElemType для
+// sig.IsList независимо от того, элемент - примитив или сущность.
 func TestAnalyzeParseExprListOfEntitiesAllowed(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 сущность Пользователь

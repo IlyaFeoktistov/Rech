@@ -34,11 +34,11 @@ func listCollectionCCode(name, elemC string) string {
 	outOfRange := escapeCString(rtmsg.IndexOutOfRange(name))
 	addr := structName + "_addr"
 
-	return fmt.Sprintf(`typedef struct {
+	return fmt.Sprintf(`struct %[2]s {
     %[1]s *data;
     long long len;
     long long cap;
-} %[2]s;
+};
 
 static void %[3]s(%[2]s *this_, %[1]s value) {
     if (this_->len == this_->cap) {
@@ -96,11 +96,11 @@ func stackCollectionCCode(name, elemC string) string {
 	empty := mangleMethod(name, "пусто")
 	onEmpty := escapeCString(rtmsg.EmptyStackOp(name))
 
-	return fmt.Sprintf(`typedef struct {
+	return fmt.Sprintf(`struct %[2]s {
     %[1]s *data;
     long long len;
     long long cap;
-} %[2]s;
+};
 
 static void %[3]s(%[2]s *this_, %[1]s value) {
     if (this_->len == this_->cap) {
@@ -147,11 +147,11 @@ func queueCollectionCCode(name, elemC string) string {
 	empty := mangleMethod(name, "пусто")
 	onEmpty := escapeCString(rtmsg.EmptyQueueOp(name))
 
-	return fmt.Sprintf(`typedef struct {
+	return fmt.Sprintf(`struct %[2]s {
     %[1]s *data;
     long long len;
     long long cap;
-} %[2]s;
+};
 
 static void %[3]s(%[2]s *this_, %[1]s value) {
     if (this_->len == this_->cap) {
@@ -227,12 +227,12 @@ func dictCollectionCCode(name, keyC, valC string, isStringKey bool) string {
     %[2]s value;
 } %[3]s;
 
-typedef struct {
+struct %[4]s {
     %[3]s *slots;
     long long cap;
     long long count;
     long long used;
-} %[4]s;
+};
 
 `, keyC, valC, slotType, structName)
 

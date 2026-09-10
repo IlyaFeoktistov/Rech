@@ -268,3 +268,83 @@ func TestAnalyzeInterfaceExtendsSatisfiesBaseInterface(t *testing.T) {
 		t.Fatal("ожидалась хотя бы одна функция в IR")
 	}
 }
+
+// TestAnalyzeInterfaceMethodAcceptsEntityParam - НАЙДЕННЫЙ КРАШ (исправлен
+// здесь, docs/ROADMAP.md - "examples/проекты - показать полноценное ООП на
+// Rech"): раньше параметр/тип результата метода интерфейса МОГ быть только
+// примитивом или именем другого интерфейса - сущность программы
+// (СобытиеПроцесса ниже) отвергалась (Observer/Factory - едва ли не самые
+// типичные ООП-паттерны, требующие ровно этого). collectInterfaces теперь
+// заранее видит имена всех сущностей/структур программы (paramEntities).
+func TestAnalyzeInterfaceMethodAcceptsEntityParam(t *testing.T) {
+	irProg := parseProgram(t, `
+структура Событие
+{
+    имеет:
+        сообщение: Строка
+}
+интерфейс Наблюдатель
+{
+    на_событие(событие: Событие): Пусто
+}
+сущность КонсольныйНаблюдатель реализует Наблюдателя
+{
+    на_событие(событие: Событие): Пусто
+    {
+        вывести событие.сообщение
+    }
+}
+функция главная
+{
+    переменная событие = новое Событие("привет")
+    переменная н = новый КонсольныйНаблюдатель()
+    н.на_событие(событие)
+}
+`)
+	if len(irProg.Interfaces) != 1 || len(irProg.Interfaces[0].Methods) != 1 {
+		t.Fatalf("ожидался один интерфейс с одним методом, получено %+v", irProg.Interfaces)
+	}
+	params := irProg.Interfaces[0].Methods[0].Params
+	if len(params) != 1 || params[0].Type != ir.EntityType("Событие") {
+		t.Fatalf("ожидался параметр типа \"Событие\", получено %+v", params)
+	}
+}
+
+// TestAnalyzeInterfaceMethodAcceptsGenericCollectionParam - тот же
+// НАЙДЕННЫЙ КРАШ, другая сторона: параметр метода интерфейса вроде
+// "Список<Строка>" (не голая сущность, а generic-инстанциация) раньше
+// падал `panic: assignment to entry in nil map` в resolveGenericTypeName
+// (collectInterfaces передавал буквальный nil вместо entities/methods,
+// resolveGenericTypeName пытается ЗАПИСАТЬ инстанциацию в них -
+// мемоизация) - теперь и не падает, и разрешается корректно.
+func TestAnalyzeInterfaceMethodAcceptsGenericCollectionParam(t *testing.T) {
+	irProg := parseProgram(t, `
+интерфейс ФабрикаСписков
+{
+    создать(значения: Список<Строка>): Список<Строка>
+}
+сущность ПростаяФабрика реализует ФабрикаСписков
+{
+    создать(значения: Список<Строка>): Список<Строка>
+    {
+        вернуть значения
+    }
+}
+функция главная
+{
+    переменная ф = новая ПростаяФабрика()
+    переменная пустой = новый Список<Строка>()
+    вывести ф.создать(пустой).длина()
+}
+`)
+	if len(irProg.Interfaces) != 1 || len(irProg.Interfaces[0].Methods) != 1 {
+		t.Fatalf("ожидался один интерфейс с одним методом, получено %+v", irProg.Interfaces)
+	}
+	m := irProg.Interfaces[0].Methods[0]
+	if len(m.Params) != 1 || m.Params[0].Type != ir.EntityType("Список<Строка>") {
+		t.Fatalf("ожидался параметр типа \"Список<Строка>\", получено %+v", m.Params)
+	}
+	if !m.HasReturn || m.ReturnType != ir.EntityType("Список<Строка>") {
+		t.Fatalf("ожидался тип результата \"Список<Строка>\", получено %+v", m)
+	}
+}

@@ -105,7 +105,7 @@ func TestGenerateFromIRCallableParamEntityCollectionOrdering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	collectionIdx := strings.Index(out, "} rech_T_spisok_of_polzovatel;")
+	collectionIdx := strings.Index(out, "struct rech_T_spisok_of_polzovatel {")
 	callableIdx := strings.Index(out, "rech_T_spisok_of_polzovatel *);")
 	if collectionIdx == -1 || callableIdx == -1 {
 		t.Fatalf("ожидались оба typedef в выводе, получено:\n%s", out)
