@@ -62,10 +62,10 @@ var grpcBytesFuncNames = map[string]bool{
 // заодно "?Строка") и дополнительно "?Список<Байт>" (результат
 // grpc_прочитать_сообщение) - вызывается из analyzeCallExpr при вызове
 // любой grpcFuncNames, тем же принципом, что registerHTTP2TypesOnCall.
-func registerGRPCTypesOnCall(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig) error {
-	if err := registerHTTP2TypesOnCall(entities, methods, aliases, interfaces); err != nil {
+func registerGRPCTypesOnCall(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64) error {
+	if err := registerHTTP2TypesOnCall(entities, methods, aliases, interfaces, enums); err != nil {
 		return err
 	}
-	_, err := resolveTypeName(entities, methods, aliases, interfaces, "?"+byteListType)
+	_, err := resolveTypeName(entities, methods, aliases, interfaces, enums, "?"+byteListType)
 	return err
 }

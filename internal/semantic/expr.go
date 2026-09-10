@@ -227,7 +227,7 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 		// синтезирует её и зарегистрирует в sc.entities/sc.methods, как и
 		// resolveType в cbackend (AST-путь); если e.Type в принципе не
 		// тип - вернёт понятную ошибку.
-		if _, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, e.Type); err != nil {
+		if _, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, e.Type); err != nil {
 			return nil, fmt.Errorf("строка %d: %w", e.Line, err)
 		}
 		sig, ok = sc.entities[e.Type]
@@ -523,42 +523,42 @@ func analyzeCallExpr(sc *ctx, e *ast.CallExpr) (ir.Expr, error) {
 	}
 	if sig, ok := sc.funcs[callee]; ok {
 		if callee == "параметры_пути" {
-			if err := registerQueryParamsDictTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
+			if err := registerQueryParamsDictTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
 				return nil, fmt.Errorf("строка %d: встроенная функция \"параметры_пути\": %w", e.Line, err)
 			}
 		}
 		if callee == "разбить" {
-			if err := registerSplitTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
+			if err := registerSplitTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
 				return nil, fmt.Errorf("строка %d: встроенная функция \"разбить\": %w", e.Line, err)
 			}
 		}
 		if callee == "регулярное" {
-			if err := registerRegexTypesOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
+			if err := registerRegexTypesOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
 				return nil, fmt.Errorf("строка %d: встроенная функция \"регулярное\": %w", e.Line, err)
 			}
 		}
 		if callee == "запустить_процесс" {
-			if err := registerSubprocessTypesOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
+			if err := registerSubprocessTypesOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
 				return nil, fmt.Errorf("строка %d: встроенная функция \"запустить_процесс\": %w", e.Line, err)
 			}
 		}
 		if bytesIOFuncNames[callee] {
-			if err := registerByteListTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
+			if err := registerByteListTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
 				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
 			}
 		}
 		if imageCodecFuncNames[callee] {
-			if err := registerImageCodecEntityOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
+			if err := registerImageCodecEntityOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
 				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
 			}
 		}
 		if callee == "принять_http_байты" || callee == "отправить_http_ответ_байты" {
-			if err := registerHTTPBytesTypesOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
+			if err := registerHTTPBytesTypesOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
 				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
 			}
 		}
 		if callee == "разобрать_multipart" {
-			if err := registerMultipartTypesOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
+			if err := registerMultipartTypesOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
 				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
 			}
 		}
@@ -590,32 +590,32 @@ func analyzeCallExpr(sc *ctx, e *ast.CallExpr) (ir.Expr, error) {
 		// есть) - здесь найдено на чисто клиентской программе, ни разу не
 		// принимающей соединения.
 		if funcSigTouchesSocket(sig) || callee == "запрос" || callee == "новая_http2_сессия" || callee == "новая_grpcs_сессия" {
-			if err := registerSocketNullableOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
+			if err := registerSocketNullableOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
 				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
 			}
 		}
 		if http2FuncNames[callee] {
-			if err := registerHTTP2TypesOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
+			if err := registerHTTP2TypesOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
 				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
 			}
 		}
 		if http2BytesFuncNames[callee] {
-			if err := registerByteListTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
+			if err := registerByteListTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
 				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
 			}
 		}
 		if grpcFuncNames[callee] {
-			if err := registerGRPCTypesOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
+			if err := registerGRPCTypesOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
 				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
 			}
 		}
 		if grpcBytesFuncNames[callee] {
-			if err := registerByteListTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
+			if err := registerByteListTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
 				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
 			}
 		}
 		if optionalStringFuncNames[callee] {
-			if err := registerOptionalStringOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
+			if err := registerOptionalStringOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
 				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
 			}
 		}

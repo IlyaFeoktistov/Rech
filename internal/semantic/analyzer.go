@@ -222,6 +222,12 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 	methods := map[string]map[string]funcSig{}
 	aliases := map[string]string{}
 	aliasState := map[string]string{}
+	// enums - собран здесь, а не позже (a.enums, collectEnums идёт ПОСЛЕ
+	// collectEntities) - тем же приёмом-плейсхолдером, что paramEntities у
+	// collectInterfaces: полю/параметру/типу результата метода сущности
+	// нужно видеть имена перечислений уже сейчас, полная, с проверкой
+	// коллизий, сборка a.enums по-прежнему происходит только в collectEnums.
+	enums := buildEnumTable(prog)
 	// "Исключение" - системная базовая сущность выброшенных значений
 	// (internal/ir.ThrowStmt/TryStmt), доступна в любой программе без
 	// объявления, тем же принципом, что и Запрос/Ответ (registerHTTPEntity)
@@ -238,7 +244,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 	// исходника, но регистрация нужна ровно та же (backend читает поле
 	// "код" сущности "Исключение" точно так же, как любое другое nullable-
 	// поле - см. systemExceptionCodeType).
-	nullableIntType, err := resolveNullableTypeName(entities, methods, aliases, a.interfaces, "?Целое")
+	nullableIntType, err := resolveNullableTypeName(entities, methods, aliases, a.interfaces, enums, "?Целое")
 	if err != nil {
 		return fmt.Errorf("внутренняя ошибка: %w", err)
 	}
@@ -293,7 +299,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 		if _, exists := a.interfaces[ent.Name]; exists {
 			return fmt.Errorf("сущность %q: имя совпадает с уже объявленным интерфейсом", ent.Name)
 		}
-		if err := a.checkGenericConstraints(entities, methods, aliases, ent.Name); err != nil {
+		if err := a.checkGenericConstraints(entities, methods, aliases, enums, ent.Name); err != nil {
 			return err
 		}
 		var sig entitySig
@@ -316,7 +322,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 			if sig.fieldIndex(f.Name) != -1 || sig.staticFieldIndex(f.Name) != -1 || sig.constIndex(f.Name) != -1 {
 				return fmt.Errorf("сущность %q: поле %q объявлено более одного раза", ent.Name, f.Name)
 			}
-			typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, f.Type)
+			typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, f.Type)
 			if err != nil {
 				return fmt.Errorf("сущность %q: поле %q: %w", ent.Name, f.Name, err)
 			}
@@ -333,7 +339,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 				// крупная доработка IR/кодогенерации, сознательно отложена.
 				return fmt.Errorf("внешняя структура %q: поле %q - \"Вызываемый(...)\" пока допустима только параметром \"внешняя функция\", не полем внешней структуры", ent.Name, f.Name)
 			}
-			if ent.IsExternStruct && !isFFIType(entities, methods, aliases, a.interfaces, typ) {
+			if ent.IsExternStruct && !isFFIType(entities, methods, aliases, a.interfaces, enums, typ) {
 				return fmt.Errorf("внешняя структура %q: поле %q имеет тип %s - допустимы только примитивы (Целое/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\") и \"Указатель<T>\" над FFI-совместимым T - иначе реальный размер C-структуры был бы искажён", ent.Name, f.Name, typ)
 			}
 			if f.IsStatic {
@@ -390,7 +396,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 			paramStates := make([]string, len(m.Params))
 			paramDefaults := make([]ast.Expr, len(m.Params))
 			for i, p := range m.Params {
-				typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, p.Type)
+				typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, p.Type)
 				if err != nil {
 					return fmt.Errorf("сущность %q: метод %q: параметр %q: %w", ent.Name, m.Name, p.Name, err)
 				}
@@ -414,7 +420,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 				msig.HasReturn = true
 				msig.SelfReturn = true
 			case m.ReturnType != "":
-				typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, m.ReturnType)
+				typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, m.ReturnType)
 				if err != nil {
 					return fmt.Errorf("сущность %q: метод %q: тип результата: %w", ent.Name, m.Name, err)
 				}
@@ -429,7 +435,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 			ctorParamNames := make([]string, len(ent.Ctor.Params))
 			ctorParamDefaults := make([]ast.Expr, len(ent.Ctor.Params))
 			for i, p := range ent.Ctor.Params {
-				typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, p.Type)
+				typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, p.Type)
 				if err != nil {
 					return fmt.Errorf("сущность %q: конструктор: параметр %q: %w", ent.Name, p.Name, err)
 				}
@@ -476,6 +482,9 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 // от того, где та объявлена в файле относительно функции.
 func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 	funcs := map[string]funcSig{}
+	// enums - a.enums ещё не собран (collectEnums идёт ПОСЛЕ этого прохода) -
+	// см. тот же приём в collectEntities.
+	enums := buildEnumTable(prog)
 	registerBuiltinFuncs(funcs)
 	registerHTTPEntity(a.entities, "Запрос", httpRequestFields)
 	registerHTTPEntity(a.entities, "Ответ", httpResponseFields)
@@ -508,14 +517,14 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 			}
 			return fmt.Errorf("функция %q объявлена более одного раза", fn.Name)
 		}
-		if err := a.checkGenericConstraints(a.entities, a.methods, a.aliases, fn.Name); err != nil {
+		if err := a.checkGenericConstraints(a.entities, a.methods, a.aliases, enums, fn.Name); err != nil {
 			return err
 		}
 		params := make([]ir.Type, len(fn.Params))
 		paramStates := make([]string, len(fn.Params))
 		paramDefaults := make([]ast.Expr, len(fn.Params))
 		for i, p := range fn.Params {
-			typ, err := resolveTypeName(a.entities, a.methods, a.aliases, a.interfaces, p.Type)
+			typ, err := resolveTypeName(a.entities, a.methods, a.aliases, a.interfaces, enums, p.Type)
 			if err != nil {
 				return fmt.Errorf("функция %q: параметр %q: %w", fn.Name, p.Name, err)
 			}
@@ -525,7 +534,7 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 		}
 		sig := funcSig{Params: params, ParamStates: paramStates, ParamDefaults: paramDefaults}
 		if fn.ReturnType != "" {
-			typ, err := resolveTypeName(a.entities, a.methods, a.aliases, a.interfaces, fn.ReturnType)
+			typ, err := resolveTypeName(a.entities, a.methods, a.aliases, a.interfaces, enums, fn.ReturnType)
 			if err != nil {
 				return fmt.Errorf("функция %q: тип результата: %w", fn.Name, err)
 			}
@@ -534,7 +543,7 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 		}
 		funcs[fn.Name] = sig
 	}
-	externFuncs, err := a.collectExternFuncSigs(funcs, a.entities, a.methods, a.aliases, prog)
+	externFuncs, err := a.collectExternFuncSigs(funcs, a.entities, a.methods, a.aliases, enums, prog)
 	if err != nil {
 		return err
 	}
@@ -550,7 +559,7 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 // []*ir.ExternFuncDecl для ir.Program.ExternFuncs - настоящий C-символ
 // (CName) для кодогенерации берёт оттуда только cbackend.GenerateFromIR,
 // семантическому анализу он не нужен.
-func (a *Analyzer) collectExternFuncSigs(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, prog *ast.Program) ([]*ir.ExternFuncDecl, error) {
+func (a *Analyzer) collectExternFuncSigs(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, enums map[string]map[string]int64, prog *ast.Program) ([]*ir.ExternFuncDecl, error) {
 	var out []*ir.ExternFuncDecl
 	for _, ext := range prog.ExternFuncs {
 		label := fmt.Sprintf("внешняя функция %q", ext.Alias)
@@ -562,11 +571,11 @@ func (a *Analyzer) collectExternFuncSigs(funcs map[string]funcSig, entities map[
 		}
 		params := make([]ir.Type, len(ext.Params))
 		for i, p := range ext.Params {
-			typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, p.Type)
+			typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, p.Type)
 			if err != nil {
 				return nil, fmt.Errorf("%s: параметр %q: %w", label, p.Name, err)
 			}
-			if !isFFIType(entities, methods, aliases, a.interfaces, typ) {
+			if !isFFIType(entities, methods, aliases, a.interfaces, enums, typ) {
 				return nil, fmt.Errorf("%s: параметр %q имеет тип %s - у внешней функции допустимы только примитивы (Целое/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\"), \"Указатель<T>\" над FFI-совместимым T и \"Вызываемый(...)\" с FFI-совместимыми параметрами/результатом", label, p.Name, typ)
 			}
 			params[i] = typ
@@ -574,7 +583,7 @@ func (a *Analyzer) collectExternFuncSigs(funcs map[string]funcSig, entities map[
 		decl := &ir.ExternFuncDecl{CName: ext.CName, Alias: ext.Alias, Params: params}
 		sig := funcSig{Params: params, IsExtern: true}
 		if ext.ReturnType != "" {
-			typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, ext.ReturnType)
+			typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, ext.ReturnType)
 			if err != nil {
 				return nil, fmt.Errorf("%s: тип результата: %w", label, err)
 			}
@@ -591,7 +600,7 @@ func (a *Analyzer) collectExternFuncSigs(funcs map[string]funcSig, entities map[
 				// "Вызываемый(...)" уже поддержана (ниже).
 				return nil, fmt.Errorf("%s: тип результата - \"Вызываемый(...)\" пока допустима только ПАРАМЕТРОМ внешней функции, не типом результата", label)
 			}
-			if !isFFIType(entities, methods, aliases, a.interfaces, typ) {
+			if !isFFIType(entities, methods, aliases, a.interfaces, enums, typ) {
 				return nil, fmt.Errorf("%s: тип результата %s не поддерживается - у внешней функции допустимы только примитивы (Целое/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\") и \"Указатель<T>\" над FFI-совместимым T", label, typ)
 			}
 			decl.ReturnType = typ
@@ -613,6 +622,34 @@ func (a *Analyzer) collectExternFuncSigs(funcs map[string]funcSig, entities map[
 // здесь только коллизии ИМЕНИ самого перечисления с сущностью или другим
 // перечислением (в т. ч. встроенным).
 func (a *Analyzer) collectEnums(prog *ast.Program) error {
+	seen := make(map[string]bool, len(StandardEnums))
+	for name := range StandardEnums {
+		seen[name] = true
+	}
+	for _, e := range prog.Enums {
+		if _, exists := a.entities[e.Name]; exists {
+			return fmt.Errorf("строка %d: перечисление %q совпадает с именем уже объявленной сущности", e.Line, e.Name)
+		}
+		if seen[e.Name] {
+			return fmt.Errorf("строка %d: перечисление %q уже объявлено (возможно, совпадает со встроенным перечислением)", e.Line, e.Name)
+		}
+		seen[e.Name] = true
+	}
+	a.enums = buildEnumTable(prog)
+	return nil
+}
+
+// buildEnumTable объединяет StandardEnums (встроенные перечисления) с
+// пользовательскими перечислениями программы (prog.Enums) в одну карту имя
+// перечисления -> имя члена -> значение - БЕЗ проверки коллизий (её делает
+// collectEnums, которая идёт позже и присваивает результат в a.enums).
+// Отдельная функция нужна затем, что resolveTypeName должен видеть имена
+// перечислений уже во ВРЕМЯ collectInterfaces/collectEntities/
+// collectFuncSigs (все три - до collectEnums, см. Analyze) - тот же приём-
+// плейсхолдер, что paramEntities у collectInterfaces для имён сущностей:
+// коллизии всё равно поймает collectEnums следом, независимо от того, какой
+// из двух проходов первым столкнулся с конфликтующим именем.
+func buildEnumTable(prog *ast.Program) map[string]map[string]int64 {
 	enums := make(map[string]map[string]int64, len(StandardEnums)+len(prog.Enums))
 	for name, members := range StandardEnums {
 		copied := make(map[string]int64, len(members))
@@ -620,20 +657,13 @@ func (a *Analyzer) collectEnums(prog *ast.Program) error {
 		enums[name] = copied
 	}
 	for _, e := range prog.Enums {
-		if _, exists := a.entities[e.Name]; exists {
-			return fmt.Errorf("строка %d: перечисление %q совпадает с именем уже объявленной сущности", e.Line, e.Name)
-		}
-		if _, exists := enums[e.Name]; exists {
-			return fmt.Errorf("строка %d: перечисление %q уже объявлено (возможно, совпадает со встроенным перечислением)", e.Line, e.Name)
-		}
 		members := make(map[string]int64, len(e.Members))
 		for _, m := range e.Members {
 			members[m.Name] = m.Value
 		}
 		enums[e.Name] = members
 	}
-	a.enums = enums
-	return nil
+	return enums
 }
 
 // collectModuleConsts регистрирует имена констант уровня модуля

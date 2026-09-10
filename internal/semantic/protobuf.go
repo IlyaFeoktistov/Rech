@@ -43,7 +43,7 @@ func analyzeProtobufParseExpr(sc *ctx, e *ast.ParseExpr, source ir.Expr) (ir.Exp
 	if err := requireByteListType(ir.TypeOf(source), e.Line, "разобрать PROTOBUF"); err != nil {
 		return nil, err
 	}
-	target, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, e.TypeName)
+	target, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, e.TypeName)
 	if err != nil {
 		return nil, fmt.Errorf("строка %d: \"разобрать %s ... как\": %w", e.Line, protobufFormat, err)
 	}
@@ -51,7 +51,7 @@ func analyzeProtobufParseExpr(sc *ctx, e *ast.ParseExpr, source ir.Expr) (ir.Exp
 		return nil, fmt.Errorf("строка %d: \"разобрать %s\" в %s: %w", e.Line, protobufFormat, target, err)
 	}
 	registerParseErrorEntity(sc.entities)
-	if err := registerByteListTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
+	if err := registerByteListTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
 		return nil, err
 	}
 	sc.a.registerProtobufParseTarget(target)
@@ -66,7 +66,7 @@ func analyzeProtobufSerializeExpr(sc *ctx, value ir.Expr, line int) (ir.Expr, er
 	if err := protobufTopLevelMessage(sc.entities, t); err != nil {
 		return nil, fmt.Errorf("строка %d: \"сериализовать %s\" для %s: %w", line, protobufFormat, t, err)
 	}
-	if err := registerByteListTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces); err != nil {
+	if err := registerByteListTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
 		return nil, err
 	}
 	sc.a.registerProtobufSerializeTarget(t)

@@ -763,19 +763,19 @@ func (inst *instantiator) scanExpr(e ast.Expr) error {
 // methods/aliases - те же карты, что и в месте вызова (в collectEntities
 // это ещё локальные, не a.entities - сущность обязана видеть только то,
 // что накоплено до неё, см. package doc collectEntities).
-func (a *Analyzer) checkGenericConstraints(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, name string) error {
+func (a *Analyzer) checkGenericConstraints(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, enums map[string]map[string]int64, name string) error {
 	checks, ok := a.genericConstraints[name]
 	if !ok {
 		return nil
 	}
 	for _, c := range checks {
-		argType, err := resolveTypeName(entities, methods, aliases, a.interfaces, c.ArgType)
+		argType, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, c.ArgType)
 		if err != nil {
 			return fmt.Errorf("строка %d: %q: параметр типа %q: %w", c.Line, name, c.ParamName, err)
 		}
 		satisfied := false
 		for _, constraint := range c.Constraints {
-			constraintType, err := resolveTypeName(entities, methods, aliases, a.interfaces, constraint)
+			constraintType, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, constraint)
 			if err != nil {
 				return fmt.Errorf("строка %d: %q: параметр типа %q: ограничение %q: %w", c.Line, name, c.ParamName, constraint, err)
 			}

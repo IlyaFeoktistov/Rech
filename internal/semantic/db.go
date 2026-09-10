@@ -128,9 +128,9 @@ func registerDBTypesOnCall(sc *ctx) error {
 	// "новый Список<Значение>()" где-либо ещё), иначе не компилировалась бы
 	// ("unknown type name" на typedef, которого genericsCode не эмитировала
 	// вообще).
-	if _, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, dbResultType); err != nil {
+	if _, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, dbResultType); err != nil {
 		return err
 	}
-	_, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, listOfAnyType.Entity)
+	_, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, listOfAnyType.Entity)
 	return err
 }

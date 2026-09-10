@@ -71,7 +71,7 @@ func analyzeParseExpr(sc *ctx, e *ast.ParseExpr) (ir.Expr, error) {
 	if ir.TypeOf(source).Kind != ir.KindString {
 		return nil, fmt.Errorf("строка %d: \"разобрать %s\" ожидает источник типа Строка, получено %s", e.Line, e.Format, ir.TypeOf(source))
 	}
-	target, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, e.TypeName)
+	target, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, e.TypeName)
 	if err != nil {
 		return nil, fmt.Errorf("строка %d: \"разобрать %s ... как\": %w", e.Line, e.Format, err)
 	}

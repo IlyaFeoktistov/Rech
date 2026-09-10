@@ -13,8 +13,8 @@ import (
 // resolveGenericTypeName. argName - уже отделённый parseGenericTypeName
 // аргумент внутри "<...>" (тем же способом, что и у Список<T>/Стопка<T>/
 // Очередь<T> - единственного типового аргумента).
-func resolvePointerTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, name, argName string) (ir.Type, error) {
-	inner, err := resolveTypeName(entities, methods, aliases, interfaces, argName)
+func resolvePointerTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64, name, argName string) (ir.Type, error) {
+	inner, err := resolveTypeName(entities, methods, aliases, interfaces, enums, argName)
 	if err != nil {
 		return ir.TypeUnknown, fmt.Errorf("тип назначения %q в %q: %w", argName, name, err)
 	}
@@ -41,7 +41,7 @@ func pointerInner(sc *ctx, t ir.Type) ir.Type {
 // resolveGenericTypeName), поэтому resolvePointerTypeName её узнаёт.
 func pointerTypeFor(sc *ctx, inner ir.Type) (ir.Type, error) {
 	name := fmt.Sprintf("Указатель<%s>", inner.String())
-	return resolvePointerTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, name, inner.String())
+	return resolvePointerTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, name, inner.String())
 }
 
 // analyzeAddressOfExpr разбирает "&получатель.поле"/"&получатель[индекс]"

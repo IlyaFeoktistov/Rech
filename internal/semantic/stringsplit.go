@@ -23,7 +23,7 @@ func registerStringSplitFunc(funcs map[string]funcSig) {
 // вызове "разбить" - см. package doc splitResultType. resolveTypeName сам
 // идемпотентен (resolveGenericTypeName не пересоздаёт запись, если она уже
 // есть), поэтому безопасно звать на каждый вызов, не только на первый.
-func registerSplitTypeOnCall(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig) error {
-	_, err := resolveTypeName(entities, methods, aliases, interfaces, splitResultType)
+func registerSplitTypeOnCall(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64) error {
+	_, err := resolveTypeName(entities, methods, aliases, interfaces, enums, splitResultType)
 	return err
 }

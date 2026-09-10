@@ -11,12 +11,12 @@ import (
 // добавленный parser.parseTypeName) - лениво синтезирует entitySig с
 // IsNullable/ElemType при первой встрече конкретной инстанциации, тем же
 // принципом мемоизации, что и resolveGenericTypeName/resolveDictTypeName.
-func resolveNullableTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, name string) (ir.Type, error) {
+func resolveNullableTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64, name string) (ir.Type, error) {
 	innerName := name[len("?"):]
 	if innerName == "" {
 		return ir.TypeUnknown, fmt.Errorf("%q: после \"?\" ожидалось имя типа", name)
 	}
-	inner, err := resolveTypeName(entities, methods, aliases, interfaces, innerName)
+	inner, err := resolveTypeName(entities, methods, aliases, interfaces, enums, innerName)
 	if err != nil {
 		return ir.TypeUnknown, fmt.Errorf("тип %q: %w", name, err)
 	}
@@ -45,8 +45,8 @@ func resolveNullableTypeName(entities map[string]entitySig, methods map[string]m
 // механизм ("по факту регистрации", не "по факту использования") -
 // потенциальный источник той же ошибки для БУДУЩЕГО builtin'а. Исправлено
 // тем же путём, что и "?Сокет".
-func registerOptionalStringOnCall(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig) error {
-	_, err := resolveTypeName(entities, methods, aliases, interfaces, "?Строка")
+func registerOptionalStringOnCall(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64) error {
+	_, err := resolveTypeName(entities, methods, aliases, interfaces, enums, "?Строка")
 	return err
 }
 

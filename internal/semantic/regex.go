@@ -43,10 +43,10 @@ func registerRegexFunc(funcs map[string]funcSig) {
 // вызове "регулярное" (тем же принципом, что и registerSplitTypeOnCall) -
 // резолвит "Совпадение" (которая сама тянет regexGroupsType, см. её case в
 // resolveTypeName) и regexResultType.
-func registerRegexTypesOnCall(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig) error {
-	if _, err := resolveTypeName(entities, methods, aliases, interfaces, "Совпадение"); err != nil {
+func registerRegexTypesOnCall(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64) error {
+	if _, err := resolveTypeName(entities, methods, aliases, interfaces, enums, "Совпадение"); err != nil {
 		return err
 	}
-	_, err := resolveTypeName(entities, methods, aliases, interfaces, regexResultType)
+	_, err := resolveTypeName(entities, methods, aliases, interfaces, enums, regexResultType)
 	return err
 }

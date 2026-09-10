@@ -76,7 +76,7 @@ func registerSubprocessFuncs(entities map[string]entitySig, funcs map[string]fun
 // принципом, что и registerSplitTypeOnCall/registerDBTypesOnCall.
 // resolveTypeName сам идемпотентен, поэтому безопасно звать на каждый
 // вызов, не только на первый.
-func registerSubprocessTypesOnCall(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig) error {
-	_, err := resolveTypeName(entities, methods, aliases, interfaces, splitResultType)
+func registerSubprocessTypesOnCall(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64) error {
+	_, err := resolveTypeName(entities, methods, aliases, interfaces, enums, splitResultType)
 	return err
 }

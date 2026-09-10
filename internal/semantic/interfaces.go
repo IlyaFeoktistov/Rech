@@ -69,6 +69,9 @@ func (a *Analyzer) collectInterfaces(prog *ast.Program) error {
 		paramEntities[ent.Name] = entitySig{IsStruct: ent.IsStruct}
 	}
 	paramMethods := map[string]map[string]funcSig{}
+	// enums - a.enums ещё не собран (collectEnums идёт ПОСЛЕ этого прохода,
+	// см. Analyze) - тот же приём-плейсхолдер, что paramEntities выше.
+	enums := buildEnumTable(prog)
 	for _, iface := range prog.Interfaces {
 		if _, exists := interfaces[iface.Name]; exists {
 			return fmt.Errorf("интерфейс %q объявлен более одного раза", iface.Name)
@@ -101,7 +104,7 @@ func (a *Analyzer) collectInterfaces(prog *ast.Program) error {
 			}
 			params := make([]ir.Type, len(m.Params))
 			for i, p := range m.Params {
-				typ, err := resolveTypeName(paramEntities, paramMethods, nil, interfaces, p.Type)
+				typ, err := resolveTypeName(paramEntities, paramMethods, nil, interfaces, enums, p.Type)
 				if err != nil {
 					return fmt.Errorf("интерфейс %q: метод %q: параметр %q: %w", iface.Name, m.Name, p.Name, err)
 				}
@@ -120,7 +123,7 @@ func (a *Analyzer) collectInterfaces(prog *ast.Program) error {
 				msig.HasReturn = true
 				msig.SelfReturn = true
 			case m.ReturnType != "":
-				typ, err := resolveTypeName(paramEntities, paramMethods, nil, interfaces, m.ReturnType)
+				typ, err := resolveTypeName(paramEntities, paramMethods, nil, interfaces, enums, m.ReturnType)
 				if err != nil {
 					return fmt.Errorf("интерфейс %q: метод %q: тип результата: %w", iface.Name, m.Name, err)
 				}

@@ -54,10 +54,10 @@ func registerMultipartFunc(funcs map[string]funcSig) {
 // byteListType раньше себя, см. её case в resolveTypeName) и
 // multipartResultType, тем же порядком, что registerRegexTypesOnCall
 // резолвит "Совпадение" и regexResultType.
-func registerMultipartTypesOnCall(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig) error {
-	if _, err := resolveTypeName(entities, methods, aliases, interfaces, formPartType); err != nil {
+func registerMultipartTypesOnCall(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64) error {
+	if _, err := resolveTypeName(entities, methods, aliases, interfaces, enums, formPartType); err != nil {
 		return err
 	}
-	_, err := resolveTypeName(entities, methods, aliases, interfaces, multipartResultType)
+	_, err := resolveTypeName(entities, methods, aliases, interfaces, enums, multipartResultType)
 	return err
 }

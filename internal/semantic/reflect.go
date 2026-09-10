@@ -104,7 +104,7 @@ var typeInfoMethodSigs = map[string]funcSig{
 // существует") регистрируется в Program.ReflectTargets (backend генерирует
 // под неё дескриптор), примитив - нет (его дескриптор эмитится всегда).
 func analyzeTypeOfExpr(sc *ctx, e *ast.TypeOfExpr) (ir.Expr, error) {
-	t, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, e.TypeName)
+	t, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, e.TypeName)
 	if err != nil {
 		return nil, fmt.Errorf("строка %d: \"тип %s\": %w", e.Line, e.TypeName, err)
 	}
@@ -131,7 +131,7 @@ func analyzeAsExpr(sc *ctx, e *ast.AsExpr) (ir.Expr, error) {
 		return nil, err
 	}
 	if valType := ir.TypeOf(value); valType.Kind == ir.KindEntity && valType.Entity == dbResultType {
-		to, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, e.TypeName)
+		to, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, e.TypeName)
 		if err != nil {
 			return nil, fmt.Errorf("строка %d: \"как %s\": %w", e.Line, e.TypeName, err)
 		}
@@ -144,7 +144,7 @@ func analyzeAsExpr(sc *ctx, e *ast.AsExpr) (ir.Expr, error) {
 	if ir.TypeOf(value).Kind != ir.KindAny {
 		return nil, fmt.Errorf("строка %d: \"как\" применим только к \"Значение\", получено %s", e.Line, ir.TypeOf(value))
 	}
-	to, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, e.TypeName)
+	to, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, e.TypeName)
 	if err != nil {
 		return nil, fmt.Errorf("строка %d: \"как %s\": %w", e.Line, e.TypeName, err)
 	}

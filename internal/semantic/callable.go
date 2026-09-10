@@ -55,21 +55,21 @@ func splitCallableTypeString(name string) (params []string, result string, ok bo
 // это только затем, чтобы убедиться, что имя корректно, и построить
 // ir.Type) и Analyzer.resolveCallableSig (полный разбор для
 // Program.Callables, нужен backend'ам для кодогенерации).
-func resolveCallableTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, name string) (params []ir.Type, result *ir.Type, err error) {
+func resolveCallableTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64, name string) (params []ir.Type, result *ir.Type, err error) {
 	paramNames, resultName, ok := splitCallableTypeString(name)
 	if !ok {
 		return nil, nil, fmt.Errorf("неизвестный тип %q", name)
 	}
 	params = make([]ir.Type, len(paramNames))
 	for i, pn := range paramNames {
-		t, err := resolveTypeName(entities, methods, aliases, interfaces, pn)
+		t, err := resolveTypeName(entities, methods, aliases, interfaces, enums, pn)
 		if err != nil {
 			return nil, nil, fmt.Errorf("параметр %d типа %q: %w", i+1, name, err)
 		}
 		params[i] = t
 	}
 	if resultName != "" {
-		t, err := resolveTypeName(entities, methods, aliases, interfaces, resultName)
+		t, err := resolveTypeName(entities, methods, aliases, interfaces, enums, resultName)
 		if err != nil {
 			return nil, nil, fmt.Errorf("тип результата %q: %w", name, err)
 		}
@@ -83,7 +83,7 @@ func resolveCallableTypeName(entities map[string]entitySig, methods map[string]m
 // окончательно заполнены) и в форме ir.CallableSig - результат идёт прямо
 // в Program.Callables (см. registerCallable).
 func (a *Analyzer) resolveCallableSig(name string) (ir.CallableSig, error) {
-	params, result, err := resolveCallableTypeName(a.entities, a.methods, a.aliases, a.interfaces, name)
+	params, result, err := resolveCallableTypeName(a.entities, a.methods, a.aliases, a.interfaces, a.enums, name)
 	if err != nil {
 		return ir.CallableSig{}, err
 	}
@@ -191,7 +191,7 @@ func analyzeFuncRefExpr(sc *ctx, e *ast.FuncRefExpr) (ir.Expr, error) {
 func analyzeLambdaExpr(sc *ctx, e *ast.LambdaExpr) (*ir.LambdaExpr, error) {
 	params := make([]ir.Type, len(e.Params))
 	for i, p := range e.Params {
-		t, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, p.Type)
+		t, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, p.Type)
 		if err != nil {
 			return nil, fmt.Errorf("строка %d: лямбда: параметр %q: %w", p.Line, p.Name, err)
 		}
@@ -200,7 +200,7 @@ func analyzeLambdaExpr(sc *ctx, e *ast.LambdaExpr) (*ir.LambdaExpr, error) {
 	var result ir.Type
 	hasReturn := e.ReturnType != ""
 	if hasReturn {
-		t, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, e.ReturnType)
+		t, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, e.ReturnType)
 		if err != nil {
 			return nil, fmt.Errorf("строка %d: лямбда: тип результата: %w", e.Line, err)
 		}

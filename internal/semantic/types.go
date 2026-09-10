@@ -72,13 +72,20 @@ var primitiveTypes = map[string]ir.Type{
 // см. collectEntities) - резолвится в тип БАЗОВОЙ сущности, не в
 // собственный тип: производный тип - псевдоним без своего
 // представления, как и в cbackend (genCtx.stateAliases), - или встроенная
-// generic-коллекция (resolveGenericTypeName/resolveDictTypeName).
-func resolveTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, name string) (ir.Type, error) {
+// generic-коллекция (resolveGenericTypeName/resolveDictTypeName) - или
+// имя перечисления (enums, см. package doc ctx.enums/buildEnumTable):
+// перечисление не заводит собственное IR-представление, тип аннотации
+// резолвится прямо в ir.TypeInt (та же Целое-семантика, что и у
+// "Тип.Член" в analyzeExpr).
+func resolveTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64, name string) (ir.Type, error) {
 	if strings.HasPrefix(name, "?") {
-		return resolveNullableTypeName(entities, methods, aliases, interfaces, name)
+		return resolveNullableTypeName(entities, methods, aliases, interfaces, enums, name)
 	}
 	if t, ok := primitiveTypes[name]; ok {
 		return t, nil
+	}
+	if _, ok := enums[name]; ok {
+		return ir.TypeInt, nil
 	}
 	switch name {
 	case "Запрос":
@@ -100,19 +107,19 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 		registerTransactionEntity(entities, methods)
 		return ir.EntityType(transactionEntityName), nil
 	case httpBytesRequestType:
-		if _, err := resolveTypeName(entities, methods, aliases, interfaces, byteListType); err != nil {
+		if _, err := resolveTypeName(entities, methods, aliases, interfaces, enums, byteListType); err != nil {
 			return ir.TypeUnknown, err
 		}
 		registerHTTPEntity(entities, httpBytesRequestType, httpBytesRequestFields)
 		return ir.EntityType(httpBytesRequestType), nil
 	case httpBytesResponseType:
-		if _, err := resolveTypeName(entities, methods, aliases, interfaces, byteListType); err != nil {
+		if _, err := resolveTypeName(entities, methods, aliases, interfaces, enums, byteListType); err != nil {
 			return ir.TypeUnknown, err
 		}
 		registerHTTPEntity(entities, httpBytesResponseType, httpBytesResponseFields)
 		return ir.EntityType(httpBytesResponseType), nil
 	case formPartType:
-		if _, err := resolveTypeName(entities, methods, aliases, interfaces, byteListType); err != nil {
+		if _, err := resolveTypeName(entities, methods, aliases, interfaces, enums, byteListType); err != nil {
 			return ir.TypeUnknown, err
 		}
 		registerHTTPEntity(entities, formPartType, formPartFields)
@@ -121,7 +128,7 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 		registerHTTPEntity(entities, http2StreamType, HTTP2StreamFields)
 		return ir.EntityType(http2StreamType), nil
 	case imageCodecEntityName:
-		if _, err := resolveTypeName(entities, methods, aliases, interfaces, byteListType); err != nil {
+		if _, err := resolveTypeName(entities, methods, aliases, interfaces, enums, byteListType); err != nil {
 			return ir.TypeUnknown, err
 		}
 		registerHTTPEntity(entities, imageCodecEntityName, ImageCodecFields)
@@ -131,7 +138,7 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 		// иначе метод вроде "м.группы.длина()" не найдёт methods["Список<
 		// Строка>"], если ничто в программе больше не заставило её
 		// зарегистрироваться (например, "разбить" ни разу не вызвана).
-		if _, err := resolveTypeName(entities, methods, aliases, interfaces, regexGroupsType); err != nil {
+		if _, err := resolveTypeName(entities, methods, aliases, interfaces, enums, regexGroupsType); err != nil {
 			return ir.TypeUnknown, err
 		}
 		registerHTTPEntity(entities, "Совпадение", MatchFields)
@@ -161,13 +168,13 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 		return ir.EntityType(base), nil
 	}
 	if strings.HasPrefix(name, ir.CallableTypeName+"<") {
-		params, result, err := resolveCallableTypeName(entities, methods, aliases, interfaces, name)
+		params, result, err := resolveCallableTypeName(entities, methods, aliases, interfaces, enums, name)
 		if err != nil {
 			return ir.TypeUnknown, err
 		}
 		return ir.CallableType(params, result), nil
 	}
-	return resolveGenericTypeName(entities, methods, aliases, interfaces, name)
+	return resolveGenericTypeName(entities, methods, aliases, interfaces, enums, name)
 }
 
 // httpRequestFields/httpResponseFields - фиксированные поля встроенных
@@ -463,18 +470,18 @@ func topoSortGenericNames(names []string, entities map[string]entitySig) []strin
 // один раз, дальше просто найдётся в карте) - дальше остальной
 // internal/semantic обращается с ней как с обычной сущностью, не зная,
 // пользовательская она или встроенная.
-func resolveGenericTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, name string) (ir.Type, error) {
+func resolveGenericTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64, name string) (ir.Type, error) {
 	template, argName, ok := parseGenericTypeName(name)
 	if !ok {
 		return ir.TypeUnknown, fmt.Errorf("неизвестный тип %q", name)
 	}
 	if template == "Словарь" {
-		return resolveDictTypeName(entities, methods, aliases, interfaces, name)
+		return resolveDictTypeName(entities, methods, aliases, interfaces, enums, name)
 	}
 	if template == "Указатель" {
-		return resolvePointerTypeName(entities, methods, aliases, interfaces, name, argName)
+		return resolvePointerTypeName(entities, methods, aliases, interfaces, enums, name, argName)
 	}
-	elem, err := resolveTypeName(entities, methods, aliases, interfaces, argName)
+	elem, err := resolveTypeName(entities, methods, aliases, interfaces, enums, argName)
 	if err != nil {
 		return ir.TypeUnknown, fmt.Errorf("тип элемента %q в %q: %w", argName, name, err)
 	}
@@ -508,19 +515,19 @@ var dictKeyKinds = map[ir.TypeKind]bool{
 // parseGenericTypeName) и своя, более узкая проверка типа ключа
 // (dictKeyKinds) вдобавок к общей "значения - только примитивы", как у
 // Список/Стопка/Очередь.
-func resolveDictTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, name string) (ir.Type, error) {
+func resolveDictTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64, name string) (ir.Type, error) {
 	_, args, ok := parseGenericTypeNameMulti(name)
 	if !ok || len(args) != 2 {
 		return ir.TypeUnknown, fmt.Errorf("%q: \"Словарь\" ожидает ровно два аргумента типа - ключ и значение (\"Словарь<Строка, Целое>\")", name)
 	}
-	key, err := resolveTypeName(entities, methods, aliases, interfaces, args[0])
+	key, err := resolveTypeName(entities, methods, aliases, interfaces, enums, args[0])
 	if err != nil {
 		return ir.TypeUnknown, fmt.Errorf("тип ключа %q в %q: %w", args[0], name, err)
 	}
 	if !dictKeyKinds[key.Kind] {
 		return ir.TypeUnknown, fmt.Errorf("%q: тип ключа %s не поддерживается - допустимы только Целое/Байт/Символ/Логическое/Строка", name, key)
 	}
-	val, err := resolveTypeName(entities, methods, aliases, interfaces, args[1])
+	val, err := resolveTypeName(entities, methods, aliases, interfaces, enums, args[1])
 	if err != nil {
 		return ir.TypeUnknown, fmt.Errorf("тип значения %q в %q: %w", args[1], name, err)
 	}
@@ -589,7 +596,7 @@ func isFFIScalar(t ir.Type) bool {
 // функцию, ожидаемого вида. methods/aliases/interfaces нужны только для
 // этого случая - resolveCallableTypeName резолвит собственные параметры/
 // результат сигнатуры t.Entity.
-func isFFIType(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, t ir.Type) bool {
+func isFFIType(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64, t ir.Type) bool {
 	if isFFIScalar(t) || t.Kind == ir.KindExternEntity {
 		return true
 	}
@@ -597,19 +604,19 @@ func isFFIType(entities map[string]entitySig, methods map[string]map[string]func
 		return entities[t.Entity].IsExternStruct
 	}
 	if t.Kind == ir.KindPointer {
-		return isFFIType(entities, methods, aliases, interfaces, entities[t.Entity].ElemType)
+		return isFFIType(entities, methods, aliases, interfaces, enums, entities[t.Entity].ElemType)
 	}
 	if t.Kind == ir.KindCallable {
-		params, result, err := resolveCallableTypeName(entities, methods, aliases, interfaces, t.Entity)
+		params, result, err := resolveCallableTypeName(entities, methods, aliases, interfaces, enums, t.Entity)
 		if err != nil {
 			return false
 		}
 		for _, p := range params {
-			if !isFFIType(entities, methods, aliases, interfaces, p) {
+			if !isFFIType(entities, methods, aliases, interfaces, enums, p) {
 				return false
 			}
 		}
-		return result == nil || isFFIType(entities, methods, aliases, interfaces, *result)
+		return result == nil || isFFIType(entities, methods, aliases, interfaces, enums, *result)
 	}
 	return false
 }

@@ -57,7 +57,7 @@ func registerHTTPServerFuncs(funcs map[string]funcSig) {
 // resolveTypeName сам идемпотентен (не пересоздаёт запись, если она уже
 // есть - resolveDictTypeName), поэтому безопасно звать на каждый вызов, не
 // только на первый.
-func registerQueryParamsDictTypeOnCall(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig) error {
-	_, err := resolveTypeName(entities, methods, aliases, interfaces, queryParamsDictType)
+func registerQueryParamsDictTypeOnCall(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64) error {
+	_, err := resolveTypeName(entities, methods, aliases, interfaces, enums, queryParamsDictType)
 	return err
 }

@@ -64,10 +64,10 @@ func registerHTTPBytesFuncs(funcs map[string]funcSig) {
 // которые тоже регистрируются парой, не по отдельности) - каждая сама
 // резолвит byteListType первой (см. их case в resolveTypeName, types.go),
 // тем же порядком, что "Совпадение" резолвит regexGroupsType раньше себя.
-func registerHTTPBytesTypesOnCall(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig) error {
-	if _, err := resolveTypeName(entities, methods, aliases, interfaces, httpBytesRequestType); err != nil {
+func registerHTTPBytesTypesOnCall(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64) error {
+	if _, err := resolveTypeName(entities, methods, aliases, interfaces, enums, httpBytesRequestType); err != nil {
 		return err
 	}
-	_, err := resolveTypeName(entities, methods, aliases, interfaces, httpBytesResponseType)
+	_, err := resolveTypeName(entities, methods, aliases, interfaces, enums, httpBytesResponseType)
 	return err
 }

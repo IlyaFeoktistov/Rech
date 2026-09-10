@@ -28,7 +28,7 @@ func analyzeIndexExpr(sc *ctx, e *ast.IndexExpr) (ir.Expr, error) {
 		return nil, fmt.Errorf("строка %d: индексация \"[]\" применима только к Список<T>/Словарь<К, В>, получен %s", e.Line, typ)
 	}
 
-	resultType, err := resolveNullableTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, "?"+sig.ElemType.String())
+	resultType, err := resolveNullableTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, "?"+sig.ElemType.String())
 	if err != nil {
 		return nil, fmt.Errorf("строка %d: %w", e.Line, err)
 	}

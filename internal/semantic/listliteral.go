@@ -49,7 +49,7 @@ func analyzeListLiteralExpr(sc *ctx, e *ast.ListLiteral, targetElem ir.Type, has
 // resolveGenericTypeName) и строит итоговый IR-узел.
 func buildListLiteral(sc *ctx, elems []ir.Expr, elemType ir.Type, line int) (ir.Expr, error) {
 	name := "Список<" + elemType.String() + ">"
-	listType, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, name)
+	listType, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, name)
 	if err != nil {
 		return nil, fmt.Errorf("строка %d: %w", line, err)
 	}

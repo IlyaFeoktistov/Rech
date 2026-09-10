@@ -78,7 +78,7 @@ func registerBytesIOFuncs(funcs map[string]funcSig) {
 // httpbytes.go/multipart.go, все они несут поле/аргумент этого же типа) -
 // resolveTypeName сам идемпотентен, безопасно звать на каждый вызов, не
 // только на первый (тот же принцип, что и у registerQueryParamsDictTypeOnCall).
-func registerByteListTypeOnCall(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig) error {
-	_, err := resolveTypeName(entities, methods, aliases, interfaces, byteListType)
+func registerByteListTypeOnCall(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64) error {
+	_, err := resolveTypeName(entities, methods, aliases, interfaces, enums, byteListType)
 	return err
 }

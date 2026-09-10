@@ -93,7 +93,7 @@ func funcSigTouchesSocket(sig funcSig) bool {
 // настоящим `cc` ("unknown type name rech_T_n_soket") - `rech_accept`
 // эмитируется вместе с ОСТАЛЬНЫМ сетевым рантаймом при usesSockets, не
 // только когда программа вызывает именно "принять".
-func registerSocketNullableOnCall(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig) error {
-	_, err := resolveTypeName(entities, methods, aliases, interfaces, "?Сокет")
+func registerSocketNullableOnCall(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64) error {
+	_, err := resolveTypeName(entities, methods, aliases, interfaces, enums, "?Сокет")
 	return err
 }

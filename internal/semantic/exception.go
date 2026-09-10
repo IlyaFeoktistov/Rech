@@ -119,7 +119,7 @@ func analyzeThrowStmt(sc *ctx, s *ast.ThrowStmt) (ir.Stmt, error) {
 func checkCatchTypesAreExceptions(sc *ctx, names []string) error {
 	seen := map[string]bool{}
 	for _, name := range names {
-		typ, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, name)
+		typ, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, name)
 		if err != nil {
 			return fmt.Errorf("\"поймать(...)\": %w", err)
 		}
@@ -287,7 +287,7 @@ func analyzeIsExpr(sc *ctx, e *ast.IsExpr) (ir.Expr, error) {
 		}
 		return &ir.HasStateExpr{Value: value, Entity: owner, State: state}, nil
 	}
-	target, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, e.Target)
+	target, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, e.Target)
 	if err != nil {
 		return nil, fmt.Errorf("строка %d: \"относится к\": %w", e.Line, err)
 	}

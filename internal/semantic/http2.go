@@ -130,13 +130,13 @@ var http2BytesFuncNames = map[string]bool{
 // принять_сессию"/"новая_http2_сессия"/"запрос" (единственные места,
 // раньше резолвившие "?Сокет" - см. registerSocketNullableOnCall,
 // funcSigTouchesSocket), падала на "unknown type name" у "rech build --lib".
-func registerHTTP2TypesOnCall(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig) error {
-	if _, err := resolveTypeName(entities, methods, aliases, interfaces, "?Строка"); err != nil {
+func registerHTTP2TypesOnCall(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64) error {
+	if _, err := resolveTypeName(entities, methods, aliases, interfaces, enums, "?Строка"); err != nil {
 		return err
 	}
-	if err := registerSocketNullableOnCall(entities, methods, aliases, interfaces); err != nil {
+	if err := registerSocketNullableOnCall(entities, methods, aliases, interfaces, enums); err != nil {
 		return err
 	}
-	_, err := resolveTypeName(entities, methods, aliases, interfaces, http2StreamType)
+	_, err := resolveTypeName(entities, methods, aliases, interfaces, enums, http2StreamType)
 	return err
 }

@@ -81,8 +81,8 @@ func registerImageCodecFuncs(funcs map[string]funcSig) {
 // (expr.go) при каждом вызове одной из imageCodecFuncNames, идемпотентно
 // (registerHTTPEntity/registerByteListTypeOnCall сами проверяют, не
 // зарегистрировано ли уже).
-func registerImageCodecEntityOnCall(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig) error {
-	if err := registerByteListTypeOnCall(entities, methods, aliases, interfaces); err != nil {
+func registerImageCodecEntityOnCall(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64) error {
+	if err := registerByteListTypeOnCall(entities, methods, aliases, interfaces, enums); err != nil {
 		return err
 	}
 	registerHTTPEntity(entities, imageCodecEntityName, ImageCodecFields)
