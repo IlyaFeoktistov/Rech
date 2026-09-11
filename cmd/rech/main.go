@@ -141,7 +141,7 @@ func main() {
 	// либо (при полностью пустых аргументах) единственный в текущем каталоге -
 	// см. cmd/rech/project.go. outDir/projName пусты, если проекта нет вовсе -
 	// тогда ниже всё идёт как раньше, без переноса бинарника.
-	var outDir, projName string
+	var outDir, projName, libRoot string
 	var extraLibs []string
 	var extraLibPaths []string
 	var projectDeps map[string]string
@@ -189,7 +189,7 @@ func main() {
 				// обратную сторону.
 				isLib = pf.IsLibrary()
 			}
-			outDir, projName = pf.OutputDir(), pf.Имя
+			outDir, projName, libRoot = pf.OutputDir(), pf.Имя, pf.Dir
 			runEnv = pf.Окружение
 			if dbPoolSize, perr = pf.DBPoolSize(); perr != nil {
 				fmt.Fprintln(os.Stderr, "ошибка:", perr)
@@ -254,10 +254,12 @@ func main() {
 	comp.PoolIdleTimeoutMs = poolIdleTimeoutMs
 	comp.HTTPMaxRequestBytes = httpMaxRequestBytes
 	build := func() (string, error) { return comp.Build(srcPath, keepC, extraLibs, extraLibPaths) }
-	buildLib := func() (string, string, string, error) { return comp.BuildLib(srcPath, keepC, extraLibs, extraLibPaths) }
+	buildLib := func() (string, string, []string, error) {
+		return comp.BuildLib(srcPath, libRoot, outDir, keepC, extraLibs, extraLibPaths)
+	}
 	if hasCode {
 		build = func() (string, error) { return comp.BuildSource(code, keepC, extraLibs, extraLibPaths) }
-		buildLib = func() (string, string, string, error) {
+		buildLib = func() (string, string, []string, error) {
 			return comp.BuildLibSource(code, keepC, extraLibs, extraLibPaths)
 		}
 	}
@@ -265,7 +267,7 @@ func main() {
 	switch cmd {
 	case "build":
 		if isLib {
-			libPath, hPath, rechiPath, err := buildLib()
+			libPath, hPath, rechiPaths, err := buildLib()
 			if err != nil {
 				fmt.Fprintln(os.Stderr, "ошибка:", err)
 				os.Exit(1)
@@ -279,14 +281,18 @@ func main() {
 					fmt.Fprintln(os.Stderr, "ошибка:", err)
 					os.Exit(1)
 				}
-				if rechiPath, err = placeInOutputDir(rechiPath, outDir, projName); err != nil {
-					fmt.Fprintln(os.Stderr, "ошибка:", err)
-					os.Exit(1)
-				}
+				// rechiPaths уже лежат под outDir (comp.BuildLib получил его
+				// как stubDir) - каждый по своему пути, зеркалящему структуру
+				// исходников библиотеки (docs/SPEC.md, "Закрытые (бинарные)
+				// пакеты") - переносить/переименовывать в projName, как
+				// libPath/hPath выше, здесь бессмысленно (файлов может быть
+				// много).
 			}
 			fmt.Println(libPath)
 			fmt.Println(hPath)
-			fmt.Println(rechiPath)
+			for _, p := range rechiPaths {
+				fmt.Println(p)
+			}
 			return
 		}
 		binPath, err := build()

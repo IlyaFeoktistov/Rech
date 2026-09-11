@@ -78,8 +78,13 @@ type Backend interface {
 	// прототипами объявлений, помеченных "экспортировать"; третий - тот же
 	// публичный интерфейс в синтаксисе Rech (.rechi, docs/SPEC.md,
 	// "Закрытые (бинарные) пакеты") - потребитель подключает его через
-	// "использовать" без единой ручной строки FFI.
-	GenerateLib(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int) (cSource, header, interfaceStub string, err error)
+	// "использовать" без единой ручной строки FFI, РАЗБИТЫЙ по исходным
+	// файлам библиотеки (ключ - путь файла относительно libRoot без
+	// расширения) - интерфейс сохраняет ту же структуру подкаталогов, что
+	// исходники автора, не схлопывается в один плоский файл. libRoot == "" -
+	// нет файла проекта (BuildLibSource) - один плоский результат под
+	// ключом "".
+	GenerateLib(prog *ast.Program, libRoot string, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int) (cSource, header string, interfaceStubs map[string]string, err error)
 }
 
 // Toolchain отвечает за финальную сборку сгенерированного исходника
@@ -162,10 +167,10 @@ func (defaultBackend) Generate(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, d
 	return cbackend.GenerateFromIR(irProg)
 }
 
-func (defaultBackend) GenerateLib(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int) (string, string, string, error) {
+func (defaultBackend) GenerateLib(prog *ast.Program, libRoot string, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int) (string, string, map[string]string, error) {
 	irProg, err := semantic.Analyze(prog)
 	if err != nil {
-		return "", "", "", err
+		return "", "", nil, err
 	}
 	if dbPoolSize > 0 {
 		irProg.DBPoolSize = dbPoolSize
@@ -182,7 +187,7 @@ func (defaultBackend) GenerateLib(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs
 		irProg.HTTPMaxRequestBytes = httpMaxRequestBytes
 	}
 
-	return cbackend.GenerateLibFromIR(irProg)
+	return cbackend.GenerateLibFromIR(irProg, libRoot)
 }
 
 // Compiler связывает Frontend, Backend и Toolchain в единый пайплайн
@@ -259,29 +264,69 @@ func (c *Compiler) Build(srcPath string, keepC bool, extraLibs, extraLibPaths []
 // (.so/.dylib/.dll, `rech build --lib`) вместо исполняемого файла: не
 // требует функцию "главная" (библиотека не
 // исполняется как программа) и дополнительно возвращает путь к
-// сгенерированному C-заголовку (.h) и к публичному интерфейсу в синтаксисе
-// Rech (.rechi, docs/SPEC.md, "Закрытые (бинарные) пакеты") - оба с
-// прототипами/объявлениями, помеченными "экспортировать".
-func (c *Compiler) BuildLib(srcPath string, keepC bool, extraLibs, extraLibPaths []string) (libPath, hPath, rechiPath string, err error) {
+// сгенерированному C-заголовку (.h) и к путям публичного интерфейса в
+// синтаксисе Rech (.rechi, docs/SPEC.md, "Закрытые (бинарные) пакеты") -
+// оба с прототипами/объявлениями, помеченными "экспортировать". libRoot -
+// каталог файла проекта (pf.Dir) для разбивки .rechi по исходным файлам
+// библиотеки (см. Backend.GenerateLib) - "", если библиотека собрана без
+// .rechproj (тогда один плоский .rechi рядом с .h/.so, как раньше). stubDir -
+// куда класть РАЗЛОЖЕННЫЕ по подкаталогам .rechi (обычно "файлы.выход"
+// проекта, "сборка") - не используется, если libRoot == "" (единственный
+// плоский .rechi всегда идёт рядом с остальными артефактами, как и .h/.so
+// ниже, независимо от stubDir).
+func (c *Compiler) BuildLib(srcPath, libRoot, stubDir string, keepC bool, extraLibs, extraLibPaths []string) (libPath, hPath string, rechiPaths []string, err error) {
 	prog, base, err := c.ParseSource(srcPath)
 	if err != nil {
-		return "", "", "", err
+		return "", "", nil, err
 	}
-	return c.compileLibProgram(prog, base, keepC, extraLibs, extraLibPaths)
+	return c.compileLibProgram(prog, base, libRoot, stubDir, keepC, extraLibs, extraLibPaths)
 }
 
 // BuildLibSource - BuildLib для кода без файла-источника (-c/--code
-// --lib), симметрично BuildSource/Build.
-func (c *Compiler) BuildLibSource(src string, keepC bool, extraLibs, extraLibPaths []string) (libPath, hPath, rechiPath string, err error) {
+// --lib), симметрично BuildSource/Build - без файла проекта разбивать
+// .rechi по исходным файлам нечему (libRoot/stubDir пустые).
+func (c *Compiler) BuildLibSource(src string, keepC bool, extraLibs, extraLibPaths []string) (libPath, hPath string, rechiPaths []string, err error) {
 	prog, err := c.Frontend.Parse(src)
 	if err != nil {
-		return "", "", "", err
+		return "", "", nil, err
 	}
 	dir, err := os.MkdirTemp("", "rech-code-")
 	if err != nil {
-		return "", "", "", fmt.Errorf("не удалось создать временный каталог: %w", err)
+		return "", "", nil, fmt.Errorf("не удалось создать временный каталог: %w", err)
 	}
-	return c.compileLibProgram(prog, filepath.Join(dir, "код"), keepC, extraLibs, extraLibPaths)
+	return c.compileLibProgram(prog, filepath.Join(dir, "код"), "", "", keepC, extraLibs, extraLibPaths)
+}
+
+// writeInterfaceStubs пишет результат Backend.GenerateLib (relPath без
+// расширения -> содержимое) на диск: relPath == "" (нет libRoot - см.
+// package doc BuildLib) - единственный плоский файл рядом с остальными
+// артефактами библиотеки (base+".rechi", тем же путём, что и раньше);
+// иначе - "<stubDir>/<relPath>.rechi", с созданием недостающих подкаталогов
+// (docs/SPEC.md, "Закрытые (бинарные) пакеты" - интерфейс сохраняет
+// структуру исходников автора). Возвращает пути в детерминированном
+// (отсортированном по relPath) порядке.
+func writeInterfaceStubs(stubs map[string]string, base, stubDir string) ([]string, error) {
+	relPaths := make([]string, 0, len(stubs))
+	for relPath := range stubs {
+		relPaths = append(relPaths, relPath)
+	}
+	sort.Strings(relPaths)
+
+	paths := make([]string, 0, len(relPaths))
+	for _, relPath := range relPaths {
+		target := base + ".rechi"
+		if relPath != "" {
+			target = filepath.Join(stubDir, filepath.FromSlash(relPath)) + ".rechi"
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return nil, fmt.Errorf("не удалось создать каталог %q: %w", filepath.Dir(target), err)
+			}
+		}
+		if err := os.WriteFile(target, []byte(stubs[relPath]), 0o644); err != nil {
+			return nil, fmt.Errorf("не удалось записать %s: %w", target, err)
+		}
+		paths = append(paths, target)
+	}
+	return paths, nil
 }
 
 // compileLibProgram - общий хвост BuildLib/BuildLibSource, аналогичный
@@ -290,51 +335,51 @@ func (c *Compiler) BuildLibSource(src string, keepC bool, extraLibs, extraLibPat
 // заголовок (.h) и интерфейс (.rechi) пишутся всегда, а не только при
 // keepC - оба часть публичного API библиотеки, а не техническая заготовка
 // вроде .c.
-func (c *Compiler) compileLibProgram(prog *ast.Program, base string, keepC bool, extraLibs, extraLibPaths []string) (libPath, hPath, rechiPath string, err error) {
-	cSource, header, interfaceStub, err := c.Backend.GenerateLib(prog, c.DBPoolSize, c.DBPoolTimeoutMs, c.DBSQLiteBusyTimeoutMs, c.PoolShrinkEnabled, c.PoolIdleTimeoutMs, c.HTTPMaxRequestBytes)
+func (c *Compiler) compileLibProgram(prog *ast.Program, base, libRoot, stubDir string, keepC bool, extraLibs, extraLibPaths []string) (libPath, hPath string, rechiPaths []string, err error) {
+	cSource, header, interfaceStubs, err := c.Backend.GenerateLib(prog, libRoot, c.DBPoolSize, c.DBPoolTimeoutMs, c.DBSQLiteBusyTimeoutMs, c.PoolShrinkEnabled, c.PoolIdleTimeoutMs, c.HTTPMaxRequestBytes)
 	if err != nil {
-		return "", "", "", fmt.Errorf("генерация C: %w", err)
+		return "", "", nil, fmt.Errorf("генерация C: %w", err)
 	}
 
 	tmpDir, err := os.MkdirTemp("", "rech-build-")
 	if err != nil {
-		return "", "", "", fmt.Errorf("не удалось создать временный каталог сборки: %w", err)
+		return "", "", nil, fmt.Errorf("не удалось создать временный каталог сборки: %w", err)
 	}
 	defer os.RemoveAll(tmpDir)
 
 	tmpBase := filepath.Join(tmpDir, "out")
 	tmpCPath := tmpBase + ".c"
 	if err := os.WriteFile(tmpCPath, []byte(cSource), 0o644); err != nil {
-		return "", "", "", fmt.Errorf("не удалось записать %s: %w", tmpCPath, err)
+		return "", "", nil, fmt.Errorf("не удалось записать %s: %w", tmpCPath, err)
 	}
 	libExt := c.Toolchain.LibExtension()
 	tmpLibPath := tmpBase + libExt
 	if err := c.Toolchain.CompileLib(tmpCPath, tmpLibPath, extraLibs, extraLibPaths); err != nil {
-		return "", "", "", err
+		return "", "", nil, err
 	}
 
 	libPath = base + libExt
 	if err := MoveFile(tmpLibPath, libPath); err != nil {
-		return "", "", "", fmt.Errorf("не удалось перенести собранную библиотеку в %s: %w", libPath, err)
+		return "", "", nil, fmt.Errorf("не удалось перенести собранную библиотеку в %s: %w", libPath, err)
 	}
 
 	hPath = base + ".h"
 	if err := os.WriteFile(hPath, []byte(header), 0o644); err != nil {
-		return "", "", "", fmt.Errorf("не удалось записать %s: %w", hPath, err)
+		return "", "", nil, fmt.Errorf("не удалось записать %s: %w", hPath, err)
 	}
 
-	rechiPath = base + ".rechi"
-	if err := os.WriteFile(rechiPath, []byte(interfaceStub), 0o644); err != nil {
-		return "", "", "", fmt.Errorf("не удалось записать %s: %w", rechiPath, err)
+	rechiPaths, err = writeInterfaceStubs(interfaceStubs, base, stubDir)
+	if err != nil {
+		return "", "", nil, err
 	}
 
 	if keepC {
 		cPath := base + ".c"
 		if err := os.WriteFile(cPath, []byte(cSource), 0o644); err != nil {
-			return "", "", "", fmt.Errorf("не удалось записать %s: %w", cPath, err)
+			return "", "", nil, fmt.Errorf("не удалось записать %s: %w", cPath, err)
 		}
 	}
-	return libPath, hPath, rechiPath, nil
+	return libPath, hPath, rechiPaths, nil
 }
 
 // ParseSource разбирает srcPath (файл .rech или каталог) в *ast.Program -

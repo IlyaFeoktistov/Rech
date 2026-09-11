@@ -513,22 +513,26 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 // GenerateLibFromIR - как GenerateFromIR, но для разделяемой библиотеки
 // (`rech build --lib`): "главная" не обязательна (библиотека не
 // исполняется как программа), а вторым результатом возвращается текст
-// C-заголовка (.h) с прототипами
-// объявлений, помеченных "экспортировать" - см. header.go.
-func GenerateLibFromIR(prog *ir.Program) (cSource, header, interfaceStub string, err error) {
+// C-заголовка (.h) с прототипами объявлений, помеченных "экспортировать" -
+// см. header.go. Третий результат - публичный интерфейс в синтаксисе Rech
+// (.rechi), РАЗБИТЫЙ по исходным файлам библиотеки (см. package doc
+// generateInterfaceStubsByFile) - ключ карты - путь файла-источника
+// относительно libRoot без расширения, "" у libRoot == "" (без файла
+// проекта - один плоский результат, как раньше).
+func GenerateLibFromIR(prog *ir.Program, libRoot string) (cSource, header string, interfaceStubs map[string]string, err error) {
 	cSource, err = generateSource(prog, true)
 	if err != nil {
-		return "", "", "", err
+		return "", "", nil, err
 	}
 	header, err = generateHeader(prog)
 	if err != nil {
-		return "", "", "", err
+		return "", "", nil, err
 	}
-	interfaceStub, err = generateInterfaceStub(prog)
+	interfaceStubs, err = generateInterfaceStubsByFile(prog, libRoot)
 	if err != nil {
-		return "", "", "", err
+		return "", "", nil, err
 	}
-	return cSource, header, interfaceStub, nil
+	return cSource, header, interfaceStubs, nil
 }
 
 // generateSource - общее тело GenerateFromIR/GenerateLibFromIR. libMode

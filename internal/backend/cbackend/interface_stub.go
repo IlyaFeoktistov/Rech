@@ -2,6 +2,7 @@ package cbackend
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
@@ -69,21 +70,113 @@ const receiverParamName = "получатель"
 // же набор экспортированных объявлений, поэтому берут его из ОДНОГО
 // прохода по prog.Functions/prog.Entities, без отдельной сверки.
 func generateInterfaceStub(prog *ir.Program) (string, error) {
-	var sb strings.Builder
-	sb.WriteString("// Автоматически сгенерировано компилятором rech (rech build --lib). Не редактировать руками.\n")
-	sb.WriteString("// Публичный интерфейс библиотеки в синтаксисе Rech - \"использовать\" подключает его вместо ручного FFI.\n\n")
+	var fns []*ir.Function
+	for _, fn := range prog.Functions {
+		if fn.Exported {
+			fns = append(fns, fn)
+		}
+	}
+	var ents []*ir.Entity
+	for _, ent := range prog.Entities {
+		if ent.Exported {
+			ents = append(ents, ent)
+		}
+	}
+	return renderInterfaceStub(fns, ents), nil
+}
+
+// generateInterfaceStubsByFile - как generateInterfaceStub, но результат
+// разбит по ИСХОДНЫМ файлам библиотеки: ключ - путь файла-источника
+// (относительно libRoot, без расширения, "/" даже на Windows - тот же вид,
+// что и у пути импорта "использовать ... из"), значение - публичный
+// интерфейс ТОЛЬКО объявлений ИЗ ЭТОГО файла. Библиотека с исходниками
+// "утилиты/http/коды_ответов.rech" отдаёт потребителю ТОТ ЖЕ путь
+// ("имя_пакета/утилиты/http/коды_ответов") - структура каталогов публичного
+// интерфейса не схлопывается в один плоский файл (docs/SPEC.md, "Закрытые
+// (бинарные) пакеты"). libRoot == "" - вырожденный случай без файла проекта
+// (BuildLibSource, `rech build -c ... --lib`) - разбивать по файлам
+// исходников нечему (Frontend.Parse не проходит через ast.StampFile), один
+// плоский результат под пустым ключом "", тем же содержимым, что
+// generateInterfaceStub.
+func generateInterfaceStubsByFile(prog *ir.Program, libRoot string) (map[string]string, error) {
+	if libRoot == "" {
+		stub, err := generateInterfaceStub(prog)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]string{"": stub}, nil
+	}
+	absRoot, err := filepath.Abs(libRoot)
+	if err != nil {
+		return nil, fmt.Errorf("каталог проекта %q: %w", libRoot, err)
+	}
+	relPath := func(file string) (string, error) {
+		absFile, err := filepath.Abs(file)
+		if err != nil {
+			return "", err
+		}
+		rel, err := filepath.Rel(absRoot, strings.TrimSuffix(absFile, filepath.Ext(absFile)))
+		if err != nil {
+			return "", err
+		}
+		return filepath.ToSlash(rel), nil
+	}
+
+	var order []string
+	seen := map[string]bool{}
+	fnsByFile := map[string][]*ir.Function{}
+	entsByFile := map[string][]*ir.Entity{}
+	touch := func(rp string) {
+		if !seen[rp] {
+			seen[rp] = true
+			order = append(order, rp)
+		}
+	}
 
 	for _, fn := range prog.Functions {
 		if !fn.Exported {
 			continue
 		}
-		fmt.Fprintf(&sb, "внешняя функция %s(%s)%s\n", fn.Name, rechParamList(fn.Params), rechReturnSuffix(fn.HasReturn, fn.ReturnType))
+		rp, err := relPath(fn.File)
+		if err != nil {
+			return nil, fmt.Errorf("функция %q: %w", fn.Name, err)
+		}
+		touch(rp)
+		fnsByFile[rp] = append(fnsByFile[rp], fn)
 	}
-
 	for _, ent := range prog.Entities {
 		if !ent.Exported {
 			continue
 		}
+		rp, err := relPath(ent.File)
+		if err != nil {
+			return nil, fmt.Errorf("сущность %q: %w", ent.Name, err)
+		}
+		touch(rp)
+		entsByFile[rp] = append(entsByFile[rp], ent)
+	}
+
+	out := make(map[string]string, len(order))
+	for _, rp := range order {
+		out[rp] = renderInterfaceStub(fnsByFile[rp], entsByFile[rp])
+	}
+	return out, nil
+}
+
+// renderInterfaceStub - общее тело generateInterfaceStub/
+// generateInterfaceStubsByFile: fns/ents уже отфильтрованы по Exported (и,
+// у второй, по исходному файлу) - сама генерация синтаксиса не знает и не
+// обязана знать, как именно вызывающая сторона их сгруппировала.
+func renderInterfaceStub(fns []*ir.Function, ents []*ir.Entity) string {
+	var sb strings.Builder
+	sb.WriteString("// Автоматически сгенерировано компилятором rech (rech build --lib). Не редактировать руками.\n")
+	sb.WriteString("// Публичный интерфейс библиотеки в синтаксисе Rech - \"использовать\" подключает его вместо ручного FFI.\n\n")
+
+	for _, fn := range fns {
+		fmt.Fprintf(&sb, "внешняя функция %s(%s)%s\n", fn.Name, rechParamList(fn.Params), rechReturnSuffix(fn.HasReturn, fn.ReturnType))
+	}
+
+	for _, ent := range ents {
 		hasCtor := ent.Ctor != nil && ent.Ctor.Exported
 		exportedMethods := make([]*ir.Method, 0, len(ent.Methods))
 		for _, m := range ent.Methods {
@@ -130,5 +223,5 @@ func generateInterfaceStub(prog *ir.Program) (string, error) {
 		}
 		sb.WriteString("}\n\n")
 	}
-	return sb.String(), nil
+	return sb.String()
 }
