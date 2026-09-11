@@ -511,19 +511,45 @@ func methodVisibilityWord(vis ast.Visibility) string {
 }
 
 // visibilityFromToken переводит токен-модификатор видимости
-// (KwPrivate/KwPublic/KwProtected) в ast.Visibility.
+// (KwPrivate/KwPublic/KwProtected/KwInternal) в ast.Visibility. KwInternal
+// встречается только на уровне модуля (isModuleVisibilityKeyword,
+// internal/parser/modvisibility.go) - isVisibilityKeyword (член сущности)
+// его не пропускает, эта функция всё равно общая на оба вызывающих сайта.
 func visibilityFromToken(tok lexer.Token) ast.Visibility {
 	switch tok.Type {
 	case lexer.KwPrivate:
 		return ast.Private
 	case lexer.KwProtected:
 		return ast.Protected
+	case lexer.KwInternal:
+		return ast.Internal
 	default:
 		return ast.Public
 	}
 }
 
+// internalKeywordFor - форма модификатора "внутренний" - в отличие от
+// приватный/публичный/защищённый (твёрдое окончание "-ый/-ая/-ое/-ые"),
+// это МЯГКОЕ прилагательное (как "домашний"/"синий") - окончание
+// "-ий/-яя/-ее/-ие", отдельная таблица, не общий stem+"ый" ниже.
+func internalKeywordFor(gender morph.Gender, number morph.Number) string {
+	if number == morph.Plural {
+		return "внутренние"
+	}
+	switch gender {
+	case morph.Feminine:
+		return "внутренняя"
+	case morph.Neuter:
+		return "внутреннее"
+	default:
+		return "внутренний"
+	}
+}
+
 func visibilityKeywordFor(vis ast.Visibility, gender morph.Gender, number morph.Number) string {
+	if vis == ast.Internal {
+		return internalKeywordFor(gender, number)
+	}
 	stem := "публичн"
 	switch vis {
 	case ast.Private:

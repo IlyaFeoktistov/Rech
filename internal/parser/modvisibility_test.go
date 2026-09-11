@@ -185,6 +185,63 @@ func TestParsePrivateConstWrongGenderRejected(t *testing.T) {
 	}
 }
 
+// TestParseInternalAgreesWithGenderAcrossKinds - "внутренний" (МЯГКОЕ
+// прилагательное, окончание "-ий/-яя/-ее", в отличие от твёрдого "-ый/-ая/
+// -ое" у приватный/публичный) согласуется по роду с тем же governing-
+// словом, что и остальные модификаторы: функция/сущность/структура/
+// константа - женский ("внутренняя"), класс - мужской ("внутренний"),
+// перечисление - средний ("внутреннее").
+func TestParseInternalAgreesWithGenderAcrossKinds(t *testing.T) {
+	prog, err := parseSource(t, `
+внутренняя функция помощник(): Целое
+{
+    вернуть 1
+}
+внутренний класс Скрытый { }
+внутренняя структура Точка
+{
+    имеет:
+        x: Целое
+}
+внутреннее перечисление Режим
+{
+    А
+}
+внутренняя константа Секрет = 1
+функция главная { вывести "ок" }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if prog.Functions[0].Visibility != ast.Internal {
+		t.Fatalf("ожидалась внутренняя функция, получено %v", prog.Functions[0].Visibility)
+	}
+	for i, ent := range prog.Entities {
+		if ent.Visibility != ast.Internal {
+			t.Fatalf("сущность %d (%s): ожидалась внутренняя, получено %v", i, ent.Name, ent.Visibility)
+		}
+	}
+	if prog.Enums[0].Visibility != ast.Internal {
+		t.Fatalf("ожидалось внутреннее перечисление, получено %v", prog.Enums[0].Visibility)
+	}
+	if prog.Consts[0].Visibility != ast.Internal {
+		t.Fatalf("ожидалась внутренняя константа, получено %v", prog.Consts[0].Visibility)
+	}
+}
+
+func TestParseInternalWrongGenderRejected(t *testing.T) {
+	_, err := parseSource(t, `
+внутренний функция помощник(): Целое
+{
+    вернуть 1
+}
+функция главная { вывести "ок" }
+`)
+	if err == nil || !strings.Contains(err.Error(), "внутренняя") {
+		t.Fatalf("ожидалась ошибка о согласовании рода (\"внутренняя функция\"), получено: %v", err)
+	}
+}
+
 // TestParseConstDeclWithoutVisibilityStaysPublic - без модификатора
 // константа уровня модуля остаётся публичной (обратная совместимость - вся
 // программа до этой фичи писала "константа" без модификатора).

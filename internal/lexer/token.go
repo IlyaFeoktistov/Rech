@@ -91,6 +91,7 @@ const (
 	KwPrivate     // приватный / приватная / приватное / приватные
 	KwPublic      // публичный / публичная / публичное / публичные
 	KwProtected   // защищённый / защищённая / защищённое / защищённые
+	KwInternal    // внутренний / внутренняя / внутреннее (видимость верхнего уровня файла - виден всему .rechproj-проекту, но не потребителю через "использовать ... из" зависимости)
 	KwStatic      // статический / статическая / статическое / статические
 	KwUse         // использовать (импорт)
 	KwOf          // из (предлог перед путём импорта)
@@ -193,6 +194,9 @@ var keywords = map[string]TokenType{
 	"защищённая":     KwProtected,
 	"защищённое":     KwProtected,
 	"защищённые":     KwProtected,
+	"внутренний":     KwInternal,
+	"внутренняя":     KwInternal,
+	"внутреннее":     KwInternal,
 	"статический":    KwStatic,
 	"статическая":    KwStatic,
 	"статическое":    KwStatic,
@@ -422,6 +426,8 @@ func (t TokenType) String() string {
 		return "публичный"
 	case KwProtected:
 		return "защищённый"
+	case KwInternal:
+		return "внутренний"
 	case KwStatic:
 		return "статический"
 	case KwUse:

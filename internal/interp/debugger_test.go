@@ -70,14 +70,14 @@ func waitStopped(t *testing.T, d *Debugger, threadID int, timeout time.Duration)
 
 func TestDebuggerBreakpointStopsAndReportsStack(t *testing.T) {
 	prog := irProgForDebug(t, `
-функция внутренняя(число: Целое): Целое
+функция вложенная(число: Целое): Целое
 {
     вернуть число * 2
 }
 
 функция главная
 {
-    переменная х = внутренняя(21)
+    переменная х = вложенная(21)
     вывести х
 }
 `)
@@ -94,9 +94,9 @@ func TestDebuggerBreakpointStopsAndReportsStack(t *testing.T) {
 	}
 	frames := d.StackTrace(1)
 	if len(frames) != 2 {
-		t.Fatalf("ожидалось 2 кадра (внутренняя, главная), получено %d: %+v", len(frames), frames)
+		t.Fatalf("ожидалось 2 кадра (вложенная, главная), получено %d: %+v", len(frames), frames)
 	}
-	if frames[0].Name != "внутренняя" || frames[0].Line != 4 || frames[0].File != debugTestFile {
+	if frames[0].Name != "вложенная" || frames[0].Line != 4 || frames[0].File != debugTestFile {
 		t.Fatalf("неожиданный верхний кадр: %+v", frames[0])
 	}
 	if frames[1].Name != "главная" {
