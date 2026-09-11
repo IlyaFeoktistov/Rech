@@ -3,6 +3,7 @@ package pkgfetch
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/IlyaFeoktistov/Rech/internal/project"
@@ -164,5 +165,80 @@ func TestResolveGraphCyclicDependencyRejected(t *testing.T) {
 	}
 	if _, err := ResolveGraphWithRoot(rootDeps, cacheRoot, rootDir, lockPath, nil); err == nil {
 		t.Fatalf("ожидалась ошибка циклической зависимости")
+	}
+}
+
+// TestResolveGraphMaterializesRootDependencyIntoProject - зависимость
+// корневого уровня физически копируется из кеша ОС в
+// "<rootDir>/библиотеки/<имя>/" (docs/ROADMAP.md, "Закрытые (бинарные)
+// пакеты", доводка про материализацию) - файлы реально доступны внутри
+// дерева проекта, не только в общем кеше вне его, а g.Scopes указывает на
+// новое место (см. package doc MaterializeRoot).
+func TestResolveGraphMaterializesRootDependencyIntoProject(t *testing.T) {
+	repoA := makeGitRepoWithFiles(t, map[string]string{
+		"тест.rechproj": "проект:\n  имя: repoA\nфайлы:\n  главный: главный.rech\n",
+		"главный.rech":  "функция ф() { вывести 1 }\n",
+	})
+
+	rootDir := t.TempDir()
+	cacheRoot := t.TempDir()
+	lockPath := filepath.Join(rootDir, ".rechlock")
+	rootDeps := map[string]project.Dependency{
+		"точка": {URL: repoA, Версия: "v1.0.0"},
+	}
+
+	g, err := ResolveGraphWithRoot(rootDeps, cacheRoot, rootDir, lockPath, nil)
+	if err != nil {
+		t.Fatalf("ResolveGraph: %v", err)
+	}
+
+	wantDir := filepath.Join(rootDir, "библиотеки", "точка")
+	depDir, ok := g.Scopes[rootDir]["точка"]
+	if !ok || depDir != wantDir {
+		t.Fatalf("ожидался Scopes[rootDir][\"точка\"] == %q, получено %q (ok=%v)", wantDir, depDir, ok)
+	}
+	data, err := os.ReadFile(filepath.Join(wantDir, "главный.rech"))
+	if err != nil {
+		t.Fatalf("зависимость не материализована в %q: %v", wantDir, err)
+	}
+	if !strings.Contains(string(data), "вывести 1") {
+		t.Fatalf("неверное содержимое материализованного файла: %s", data)
+	}
+	if _, err := os.Stat(filepath.Join(wantDir, ".git")); !os.IsNotExist(err) {
+		t.Fatalf(".git не должен копироваться в материализованную зависимость")
+	}
+}
+
+// TestResolveGraphMaterializeSkipsRecopyOnUnchangedCommit - повторный вызов
+// с тем же (закреплённым в .rechlock) коммитом не перезаписывает уже
+// материализованную зависимость - дорогое копирование не должно повторяться
+// на каждый "rech build/run" без надобности.
+func TestResolveGraphMaterializeSkipsRecopyOnUnchangedCommit(t *testing.T) {
+	repoA := makeGitRepoWithFiles(t, map[string]string{
+		"тест.rechproj": "проект:\n  имя: repoA\nфайлы:\n  главный: главный.rech\n",
+		"главный.rech":  "функция ф() { вывести 1 }\n",
+	})
+
+	rootDir := t.TempDir()
+	cacheRoot := t.TempDir()
+	lockPath := filepath.Join(rootDir, ".rechlock")
+	rootDeps := map[string]project.Dependency{
+		"точка": {URL: repoA, Версия: "v1.0.0"},
+	}
+
+	if _, err := ResolveGraphWithRoot(rootDeps, cacheRoot, rootDir, lockPath, nil); err != nil {
+		t.Fatalf("ResolveGraph (первый раз): %v", err)
+	}
+	wantDir := filepath.Join(rootDir, "библиотеки", "точка")
+	sentinel := filepath.Join(wantDir, "метка.txt")
+	if err := os.WriteFile(sentinel, []byte("не должно исчезнуть"), 0o644); err != nil {
+		t.Fatalf("запись метки: %v", err)
+	}
+
+	if _, err := ResolveGraphWithRoot(rootDeps, cacheRoot, rootDir, lockPath, nil); err != nil {
+		t.Fatalf("ResolveGraph (второй раз): %v", err)
+	}
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Fatalf("метка исчезла - зависимость была перекопирована, хотя коммит не менялся: %v", err)
 	}
 }
