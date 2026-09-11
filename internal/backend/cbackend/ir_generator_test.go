@@ -748,6 +748,27 @@ func TestGenerateFromIRBitwiseOperators(t *testing.T) {
 	}
 }
 
+// TestGenerateFromIRBitwiseOperatorsByte - Байт,Байт (не только Целое,
+// Целое) - результат явно кастуется обратно к "unsigned char", иначе C
+// продвинул бы операнды до int и оставил бы результат в более широком
+// типе (см. generateIRBinaryExpr/generateIRUnaryExpr, случай TypeByte).
+func TestGenerateFromIRBitwiseOperatorsByte(t *testing.T) {
+	byteLit := func(v int64) ir.Expr {
+		return &ir.CastExpr{Value: &ir.IntLiteral{Value: v}, To: ir.TypeByte}
+	}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.PrintStmt{Value: &ir.BinaryExpr{Op: "|", Left: byteLit(6), Right: byteLit(3), Type: ir.TypeByte}},
+		&ir.PrintStmt{Value: &ir.UnaryExpr{Op: "~", Operand: byteLit(0), Type: ir.TypeByte}},
+	}}
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "((unsigned char)(") {
+		t.Fatalf("ожидался явный каст обратно к unsigned char, получено:\n%s", out)
+	}
+}
+
 func TestGenerateFromIRIncDecExpr(t *testing.T) {
 	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
 		&ir.VarDecl{Name: "а", Value: &ir.IntLiteral{Value: 5}},

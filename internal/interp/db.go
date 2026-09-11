@@ -237,6 +237,27 @@ func (in *Interp) dbExec(db *sql.DB, sqlText string, params []Value) Value {
 	return intValue(affected)
 }
 
+// dbPoolState - "состояние_бд(БД): СостояниеБД" - тот же смысл, что у
+// cbackend rech_db_pool_state (internal/backend/cbackend/db.go): "всего" -
+// НАСТРОЕННЫЙ размер пула (MaxOpenConnections, тот же db.SetMaxOpenConns,
+// что и dbConnect выше), а не sql.DBStats.OpenConnections - у
+// database/sql соединения открываются ЛЕНИВО (по факту запроса), в
+// отличие от cbackend (dbConnectCloseCode открывает все "pool_size"
+// соединений сразу при подключении) - используя OpenConnections напрямую,
+// "всего" колебалось бы в зависимости от того, сколько запросов уже
+// прошло, и не совпадало бы с cbackend сразу после "подключиться_к_бд".
+// "простаивает" - тоже ПРОИЗВОДНОЕ (всего - занято), не stats.Idle - та же
+// причина: гарантирует инвариант "всего == занято + простаивает" всегда,
+// а не только когда все настроенные соединения уже реально открыты.
+func dbPoolState(db *sql.DB) Value {
+	stats := db.Stats()
+	total := int64(stats.MaxOpenConnections)
+	busy := int64(stats.InUse)
+	return Value{Type: ir.EntityType("СостояниеБД"), Obj: &entityObj{typeName: "СостояниеБД", fields: map[string]Value{
+		"всего": intValue(total), "занято": intValue(busy), "простаивает": intValue(total - busy),
+	}}}
+}
+
 // dbParamValue распаковывает боксированный параметр ("Значение", см.
 // internal/semantic/db.go) в Go-значение, которое database/sql передаст
 // драйверу как есть - только Целое/Действительное/Дробное/Строка/

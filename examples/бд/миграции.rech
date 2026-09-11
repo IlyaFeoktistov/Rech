@@ -3,7 +3,7 @@
  * examples/бд/orm_легковесный.rech - не фича компилятора). Одна миграция -
  * обычная сущность, реализующая интерфейс "Миграция" (версия + "накатить"/
  * "откатить") - тело обоих методов ничем не отличается от любого другого
- * Rech-кода с БД: обычные "выполнить(бд, sql, параметры)", можно
+ * Rech-кода с БД: обычные "бд.выполнить(sql, параметры)", можно
  * пользоваться и "выполнить_модель" (orm_легковесный.rech), и рефлексией -
  * никакого отдельного языка описания схемы или формата файла миграции нет.
  *
@@ -41,10 +41,10 @@
  */
 функция убедиться_в_таблице_версии(бд: БД)
 {
-    выполнить(бд, "CREATE TABLE IF NOT EXISTS rech_schema_version (version INTEGER NOT NULL)")
-    переменная строки = запросить(бд, "SELECT version FROM rech_schema_version")
+    бд.выполнить("CREATE TABLE IF NOT EXISTS rech_schema_version (version INTEGER NOT NULL)")
+    переменная строки = бд.запросить("SELECT version FROM rech_schema_version")
     если строки.длина() == 0 {
-        выполнить(бд, "INSERT INTO rech_schema_version (version) VALUES (0)")
+        бд.выполнить("INSERT INTO rech_schema_version (version) VALUES (0)")
     }
 }
 
@@ -52,7 +52,7 @@
 функция текущая_версия_схемы(бд: БД): Целое
 {
     убедиться_в_таблице_версии(бд)
-    переменная строки = запросить(бд, "SELECT version FROM rech_schema_version")
+    переменная строки = бд.запросить("SELECT version FROM rech_schema_version")
 
     вернуть (строки.получить(0).получить("version") как Целое)
 }
@@ -61,7 +61,7 @@
 {
     переменная параметры = новый Список<Значение>()
     параметры.добавить((Значение) версия)
-    выполнить(бд, "UPDATE rech_schema_version SET version = ?", параметры)
+    бд.выполнить("UPDATE rech_schema_version SET version = ?", параметры)
 }
 
 /**
@@ -115,12 +115,12 @@
 
     накатить(бд: БД)
     {
-        выполнить(бд, "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+        бд.выполнить("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
     }
 
     откатить(бд: БД)
     {
-        выполнить(бд, "DROP TABLE users")
+        бд.выполнить("DROP TABLE users")
     }
 }
 
@@ -133,7 +133,7 @@
 
     накатить(бд: БД)
     {
-        выполнить(бд, "ALTER TABLE users ADD COLUMN age INTEGER")
+        бд.выполнить("ALTER TABLE users ADD COLUMN age INTEGER")
     }
 
     // SQLite не умеет "DROP COLUMN" - откат этой миграции необратим (см.
@@ -158,12 +158,12 @@
     переменная параметры = новый Список<Значение>()
     параметры.добавить((Значение) "Аня")
     параметры.добавить((Значение) 30)
-    выполнить(бд, "INSERT INTO users (name, age) VALUES (?, ?)", параметры)
-    переменная строки = запросить(бд, "SELECT name, age FROM users")
+    бд.выполнить("INSERT INTO users (name, age) VALUES (?, ?)", параметры)
+    переменная строки = бд.запросить("SELECT name, age FROM users")
     вывести строки.длина()
 
     откатить_до(бд, миграции, 0)
     вывести текущая_версия_схемы(бд)
 
-    закрыть_бд(бд)
+    бд.закрыть()
 }

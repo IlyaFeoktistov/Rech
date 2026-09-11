@@ -18,14 +18,14 @@
     // Третий аргумент ("параметры") необязателен - по умолчанию пустой
     // список, для запроса без единого "?" незачем писать его явно
     // (internal/semantic/db.go, dbNoParamsDefault).
-    выполнить(бд, "CREATE TABLE users (username TEXT PRIMARY KEY, password_hash TEXT, salt TEXT)")
+    бд.выполнить("CREATE TABLE users (username TEXT PRIMARY KEY, password_hash TEXT, salt TEXT)")
 
     переменная соль      = сгенерировать_соль()
     переменная параметры = новый Список<Значение>()
     параметры.добавить((Значение) "admin")
     параметры.добавить((Значение) хешировать_пароль("secret123", соль))
     параметры.добавить((Значение) соль)
-    выполнить(бд, "INSERT INTO users (username, password_hash, salt) VALUES (?, ?, ?)", параметры)
+    бд.выполнить("INSERT INTO users (username, password_hash, salt) VALUES (?, ?, ?)", параметры)
 
     вернуть бд
 }

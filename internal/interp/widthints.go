@@ -63,6 +63,48 @@ func fixedWidthToFloat(k ir.TypeKind, raw int64) float64 {
 // тип, без неявной промоции). "/" беззнаковых - через uint64(...), как и
 // cbackend.rech_uint_div - обычное int64-деление интерпретировало бы
 // Натуральное64 > INT64_MAX как отрицательное и дало бы неверный частное.
+// bitwiseUnaryResult - "~": Байт/фикс-ширинные типы усекаются в своей
+// ширине (та же причина, что и wrapFixedWidth - без усечения промежуточный
+// результат остался бы в более широком int64), обычное Целое - без
+// усечения (уже 64 бита).
+func bitwiseUnaryResult(t ir.Type, raw int64) Value {
+	if t == ir.TypeByte {
+		return byteValue(raw)
+	}
+	if isFixedWidthInt(t.Kind) {
+		return Value{Type: t, I: wrapFixedWidth(t.Kind, raw)}
+	}
+	return intValue(raw)
+}
+
+// bitwiseBinaryResult - "& | ^ << >>": internal/semantic уже гарантировал
+// l.Type == r.Type - тип результата совпадает с типом операндов. ">>" для
+// беззнаковых Натуральное/Натуральное8..64 - логический сдвиг (без
+// знакового заполнения), в отличие от Целое/Целое8..64 (арифметический,
+// знакозаполняющий) - та же причина, что и у isUnsignedFixedWidth в "/"/"%"
+// (fixedWidthArithmetic): Натуральное64 > INT64_MAX хранится как
+// отрицательный int64-паттерн, обычный ">>" интерпретировал бы его знаково.
+func bitwiseBinaryResult(op string, l, r Value) Value {
+	var raw int64
+	switch op {
+	case "&":
+		raw = l.I & r.I
+	case "|":
+		raw = l.I | r.I
+	case "^":
+		raw = l.I ^ r.I
+	case "<<":
+		raw = l.I << uint64(r.I)
+	case ">>":
+		if isUnsignedFixedWidth(l.Type.Kind) {
+			raw = int64(uint64(l.I) >> uint64(r.I))
+		} else {
+			raw = l.I >> uint64(r.I)
+		}
+	}
+	return bitwiseUnaryResult(l.Type, raw)
+}
+
 func fixedWidthArithmetic(op string, l, r Value) (Value, error) {
 	k := l.Type.Kind
 	switch op {

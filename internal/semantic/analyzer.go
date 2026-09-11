@@ -548,6 +548,7 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 	registerHTTPHeaderFunc(funcs)
 	registerEnvFuncs(funcs)
 	registerDBFuncs(funcs)
+	registerDBStateFunc(a.entities, funcs)
 	registerTransactionFuncs(funcs)
 	registerNetworkFuncs(a.entities, funcs)
 	registerBytesIOFuncs(funcs)
@@ -1104,6 +1105,7 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 		&ir.Entity{Name: "RGBЦвет", IsStruct: true, Fields: ColorFields},
 		&ir.Entity{Name: "Процесс", IsStruct: true, Fields: ProcessFields},
 		&ir.Entity{Name: "РезультатКоманды", IsStruct: true, Fields: CommandResultFields},
+		&ir.Entity{Name: dbStateEntityName, IsStruct: true, Fields: DBStateFields},
 	)
 	// "Исключение" - ссылочная сущность (не структура): "выбросить"
 	// передаёт указатель на неё дальше по стеку вызовов без копирования,

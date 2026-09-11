@@ -107,7 +107,7 @@ func (in *Interp) evalAstExpr(e ast.Expr, env *Env, this *entityObj) (Value, err
 		case "не":
 			return boolValue(!v.B), nil
 		case "~":
-			return intValue(^v.I), nil
+			return bitwiseUnaryResult(v.Type, ^v.I), nil
 		default:
 			return Value{}, fmt.Errorf("неизвестная унарная операция %q", e.Op)
 		}
@@ -225,16 +225,8 @@ func (in *Interp) evalAstBinary(e *ast.BinaryExpr, env *Env, this *entityObj) (V
 		return boolValue(!in.valuesEqual(l, r)), nil
 	case "<", ">", "<=", ">=":
 		return compareOrdered(e.Op, l, r), nil
-	case "&":
-		return intValue(l.I & r.I), nil
-	case "|":
-		return intValue(l.I | r.I), nil
-	case "^":
-		return intValue(l.I ^ r.I), nil
-	case "<<":
-		return intValue(l.I << uint64(r.I)), nil
-	case ">>":
-		return intValue(l.I >> uint64(r.I)), nil
+	case "&", "|", "^", "<<", ">>":
+		return bitwiseBinaryResult(e.Op, l, r), nil
 	default:
 		return Value{}, fmt.Errorf("неизвестная операция %q", e.Op)
 	}

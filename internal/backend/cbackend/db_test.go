@@ -127,9 +127,34 @@ func TestGenerateFromIRWithoutDBOmitsAllBackends(t *testing.T) {
     вывести 1
 }
 `)
-	for _, absent := range []string{"sqlite3_open(", "PQconnectdb(", "mysql_init(", "rech_db_connect("} {
+	for _, absent := range []string{"sqlite3_open(", "PQconnectdb(", "mysql_init(", "rech_db_connect(", "rech_db_pool_state("} {
 		if strings.Contains(out, absent) {
 			t.Fatalf("не ожидалось упоминание %q (БД не используется), получено:\n%s", absent, out)
+		}
+	}
+}
+
+// TestGenerateFromIRDBHandleMethodSugarGeneratesSameCallsAsFreeFunctions -
+// "бд.запросить(...)"/"бд.выполнить(...)"/"бд.состояние_пула()"/"бд.закрыть()"
+// (internal/semantic/handle_methods.go) - ЧИСТЫЙ семантический сахар, ноль
+// нового кода в cbackend - сгенерированный C должен звать РОВНО те же
+// функции рантайма, что и запись через свободные функции.
+func TestGenerateFromIRDBHandleMethodSugarGeneratesSameCallsAsFreeFunctions(t *testing.T) {
+	out := generateFromSrc(t, `
+функция главная
+{
+    переменная бд = подключиться_к_бд("sqlite::memory:")
+    бд.выполнить("create table t(id integer)")
+    переменная строки = бд.запросить("select id from t")
+    вывести строки.длина()
+    переменная сост = бд.состояние_пула()
+    вывести сост.всего
+    бд.закрыть()
+}
+`)
+	for _, want := range []string{"rech_db_exec(", "rech_db_query(", "rech_db_pool_state(", "rech_db_close("} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ожидался вызов %q через метод-сахар, получено:\n%s", want, out)
 		}
 	}
 }

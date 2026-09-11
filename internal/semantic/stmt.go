@@ -575,6 +575,19 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 				}
 				return &ir.ExprStmt{StaticMethodCall: call, Line: s.Line}, nil
 			}
+			if desugared, handled, derr := maybeDesugarHandleMethod(sc, s.MethodCall); handled {
+				if derr != nil {
+					return nil, derr
+				}
+				switch call := desugared.(type) {
+				case *ir.CallExpr:
+					return &ir.ExprStmt{Call: call, Line: s.Line}, nil
+				case *ir.CallValueExpr:
+					return &ir.ExprStmt{CallValue: call, Line: s.Line}, nil
+				default:
+					return nil, fmt.Errorf("внутренняя ошибка: неизвестный вид вызова %T", call)
+				}
+			}
 			call, err := analyzeMethodCallExpr(sc, s.MethodCall)
 			if err != nil {
 				return nil, err

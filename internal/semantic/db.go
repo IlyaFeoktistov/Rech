@@ -100,6 +100,11 @@ var dbFuncNames = map[string]bool{
 	// dbResultType/listOfAnyType (её методы "запросить"/"выполнить" несут
 	// те же типы) - тем же принципом идемпотентной лишней регистрации.
 	beginTransactionFuncName: true,
+	// "состояние_бд" (dbstate.go) не трогает dbResultType/listOfAnyType
+	// вовсе, но всё равно нуждается в markUsesDB - идемпотентная лишняя
+	// регистрация тех двух типов ей не вредит (тот же принцип, что и у
+	// "подключиться_к_бд"/"закрыть_бд" выше).
+	"состояние_бд": true,
 }
 
 // registerDBTypesOnCall - вызывается из analyzeCallExpr при каждом вызове

@@ -93,6 +93,42 @@ func TestAnalyzeVarDeclAndArithmeticPromotion(t *testing.T) {
 	}
 }
 
+func TestAnalyzeBitwiseByteResultStaysByte(t *testing.T) {
+	irProg := parseProgram(t, `
+функция главная
+{
+    переменная а = (Байт) 6
+    переменная б = (Байт) 3
+    вывести а | б
+    вывести ~а
+}
+`)
+	fn := irProg.Functions[0]
+	orPrint := fn.Body[2].(*ir.PrintStmt)
+	or, ok := orPrint.Value.(*ir.BinaryExpr)
+	if !ok || or.Type != ir.TypeByte {
+		t.Fatalf("ожидался Байт | Байт -> Байт (без роста до Целое), получено %+v", orPrint.Value)
+	}
+	notPrint := fn.Body[3].(*ir.PrintStmt)
+	not, ok := notPrint.Value.(*ir.UnaryExpr)
+	if !ok || not.Type != ir.TypeByte {
+		t.Fatalf("ожидался ~Байт -> Байт, получено %+v", notPrint.Value)
+	}
+}
+
+func TestAnalyzeBitwiseMixedByteAndIntFails(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция главная
+{
+    переменная а = (Байт) 6
+    вывести а & 3
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "побитовый оператор") {
+		t.Fatalf("ожидалась ошибка про побитовый оператор при смешении Байт и Целое, получено: %v", err)
+	}
+}
+
 func TestAnalyzeStringConcat(t *testing.T) {
 	irProg := parseProgram(t, `
 функция главная
@@ -926,12 +962,12 @@ func TestAnalyzeEntityFieldsConstructorAndFieldAccess(t *testing.T) {
 }
 `)
 	// 1 пользовательская + "Запрос"/"Ответ"/"ДатаВремя"/"ОпцииКуки"/
-	// "Дейтаграмма"/"RGBЦвет"/"Процесс"/"РезультатКоманды" (структуры-данные)
-	// + "Исключение" - Analyze добавляет их во все out.Entities всегда, не
-	// только когда программа их использует - см. package doc
-	// registerHTTPEntity и buildIR (internal/semantic/analyzer.go).
-	if len(irProg.Entities) != 10 {
-		t.Fatalf("ожидалась 1 пользовательская сущность + 9 встроенных (Запрос/Ответ/ДатаВремя/ОпцииКуки/Дейтаграмма/RGBЦвет/Процесс/РезультатКоманды/Исключение), получено %d", len(irProg.Entities))
+	// "Дейтаграмма"/"RGBЦвет"/"Процесс"/"РезультатКоманды"/"СостояниеБД"
+	// (структуры-данные) + "Исключение" - Analyze добавляет их во все
+	// out.Entities всегда, не только когда программа их использует - см.
+	// package doc registerHTTPEntity и buildIR (internal/semantic/analyzer.go).
+	if len(irProg.Entities) != 11 {
+		t.Fatalf("ожидалась 1 пользовательская сущность + 10 встроенных (Запрос/Ответ/ДатаВремя/ОпцииКуки/Дейтаграмма/RGBЦвет/Процесс/РезультатКоманды/СостояниеБД/Исключение), получено %d", len(irProg.Entities))
 	}
 	entity := irProg.Entities[0]
 	if entity.Name != "Пользователь" || len(entity.Fields) != 2 {
@@ -1675,7 +1711,23 @@ func TestAnalyzeBitwiseOnFloatFails(t *testing.T) {
 		t.Fatalf("парсер: %v", err)
 	}
 	_, err = Analyze(prog)
-	if err == nil || !strings.Contains(err.Error(), "применим только к Целое") {
+	if err == nil || !strings.Contains(err.Error(), "побитовый оператор") {
+		t.Fatalf("ожидалась ошибка про тип операнда, получено: %v", err)
+	}
+}
+
+// TestAnalyzeBitwiseOnSameTypeFloatFails - "1.0 | 2.0" (одного типа с обеих
+// сторон, в отличие от TestAnalyzeBitwiseOnFloatFails выше) - падает на
+// ВТОРОЙ проверке (не целочисленный Kind), не на несовпадении типов - тоже
+// должно быть отклонено.
+func TestAnalyzeBitwiseOnSameTypeFloatFails(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция главная
+{
+    переменная а = 1.0 | 2.0
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "побитовый оператор") {
 		t.Fatalf("ожидалась ошибка про тип операнда, получено: %v", err)
 	}
 }

@@ -551,6 +551,39 @@ func dbConnectCloseCode(backends dbscheme.Set) string {
 	return sb.String()
 }
 
+// dbPoolStateFuncCode строит "rech_db_pool_state" - живой снимок пула
+// (см. package doc internal/semantic/dbstate.go, "СостояниеБД") под тем же
+// мьютексом, что и rech_db_checkout/rech_db_checkin выше - иначе
+// конкурентный checkout/checkin из другого потока мог бы дать
+// противоречивую пару чисел (занято + простаивает != всего) в момент
+// чтения.
+func dbPoolStateFuncCode() string {
+	return fmt.Sprintf(`static %[1]s rech_db_pool_state(rech_db_t *db) {
+#ifdef _WIN32
+    EnterCriticalSection(&db->mutex);
+#else
+    pthread_mutex_lock(&db->mutex);
+#endif
+    int busy = 0;
+    for (int i = 0; i < db->pool_size; i++) {
+        if (db->in_use[i]) busy++;
+    }
+    int total = db->pool_size;
+#ifdef _WIN32
+    LeaveCriticalSection(&db->mutex);
+#else
+    pthread_mutex_unlock(&db->mutex);
+#endif
+    %[1]s result;
+    result.%[2]s = total;
+    result.%[3]s = busy;
+    result.%[4]s = total - busy;
+    return result;
+}
+
+`, mangleType("СостояниеБД"), mangleField("всего"), mangleField("занято"), mangleField("простаивает"))
+}
+
 // dbSubstituteCode строит rech_db_substitute(sql, параметры) - переписывает
 // "?" (единый плейсхолдер Rech) в литералы SQL прямо по тексту запроса, по
 // порядку следования - см. package doc про экранирование. paramsListC -
@@ -897,6 +930,7 @@ func dbRuntimeCode(backends dbscheme.Set) string {
 		sb.WriteString(dbMySQLURLHelperFuncs)
 	}
 	sb.WriteString(dbConnectCloseCode(backends))
+	sb.WriteString(dbPoolStateFuncCode())
 	sb.WriteString(dbSubstituteCode(paramsListC))
 	if backends.NeedsSQLite() {
 		sb.WriteString(sqliteQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCtor))

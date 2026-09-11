@@ -3037,6 +3037,16 @@ func generateIRUnaryExpr(ctx *irGenCtx, e *ir.UnaryExpr) (string, valueType, err
 	case "не":
 		return fmt.Sprintf("(!%s)", code), typeBool, nil
 	case "~":
+		// Целое8/16/32/64, Натуральное/8/16/32/64 и Байт - C продвигает их
+		// до int для "~" (обычные арифметические преобразования) - явный
+		// каст обратно к своему C-типу, тот же приём, что и у унарного "-"
+		// выше.
+		if _, _, ok := e.Type.Kind.IntWidthSigned(); ok && e.Type.Kind != ir.KindInt {
+			return fmt.Sprintf("((%s)(~%s))", typ.cType(ctx), code), typ, nil
+		}
+		if e.Type == ir.TypeByte {
+			return fmt.Sprintf("((unsigned char)(~%s))", code), typeByte, nil
+		}
 		return fmt.Sprintf("(~%s)", code), typeInt, nil
 	default:
 		return "", typeUnknown, fmt.Errorf("генерация C из IR: неизвестная унарная операция %q", e.Op)
@@ -3104,6 +3114,18 @@ func generateIRBinaryExpr(ctx *irGenCtx, e *ir.BinaryExpr) (string, valueType, e
 		return fmt.Sprintf("(%s %s %s)", lc, cOp, rc), typeBool, nil
 
 	case "&", "|", "^", "<<", ">>":
+		// Целое8/16/32/64, Натуральное/8/16/32/64 и Байт продвигаются до int
+		// обычными арифметическими преобразованиями C - явный каст назад к
+		// своему C-типу, тот же приём, что и у арифметики фикс-ширинных
+		// типов (generateIRArithmetic). Обычное Целое (int64_t) уже
+		// достаточно широкое - каста не требует.
+		if _, _, ok := lt.Kind.IntWidthSigned(); ok && lt.Kind != ir.KindInt {
+			vt := fromIRType(lt)
+			return fmt.Sprintf("((%s)(%s %s %s))", vt.cType(ctx), lc, e.Op, rc), vt, nil
+		}
+		if lt == ir.TypeByte {
+			return fmt.Sprintf("((unsigned char)(%s %s %s))", lc, e.Op, rc), typeByte, nil
+		}
 		return fmt.Sprintf("(%s %s %s)", lc, e.Op, rc), typeInt, nil
 
 	default:

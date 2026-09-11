@@ -189,6 +189,9 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 			}
 			return call, nil
 		}
+		if desugared, handled, derr := maybeDesugarHandleMethod(sc, e); handled {
+			return desugared, derr
+		}
 		if desugared, handled, derr := maybeDesugarDateTimeMethod(sc, e); handled {
 			return desugared, derr
 		}
@@ -853,10 +856,13 @@ func analyzeUnaryExpr(sc *ctx, e *ast.UnaryExpr) (ir.Expr, error) {
 		}
 		return &ir.UnaryExpr{Op: e.Op, Operand: operand, Type: ir.TypeBool}, nil
 	case "~":
-		if typ != ir.TypeInt {
-			return nil, fmt.Errorf("строка %d: побитовый \"~\" применим только к Целое, получен %s", e.Line, typ)
+		if typ == ir.TypeByte {
+			return &ir.UnaryExpr{Op: e.Op, Operand: operand, Type: ir.TypeByte}, nil
 		}
-		return &ir.UnaryExpr{Op: e.Op, Operand: operand, Type: ir.TypeInt}, nil
+		if _, _, ok := typ.Kind.IntWidthSigned(); ok {
+			return &ir.UnaryExpr{Op: e.Op, Operand: operand, Type: typ}, nil
+		}
+		return nil, fmt.Errorf("строка %d: побитовый \"~\" применим только к целочисленным типам (Целое/Целое8..64/Натуральное.../Байт), получен %s", e.Line, typ)
 	default:
 		return nil, fmt.Errorf("строка %d: неизвестная унарная операция %q", e.Line, e.Op)
 	}
@@ -990,10 +996,25 @@ func analyzeBinaryExpr(sc *ctx, e *ast.BinaryExpr) (ir.Expr, error) {
 		return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: ir.TypeBool}, nil
 
 	case "&", "|", "^", "<<", ">>":
-		if lt != ir.TypeInt || rt != ir.TypeInt {
-			return nil, fmt.Errorf("строка %d: побитовый оператор %q применим только к Целое, получены %s и %s", e.Line, e.Op, lt, rt)
+		// Побитовые - только между операндами ОДНОГО И ТОГО ЖЕ
+		// целочисленного типа, без неявной промоции (тот же принцип, что и
+		// у арифметики фикс-ширинных типов, analyzeArithmetic) - Целое/
+		// Целое8..64/Натуральное/Натуральное8..64 (ir.TypeKind.
+		// IntWidthSigned) и отдельно Байт (своя семантика "код/индекс, не
+		// число", не входит в IntWidthSigned) - результат везде того же
+		// типа, что и операнды, не растёт до Целое (найдено на WebSocket-
+		// маскировании кадра, Список<Байт> - незачем растить байт до Целое
+		// и обратно только ради маскирования/чтения битов).
+		if lt != rt {
+			return nil, fmt.Errorf("строка %d: побитовый оператор %q применим только между операндами одного целочисленного типа, получены %s и %s", e.Line, e.Op, lt, rt)
 		}
-		return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: ir.TypeInt}, nil
+		if lt == ir.TypeByte {
+			return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: ir.TypeByte}, nil
+		}
+		if _, _, ok := lt.Kind.IntWidthSigned(); ok {
+			return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: lt}, nil
+		}
+		return nil, fmt.Errorf("строка %d: побитовый оператор %q применим только к целочисленным типам (Целое/Целое8..64/Натуральное.../Байт), получен %s", e.Line, e.Op, lt)
 
 	default:
 		return nil, fmt.Errorf("строка %d: неизвестная операция %q", e.Line, e.Op)

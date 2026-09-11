@@ -379,6 +379,8 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 	case "закрыть_бд":
 		args[0].DB.Close()
 		return Value{}, true
+	case "состояние_бд":
+		return dbPoolState(args[0].DB), true
 	case "закрыть_сокет":
 		switch {
 		case args[0].Conn != nil:

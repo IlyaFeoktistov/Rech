@@ -207,7 +207,7 @@ func (in *Interp) evalUnary(e *ir.UnaryExpr, env *Env, cc *callCtx) (Value, erro
 	case "не":
 		return boolValue(!v.B), nil
 	case "~":
-		return intValue(^v.I), nil
+		return bitwiseUnaryResult(v.Type, ^v.I), nil
 	default:
 		return Value{}, fmt.Errorf("неизвестная унарная операция %q", e.Op)
 	}
@@ -294,16 +294,8 @@ func (in *Interp) evalBinary(e *ir.BinaryExpr, env *Env, cc *callCtx) (Value, er
 		return boolValue(!in.valuesEqual(l, r)), nil
 	case "<", ">", "<=", ">=":
 		return compareOrdered(e.Op, l, r), nil
-	case "&":
-		return intValue(l.I & r.I), nil
-	case "|":
-		return intValue(l.I | r.I), nil
-	case "^":
-		return intValue(l.I ^ r.I), nil
-	case "<<":
-		return intValue(l.I << uint64(r.I)), nil
-	case ">>":
-		return intValue(l.I >> uint64(r.I)), nil
+	case "&", "|", "^", "<<", ">>":
+		return bitwiseBinaryResult(e.Op, l, r), nil
 	default:
 		return Value{}, fmt.Errorf("неизвестная операция %q", e.Op)
 	}
