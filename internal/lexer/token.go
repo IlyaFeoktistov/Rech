@@ -125,6 +125,7 @@ const (
 	KwWhen        // когда (ветка внутри "выбрать")
 	KwBreak       // прервать (немедленный выход из ближайшего охватывающего цикла)
 	KwContinue    // продолжить (пропустить остаток текущей итерации ближайшего охватывающего цикла)
+	KwOperator    // оператор (перегрузка бинарного оператора для сущности/структуры - "статический оператор +(...)")
 
 	QUESTION         // ? (префикс nullable-типа: "?Тип")
 	QUESTIONQUESTION // ?? (значение слева, если оно не Ничто, иначе - справа)
@@ -232,6 +233,7 @@ var keywords = map[string]TokenType{
 	"когда":          KwWhen,
 	"прервать":       KwBreak,
 	"продолжить":     KwContinue,
+	"оператор":       KwOperator,
 }
 
 // KeywordTokenTypes - различные TokenType из keywords, без повторов (у
@@ -488,6 +490,8 @@ func (t TokenType) String() string {
 		return "прервать"
 	case KwContinue:
 		return "продолжить"
+	case KwOperator:
+		return "оператор"
 	default:
 		return "UNKNOWN"
 	}

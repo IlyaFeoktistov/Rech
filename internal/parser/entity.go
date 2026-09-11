@@ -146,6 +146,19 @@ func (p *Parser) parseBecomeStmt() (ast.Stmt, error) {
 // block необязателен, только если p.inAbstractEntity (метод без тела внутри
 // "абстрактная сущность"/"абстрактный класс") - тогда результат несёт
 // IsAbstract == true и Body == nil (docs/SPEC.md, "Абстрактные методы").
+//
+// Перегрузка оператора ("статический публичный оператор +(a: Тип, b: Тип):
+// Тип") - тот же грамматический слот, что и обычное имя метода: вместо
+// IDENT читается "оператор" + один из overloadableOperatorSymbols
+// (internal/parser/operator.go), результат синтезирует обычный IDENT-токен
+// с именем ast.OperatorMethodName(symbol) - дальше по всей функции (список
+// параметров, тип результата, тело) операторный метод разбирается ТЕМ ЖЕ
+// кодом, что и обычный статический метод, никакого раздвоения потока
+// разбора. Обязателен "статический" (у оператора нет получателя - оба
+// операнда приходят параметрами) и ровно 2 параметра, обе проверки - сразу
+// здесь, не отложены на семантику (internal/semantic/operator.go резолвит
+// уже готовый статический метод по синтетическому имени, не знает про
+// операторный синтаксис вообще).
 func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
 	isStatic := false
 	if p.cur().Type == lexer.KwStatic {
@@ -166,9 +179,27 @@ func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
 				tok.Line, tok.Col, want, tok.Value)
 		}
 	}
-	name, err := p.expect(lexer.IDENT)
-	if err != nil {
-		return nil, err
+	var isOperator bool
+	var name lexer.Token
+	if p.cur().Type == lexer.KwOperator {
+		opKw := p.advance()
+		if !isStatic {
+			return nil, fmt.Errorf("строка %d, столбец %d: перегрузка оператора обязана быть статической - напишите \"статический\" перед \"оператор\"", opKw.Line, opKw.Col)
+		}
+		symbol, ok := overloadableOperatorSymbols[p.cur().Type]
+		if !ok {
+			return nil, fmt.Errorf("строка %d, столбец %d: после \"оператор\" ожидался один из %s, получено %q",
+				p.cur().Line, p.cur().Col, overloadableOperatorSymbolsList(), p.cur().Value)
+		}
+		p.advance()
+		isOperator = true
+		name = lexer.Token{Type: lexer.IDENT, Value: ast.OperatorMethodName(symbol), Line: opKw.Line, Col: opKw.Col}
+	} else {
+		var err error
+		name, err = p.expect(lexer.IDENT)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if p.cur().Type != lexer.LPAREN {
 		return nil, fmt.Errorf("строка %d, столбец %d: после имени метода %q ожидалось \"(\" (даже без параметров - \"()\")",
@@ -177,6 +208,9 @@ func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
 	params, err := p.parseParams()
 	if err != nil {
 		return nil, fmt.Errorf("в списке параметров метода %q: %w", name.Value, err)
+	}
+	if isOperator && len(params) != 2 {
+		return nil, fmt.Errorf("строка %d: перегрузка оператора обязана принимать ровно 2 параметра (оба операнда), получено %d", name.Line, len(params))
 	}
 	returnType := ""
 	selfReturn := false
@@ -193,6 +227,9 @@ func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
 			}
 			returnType = normalizeReturnType(returnType)
 		}
+	}
+	if isOperator && returnType == "" && !selfReturn {
+		return nil, fmt.Errorf("строка %d: перегрузка оператора %q обязана объявлять тип результата (после \":\")", name.Line, name.Value)
 	}
 	var tag string
 	if p.cur().Type == lexer.TAG {

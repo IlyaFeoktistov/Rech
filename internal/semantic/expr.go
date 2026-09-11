@@ -914,6 +914,15 @@ func analyzeBinaryExpr(sc *ctx, e *ast.BinaryExpr) (ir.Expr, error) {
 	right = maybeUnwrapNarrowed(sc, right)
 	lt, rt := ir.TypeOf(left), ir.TypeOf(right)
 
+	// Перегрузка оператора (internal/semantic/operator.go) - ДО встроенной
+	// резолюции ниже: сущность/структура с объявленным "статический
+	// оператор <op>" перехватывает "+"/"-"/"=="/... целиком, даже там, где
+	// у типа уже есть встроенное поведение (например "==" для структур,
+	// see ниже) - явно написанный оператор пользователя главнее умолчания.
+	if expr, found, err := tryOperatorOverload(sc, e.Op, left, right, lt, e.Line); found {
+		return expr, err
+	}
+
 	switch e.Op {
 	case "+":
 		if lt == ir.TypeString && rt == ir.TypeString {
