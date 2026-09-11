@@ -20,7 +20,7 @@ type TryStmt struct {
 	Body       []Stmt
 	CatchVar   string
 	CatchTypes []string
-	// CatchPanic - см. ast.TryStmt.CatchPanic (docs/ROADMAP.md, изоляция
+	// CatchPanic - см. ast.TryStmt.CatchPanic (изоляция
 	// паники) - "Паника" была в списке типов - CatchVarType всегда
 	// TypeString, ловит "rech_panic"-класс ошибок. CatchTypes пуст -
 	// "поймать (x: Паника)" в одиночку (не пересекается с rech_throw вовсе).

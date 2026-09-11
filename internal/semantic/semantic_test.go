@@ -1450,7 +1450,7 @@ func TestAnalyzeAssertNonBoolConditionFails(t *testing.T) {
 }
 
 // TestAnalyzeAssertStmtWithMessage - "утверждать <условие>, <сообщение>"
-// (docs/ROADMAP.md - внятные сообщения о несовпадении) - сообщение
+// (внятные сообщения о несовпадении) - сообщение
 // анализируется и требует Строка.
 func TestAnalyzeAssertStmtWithMessage(t *testing.T) {
 	irProg := parseProgram(t, `

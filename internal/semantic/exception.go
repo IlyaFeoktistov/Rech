@@ -163,7 +163,7 @@ func analyzeTryStmt(sc *ctx, s *ast.TryStmt) (ir.Stmt, error) {
 		return &ir.TryStmt{Body: body, NoCatch: true, Finally: finally}, nil
 	}
 
-	// CatchPanic - "Паника" была в списке типов (docs/ROADMAP.md, изоляция
+	// CatchPanic - "Паника" была в списке типов (изоляция
 	// паники) - CatchVar несёт "Строка" (сообщение), не сущность-исключение,
 	// её типовая проверка/entityIsOrExtends ниже к ней не применяется. Если
 	// s.CatchTypes при этом непусто ("поймать (x: Паника|Исключение)" и

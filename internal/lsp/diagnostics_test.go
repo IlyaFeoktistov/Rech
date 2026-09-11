@@ -87,8 +87,8 @@ func TestUpdateClearsDiagnosticOnFix(t *testing.T) {
 	}
 }
 
-// TestUpdateKeepsGoodDeclarationsAfterBrokenOne - главная находка ROADMAP
-// ("LSP не должен ГЛОХНУТЬ целиком из-за одной ошибки в файле"): опечатка в
+// TestUpdateKeepsGoodDeclarationsAfterBrokenOne - "LSP не должен ГЛОХНУТЬ
+// целиком из-за одной ошибки в файле": опечатка в
 // одной функции файла не должна лишать hover/definition/completion доступа
 // к ОСТАЛЬНЫМ, синтаксически исправным объявлениям того же файла.
 func TestUpdateKeepsGoodDeclarationsAfterBrokenOne(t *testing.T) {

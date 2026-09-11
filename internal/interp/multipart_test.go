@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestRunMultipartParsesFormFieldsAndFile - docs/ROADMAP.md, загрузка
+// TestRunMultipartParsesFormFieldsAndFile - загрузка
 // файлов через HTTP - настоящий multipart/form-data, как его строит curl
 // -F/HTML-форма: одно текстовое поле и один файл с двоичным содержимым
 // (включая нулевой байт - проверка, что "данные" части реально

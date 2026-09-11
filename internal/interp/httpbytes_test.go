@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// TestRunHTTPServerBytesRoundTripsBinaryBody - docs/ROADMAP.md, загрузка/
+// TestRunHTTPServerBytesRoundTripsBinaryBody - загрузка/
 // раздача файлов - "принять_http_байты" обязан сохранять тело запроса
 // побайтово, включая нулевые байты (в отличие от "принять_http", у
 // которого "тело: Строка" может их обрезать - хотя в interp, чистом Go,

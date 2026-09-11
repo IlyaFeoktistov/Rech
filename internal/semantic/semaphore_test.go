@@ -85,7 +85,7 @@ func TestAnalyzeSemaphoreUnknownMethodFails(t *testing.T) {
 }
 
 // TestAnalyzeSemaphoreAcquireAcceptsOptionalTimeout - "захватить" принимает
-// НЕОБЯЗАТЕЛЬНЫЙ таймаут_мс (docs/ROADMAP.md, HTTP highload пункт 3), но не
+// НЕОБЯЗАТЕЛЬНЫЙ таймаут_мс (HTTP highload пункт 3), но не
 // больше одного аргумента; "освободить" по-прежнему не принимает аргументов
 // вовсе.
 func TestAnalyzeSemaphoreAcquireAcceptsOptionalTimeout(t *testing.T) {

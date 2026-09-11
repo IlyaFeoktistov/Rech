@@ -288,7 +288,7 @@ var pluraleTantum = map[string]bool{
 // компромисс: в практике этого языка (русские идентификаторы) такое
 // случается заметно реже, чем обратная ошибка (слово, реально
 // множественное, требовало "новый"/"приватный" вместо "новые"/"приватные" -
-// см. docs/ROADMAP.md).
+// ).
 func hasPluralEnding(lower string) bool {
 	return strings.HasSuffix(lower, "ы") || strings.HasSuffix(lower, "и")
 }

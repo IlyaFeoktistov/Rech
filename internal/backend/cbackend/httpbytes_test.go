@@ -7,7 +7,7 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
-// TestGenerateFromIRHTTPBytesBuiltinCalls - docs/ROADMAP.md, загрузка/
+// TestGenerateFromIRHTTPBytesBuiltinCalls - загрузка/
 // раздача файлов - "принять_http_байты"/"отправить_http_ответ_байты"
 // (internal/semantic/httpbytes.go) должны получить свои хелперы плюс
 // разделяемые с обычным принять_http/отправить_http_ответ куски

@@ -164,7 +164,7 @@ func TestGenerateFromIRVtableFieldEmittedForEntityWithoutMethods(t *testing.T) {
 }
 
 // TestGenerateFromIRTryCatchPanicUsesFrameSearchingRechPanic - "поймать (x:
-// Паника)" (docs/ROADMAP.md, изоляция паники) должен переключить rech_panic
+// Паника)" (изоляция паники) должен переключить rech_panic
 // с безусловного fprintf+exit (panicHelper) на версию, которая ищет кадр с
 // catch_panics=true - и вставить прототип rech_panic РАНЬШЕ полного тела
 // (полное тело читает rech_catch_frame/rech_catch_top, определённые вместе

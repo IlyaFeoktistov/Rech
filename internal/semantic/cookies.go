@@ -71,7 +71,7 @@ func registerCookieOptionsEntity(entities map[string]entitySig) {
 // повторная регистрация здесь была мёртвым кодом. "?Строка" регистрируется
 // лениво, при первом реальном вызове "значение_куки" (см. package doc
 // registerOptionalStringOnCall, nullable.go) - см. НАЙДЕННЫЙ структурный
-// риск в docs/ROADMAP.md ("Архитектура компилятора - структурные риски"),
+// риск в ("Архитектура компилятора - структурные риски"),
 // исправленный тем же принципом, что и у "принять"/"?Сокет"
 // (registerSocketNullableOnCall, network.go).
 //

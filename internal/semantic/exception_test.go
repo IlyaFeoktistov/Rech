@@ -119,7 +119,7 @@ func TestAnalyzeCatchRejectsDuplicateTypeInUnion(t *testing.T) {
 }
 
 // TestAnalyzeCatchPanicBindsCatchVarAsString - "поймать (x: Паника)" (docs/
-// ROADMAP.md, изоляция паники) - CatchVar всегда Строка, независимо от
+// изоляция паники) - CatchVar всегда Строка, независимо от
 // того, объявлена ли в программе своя сущность "Исключение" вообще.
 func TestAnalyzeCatchPanicBindsCatchVarAsString(t *testing.T) {
 	prog := parseProgram(t, `

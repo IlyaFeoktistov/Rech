@@ -4,7 +4,7 @@ import "testing"
 
 // TestLexerFloatExponentLiterals - "1e10"/"2.5e-3"/"1.5E+10" - экспонента
 // всегда делает литерал FLOAT, даже без десятичной точки в мантиссе (docs/
-// ROADMAP.md, "exp/e"). Value токена - буквальный текст исходника
+// "exp/e"). Value токена - буквальный текст исходника
 // (strconv.ParseFloat на стороне парсера сам справляется с "e"/"E").
 func TestLexerFloatExponentLiterals(t *testing.T) {
 	cases := map[string]string{

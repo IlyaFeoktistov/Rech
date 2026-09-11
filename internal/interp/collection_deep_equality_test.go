@@ -2,7 +2,7 @@ package interp
 
 import "testing"
 
-// TestRunListEqualComparesContent - "равен" у "Список<T>" (docs/ROADMAP.md)
+// TestRunListEqualComparesContent - "равен" у "Список<T>"
 // - глубокое сравнение содержимого, в отличие от "==" (identity, см.
 // TestRunEntityEqualityComparesByReference по тому же принципу у
 // сущности/класса).

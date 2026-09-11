@@ -175,7 +175,7 @@ func exceptionRuntimeCode(ctx *irGenCtx) string {
 	// отдельная C-структура), чтобы rech_throw и rech_panic
 	// (panicCatchHelperCode) искали каждый свой кадр по одному и тому же
 	// связному списку rech_catch_top, просто пропуская чужие (docs/
-	// ROADMAP.md, изоляция паники) - обычный кадр "поймать(Тип)" всегда
+	// изоляция паники) - обычный кадр "поймать(Тип)" всегда
 	// нулевой (см. rech_catch_frame_zero в generateIRTryStmt), catch_panics
 	// у него гарантированно false.
 	sb.WriteString("    bool catch_panics;\n")
@@ -426,7 +426,7 @@ func generateIRTryStmt(sb *strings.Builder, ctx *irGenCtx, s *ir.TryStmt, depth 
 }
 
 // generateIRTryCatchPanicStmt - "попытаться { ... } поймать (<CatchVar>: Паника) { ... }"
-// (docs/ROADMAP.md, изоляция паники, см. package doc ir.TryStmt.CatchPanic) -
+// (изоляция паники, см. package doc ir.TryStmt.CatchPanic) -
 // отдельная от generateIRTryStmt ветка: кадр не несёт типа для сравнения
 // (никакого rech_isa/tid здесь нет вовсе - попадание в "else" уже
 // гарантированный матч, см. panicCatchHelperCode - она сама ищет ближайший
@@ -473,7 +473,7 @@ func generateIRTryCatchPanicStmt(sb *strings.Builder, ctx *irGenCtx, s *ir.TrySt
 }
 
 // generateIRTryCatchMixedStmt - "попытаться { ... } поймать (<CatchVar>: Паника|<Тип>[|<Тип>...]) { ... }"
-// (docs/ROADMAP.md, "интерфейс Выбрасываемое" - реализовано без него, тем же
+// ("интерфейс Выбрасываемое" - реализовано без него, тем же
 // поймать(...) с "|", см. package doc ir.TryStmt.CatchPanic) - ОДИН
 // обработчик и на панику, и на перечисленные исключения сразу. Два
 // вложенных кадра перехвата (тот же принцип, что и rech_db_run_transaction,

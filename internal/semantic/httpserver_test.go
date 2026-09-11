@@ -5,7 +5,7 @@ import "testing"
 // TestAnalyzeDefaultsHTTPMaxRequestBytes - built-in умолчание (без
 // .rechproj вовсе, internal/compiler в этом случае не переопределяет поле)
 // - предел размера входящего HTTP-запроса выставлен сразу, без единой
-// правки .rechproj (docs/ROADMAP.md, HTTP highload пункт 2), тем же
+// правки.rechproj (HTTP highload пункт 2), тем же
 // принципом, что TestAnalyzeDefaultsPoolShrinkEnabledTrue
 // (concurrency_defaults_test.go).
 func TestAnalyzeDefaultsHTTPMaxRequestBytes(t *testing.T) {

@@ -22,7 +22,7 @@
 // Windows не поддержан явно (см. #error ниже) - реализация выше опирается
 // на pthread/POSIX-сокеты напрямую, не через уже существующую Windows-ветку
 // остального рантайма (concurrency.go/tls.go) - отдельная, непроверенная
-// работа, оставлена как явный, а не молчаливый пробел (docs/ROADMAP.md).
+// работа, оставлена как явный, а не молчаливый пробел.
 package cbackend
 
 import (
@@ -45,7 +45,7 @@ var http2StreamIDField = mangleField("ид")
 // C-структуры, о которых Rech-программа не знает вовсе (видит только
 // непрозрачный указатель, см. valuetype.go, typeHTTP2Session).
 const http2SessionTypedefCode = `#if defined(_WIN32)
-#error "HTTP/2 (nghttp2) пока не поддержан на Windows - см. docs/ROADMAP.md"
+#error "HTTP/2 (nghttp2) пока не поддержан на Windows"
 #endif
 
 typedef struct rech_http2_stream {

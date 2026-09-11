@@ -7,7 +7,7 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
-// TestGenerateFromIRBytesIOBuiltinCalls - docs/ROADMAP.md, загрузка/раздача
+// TestGenerateFromIRBytesIOBuiltinCalls - загрузка/раздача
 // файлов - "прочитать_байты"/"записать_байты"/"прочитать_файл_байты"/
 // "записать_в_файл_байты" (internal/semantic/bytesio.go) - те же операции,
 // что "прочитать"/"записать"/"прочитать_файл"/"записать_в_файл", но через

@@ -4,7 +4,7 @@ import "testing"
 
 // TestAnalyzeDefaultsPoolShrinkEnabledTrue - built-in умолчание (без
 // .rechproj вовсе, internal/compiler в этом случае не переопределяет поля)
-// - пул воркер-потоков сжимается по умолчанию (docs/ROADMAP.md, Шаг 81).
+// - пул воркер-потоков сжимается по умолчанию (Шаг 81).
 func TestAnalyzeDefaultsPoolShrinkEnabledTrue(t *testing.T) {
 	prog, err := AnalyzeSource(t, `
 функция главная {

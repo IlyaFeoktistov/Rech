@@ -7,7 +7,7 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
-// TestGenerateFromIRHTTPServerEmitsChunkedHelpers - docs/ROADMAP.md, HTTP
+// TestGenerateFromIRHTTPServerEmitsChunkedHelpers - HTTP
 // highload пункт 4 - программа с "принять_http" должна получить хелперы
 // разбора chunked transfer encoding, программа без единого HTTP-примитива -
 // нет.

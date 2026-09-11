@@ -68,7 +68,7 @@ func TestNaturalMethodCallReceiverThis(t *testing.T) {
 // переменная) форвардится в другой естественный вызов - тот же баг
 // (параметры не регистрировались как существительные), что и у свободных
 // функций (см. parser_test.go, TestParseNaturalCallParamAsArgument), но
-// через "этот"-вызов (docs/ROADMAP.md, Шаг 77).
+// через "этот"-вызов (Шаг 77).
 func TestNaturalMethodCallParamAsArgument(t *testing.T) {
 	prog, err := parseSource(t, `
 сущность Пользователь {

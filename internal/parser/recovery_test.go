@@ -6,8 +6,8 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 )
 
-// TestParseProgramLenientSkipsBrokenFunctionKeepsRest - ключевой сценарий
-// докстринга ROADMAP: опечатка в одной функции файла не должна гасить весь
+// TestParseProgramLenientSkipsBrokenFunctionKeepsRest - ключевой сценарий:
+// опечатка в одной функции файла не должна гасить весь
 // файл целиком, остальные объявления (в т.ч. ПОСЛЕ сломанного) должны
 // разобраться как обычно.
 func TestParseProgramLenientSkipsBrokenFunctionKeepsRest(t *testing.T) {

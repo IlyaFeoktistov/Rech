@@ -186,7 +186,7 @@ func (in *Interp) execTryWithFinally(s *ir.TryStmt, env *Env, cc *callCtx) (c ct
 }
 
 // execTryCatchPanic - "попытаться { ... } поймать (<CatchVar>: Паника) { ... }"
-// (docs/ROADMAP.md, изоляция паники) - в отличие от execTryStmt выше,
+// (изоляция паники) - в отличие от execTryStmt выше,
 // ловит НЕ "выбросить"-исключение (обычная error, thrownException), а
 // panicRuntime (rtmsg.PanicPrefix + внутреннее сообщение - выход за
 // границы Список/Стопка/Очередь, несовпадение "как"/рефлексии,
@@ -218,7 +218,7 @@ func (in *Interp) execTryCatchPanic(s *ir.TryStmt, env *Env, cc *callCtx) (c ctr
 }
 
 // execTryCatchMixed - "попытаться { ... } поймать (<CatchVar>: Паника|<Тип>[|<Тип>...]) { ... }"
-// (docs/ROADMAP.md, "интерфейс Выбрасываемое" - реализовано без него, тем же
+// ("интерфейс Выбрасываемое" - реализовано без него, тем же
 // поймать(...) с "|", см. package doc ir.TryStmt.CatchPanic) - ОДИН
 // обработчик и на панику (execTryCatchPanic), и на перечисленные исключения
 // (execTryStmt) сразу; CatchVar в обоих случаях несёт только "Строка"

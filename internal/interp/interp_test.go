@@ -148,7 +148,7 @@ func TestRunAllExamplesMatchCompiledOutput(t *testing.T) {
 }
 
 // TestEvalAsInterfaceMismatchPanicsWithClearMessage - "значение как
-// ИмяИнтерфейса" (docs/ROADMAP.md - находка "значение как ИмяИнтерфейса не
+// ИмяИнтерфейса" (находка "значение как ИмяИнтерфейса не
 // распаковывает боксированную реализацию") для сущности, НЕ реализующей
 // интерфейс, - паника с тем же текстом, что и cbackend
 // (rtmsg.AsInterfaceMismatchFormat, см. internal/backend/cbackend/
@@ -192,7 +192,7 @@ func TestEvalAsInterfaceMismatchPanicsWithClearMessage(t *testing.T) {
 
 // TestRunBaseTypeAndInterfaceReflectionMethods - "базовый_тип"/
 // "наследует_ли"/"число_интерфейсов"/"получить_интерфейс"/"реализует_ли"
-// (docs/ROADMAP.md, паритет с C# Type.BaseType/IsSubclassOf/GetInterfaces/
+// (паритет с C# Type.BaseType/IsSubclassOf/GetInterfaces/
 // IsAssignableFrom) - транзитивно через ОБЕ цепочки ("наследует" у
 // сущности И у самого интерфейса, "Звучащий наследует Именуемый", "Кот
 // реализует" только "Звучащий").
@@ -248,7 +248,7 @@ func TestRunBaseTypeAndInterfaceReflectionMethods(t *testing.T) {
 	}
 }
 
-// TestRunEntityMethodAndFieldTagReflection - docs/ROADMAP.md, паритет с
+// TestRunEntityMethodAndFieldTagReflection - паритет с
 // C#-атрибутами на классе/методе/поле: "тег(ключ)"/"тег_текст()" на самой
 // сущности (новый синтаксис "сущность Имя `ключ:значение`"), "тег_метода(i,
 // ключ)"/"тег_метода_текст(i)" на методе (тег метода уже существовал
@@ -997,7 +997,7 @@ func TestRunCollectionOutOfRangePanics(t *testing.T) {
 }
 
 // TestRunListRemoveShiftsAndReturnsElement - "удалить" (НАЙДЕННЫЙ по ходу
-// examples/проекты/чат_сервер недочёт, docs/ROADMAP.md - у Список не было
+// examples/проекты/чат_сервер недочёт - у Список не было
 // способа удалить элемент вовсе) - сдвигает хвост влево, возвращает
 // удалённый элемент, длина уменьшается на один.
 func TestRunListRemoveShiftsAndReturnsElement(t *testing.T) {
@@ -1052,7 +1052,7 @@ func TestRunListRemoveOutOfRangePanics(t *testing.T) {
 }
 
 // TestRunEntityEqualityComparesByReference - "==" для сущности/класса
-// (НАЙДЕННЫЙ по ходу examples/проекты/чат_сервер недочёт, docs/ROADMAP.md) -
+// (НАЙДЕННЫЙ по ходу examples/проекты/чат_сервер недочёт) -
 // сравнивает Value.Obj (тот же Go-указатель), не содержимое полей.
 func TestRunEntityEqualityComparesByReference(t *testing.T) {
 	got := runSrc(t, `
@@ -1082,7 +1082,7 @@ func TestRunEntityEqualityComparesByReference(t *testing.T) {
 }
 
 // TestRunStructEqualityFieldByField - "структура" (значение, не ссылка) -
-// "=="/"!=" (docs/ROADMAP.md) сравнивает поле за полем, не identity - в
+// "=="/"!=" сравнивает поле за полем, не identity - в
 // отличие от TestRunEntityEqualityComparesByReference выше, ДВЕ РАЗНЫЕ
 // структуры с одинаковыми полями (в т. ч. вложенная "структура" полем)
 // равны.
@@ -1170,7 +1170,7 @@ func TestRunAssertFailsWithLineNumber(t *testing.T) {
 }
 
 // TestRunAssertFailsWithMessage - "утверждать <условие>, <сообщение>"
-// (docs/ROADMAP.md - внятные сообщения о несовпадении) - сообщение
+// (внятные сообщения о несовпадении) - сообщение
 // дописывается к стандартному тексту через ": ".
 func TestRunAssertFailsWithMessage(t *testing.T) {
 	toks, err := lexer.New(`

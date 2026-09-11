@@ -171,7 +171,7 @@ func TestResolveGraphCyclicDependencyRejected(t *testing.T) {
 
 // TestResolveGraphMaterializesRootDependencyIntoProject - зависимость
 // корневого уровня физически копируется из кеша ОС в
-// "<rootDir>/библиотеки/<имя>/" (docs/ROADMAP.md, "Закрытые (бинарные)
+// "<rootDir>/библиотеки/<имя>/" ("Закрытые (бинарные)
 // пакеты", доводка про материализацию) - файлы реально доступны внутри
 // дерева проекта, не только в общем кеше вне его, а g.Scopes указывает на
 // новое место (см. package doc MaterializeRoot).
@@ -247,12 +247,12 @@ func TestResolveGraphMaterializeSkipsRecopyOnUnchangedCommit(t *testing.T) {
 // TestResolveGraphLibraryPathAutoSelectsConsumerPlatform - зависимость без
 // собственного "путь_библиотек", но с подкаталогом "сборка/<GOOS>-<GOARCH>/"
 // ПОТРЕБИТЕЛЯ - LibraryPaths выбирает ИМЕННО его, не голый каталог
-// зависимости (авто-выбор платформы, docs/ROADMAP.md, Шаг 135).
+// зависимости (авто-выбор платформы).
 func TestResolveGraphLibraryPathAutoSelectsConsumerPlatform(t *testing.T) {
 	platformDir := runtime.GOOS + "-" + runtime.GOARCH
 	repoA := makeGitRepoWithFiles(t, map[string]string{
-		"тест.rechproj":                        "проект:\n  имя: repoA\nфайлы:\n  главный: главный.rech\nсборка:\n  библиотеки: точка\n",
-		"главный.rech":                          "функция ф() { вывести 1 }\n",
+		"тест.rechproj": "проект:\n  имя: repoA\nфайлы:\n  главный: главный.rech\nсборка:\n  библиотеки: точка\n",
+		"главный.rech":  "функция ф() { вывести 1 }\n",
 		"сборка/" + platformDir + "/маркер.txt": "бинарник для текущей платформы\n",
 	})
 

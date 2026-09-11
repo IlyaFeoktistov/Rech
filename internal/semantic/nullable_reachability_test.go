@@ -3,7 +3,7 @@ package semantic
 import "testing"
 
 // TestNullablesOmitSocketWithoutNetworkCall - НАЙДЕННЫЙ И ИСПРАВЛЕННЫЙ
-// структурный риск (docs/ROADMAP.md, "Архитектура компилятора -
+// структурный риск ("Архитектура компилятора -
 // структурные риски"): раньше "?Сокет" попадал в prog.Nullables БЕЗУСЛОВНО
 // для ЛЮБОЙ программы (registerNetworkFuncs регистрировал entitySig сразу
 // при настройке анализатора) - программа без единого сетевого вызова не

@@ -46,7 +46,7 @@ func TestParseVarDeclWithoutAnnotationStillWorks(t *testing.T) {
 }
 
 // TestParseBangDesugarsToEqualNichto - "!x" (НАЙДЕННЫЙ по ходу
-// examples/проекты/чат_сервер запрос пользователя, docs/ROADMAP.md) -
+// examples/проекты/чат_сервер запрос пользователя) -
 // лексер/парсер производят ТОТ ЖЕ AST, что и явное "x == Ничто" -
 // BinaryExpr("==", x, NullLiteral), не отдельный узел - вся семантика
 // (internal/semantic/nullable.go, analyzeNullCheck) переиспользуется

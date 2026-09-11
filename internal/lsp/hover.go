@@ -171,7 +171,7 @@ func (d *doc) hoverMember(ent *ir.Entity, name string) (string, bool) {
 	entName := d.disp(ent.Name)
 	if ent.IsSemaphore && name == "захватить" {
 		// "Семафор.захватить" - единственный из четырёх методов Блокировки/
-		// Семафора с необязательным параметром (таймаут_мс, docs/ROADMAP.md,
+		// Семафора с необязательным параметром (таймаут_мс,
 		// HTTP highload пункт 3) - общий путь ниже (mutexMethodDocs, "()"
 		// без аргументов) дал бы неверную сигнатуру, поэтому перехватывается
 		// раньше него, отдельной готовой строкой (semaphoreAcquireDoc).

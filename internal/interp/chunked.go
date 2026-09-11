@@ -2,7 +2,7 @@
 // internal/backend/cbackend/chunked.go для полного описания решения -
 // здесь тот же алгоритм на чистом Go, для HTTP-СЕРВЕРА (recvHTTPRequest,
 // httpserver.go) и HTTP-КЛИЕНТА (httpRequest, builtins.go) одинаково -
-// docs/ROADMAP.md, HTTP highload пункт 4.
+// HTTP highload пункт 4.
 package interp
 
 import (

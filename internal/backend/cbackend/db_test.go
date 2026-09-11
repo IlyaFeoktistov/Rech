@@ -38,7 +38,7 @@ func generateFromSrc(t *testing.T, src string) string {
 }
 
 // TestGenerateFromIRDBOnlyEmitsUsedBackend - internal/dbscheme.Set
-// (docs/ROADMAP.md, "toolchain линкует -lsqlite3 -lpq -lmysqlclient
+// ("toolchain линкует -lsqlite3 -lpq -lmysqlclient
 // безусловно") - программа, подключающаяся ТОЛЬКО по literal-строке
 // "sqlite:..." не должна нести в сгенерированном C ни единого упоминания
 // PostgreSQL/MySQL (иначе линковка требовала бы их клиентские библиотеки

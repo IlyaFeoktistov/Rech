@@ -33,7 +33,7 @@ func evalTypeOfExpr(e *ir.TypeOfExpr) Value {
 // (тот же принцип, что и у прочих несовпадений во время явных кастов,
 // internal/rtmsg).
 //
-// e.To.Kind == ir.KindInterface (docs/ROADMAP.md - "значение как
+// e.To.Kind == ir.KindInterface ("значение как
 // ИмяИнтерфейса не распаковывает боксированную реализацию") - ОТДЕЛЬНАЯ
 // проверка: боксированное значение всегда несёт дескриптор КОНКРЕТНОЙ
 // сущности (v.Boxed.Type, никогда сам интерфейс - боксирование
@@ -110,7 +110,7 @@ func (in *Interp) effectiveMethods(typeName string) []*ir.Method {
 // синглтон "Пусто" (тип результата метода без результата) - in.entities не
 // содержит такого имени, счётчики полей/методов для них равны 0.
 //
-// iface != nil (docs/ROADMAP.md - находка "тип ИмяИнтерфейса не
+// iface != nil (находка "тип ИмяИнтерфейса не
 // существует") - recv.S называет интерфейс, не сущность: у интерфейса
 // НЕТ полей и НЕТ конструктора (".создать" здесь неприменимо - falls
 // through в reflectCreate, которая паникует "метод не найден", раз имени
@@ -198,7 +198,7 @@ func (in *Interp) evalTypeInfoMethod(recv Value, e *ir.MethodCallExpr, env *Env,
 			return Value{Type: ir.TypeTypeInfo, S: "Пусто"}, nil
 		}
 		return typeInfoValue(m.ReturnType), nil
-	// "тег_метода"/"тег_метода_текст" (docs/ROADMAP.md, паритет с
+	// "тег_метода"/"тег_метода_текст" (паритет с
 	// C#-атрибутами на методе) - у интерфейса всегда "" (ir.InterfaceMethod
 	// не несёт Tag - у самого языка тег метода интерфейса синтаксически
 	// не существует, только у метода СУЩНОСТИ).
@@ -216,7 +216,7 @@ func (in *Interp) evalTypeInfoMethod(recv Value, e *ir.MethodCallExpr, env *Env,
 		return stringValue(m.Tag), nil
 	case "создать":
 		return in.reflectCreate(recv.S, args[0], env, cc)
-	// "тег"/"тег_текст" (docs/ROADMAP.md, паритет с C#-атрибутами на
+	// "тег"/"тег_текст" (паритет с C#-атрибутами на
 	// классе) - тег самой сущности целиком ("сущность Имя `ключ:значение`",
 	// ast.EntityDecl.Tag) - "" у примитива/интерфейса (ent == nil), тем же
 	// принципом, что у остальных методов, действующих только на сущность.
@@ -231,7 +231,7 @@ func (in *Interp) evalTypeInfoMethod(recv Value, e *ir.MethodCallExpr, env *Env,
 		}
 		return stringValue(ent.Tag), nil
 	// "базовый_тип"/"наследует_ли"/"число_интерфейсов"/"получить_интерфейс"/"реализует_ли" -
-	// docs/ROADMAP.md, паритет с C# Type.BaseType/IsSubclassOf/GetInterfaces/
+	// паритет с C# Type.BaseType/IsSubclassOf/GetInterfaces/
 	// IsAssignableFrom - действуют только на сущность/структуру (ent !=
 	// nil); примитив/интерфейс (ent == nil) - базовый_тип "Пусто", число_
 	// интерфейсов 0, наследует/реализует всегда "ложь", тем же принципом,

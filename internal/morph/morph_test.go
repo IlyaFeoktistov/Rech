@@ -203,7 +203,7 @@ func TestCompoundNounAgreementUsesFirstWord(t *testing.T) {
 
 // TestCompoundNounAgreementSnakeCase - то же самое, что
 // TestCompoundNounAgreementUsesFirstWord, но для snake_case составных имён
-// полей ("хранилище_задач") - найденный недочёт (docs/ROADMAP.md, Шаг 60):
+// полей ("хранилище_задач") - найденный недочёт (Шаг 60):
 // splitPascalWords раньше разбивал границу только по заглавной букве, "_"
 // не считался границей слова вообще, всё имя целиком читалось по хвосту
 // ("...задач" - согласная, мужской род fallback), а не по первому слову

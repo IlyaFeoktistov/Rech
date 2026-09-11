@@ -122,7 +122,7 @@ func TestParseVisibilityModifierRejectedBeforeUse(t *testing.T) {
 
 // TestParsePrivateEnumAgreesWithNeuterGender/TestParsePrivateConstAgreesWithFeminineGender -
 // паритет модульной видимости с уже существующей у функций/сущностей
-// (docs/ROADMAP.md): "перечисление" среднего рода ("приватное"), "константа"
+// : "перечисление" среднего рода ("приватное"), "константа"
 // женского ("приватная", тем же согласованием, что и checkConstVisibilityAgreement
 // у константы уровня сущности).
 func TestParsePrivateEnumAgreesWithNeuterGender(t *testing.T) {

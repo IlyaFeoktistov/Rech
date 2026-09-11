@@ -163,7 +163,7 @@ func TestCompileCLinksSSLOnlyWhenSourceUsesTLS(t *testing.T) {
 }
 
 // TestCompileCLinksDBLibrariesOnlyWhenSourceUsesThem - internal/dbscheme.Set
-// (docs/ROADMAP.md, "toolchain линкует -lsqlite3 -lpq -lmysqlclient
+// ("toolchain линкует -lsqlite3 -lpq -lmysqlclient
 // безусловно") - каждая из трёх библиотек линкуется НЕЗАВИСИМО от двух
 // других, по маркеру функции подключения именно ЭТОЙ библиотеки
 // ("sqlite3_open("/"PQconnectdb("/"mysql_init(" - см. commonLinkFlags), не

@@ -8,7 +8,7 @@ import (
 )
 
 // TestGenerateFromIRTLSListenBuiltinCall - "слушать_tcp_защищённо(порт,
-// файл_сертификата, файл_ключа)" (docs/ROADMAP.md, TLS для http_сервера) -
+// файл_сертификата, файл_ключа)" (TLS для http_сервера) -
 // эмитирует rech_listen_tcp_secure, подключает OpenSSL, переключает
 // rech_accept/rech_send/rech_recv/rech_close_socket на TLS-осведомлённые
 // версии (socketHelpersTLS вместо socketHelpers, tls.go).
@@ -49,7 +49,7 @@ func TestGenerateFromIRTLSListenBuiltinCall(t *testing.T) {
 }
 
 // TestGenerateFromIRHTTPServerOverTLSReadsThroughSharedPrimitive - регрессия
-// на найденный баг (docs/ROADMAP.md, TLS): "принять_http" читал сырым
+// на найденный баг (TLS): "принять_http" читал сырым
 // recv() напрямую, минуя rech_recv - для TLS-соединения это читало ещё
 // зашифрованные байты, HTTP-парсер ждал "\r\n\r\n" и зависал насмерть
 // (найдено сквозным curl-прогоном, не этим тестом - IR здесь строится

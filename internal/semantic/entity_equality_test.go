@@ -6,7 +6,7 @@ import (
 )
 
 // TestAnalyzeEntityEqualityComparesByReference - НАЙДЕННЫЙ по ходу
-// examples/проекты/чат_сервер недочёт (docs/ROADMAP.md): "=="/"!=" не
+// examples/проекты/чат_сервер недочёт: "=="/"!=" не
 // поддерживался ни для одной сущности вовсе. Сущность/класс (ссылочная
 // семантика) теперь сравнивается по ссылке - тем же принципом, что
 // entityIsRefType (cast.go).
@@ -37,7 +37,7 @@ func TestAnalyzeEntityEqualityComparesByReference(t *testing.T) {
 }
 
 // TestAnalyzeStructEqualityFieldByField - "структура" (значение, не ссылка) -
-// "=="/"!=" сравнивает поле за полем (docs/ROADMAP.md), а не по identity -
+// "=="/"!=" сравнивает поле за полем, а не по identity -
 // две РАЗНЫЕ структуры с одинаковыми полями равны, structFieldsEquatable
 // (cast.go) допускает примитивные/Строка поля без ограничений.
 func TestAnalyzeStructEqualityFieldByField(t *testing.T) {

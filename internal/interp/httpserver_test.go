@@ -128,8 +128,8 @@ func TestRunHTTPServerBuiltins(t *testing.T) {
 	}
 }
 
-// TestRunHTTPServerDecodesPercentEncodedPath - НАЙДЕННЫЙ В ROADMAP (шаг 41)
-// пробел: настоящие HTTP-клиенты (curl, браузеры) percent-encode
+// TestRunHTTPServerDecodesPercentEncodedPath - НАЙДЕННЫЙ пробел: настоящие
+// HTTP-клиенты (curl, браузеры) percent-encode
 // нелатинские байты в ПУТИ (RFC 3986) сами - маршрут "/задачи" никогда не
 // совпал бы с тем, что реально пришло по проводу
 // ("/%D0%B7%D0%B0%D0%B4%D0%B0%D1%87%D0%B8"), если "принять_http" не
@@ -200,7 +200,7 @@ func TestRunHTTPServerDecodesPercentEncodedPath(t *testing.T) {
 	}
 }
 
-// TestRunHTTPServerRejectsOversizedBody - "docs/ROADMAP.md", HTTP highload
+// TestRunHTTPServerRejectsOversizedBody - "", HTTP highload
 // пункт 2 (тело запроса без ограничения размера) - клиент заявляет
 // Content-Length больше "http.макс_размер_запроса_байт" (здесь - принудительно
 // маленький предел, 16 байт, через runSrcWithHTTPMaxRequestBytes, а не

@@ -220,7 +220,7 @@ func contains(ss []string, s string) bool {
 // чего единственный файл с "перечисление" (без единого "использовать")
 // всё равно проходил через module.Load+Link (рекурсивный парсинг делает
 // это независимо от того, есть ли реальные импорты) и терял свои
-// перечисления молча - см. docs/ROADMAP.md, Шаг 12.
+// перечисления молча.
 func TestLinkPreservesEnums(t *testing.T) {
 	dir := t.TempDir()
 	entry := writeFile(t, dir, "главный.rech", "перечисление Цвет { Красный, Зелёный }\nфункция главная { вывести Цвет.Зелёный }\n")
@@ -295,7 +295,7 @@ func TestLinkResolvesInterfaceTypeInNonEntryModule(t *testing.T) {
 }
 
 // TestLinkResolvesInterfaceMethodEntityParamInNonEntryModule - НАЙДЕННЫЙ
-// БАГ (исправлен здесь, docs/ROADMAP.md - "examples/проекты - показать
+// БАГ (исправлен здесь - "examples/проекты - показать
 // полноценное ООП на Rech"): методы m.AST.Interfaces никогда не проходили
 // через rewriteParams/rewriteReturnType вообще - в отличие от
 // TestLinkResolvesInterfaceTypeInNonEntryModule выше (тот про ИМЯ самого
@@ -337,7 +337,7 @@ func TestLinkResolvesInterfaceMethodEntityParamInNonEntryModule(t *testing.T) {
 	}
 }
 
-// TestLinkImportsInterfaceByName - найденная находка (docs/ROADMAP.md, Шаг
+// TestLinkImportsInterfaceByName - найденная находка (Шаг
 // 41, http_сервер): "использовать" не умело импортировать интерфейс по
 // имени вовсе (declaredNames/moduleVisibility не знали про
 // ast.Program.Interfaces) - ссылка на интерфейс из ДРУГОГО файла как тип
@@ -565,12 +565,12 @@ func TestLinkImportsExternEntityPreservingCNameButRenamingAlias(t *testing.T) {
 // resolveTypeRef раньше пропускал ЛЮБОЕ имя типа с "<" целиком нерезолвленным
 // (аргумент внутри "Список<T>" мог быть только примитивом, пока
 // internal/semantic не научился принимать сущность элементом коллекции,
-// см. docs/ROADMAP.md, "Шаг 39") - у сущности-элемента ИЗ НЕ-entry модуля
+// , "Шаг 39") - у сущности-элемента ИЗ НЕ-entry модуля
 // (mangledName переименовывает её) ссылка "Список<Товар>" оставалась бы
 // "Список<Товар>" (старое, ДО переименования имя), а не "Список<Утилиты_Товар>" -
 // cbackend/semantic не нашли бы такой тип в слинкованной программе.
 // TestLinkResolvesEntityInsideCallableTypeArgument - регрессионный тест
-// (docs/ROADMAP.md, Шаг 41/43): resolveTypeRef раньше возвращал ЛЮБУЮ
+// (Шаг 41/43): resolveTypeRef раньше возвращал ЛЮБУЮ
 // каноническую строку типа "Вызываемый<...>Результат" НЕИЗМЕНЁННОЙ - форма
 // не оканчивается на ">" целиком (Результат идёт сразу за закрывающей ">"
 // без разделителя), значит не подходила под общий случай "Шаблон<...>".
@@ -753,7 +753,7 @@ func TestLinkResolvesEntityInsideDictValueArgument(t *testing.T) {
 	}
 }
 
-// TestLinkResolvesParentCallArgs - найденный баг (docs/ROADMAP.md, попутно
+// TestLinkResolvesParentCallArgs - найденный баг (попутно
 // с паритетом Enum/Const): "родитель(<арг>, ...)" (ast.ParentCallStmt) не
 // входил ни в один case rewriteStmt - падал "внутренняя ошибка: неизвестная
 // инструкция" при ЛЮБОМ прогоне через настоящую сборку (compiler.Compile
@@ -821,7 +821,7 @@ func TestLinkResolvesParentCallArgs(t *testing.T) {
 }
 
 // TestLinkImportsEnumByName - паритет с уже существующей приватностью
-// функций/сущностей/интерфейсов (docs/ROADMAP.md): "использовать
+// функций/сущностей/интерфейсов: "использовать
 // ИмяПеречисления из ..." теперь разрешён, доступ к члену через "." из
 // файла-импортёра резолвится (buildNames - bare passthrough, тем же
 // принципом, что и у интерфейсов).

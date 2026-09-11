@@ -151,7 +151,7 @@ func main() {
 	var dbPoolTimeoutMs int
 	var dbSQLiteBusyTimeoutMs int
 	// poolShrinkEnabled по умолчанию true (пул воркер-потоков сжимается,
-	// см. internal/project.File.PoolShrinkEnabled/docs/ROADMAP.md, Шаг 81) -
+	// см. internal/project.File.PoolShrinkEnabled/Шаг 81) -
 	// в отличие от dbPoolSize/dbPoolTimeoutMs (int, где 0 - естественный
 	// сентинел "не задано"), у bool нет такого третьего состояния, поэтому
 	// значение по умолчанию выставляется здесь явно, а не полагается на

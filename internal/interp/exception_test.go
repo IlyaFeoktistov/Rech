@@ -117,7 +117,7 @@ func TestRunCatchTypeMismatchRethrowsToOuterTry(t *testing.T) {
 }
 
 // TestRunCatchPanicBindsMessageAndContinuesExecution - "поймать (x:
-// Паника)" (docs/ROADMAP.md, изоляция паники) должен поймать выход за
+// Паника)" (изоляция паники) должен поймать выход за
 // границы Список.получить (rech_panic-класс ошибки, не "выбросить"), а
 // исполнение - продолжиться нормально после блока попытаться.
 func TestRunCatchPanicBindsMessageAndContinuesExecution(t *testing.T) {

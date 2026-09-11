@@ -56,8 +56,8 @@ func TestGenerateFromIRHTTPServerBuiltinCalls(t *testing.T) {
 	}
 }
 
-// TestGenerateFromIRHTTPServerDecodesPathSegment - НАЙДЕННЫЙ В ROADMAP
-// (шаг 41) пробел: "принять_http" обязан percent-декодировать сегмент пути
+// TestGenerateFromIRHTTPServerDecodesPathSegment - НАЙДЕННЫЙ пробел:
+// "принять_http" обязан percent-декодировать сегмент пути
 // (rech_path_url_decode), а не только query-строку (rech_qp_url_decode,
 // отдельная функция - у сегмента пути нет "+"-как-пробел).
 func TestGenerateFromIRHTTPServerDecodesPathSegment(t *testing.T) {
@@ -182,7 +182,7 @@ func TestGenerateFromIRWithoutHTTPServerOmitsHelpers(t *testing.T) {
 }
 
 // TestGenerateFromIRHTTPResponseAnnouncesKeepAlive - "отправить_http_
-// ответ" шлёт "Connection: keep-alive", не "close" (docs/ROADMAP.md, "HTTP
+// ответ" шлёт "Connection: keep-alive", не "close" ("HTTP
 // keep-alive") - сервер всегда ГОТОВ обслужить следующий запрос на этом же
 // соединении, решение продолжать ли цикл - за вызывающим Rech-кодом (см.
 // examples/проекты/http_сервер).
@@ -208,7 +208,7 @@ func TestGenerateFromIRHTTPResponseAnnouncesKeepAlive(t *testing.T) {
 }
 
 // TestGenerateFromIRSocketCreationIgnoresSigpipe - НАЙДЕННЫЙ ЖИВЬЁМ баг
-// (docs/ROADMAP.md, "HTTP keep-alive"): запись в сокет, который ПИР уже
+// ("HTTP keep-alive"): запись в сокет, который ПИР уже
 // закрыл (типичное HTTP keep-alive соединение, где клиент отключился между
 // запросами), убивала ВЕСЬ процесс через SIGPIPE (POSIX-умолчание) - без
 // единой строчки паники, silent crash. Каждая функция создания сокета
@@ -230,7 +230,7 @@ func TestGenerateFromIRSocketCreationIgnoresSigpipe(t *testing.T) {
 	}
 }
 
-// TestGenerateFromIRWiresHTTPMaxRequestBytes - "docs/ROADMAP.md", HTTP
+// TestGenerateFromIRWiresHTTPMaxRequestBytes - "", HTTP
 // highload пункт 2 - prog.HTTPMaxRequestBytes проброшен в сгенерированный C
 // (internal/compiler подставляет его из ir.Program перед кодогенерацией,
 // тем же принципом, что и TestGenerateFromIRWiresPoolShrinkSettings,

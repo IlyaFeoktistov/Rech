@@ -195,7 +195,7 @@ type builtinFlags struct {
 	// компиляции самого Rech-компилятора, значит обе ветки диспетчера (и
 	// обе библиотеки) нужны программе, вызвавшей любую из двух функций,
 	// независимо от того, какой конкретно формат встретится в реальном
-	// запуске - третий срез работы с изображениями (docs/ROADMAP.md),
+	// запуске - третий срез работы с изображениями,
 	// настоящее сжатие - внешняя библиотека, тем же принципом, что и
 	// usesTLS/usesHTTP2 выше.
 	usesImageCodec bool
@@ -1044,7 +1044,7 @@ func intModHelperText(prefix string, w intWidthHelperSpec) string {
 // readHelpers - прочитать_строку/прочитать_целое/прочитать_число (шаг 8, без
 // FFI - стандартный ввод есть у любой программы). rech_read_line
 // намеренно не использует POSIX-only getline (шаг 8 явно требует
-// кроссплатформенности, docs/ROADMAP.md) - растущий буфer поверх обычного
+// кроссплатформенности) - растущий буфer поверх обычного
 // fgets, доступного в любом C. Каждый вызов возвращает новый malloc'нутый
 // буфер (как rech_str_concat) - статический/переиспользуемый буфер был бы
 // багом: две переменные, каждая из своего вызова прочитать_строку, не
@@ -1343,7 +1343,7 @@ typedef int rech_socket_t;
 // закрыл (например, HTTP keep-alive соединение, где клиент отключился
 // между запросами - examples/проекты/http_сервер) убивает ВЕСЬ процесс
 // СРАЗУ (POSIX-умолчание для SIGPIPE - завершение процесса, не просто
-// ошибка вызова) - живая находка (docs/ROADMAP.md, "HTTP keep-alive"):
+// ошибка вызова) - живая находка ("HTTP keep-alive"):
 // сервер падал молча, без единой строчки паники, при закрытии клиентом
 // keep-alive-соединения. SIGPIPE - ГЛОБАЛЬНАЯ, на весь процесс, настройка
 // (не per-сокет) - одного вызова где угодно ДО первой отправки достаточно
@@ -1489,7 +1489,7 @@ static rech_socket_t rech_network_node(long long mode, const char *host, long lo
 // socketTypeAndConnectCode выше и ir_generator.go, выбор socketHelpers/
 // socketHelpersTLS по ctx.usesTLS).
 //
-// Шаг 132 (docs/ROADMAP.md, инкремент 6/6 async/await) - rech_accept/
+// Инкремент 6/6 async/await - rech_accept/
 // rech_send_raw/rech_socket_read_raw теперь КОРУТИНО-ОСВЕДОМЛЕНЫ: если
 // текущий код исполняется на лёгкой корутине (rech_coro_current != NULL,
 // internal/backend/cbackend/coroutine.go, Шаги 128-131), они не блокируют
@@ -1504,7 +1504,7 @@ static rech_socket_t rech_network_node(long long mode, const char *host, long lo
 // (сценарий "50-100 тыс. открытых, по большей части ждущих соединений",
 // ради которого весь план и затевался) - см. examples/проекты/
 // центр_уведомлений (Шаг 132). TLS-сокеты (tls.go) этим шагом НЕ
-// затронуты - осознанно вне первой итерации (см. docs/ROADMAP.md, Шаг
+// затронуты - осознанно вне первой итерации (, Шаг
 // 127, "первая итерация - только TCP"). "установить_таймаут" не
 // действует, пока сокет в неблокирующем (корутинном) режиме - таймауты
 // самого ожидания fd (rech_coro_wait_readable/writable) - по-прежнему
@@ -1561,7 +1561,7 @@ var plainSocketOpsCode = fmt.Sprintf(`static %[5]s rech_accept(rech_socket_t s) 
 }
 
 // rech_send_raw - как rech_send, но по явной длине, не strlen(data) - для
-// содержимого, которое может нести нулевые байты (docs/ROADMAP.md, HTTP
+// содержимого, которое может нести нулевые байты (HTTP
 // highload - бинарно-безопасный HTTP-ответ, internal/backend/cbackend/
 // httpbytes.go). "rech_send" сама - тонкая обёртка над ней (len = strlen).
 // MSG_DONTWAIT (POSIX, обе ветки BSD sockets - Linux и macOS) - в отличие
@@ -1679,7 +1679,7 @@ var socketHelpers = socketTypeAndConnectCode + plainSocketOpsCode
 // (rech_recv_until_close), не до предполагаемой длины - простой способ
 // получить ВСЕ байты ответа целиком, не разбирая Content-Length вовсе.
 // Chunked transfer encoding (сервер отвечает без Content-Length, вместо
-// него "Transfer-Encoding: chunked") - РАЗБИРАЕТСЯ (docs/ROADMAP.md, HTTP
+// него "Transfer-Encoding: chunked") - РАЗБИРАЕТСЯ (HTTP
 // highload пункт 4, chunked.go, rech_http_is_chunked/rech_http_dechunk) -
 // поскольку rech_recv_until_close уже дочитал весь чанкованный поток
 // целиком (до закрытия соединения), достаточно раскодировать его ОДНИМ
@@ -1720,7 +1720,7 @@ var httpHelpers = fmt.Sprintf(`static char *rech_recv_until_close(rech_socket_t 
 }
 
 static %[7]s rech_http_request(%[8]s req) {
-    // "https://" в начале "адреса" - TLS (docs/ROADMAP.md, HTTP highload
+ // "https://" в начале "адреса" - TLS (HTTP highload
     // пункт 5); "http://" - тот же принцип для симметрии/явности, хотя
     // поведение и без него не меняется (обычное соединение) - обе схемы
     // отрезаются перед подключением/заголовком "Host:", реальный TCP-хост

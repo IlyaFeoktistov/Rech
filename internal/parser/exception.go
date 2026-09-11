@@ -70,7 +70,7 @@ func (p *Parser) parseOneCatchClause() (tryCatchClause, error) {
 	if err != nil {
 		return tryCatchClause{}, err
 	}
-	// "Паника" (docs/ROADMAP.md, изоляция паники) - НЕ настоящий тип
+	// "Паника" (изоляция паники) - НЕ настоящий тип
 	// исключения (см. package doc ast.TryStmt.CatchPanic) - распознаётся
 	// здесь ПОСЛЕ полного разбора списка типов, а не как отдельная ветка
 	// грамматики, и вырезается из catchTypes перед возвратом (семантика

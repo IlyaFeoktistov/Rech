@@ -88,7 +88,7 @@ func TestParseIsExprTakesTargetLiterallyWithoutDeclension(t *testing.T) {
 	}
 }
 
-// TestParseTryCatchPanic - "поймать (x: Паника)" (docs/ROADMAP.md, изоляция
+// TestParseTryCatchPanic - "поймать (x: Паника)" (изоляция
 // паники) - "Паника" не заносится в CatchTypes (не настоящий тип
 // исключения, см. package doc ast.TryStmt.CatchPanic), а ставит CatchPanic.
 func TestParseTryCatchPanic(t *testing.T) {

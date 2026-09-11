@@ -7,7 +7,7 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
-// TestGenerateFromIRHTTPClientEmitsTLSConnect - docs/ROADMAP.md, HTTP
+// TestGenerateFromIRHTTPClientEmitsTLSConnect - HTTP
 // highload пункт 5 - программа с "запрос" должна получить TLS-осведомлённый
 // вариант сокетов (socketHelpersTLS, usesTLS) БЕЗУСЛОВНО, даже без единого
 // "слушать_tcp_защищённо" - "адрес" запроса решается только в рантайме,

@@ -58,7 +58,7 @@ func TestAnalyzeExternStructRejectsUnsafeFieldType(t *testing.T) {
 }
 
 // TestAnalyzeExternFuncAcceptsPointerParam - "Указатель<T>" над примитивом
-// допустима в сигнатуре внешней функции (docs/ROADMAP.md, "FFI: указатели
+// допустима в сигнатуре внешней функции ("FFI: указатели
 // в внешняя структура/внешняя функция") - типичный out-параметр C API.
 func TestAnalyzeExternFuncAcceptsPointerParam(t *testing.T) {
 	_, err := AnalyzeSource(t, `
@@ -90,7 +90,7 @@ func TestAnalyzeExternFuncRejectsPointerToUnsafeEntity(t *testing.T) {
 }
 
 // TestAnalyzeExternFuncAcceptsCallableParam - "Вызываемый(...)" допустима
-// параметром внешней функции (docs/ROADMAP.md, "FFI: маршалинг колбэков") -
+// параметром внешней функции ("FFI: маршалинг колбэков") -
 // маршалится в cbackend через глобальный слот + trampoline, не как {fn,
 // env} по значению.
 func TestAnalyzeExternFuncAcceptsCallableParam(t *testing.T) {

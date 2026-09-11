@@ -968,7 +968,7 @@ func analyzeBinaryExpr(sc *ctx, e *ast.BinaryExpr) (ir.Expr, error) {
 			return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: ir.TypeBool}, nil
 		}
 		// "структура" (значение, не identity) - поле-в-поле (docs/
-		// ROADMAP.md, "== для структур") - тот же ir.BinaryExpr, что и у
+		// "== для структур") - тот же ir.BinaryExpr, что и у
 		// ссылочной сущности выше: cbackend/interp сами решают, как именно
 		// сравнивать конкретный KindEntity (указатель vs рекурсивно по
 		// полям) по IsStruct, см. structFieldsEquatable ниже.

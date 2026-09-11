@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// TestRunHTTPRequestDecodesChunkedResponse - docs/ROADMAP.md, HTTP
+// TestRunHTTPRequestDecodesChunkedResponse - HTTP
 // highload пункт 4 - сервер отвечает без Content-Length, вместо него
 // "Transfer-Encoding: chunked" (несколько чанков вперемешку с их
 // шестнадцатеричными размерами и терминирующим нулевым чанком) - "запрос"

@@ -6,9 +6,9 @@
 // Ответ читается до закрытия соединения сервером (не по Content-Length) -
 // сервер должен закрывать соединение после ответа (обычный HTTP/1.0-
 // подобный сценарий, не keep-alive); chunked transfer encoding при этом
-// тоже разбирается (docs/ROADMAP.md, HTTP highload пункт 4).
+// тоже разбирается (HTTP highload пункт 4).
 //
-// "https://" в начале "адреса" - TLS (docs/ROADMAP.md, HTTP highload
+// "https://" в начале "адреса" - TLS (HTTP highload
 // пункт 5) - без схемы (как у "р" ниже) - обычный HTTP, тем же принципом,
 // что и раньше.
 

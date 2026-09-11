@@ -19,7 +19,7 @@ import (
 
 // generateSelfSignedCertFiles - самоподписанный сертификат/ключ (RSA 2048,
 // валиден для "127.0.0.1") в двух PEM-файлах во временном каталоге -
-// "слушать_tcp_защищённо" (docs/ROADMAP.md, TLS) принимает ПУТИ к файлам,
+// "слушать_tcp_защищённо" (TLS) принимает ПУТИ к файлам,
 // не сырой PEM-текст, тем же принципом, что и у OpenSSL
 // SSL_CTX_use_certificate_file/SSL_CTX_use_PrivateKey_file на стороне
 // cbackend (tls.go) - тест должен пройти через тот же файловый API, что и

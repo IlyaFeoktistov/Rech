@@ -20,7 +20,7 @@ func AsTypeMismatchFormat(actual, expected string) string {
 
 // AsInterfaceMismatchTemplate/AsInterfaceMismatchFormat - тот же случай, что
 // AsTypeMismatchTemplate выше, но целевой тип "как" - интерфейс
-// (docs/ROADMAP.md - "значение как ИмяИнтерфейса не распаковывает
+// ("значение как ИмяИнтерфейса не распаковывает
 // боксированную реализацию"): проверка не "совпадает ли фактический тип с
 // ОДНИМ ожидаемым" (rech_unbox_check), а "реализует ли фактический тип этот
 // интерфейс" (rech_unbox_check_iface, internal/backend/cbackend/reflect.go) -

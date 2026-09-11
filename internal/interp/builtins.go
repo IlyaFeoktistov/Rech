@@ -497,7 +497,7 @@ func (in *Interp) readLine() string {
 // "Connection: close" в каждом запросе, ответ читается до закрытия
 // соединения (io.ReadAll), не по Content-Length - простой способ получить
 // ВСЕ байты ответа целиком. Chunked transfer encoding - РАЗБИРАЕТСЯ
-// (docs/ROADMAP.md, HTTP highload пункт 4, chunked.go) - раз io.ReadAll уже
+// (HTTP highload пункт 4, chunked.go) - раз io.ReadAll уже
 // дочитал весь чанкованный поток целиком (до закрытия соединения),
 // достаточно раскодировать его одним проходом (dechunk) уже после приёма.
 func (in *Interp) httpRequest(req Value) Value {

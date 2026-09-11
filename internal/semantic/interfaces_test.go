@@ -283,7 +283,7 @@ func TestAnalyzeInterfaceExtendsSatisfiesBaseInterface(t *testing.T) {
 }
 
 // TestAnalyzeInterfaceMethodAcceptsEntityParam - НАЙДЕННЫЙ КРАШ (исправлен
-// здесь, docs/ROADMAP.md - "examples/проекты - показать полноценное ООП на
+// здесь - "examples/проекты - показать полноценное ООП на
 // Rech"): раньше параметр/тип результата метода интерфейса МОГ быть только
 // примитивом или именем другого интерфейса - сущность программы
 // (СобытиеПроцесса ниже) отвергалась (Observer/Factory - едва ли не самые

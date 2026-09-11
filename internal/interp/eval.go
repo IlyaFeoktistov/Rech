@@ -385,7 +385,7 @@ func (in *Interp) valuesEqual(l, r Value) bool {
 		return toFloat(l) == toFloat(r)
 	case l.Type.Kind == ir.KindEntity:
 		if ent, ok := in.entities[l.Type.Entity]; ok && ent.IsStruct {
-			// "структура" - значение, не identity (docs/ROADMAP.md, "==" для
+			// "структура" - значение, не identity ("==" для
 			// структур - поле-в-поле) - семантический анализ
 			// (structFieldsEquatable, cast.go) уже гарантировал, что КАЖДОЕ
 			// поле (рекурсивно, у вложенных структур тоже) - сравнимый тип,
@@ -814,7 +814,7 @@ func (in *Interp) collectionsDeepEqual(a, b *collection) bool {
 // Список<T>>) по СОДЕРЖИМОМУ (collectionsDeepEqual), а не по identity -
 // иначе Список<Список<Целое>>.равен(...) сравнил бы вложенные списки
 // указателями и был бы бесполезен для ровно того случая, ради которого
-// "равен" завели (docs/ROADMAP.md). Не подменяет valuesEqual саму - только
+// "равен" завели. Не подменяет valuesEqual саму - только
 // используется РЯДОМ с ней, из collectionsDeepEqual выше.
 func (in *Interp) valueDeepEqual(l, r Value) bool {
 	if l.Type.Kind == ir.KindEntity && l.Obj != nil && l.Obj.coll != nil {

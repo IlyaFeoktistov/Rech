@@ -55,7 +55,7 @@ type irGenCtx struct {
 	// только если "показать" реально встретилось в программе.
 	usesShow bool
 	// structEqEntities - какие именно "структуры" программы нуждаются в
-	// rech_struct_eq_... (struct_eq.go, docs/ROADMAP.md - "==" для
+	// rech_struct_eq_... (struct_eq.go - "==" для
 	// структур) - В ОТЛИЧИЕ от usesShow/showFuncs выше (генерируются для
 	// ВСЕХ сущностей программы разом, раз показ умеет напечатать ЛЮБОЕ
 	// поле каким-нибудь способом, generateIRShowExpr), здесь так нельзя:
@@ -90,7 +90,7 @@ type irGenCtx struct {
 	// чтобы не писать собственный extern-прототип для стандартного символа
 	// (strlen/malloc/sqrt/...), который заголовок и так уже объявляет -
 	// иначе два расходящихся по типу прототипа ОДНОГО имени - ошибка
-	// компиляции C (найдено живьём, docs/ROADMAP.md, "FFI: конфликт
+	// компиляции C (найдено живьём, "FFI: конфликт
 	// extern-прототипов со стандартными заголовками").
 	includesStringH bool
 	includesStdlibH bool
@@ -188,7 +188,7 @@ type irGenCtx struct {
 	tryCounter     int
 
 	// usesPanicCatch - хотя бы один "поймать (<имя>: Паника)" реально
-	// встретился в программе (docs/ROADMAP.md, изоляция паники, см.
+	// встретился в программе (изоляция паники, см.
 	// ir.TryStmt.CatchPanic/generateIRTryCatchPanicStmt) - переключает
 	// rech_panic с безусловного fprintf+exit (panicHelper) на версию,
 	// которая ищет ближайший такой кадр вверх по rech_catch_top
@@ -340,7 +340,7 @@ type irGenCtx struct {
 	// (WhileStmt/ForStmt/ForEachStmt/CStyleForStmt), от САМОГО ВНЕШНЕГО
 	// (индекс 0) до самого внутреннего (последний) - читается только
 	// ir.BreakStmt/ir.ContinueStmt (emitLoopJump, break_continue.go).
-	// "прервать N"/"продолжить N" (docs/ROADMAP.md) индексирует его с конца:
+	// "прервать N"/"продолжить N" индексирует его с конца:
 	// loopStack[len(loopStack)-N] - N-й по счёту цикл, считая текущий (N=1 -
 	// как раньше, ближайший). cleanupBase - len(cleanupStack) В МОМЕНТ входа
 	// в тело ЭТОГО цикла: "прервать"/"продолжить" обязаны прогнать
@@ -495,7 +495,7 @@ func (ctx *irGenCtx) receiverIsPointer(receiver ir.Expr) bool {
 // значения - тот же объект при копировании) и приводило к молчаливой
 // потере мутаций после того, как копия проходила через resize
 // (генерация нового буфера видна только в ТОЙ копии, где он произошёл) -
-// найдено и задокументировано в docs/ROADMAP.md (Шаг 28) при написании
+// найдено и задокументировано в (Шаг 28) при написании
 // examples/проекты/http_сервер, исправлено здесь.
 func (ctx *irGenCtx) entityIsRef(name string) bool {
 	if ent, ok := ctx.entities[name]; ok {
@@ -1199,7 +1199,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// POSIX regex.h из коробки (в отличие от glibc) - тот же класс
 	// ограничения переносимости, что уже принят у "Блокировка"/потоков
 	// (ctx.usesThreads, POSIX-only ветка ниже) - не решён здесь, зафиксирован
-	// как известное ограничение (docs/ROADMAP.md).
+	// как известное ограничение.
 	if ctx.usesRegex {
 		sb.WriteString("#include <regex.h>\n#include <locale.h>\n")
 	}
@@ -1264,7 +1264,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		sb.WriteString("#ifdef _WIN32\n#include <winsock2.h>\n#include <ws2tcpip.h>\n#else\n#include <sys/socket.h>\n#include <netinet/in.h>\n#include <arpa/inet.h>\n#include <netdb.h>\n#include <unistd.h>\n#include <errno.h>\n#include <fcntl.h>\n#endif\n")
 	}
 	// <openssl/ssl.h>/<openssl/err.h> - TLS ("слушать_tcp_защищённо", docs/
-	// ROADMAP.md, tls.go) - единственная внешняя (не входящая в стандартный
+	// tls.go) - единственная внешняя (не входящая в стандартный
 	// C-тулчейн) библиотека этого блока, кроме libgc/клиентов БД выше -
 	// НАСТОЯЩИЙ TLS-стек, не переиспользованная collection/панический
 	// хелпер, поэтому не эмитится безусловно вместе с usesSockets - только
@@ -1307,7 +1307,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// imagecodec.go, "декодировать_изображение"/"закодировать_изображение")
 	// - libpng+libjpeg, обе разом (-lpng -ljpeg - internal/toolchain/cc.go,
 	// по маркерам этих #include) - третий срез работы с изображениями
-	// (docs/ROADMAP.md, "Работа с изображениями"); <stdio.h> (FILE) уже
+	// ("Работа с изображениями"); <stdio.h> (FILE) уже
 	// подключён безусловно выше - <jpeglib.h> сам его требует, но не
 	// включает. setjmp/longjmp - собственный обработчик ошибок libjpeg
 	// (package doc jpeg.go), НЕ через ctx.usesExceptions (тот подключается
@@ -1581,8 +1581,8 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// отправителя UDP-датаграммы копируется через rech_dup) - эмитится
 	// один раз перед всеми тремя (см. rechDupHelper).
 	appendCodeIf(&sb, ctx.usesHTTP || ctx.usesHTTPServer || ctx.usesUDPDatagram || ctx.usesMultipart, rechDupHelper)
-	// chunkedHelpers - разбор chunked transfer encoding (docs/ROADMAP.md,
-	// HTTP highload пункт 4), нужен и клиенту (httpHelpers), и серверу
+	// chunkedHelpers - разбор chunked transfer encoding, нужен и клиенту
+	// (httpHelpers), и серверу
 	// (httpServerHelpers) - эмитится один раз перед обоими, тем же
 	// принципом, что и rechDupHelper выше.
 	appendCodeIf(&sb, ctx.usesHTTP || ctx.usesHTTPServer, chunkedHelpers)
@@ -2588,7 +2588,7 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 			fmt.Fprintf(sb, "%sif (!(%s)) { rech_panic(\"%s\"); }\n", ind, cond, escapeCString(rtmsg.AssertFailed(s.Line)))
 			return nil
 		}
-		// "утверждать <условие>, <сообщение>" (docs/ROADMAP.md - внятные
+		// "утверждать <условие>, <сообщение>" (внятные
 		// сообщения о несовпадении) - сообщение конкатенируется с обычным
 		// текстом ("утверждение не выполнено (строка N): <сообщение>"),
 		// вычисляется в тексте самого "if" (C сам не вычисляет его, если
@@ -2769,7 +2769,7 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 				return "", typeUnknown, err
 			}
 			// isExtern && KindCallable - "Вызываемый(...)" аргумент внешней
-			// функции (docs/ROADMAP.md, "FFI: маршалинг колбэков") - {fn, env}
+			// функции ("FFI: маршалинг колбэков") - {fn, env}
 			// по значению не то, что ожидает C API (голый указатель на
 			// функцию, без слота под env) - marshalCallbackArg подменяет code
 			// на C-имя сгенерированного trampoline (см. ffi_callback.go).
@@ -2825,7 +2825,7 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 	case *ir.ThisExpr:
 		// this_ - параметр метода, указатель всегда, вне зависимости от
 		// того, "сущность" её тип или "структура" (получатель метода -
-		// общее исключение из копирования, см. ROADMAP.md, шаг 12). Но
+		// общее исключение из копирования, шаг 12). Но
 		// "видимая" форма ЗНАЧЕНИЯ этого типа - то, что ожидают FieldAccess/
 		// присваивание/возврат/передача параметром - должна совпадать с
 		// формой, в которой этот тип представлен everywhere: указатель для
@@ -3091,7 +3091,7 @@ func generateIRBinaryExpr(ctx *irGenCtx, e *ir.BinaryExpr) (string, valueType, e
 		}
 		if lt.Kind == ir.KindEntity && lt == rt && !ctx.entityIsRef(lt.Entity) {
 			// "структура" (значение) - поле-в-поле через сгенерированную
-			// rech_struct_eq_... (docs/ROADMAP.md, struct_eq.go) - semantic
+			// rech_struct_eq_... (struct_eq.go) - semantic
 			// (structFieldsEquatable) уже проверил, что это разрешимо.
 			// Ссылочная сущность/класс идёт ниже, обычным пойнтерным "==".
 			registerStructEqEntity(ctx, lt.Entity)

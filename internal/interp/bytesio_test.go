@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// TestRunBytesIORoundTripsArbitraryBinaryData - docs/ROADMAP.md, загрузка/
+// TestRunBytesIORoundTripsArbitraryBinaryData - загрузка/
 // раздача файлов - "Список<Байт>" (в отличие от "Строка") обязан
 // сохранять ЛЮБОЙ байт, включая 0x00, без обрезания. Круговой путь целиком:
 // прочитать_файл_байты -> записать_в_файл_байты И открыть/прочитать_байты/
@@ -60,7 +60,7 @@ func TestRunBytesIORoundTripsArbitraryBinaryData(t *testing.T) {
 }
 
 // TestRunByteStringConvertersRoundTrip - "байты_из_строки"/"строка_из_
-// байт" - мост между "Список<Байт>" и "Строка" (docs/ROADMAP.md).
+// байт" - мост между "Список<Байт>" и "Строка".
 func TestRunByteStringConvertersRoundTrip(t *testing.T) {
 	got := runSrc(t, `
 функция главная

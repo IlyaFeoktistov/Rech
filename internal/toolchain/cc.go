@@ -123,7 +123,7 @@ func commonLinkFlags(src []byte) []string {
 	// (по статическому анализу literal-схемы строки подключения) - линковать
 	// все три библиотеки безусловно означало бы требовать
 	// libsqlite3/libpq/libmysqlclient даже от программы, использующей
-	// только одну (docs/ROADMAP.md, "toolchain линкует ... безусловно").
+	// только одну ("toolchain линкует... безусловно").
 	// Маркер - имя функции подключения КОНКРЕТНОЙ библиотеки (не
 	// "rech_db_connect(" - та эмитируется всегда при UsesDB, независимо от
 	// того, какая именно СУБД внутри неё скомпилирована) - "sqlite3_open("/
@@ -220,7 +220,7 @@ func runCC(args []string) error {
 // название СУБД, для которой оно нужно (missingLibHint ниже) - те же три
 // библиотеки, что commonLinkFlags решает линковать по dbscheme.Set. Только
 // они (не -lm/-lgc/-pthread) реально отсутствуют на типичной системе без
-// отдельной установки (docs/ROADMAP.md - "libpq-dev/libmysqlclient-dev
+// отдельной установки ("libpq-dev/libmysqlclient-dev
 // часто не ставят, если нужен только SQLite").
 var knownDBLibs = []struct{ lib, dbName string }{
 	{"sqlite3", "SQLite"},
@@ -278,7 +278,7 @@ func missingLibHint(linkerOutput string) string {
 	}
 	// -lnghttp2 (HTTP/2/gRPC-транспорт, http2.go) - тот же класс подсказки,
 	// что SSL/PNG/JPEG выше - ПРОБЕЛ, найденный при аудите установщиков
-	// (docs/ROADMAP.md): у missingLibHint были ветки для всех трёх новых
+	//: у missingLibHint были ветки для всех трёх новых
 	// внешних библиотек, добавленных Шагами 93-107 (SSL/PNG/JPEG), кроме
 	// именно этой - nghttp2 (Шаги 93-97, самый ранний из трёх) остался без
 	// подсказки, хотя линковка того же вида ("cannot find -lnghttp2") уже

@@ -359,7 +359,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 			if ent.IsExternStruct && typ.Kind == ir.KindCallable {
 				// "Вызываемый(...)" полем внешней структуры (WNDPROC-в-структуре
 				// стиль, WNDCLASS.lpfnWndProc и т. п.) - НЕ реализовано (docs/
-				// ROADMAP.md, "FFI: маршалинг колбэков") - в отличие от
+				// "FFI: маршалинг колбэков") - в отличие от
 				// параметра "внешняя функция" (isFFIType ниже её уже пускает,
 				// тип результата - НЕ пускает, см. collectExternFuncSigs),
 				// полю нужен голый C-указатель на функцию в самой
@@ -751,7 +751,7 @@ func (a *Analyzer) collectExternFuncSigs(funcs map[string]funcSig, entities map[
 				// "Вызываемый(...)" ТИПОМ РЕЗУЛЬТАТА внешней функции (сырой
 				// C-указатель на функцию, приходящий ОТ C, например возврат
 				// прежнего обработчика у signal()) - НЕ реализовано (docs/
-				// ROADMAP.md, "FFI: маршалинг колбэков") - обратное
+				// "FFI: маршалинг колбэков") - обратное
 				// направление ("превратить чужой сырой указатель в
 				// вызываемое Rech-значение") нуждается в отдельном,
 				// анмаршалинг-trampoline, не в том же регистрационном
@@ -1399,7 +1399,7 @@ func (a *Analyzer) collectCallables(prog *ir.Program) error {
 			}
 		}
 	}
-	// prog.ExternFuncs - параметр "Вызываемый(...)" (docs/ROADMAP.md, "FFI:
+	// prog.ExternFuncs - параметр "Вызываемый(...)" ("FFI:
 	// маршалинг колбэков") обязан попасть в Program.Callables ДАЖЕ если эта
 	// внешняя функция нигде фактически не вызвана (externPrototypeOfIR,
 	// cbackend, эмитит прототип КАЖДОЙ объявленной внешней функции

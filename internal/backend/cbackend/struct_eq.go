@@ -35,7 +35,7 @@ func registerStructEqEntity(ctx *irGenCtx, name string) {
 }
 
 // structEqFuncName - C-имя функции поле-в-поле сравнения "структуры" name
-// для "=="/"!=" (docs/ROADMAP.md) - тот же принцип именования, что и у
+// для "=="/"!=" - тот же принцип именования, что и у
 // showFuncName (show.go), отдельный префикс исключает коллизию с typedef'ом
 // самой структуры и с C-функциями методов/показа.
 func structEqFuncName(name string) string {

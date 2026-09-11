@@ -149,7 +149,7 @@ func TestGenerateFromIREntityReflectTargetGeneratesAccessorsAndDescriptor(t *tes
 }
 
 // TestGenerateFromIREntityFieldOfGenericCollectionReflects - НАЙДЕННЫЙ И
-// ИСПРАВЛЕННЫЙ баг (docs/ROADMAP.md, Шаг 41/47): сущность с полем типа
+// ИСПРАВЛЕННЫЙ баг (Шаг 41/47): сущность с полем типа
 // встроенной generic-коллекции ("Словарь<Строка, Значение>") среди
 // ReflectTargets раньше падала "рефлексия по неизвестному типу" -
 // reflectGen.ensure не отличал generic-коллекцию (нет записи в
@@ -259,7 +259,7 @@ func TestGenerateFromIRReflectTypedefsBeforeGenerics(t *testing.T) {
 }
 
 // TestGenerateFromIRInterfaceReflectTargetGeneratesDescriptor -
-// найденная и исправленная находка (docs/ROADMAP.md - "тип ИмяИнтерфейса
+// найденная и исправленная находка ("тип ИмяИнтерфейса
 // не существует") - "тип <ИмяИнтерфейса>" эмитит дескриптор БЕЗ полей и
 // БЕЗ конструктора (в отличие от сущности), с собственными методами
 // интерфейса, у которых invoke = NULL (диспетчеризация "значение.
@@ -291,7 +291,7 @@ func TestGenerateFromIRInterfaceReflectTargetGeneratesDescriptor(t *testing.T) {
 }
 
 // TestGenerateFromIRAsInterfaceUsesImplementorsCheck - найденная и
-// исправленная находка (docs/ROADMAP.md - "значение как ИмяИнтерфейса не
+// исправленная находка ("значение как ИмяИнтерфейса не
 // распаковывает боксированную реализацию") - в отличие от обычного "как
 // Тип" (rech_unbox_check, точное совпадение с ОДНИМ ожидаемым
 // дескриптором), использует rech_unbox_check_iface со статическим
@@ -327,7 +327,7 @@ func TestGenerateFromIRAsInterfaceUsesImplementorsCheck(t *testing.T) {
 	}
 }
 
-// TestGenerateFromIREntityDescriptorCarriesBaseAndInterfaces - docs/ROADMAP.md,
+// TestGenerateFromIREntityDescriptorCarriesBaseAndInterfaces -
 // паритет с C# Type.BaseType/GetInterfaces: дескриптор сущности несёт
 // base (адрес дескриптора BaseName) и interfaces/interface_count
 // (транзитивный список из Program.EntityInterfaces), не только
@@ -364,7 +364,7 @@ func TestGenerateFromIREntityDescriptorCarriesBaseAndInterfaces(t *testing.T) {
 
 // TestGenerateFromIRTypeInfoBaseAndInterfaceReflectionMethods - "базовый_тип"/
 // "наследует_ли"/"число_интерфейсов"/"получить_интерфейс"/"реализует_ли"
-// (docs/ROADMAP.md, паритет с C# Type.BaseType/IsSubclassOf/GetInterfaces/
+// (паритет с C# Type.BaseType/IsSubclassOf/GetInterfaces/
 // IsAssignableFrom) компилируются в ожидаемые обращения к полям/хелперам
 // дескриптора.
 func TestGenerateFromIRTypeInfoBaseAndInterfaceReflectionMethods(t *testing.T) {
@@ -395,7 +395,7 @@ func TestGenerateFromIRTypeInfoBaseAndInterfaceReflectionMethods(t *testing.T) {
 }
 
 // TestGenerateFromIREntityInterfaceCircularReflectOrderingRegression -
-// НАЙДЕННЫЙ И ИСПРАВЛЕННЫЙ баг (docs/ROADMAP.md): сущность, реализующая
+// НАЙДЕННЫЙ И ИСПРАВЛЕННЫЙ баг: сущность, реализующая
 // интерфейс, чей InterfaceImplementors указывает на ТУ ЖЕ сущность
 // (обычный случай - "Кот реализует Звучащий", "Звучащий".implementors ==
 // ["Кот"]) - раньше тентативное объявление "static const rech_type_meta_t
@@ -438,7 +438,7 @@ func TestGenerateFromIREntityInterfaceCircularReflectOrderingRegression(t *testi
 }
 
 // TestGenerateFromIRPrimitiveTagIsEmptyStringNotNull - НАЙДЕННЫЙ И
-// ИСПРАВЛЕННЫЙ баг (docs/ROADMAP.md): поле "tag" дескриптора примитива/
+// ИСПРАВЛЕННЫЙ баг: поле "tag" дескриптора примитива/
 // generic-коллекции/интерфейса изначально эмитилось как буквальный C `NULL`
 // (в отличие от поля/метода/сущности, у которых "нет тега" ВСЕГДА "" -
 // пустая СТРОКА, никогда NULL-указатель) - "тег_текст()"/"->tag" на такой
@@ -463,7 +463,7 @@ func TestGenerateFromIRPrimitiveTagIsEmptyStringNotNull(t *testing.T) {
 	}
 }
 
-// TestGenerateFromIREntityMethodAndFieldTagReflection - docs/ROADMAP.md,
+// TestGenerateFromIREntityMethodAndFieldTagReflection -
 // паритет с C#-атрибутами на классе/методе/поле (тег сущности - новый
 // синтаксис "сущность Имя `ключ:значение`"; тег метода - синтаксис уже
 // существовал, но не был виден рефлексии): "тег(ключ)"/"тег_текст()" на
@@ -515,7 +515,7 @@ func TestGenerateFromIREntityMethodAndFieldTagReflection(t *testing.T) {
 }
 
 // TestGenerateFromIRFieldByTagReflection - "индекс_поля_по_тегу"/
-// "получить_поле_по_тегу" (docs/ROADMAP.md, обратное направление к
+// "получить_поле_по_тегу" (обратное направление к
 // тег_поля/получить_поле - дан ключ/значение тега, нужно поле, не
 // наоборот) - обе возвращают nullable ("?Целое"/"?Значение"), их
 // C-хелперы (reflect.go, reflectFieldIndexByTagHelperCode/

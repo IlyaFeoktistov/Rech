@@ -553,7 +553,7 @@ func (c *Compiler) parseFileRaw(srcPath string) (*ast.Program, error) {
 // файла без единого "использовать" результат не отличается от обычного
 // разбора одного файла.
 //
-// НАЙДЕННЫЙ БАГ (docs/ROADMAP.md): srcPath не обязательно pf.MainPath() -
+// НАЙДЕННЫЙ БАГ: srcPath не обязательно pf.MainPath -
 // главный файл своего .rechproj (cmd/rech/main.go подставляет его только
 // когда пользователь передал САМ .rechproj; обычный "rech build/run
 // <файл.rech>" передаёт srcPath как есть, даже если файл лежит глубоко

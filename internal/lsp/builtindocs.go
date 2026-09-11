@@ -189,7 +189,7 @@ var mutexMethodDocs = map[string]string{
 
 // semaphoreAcquireDoc - "захватить" именно на "Семафоре" (в отличие от
 // "Блокировки" выше) - несёт необязательный параметр "таймаут_мс"
-// (internal/semantic/semaphore.go, docs/ROADMAP.md, HTTP highload пункт 3),
+// (internal/semantic/semaphore.go, HTTP highload пункт 3),
 // поэтому не входит в mutexMethodDocs (та рассчитана на метод без
 // аргументов вовсе) - готовая строка целиком, тем же принципом, что и
 // transactionMethodDocs ниже.

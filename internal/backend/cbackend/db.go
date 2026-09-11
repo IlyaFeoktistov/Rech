@@ -57,7 +57,7 @@ const (
 // Три отдельные константы, не одна - каждая эмитируется (dbRuntimeCode)
 // только когда internal/dbscheme.Set реально требует эту конкретную СУБД,
 // иначе программа, использующая только SQLite, не должна нести (и уж тем
-// более линковать) ничего, упоминающего PostgreSQL/MySQL - docs/ROADMAP.md,
+// более линковать) ничего, упоминающего PostgreSQL/MySQL -
 // "toolchain линкует -lsqlite3 -lpq -lmysqlclient безусловно".
 const sqliteOpaqueTypedefs = `typedef struct sqlite3 sqlite3;
 typedef struct sqlite3_stmt sqlite3_stmt;
@@ -444,7 +444,7 @@ static void rech_db_parse_mysql_url(const char *conn, char **user, char **pass, 
 // сгенерированном C) - иначе тело "rech_db_connect" безусловно ссылалось бы
 // на символ пропущенной библиотеки (PQconnectdb/mysql_init и т. п.), и
 // программа не слинковалась бы без неё, даже если эта ветка никогда не
-// выполняется (docs/ROADMAP.md, "проблема не в отсутствующем флаге
+// выполняется ("проблема не в отсутствующем флаге
 // линковщика, а в безусловной ссылке на символ в самом сгенерированном
 // коде").
 //

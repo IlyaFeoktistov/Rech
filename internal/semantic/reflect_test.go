@@ -148,7 +148,7 @@ func TestAnalyzeTypeInfoMethodsOK(t *testing.T) {
 }
 
 // TestAnalyzeFieldByTagMethodsOK - "индекс_поля_по_тегу"/
-// "получить_поле_по_тегу" (docs/ROADMAP.md, обратное направление к
+// "получить_поле_по_тегу" (обратное направление к
 // тег_поля/получить_поле) - "?Целое"/"?Значение", доказанная непустота
 // ("если... != Ничто") разворачивает "?Значение" даже для "как" (см.
 // analyzeAsExpr, найденный этой же фичей живой пробел - "как" раньше не
@@ -213,7 +213,7 @@ func TestAnalyzeReflectAnyValueUsableAsListElement(t *testing.T) {
 }
 
 // TestAnalyzeTypeOfInterfaceRegistersReflectTarget - "тип ИмяИнтерфейса"
-// (docs/ROADMAP.md - находка "тип ИмяИнтерфейса не существует") теперь
+// (находка "тип ИмяИнтерфейса не существует") теперь
 // разрешён и регистрирует KindInterface в ReflectTargets (backend'у нужен
 // дескриптор), не только KindEntity, как было раньше.
 func TestAnalyzeTypeOfInterfaceRegistersReflectTarget(t *testing.T) {
@@ -243,7 +243,7 @@ func TestAnalyzeTypeOfInterfaceRegistersReflectTarget(t *testing.T) {
 }
 
 // TestAnalyzeAsInterfaceOKAndComputesImplementors - "значение как
-// ИмяИнтерфейса" (docs/ROADMAP.md - находка "значение как ИмяИнтерфейса не
+// ИмяИнтерфейса" (находка "значение как ИмяИнтерфейса не
 // распаковывает боксированную реализацию") теперь разрешён для боксированной
 // КОНКРЕТНОЙ реализации, и Program.InterfaceImplementors вычисляется
 // транзитивно (entitySatisfies) для каждого объявленного интерфейса.
@@ -309,7 +309,7 @@ func TestAnalyzeBoxInterfaceTypedValueRejected(t *testing.T) {
 
 // TestAnalyzeBaseTypeAndInterfaceReflectionMethodsOK - "базовый_тип"/
 // "наследует_ли"/"число_интерфейсов"/"получить_интерфейс"/"реализует_ли"
-// (docs/ROADMAP.md, паритет с C# Type.BaseType/IsSubclassOf/GetInterfaces/
+// (паритет с C# Type.BaseType/IsSubclassOf/GetInterfaces/
 // IsAssignableFrom) успешно анализируются - все пять принимают/возвращают
 // ожидаемые типы (Тип/Целое/Логическое).
 func TestAnalyzeBaseTypeAndInterfaceReflectionMethodsOK(t *testing.T) {

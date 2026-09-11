@@ -150,7 +150,7 @@ func TestRunSemaphoreAcquireWithTimeoutSucceedsWhenAvailable(t *testing.T) {
 }
 
 // TestRunSemaphoreAcquireWithZeroTimeoutFailsImmediatelyWhenUnavailable -
-// docs/ROADMAP.md, HTTP highload пункт 3 (admission control): "захватить(0)"
+// HTTP highload пункт 3 (admission control): "захватить(0)"
 // на уже занятом семафоре не ждёт вовсе - немедленная паника (rtmsg.
 // SemaphoreAcquireTimeout), а не бесконечное ожидание/зависание теста.
 func TestRunSemaphoreAcquireWithZeroTimeoutFailsImmediatelyWhenUnavailable(t *testing.T) {

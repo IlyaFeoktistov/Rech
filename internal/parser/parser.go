@@ -1,6 +1,6 @@
 // Package parser строит ast.Program из потока токенов лексера.
 //
-// Грамматика v0.1 (расширяется по этапам из docs/ROADMAP.md, подробный
+// Грамматика v0.1 (расширяется по этапам из подробный
 // EBNF-набросок - docs/GRAMMAR.md):
 //
 //	program     := { newline } { ( function | entity ) { newline } }
@@ -50,7 +50,7 @@ import (
 // имя точки входа, чтобы запретить у неё параметры и тип результата (у
 // главной фиксированная C-сигнатура). Не импортируется из cbackend, чтобы
 // parser не зависел от backend'а (архитектурный инвариант, см.
-// docs/ROADMAP.md).
+// ).
 const entryPointName = "главная"
 
 type Parser struct {
@@ -153,7 +153,7 @@ type Parser struct {
 func New(tokens []lexer.Token) *Parser {
 	dict := morph.NewDictionary()
 	// SystemVerbs - фиксированный, известный на этапе компиляции словарь
-	// (docs/ROADMAP.md) - ошибка здесь означала бы дубль инфинитива внутри
+	// - ошибка здесь означала бы дубль инфинитива внутри
 	// самого SystemVerbs, а не что-то, зависящее от разбираемой программы,
 	// поэтому это panic, а не ошибка New (у New и так нет возврата error).
 	if err := morph.RegisterSystemVerbs(dict); err != nil {

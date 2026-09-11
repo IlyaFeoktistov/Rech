@@ -16,7 +16,7 @@ import (
 // recv() напрямую), а socketHelpers БЕЗУСЛОВНО несёт rech_accept,
 // возвращающую "?Сокет" - без регистрации внутри registerHTTP2TypesOnCall
 // (http2.go) сборка настоящим cc падала на "unknown type name" именно на
-// "rech build --lib" (см. docs/ROADMAP.md, Шаг 96/97) - здесь достаточно
+// "rech build --lib" (Шаг 96/97) - здесь достаточно
 // проверить, что "?Сокет"-обёртка и заголовки сокетов попали в вывод, без
 // реального cc (тот уже прогнан живьём при отладке).
 func TestGenerateFromIRHTTP2WithoutSessionEstablishingCallIncludesSocketHeaders(t *testing.T) {

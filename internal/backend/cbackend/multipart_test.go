@@ -7,7 +7,7 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
-// TestGenerateFromIRMultipartBuiltinCall - docs/ROADMAP.md, загрузка
+// TestGenerateFromIRMultipartBuiltinCall - загрузка
 // файлов - "разобрать_multipart" должен получить свои хелперы (генерация
 // C, поведение уже проверено живым curl-запросом с реальной multipart-
 // формой - см. журнал сессии).

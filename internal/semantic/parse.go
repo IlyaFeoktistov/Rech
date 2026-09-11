@@ -109,7 +109,7 @@ func analyzeSerializeExpr(sc *ctx, e *ast.SerializeExpr) (ir.Expr, error) {
 		return analyzeProtobufSerializeExpr(sc, value, e.Line)
 	}
 	// Доказанная непустота (established, "если а != Ничто {...}") -
-	// НАЙДЕННОЕ И ИСПРАВЛЕННОЕ ограничение (docs/ROADMAP.md, Шаг 41/44):
+	// НАЙДЕННОЕ И ИСПРАВЛЕННОЕ ограничение (Шаг 41/44):
 	// "сериализовать JSON x" внутри такой ветки раньше не снимала обёртку
 	// "?T" сама (structCompatible не принимает nullable-тип вовсе), хотя
 	// употребление значения ЛЮБЫМ другим способом (аргумент/присваивание/
@@ -153,7 +153,7 @@ func analyzeSerializeExpr(sc *ctx, e *ast.SerializeExpr) (ir.Expr, error) {
 // - на практике недостижимо сейчас (сущность не может сослаться на саму
 // себя по имени поля, пока не объявлена целиком - collectEntities), но
 // оставлено на случай, если это ограничение снимется (например, указатели,
-// ROADMAP.md): и JSON, и XML - деревья конечной глубины, для
+// ): и JSON, и XML - деревья конечной глубины, для
 // самоссылающегося типа без nullable-поля нет корректного способа
 // сериализовать его конечным текстом.
 func structCompatible(entities map[string]entitySig, t ir.Type, seen map[string]bool, format string) error {

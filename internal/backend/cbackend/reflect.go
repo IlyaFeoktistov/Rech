@@ -96,7 +96,7 @@ var reflectUnboxCheckHelper = fmt.Sprintf(`static rech_any_t rech_unbox_check(re
 `, escapeCString(rtmsg.AsTypeMismatchTemplate))
 
 // reflectUnboxCheckIfaceHelper - "значение как ИмяИнтерфейса"
-// (docs/ROADMAP.md - находка "значение как ИмяИнтерфейса не распаковывает
+// (находка "значение как ИмяИнтерфейса не распаковывает
 // боксированную реализацию") - в отличие от rech_unbox_check выше (точное
 // совпадение с ОДНИМ ожидаемым дескриптором), проверяет членство v.type
 // среди impls (rech_iface_impls_<Интерфейс>, см. interfaceImplementorsArrayCode) -
@@ -264,7 +264,7 @@ const reflectTagLookupHelper = `static const char *rech_tag_lookup(const char *t
 
 // reflectFieldIndexByTagHelperCode/reflectGetFieldByTagHelperCode -
 // "Тип".индекс_поля_по_тегу/"Значение".получить_поле_по_тегу (docs/
-// ROADMAP.md - обратное направление к тег_поля/получить_поле: дан (ключ,
+// обратное направление к тег_поля/получить_поле: дан (ключ,
 // значение) тега, нужно поле/его индекс, не наоборот) - линейный проход по
 // полям, тем же способом сравнения тега, что и rech_tag_lookup
 // (reflectTagLookupHelper выше). В ОТЛИЧИЕ от reflectLookupHelpers/
@@ -846,7 +846,7 @@ func reflectRuntimeCode(ctx *irGenCtx, targets []ir.Type, generics []ir.GenericI
 // собственного ir.Entity-узла) - раньше это безусловно шло в
 // g.ctx.entities[t.Entity], которого для generic-коллекции нет вовсе -
 // "рефлексия по неизвестному типу", как только сущность-цель рефлексии
-// несла поле такого типа (docs/ROADMAP.md, Шаг 41). Исправлено -
+// несла поле такого типа (Шаг 41). Исправлено -
 // генериками ensureGeneric ниже, отдельной, более простой веткой (у
 // коллекции нет ни полей, ни методов, ни конструктора в смысле рефлексии -
 // только элемент/ключ, которые сами могут быть сущностями и тоже требуют
@@ -942,7 +942,7 @@ func (g *reflectGen) ensure(t ir.Type) error {
 			}
 		}
 	}
-	// base/interfaces (docs/ROADMAP.md - "базовый_тип"/"наследует_ли"/"число_
+	// base/interfaces ("базовый_тип"/"наследует_ли"/"число_
 	// интерфейсов"/"получить_интерфейс"/"реализует_ли", паритет с C# Type.BaseType/
 	// GetInterfaces).
 	if ent.BaseName != "" {
@@ -1000,7 +1000,7 @@ func (g *reflectGen) ensureGeneric(t ir.Type, gi ir.GenericInstantiation) error 
 	return nil
 }
 
-// ensureInterface - дескриптор интерфейса t (docs/ROADMAP.md - находки
+// ensureInterface - дескриптор интерфейса t (находки
 // "тип ИмяИнтерфейса"/"значение как ИмяИнтерфейса") - в отличие от
 // ensure/ensureGeneric выше, у интерфейса НЕТ полей и НЕТ конструктора
 // (ctor рефлексивно недостижим - "тип.создать" для имени, которого нет в
@@ -1092,7 +1092,7 @@ func (g *reflectGen) interfaceTypeDescriptorCode(iface *ir.Interface) string {
 
 	// base/interfaces/interface_count/tag - всегда NULL/NULL/0/NULL у
 	// дескриптора САМОГО интерфейса: "базовый_тип"/"наследует_ли"/"число_
-	// интерфейсов"/"получить_интерфейс"/"реализует_ли" (docs/ROADMAP.md)
+	// интерфейсов"/"получить_интерфейс"/"реализует_ли"
 	// действуют только на сущность/структуру - интерфейс не "наследует"
 	// сущность и не "реализует" другой интерфейс тем же словом (у самого
 	// интерфейса есть только "наследует" МЕЖДУ интерфейсами, уже полностью
@@ -1247,7 +1247,7 @@ func (g *reflectGen) ctorInvokerCode(ent *ir.Entity) string {
 // (ir.Program.EntityInterfaces, транзитивно через entitySatisfies) -
 // уже посчитан вызывающей стороной (ensure выше, там же обеспечены и их
 // дескрипторы) - "базовый_тип"/"наследует_ли"/"число_интерфейсов"/
-// "получить_интерфейс"/"реализует_ли" (docs/ROADMAP.md, паритет с C# Type.BaseType/
+// "получить_интерфейс"/"реализует_ли" (паритет с C# Type.BaseType/
 // GetInterfaces).
 func (g *reflectGen) typeDescriptorCode(ent *ir.Entity, ems []effectiveReflectMethod, ifaceNames []string) string {
 	metaName := reflectMetaVarFor(ir.EntityType(ent.Name))

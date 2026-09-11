@@ -307,7 +307,7 @@ func TestFormatDanglingPlainCommentDoesNotExtendHasSection(t *testing.T) {
 }
 
 // TestFormatSwitchCaseBodyIndentedDeeperThanLabel - "выбрать { когда .../
-// иначе: ... }" (docs/ROADMAP.md, feature_switch_vybrat_kogda) - ветка не
+// иначе:... }" (feature_switch_vybrat_kogda) - ветка не
 // заводит своих "{}", но её инструкции печатаются на уровень глубже метки,
 // тем же принципом, что и "имеет:" (но без значимого отступа - границу
 // решает сам токен "когда"/"иначе:"/закрывающая "}", не Col).

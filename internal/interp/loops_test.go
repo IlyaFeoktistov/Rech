@@ -199,7 +199,7 @@ func TestRunBreakInsideTryRunsFinally(t *testing.T) {
 	}
 }
 
-// TestRunBreakDepthStopsOuterLoop - "прервать N" (docs/ROADMAP.md) прерывает
+// TestRunBreakDepthStopsOuterLoop - "прервать N" прерывает
 // N-й по счёту охватывающий цикл, считая текущий - "прервать 2" изнутри
 // вложенного "для" прекращает ОБА цикла сразу, не только ближний.
 func TestRunBreakDepthStopsOuterLoop(t *testing.T) {

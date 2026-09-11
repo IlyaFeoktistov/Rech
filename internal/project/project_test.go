@@ -431,7 +431,7 @@ func TestFindSingleAndAmbiguous(t *testing.T) {
 
 // TestPoolShrinkEnabledDefaultIsTrue - "потоки.сжатие_пула" не указан (или
 // .rechproj не несёт секции "потоки" вовсе, или .rechproj нет вовсе) -
-// true, пул воркер-потоков сжимается по умолчанию (docs/ROADMAP.md, Шаг
+// true, пул воркер-потоков сжимается по умолчанию (Шаг
 // 81) - "ложь" нужно указать явно, чтобы вернуть поведение Шага 80 (растёт
 // и никогда не сжимается).
 func TestPoolShrinkEnabledDefaultIsTrue(t *testing.T) {

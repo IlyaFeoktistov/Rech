@@ -75,7 +75,7 @@ func TestAnalyzeNullableNarrowingInElseBranch(t *testing.T) {
 
 // TestAnalyzeNullableNarrowingInWhileAllowsUse - "пока а != Ничто {...}"
 // сужает "а" внутри тела - тем же принципом, что и "если" (Шаг 97/98,
-// docs/ROADMAP.md - раньше не поддержано, найденное ограничение снято):
+// раньше не поддержано, найденное ограничение снято):
 // условие проверяется заново перед каждым проходом, поэтому "а != Ничто"
 // доказанно истинно в начале ЛЮБОГО прохода, не только первого.
 func TestAnalyzeNullableNarrowingInWhileAllowsUse(t *testing.T) {
@@ -194,7 +194,7 @@ func TestAnalyzeExplicitCastUnwrapsNullable(t *testing.T) {
 }
 
 // TestAnalyzeExplicitCastToOtherTypeUnwrapsNarrowedNullable - НАЙДЕННОЕ И
-// ИСПРАВЛЕННОЕ ограничение (docs/ROADMAP.md, Шаг 41/44): "(Целое) а" (а -
+// ИСПРАВЛЕННОЕ ограничение (Шаг 41/44): "(Целое) а" (а -
 // ?Строка, уже сужена "!= Ничто") - каст сразу В ДРУГОЙ тип, не просто
 // разворот "?Строка" в "Строка" (тот уже работал безусловно, см.
 // TestAnalyzeExplicitCastUnwrapsNullable выше, даже БЕЗ сужения - рантайм-
@@ -238,7 +238,7 @@ func TestAnalyzeExplicitCastUnwrapsNullableOpaqueType(t *testing.T) {
 }
 
 // TestAnalyzeNullableNarrowedAfterEarlyReturnOnEqualNichto - НАЙДЕННОЕ И
-// ИСПРАВЛЕННОЕ ограничение (docs/ROADMAP.md, Шаг 41/44): "если а == Ничто {
+// ИСПРАВЛЕННОЕ ограничение (Шаг 41/44): "если а == Ничто {
 // вернуть }" (ранний выход, БЕЗ явного "иначе") должно доказывать
 // непустоту "а" для ОСТАЛЬНОГО тела функции, ровно как доказало бы "если а
 // == Ничто {...} иначе {...использовать а...}" - Then расходится
@@ -281,7 +281,7 @@ func TestAnalyzeNullableNotNarrowedAfterNonDivergingIf(t *testing.T) {
 }
 
 // TestAnalyzeSerializeJSONUnwrapsNarrowedNullable - НАЙДЕННОЕ И
-// ИСПРАВЛЕННОЕ ограничение (docs/ROADMAP.md, Шаг 41/44): "сериализовать
+// ИСПРАВЛЕННОЕ ограничение (Шаг 41/44): "сериализовать
 // JSON x" (x - ?Точка, уже сужена "!= Ничто") раньше не разворачивала
 // nullable-обёртку сама (structCompatible не принимает "?Тип" вовсе), хотя
 // употребление того же значения любым другим способом уже разворачивало
@@ -317,7 +317,7 @@ func TestAnalyzeNullableListElementRejected(t *testing.T) {
 }
 
 // TestAnalyzeBangIsSugarForEqualNichto - "!x" (НАЙДЕННЫЙ по ходу
-// examples/проекты/чат_сервер запрос пользователя, docs/ROADMAP.md) -
+// examples/проекты/чат_сервер запрос пользователя) -
 // парсер десахаривает в BinaryExpr("==", x, Ничто) ДО семантики (см.
 // package doc lexer.BANG/parseUnary) - сужение внутри Then работает тем же
 // established-механизмом, что и у написанного явно "x == Ничто", без
@@ -358,7 +358,7 @@ func TestAnalyzeBangInElseNarrowsValue(t *testing.T) {
 }
 
 // TestAnalyzeNullableNarrowedAfterContinueOnBang - НАЙДЕННЫЙ по ходу
-// examples/проекты/чат_сервер недочёт (docs/ROADMAP.md): "если !а {
+// examples/проекты/чат_сервер недочёт: "если !а {
 // продолжить }" внутри цикла раньше НЕ сужало "а" для кода после "если" в
 // том же теле - blockDiverges (stmt.go) не считал "прервать"/"продолжить"
 // расходящимися инструкциями, хотя код текстово после них в ЭТОМ теле

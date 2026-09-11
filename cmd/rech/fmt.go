@@ -11,8 +11,8 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/format"
 )
 
-// runFmt - "rech fmt [--write|-w] <файл.rech>|<каталог>" (docs/ROADMAP.md,
-// Шаг 88 - тем же принципом, что "gofmt": без --write печатает
+// runFmt - "rech fmt [--write|-w] <файл.rech>|<каталог>" - тем же принципом,
+// что "gofmt": без --write печатает
 // отформатированный текст в stdout (для файла), с --write переписывает на
 // месте. Каталог обходится рекурсивно (все ".rech", пропускает скрытые
 // каталоги, тем же принципом, что testrunner.Discover) - без --write

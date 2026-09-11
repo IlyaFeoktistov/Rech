@@ -17,7 +17,7 @@ import (
 // InitializeCompiler собирает *compiler.Compiler из стандартных провайдеров
 // v0.1: Frontend (лексер+парсер), Backend (транспиляция в C) и Toolchain
 // (системный cc/clang/gcc). Когда появятся альтернативные backend'ы или
-// toolchain'ы (docs/ROADMAP.md), здесь появятся другие наборы провайдеров.
+// toolchain'ы, здесь появятся другие наборы провайдеров.
 func InitializeCompiler() *compiler.Compiler {
 	wire.Build(
 		compiler.NewFrontend,

@@ -9,7 +9,7 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
-// TestRunHTTPRequestHTTPSAttemptsRealTLSHandshake - docs/ROADMAP.md, HTTP
+// TestRunHTTPRequestHTTPSAttemptsRealTLSHandshake - HTTP
 // highload пункт 5 - "запрос" по адресу с "https://" обязан ДЕЙСТВИТЕЛЬНО
 // попытаться TLS-рукопожатие, а не молча свестись к обычному HTTP на порту
 // 443 (иначе "https://" ничего не значило бы). Сервер здесь - самый

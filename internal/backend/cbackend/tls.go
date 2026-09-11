@@ -1,5 +1,5 @@
 // TLS для "слушать_tcp_защищённо" (сервер) и "запрос" по адресу с
-// "https://" (клиент, docs/ROADMAP.md, HTTP highload пункт 5) - биндинг к
+// "https://" (клиент, HTTP highload пункт 5) - биндинг к
 // OpenSSL (libssl/libcrypto), НЕ собственная реализация: в отличие от
 // SHA-256/HMAC (crypto.go - самостоятельный C, принцип "не тянуть внешнюю
 // библиотеку туда, где хватает стандартного алгоритма") настоящий TLS
@@ -266,7 +266,7 @@ var tlsListenSecureCode = fmt.Sprintf(`static rech_socket_t rech_listen_tcp_secu
 }
 `, rtmsg.TLSCertLoadFailed)
 
-// tlsConnectCode - "запрос" по адресу с "https://" (docs/ROADMAP.md, HTTP
+// tlsConnectCode - "запрос" по адресу с "https://" (HTTP
 // highload пункт 5) - обычный rech_connect_tcp (TCP-часть, TLS тут ни при
 // чём) + клиентское TLS-рукопожатие поверх уже установленного соединения,
 // зарегистрированное в том же реестре, что и серверные TLS-соединения

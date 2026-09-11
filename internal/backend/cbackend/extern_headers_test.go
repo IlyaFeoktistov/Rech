@@ -6,7 +6,7 @@ import (
 )
 
 // TestExternPrototypeSkippedWhenHeaderAlreadyIncluded - найденный живьём
-// баг (docs/ROADMAP.md, "FFI: конфликт extern-прототипов со стандартными
+// баг ("FFI: конфликт extern-прототипов со стандартными
 // заголовками", examples/основы/внешние_функции.rech): "strlen" объявлена
 // вручную ("внешняя функция strlen как длина_байт"), а <string.h>
 // включается программой ПО СОВСЕМ ДРУГОЙ причине (memcpy захваченной

@@ -32,7 +32,7 @@ var anyMethodSigs = map[string]funcSig{
 	"получить_поле":   {Params: []ir.Type{ir.TypeString}, ReturnType: ir.TypeAny, HasReturn: true},
 	"установить_поле": {Params: []ir.Type{ir.TypeString, ir.TypeAny}, HasReturn: false},
 	"вызвать":         {Params: []ir.Type{ir.TypeString, listOfAnyType}, ReturnType: ir.TypeAny, HasReturn: true},
-	// "получить_поле_по_тегу" - docs/ROADMAP.md, обратное направление к
+	// "получить_поле_по_тегу" - обратное направление к
 	// "получить_поле": дан (ключ, значение) тега поля ("sql", "username"),
 	// не его имя - типичный ORM-сценарий "дана колонка БД, нужно значение
 	// поля сущности, привязанного к ней через тег" без ручного перебора
@@ -60,7 +60,7 @@ var typeInfoMethodSigs = map[string]funcSig{
 	// собственный ключ тега у каждого.
 	"тег_поля": {Params: []ir.Type{ir.TypeInt, ir.TypeString}, ReturnType: ir.TypeString, HasReturn: true},
 	// "тег_поля_текст" - тот же тег поля по индексу, но СЫРЫМ ТЕКСТОМ целиком
-	// (без разбора по ключу) - docs/ROADMAP.md: "тег_поля(i, ключ)" уже
+	// (без разбора по ключу) -: "тег_поля(i, ключ)" уже
 	// требует ЗНАТЬ ключ заранее, библиотеке, которая хочет пройтись по
 	// ВСЕМ ключам тега (не только своему одному) или разобрать его
 	// собственным форматом, нужен доступ к исходной строке - тем же
@@ -80,7 +80,7 @@ var typeInfoMethodSigs = map[string]funcSig{
 	"тип_параметра_метода":    {Params: []ir.Type{ir.TypeInt, ir.TypeInt}, ReturnType: ir.TypeTypeInfo, HasReturn: true},
 	"тип_результата_метода":   {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeTypeInfo, HasReturn: true},
 	// "тег_метода"/"тег_метода_текст" - тот же тег, что уже был у поля, но
-	// метода (docs/ROADMAP.md, паритет с C#-атрибутами на методе - у
+	// метода (паритет с C#-атрибутами на методе - у
 	// метода тег в языке уже существует синтаксически, internal/parser,
 	// служит и служебным ключам компилятора вроде "противоположность", но
 	// не был виден рефлексии до этого шага).
@@ -88,13 +88,13 @@ var typeInfoMethodSigs = map[string]funcSig{
 	"тег_метода_текст": {Params: []ir.Type{ir.TypeInt}, ReturnType: ir.TypeString, HasReturn: true},
 	"создать":          {Params: []ir.Type{listOfAnyType}, ReturnType: ir.TypeAny, HasReturn: true},
 	// "тег"/"тег_текст" - тег самой сущности/структуры целиком (не поля/
-	// метода) - docs/ROADMAP.md, паритет с C#-атрибутами на классе:
+	// метода) - паритет с C#-атрибутами на классе:
 	// "сущность Имя `ключ:значение`" - новый синтаксис (ast.EntityDecl.Tag),
 	// у интерфейса/примитива тега нет - "" везде.
 	"тег":       {Params: []ir.Type{ir.TypeString}, ReturnType: ir.TypeString, HasReturn: true},
 	"тег_текст": {Params: nil, ReturnType: ir.TypeString, HasReturn: true},
 	// "базовый_тип"/"наследует_ли"/"число_интерфейсов"/"получить_интерфейс"/
-	// "реализует_ли" - docs/ROADMAP.md, паритет с C# Type.BaseType/
+	// "реализует_ли" - паритет с C# Type.BaseType/
 	// IsSubclassOf/GetInterfaces/IsAssignableFrom - тем же принципом
 	// раздельных отношений, что уже есть у самого языка ("наследует" у
 	// сущности, "реализует" у интерфейса), не единый общий
@@ -116,7 +116,7 @@ var typeInfoMethodSigs = map[string]funcSig{
 // analyzeTypeOfExpr разбирает "тип <Имя>" - дескриптор типа Имя, известного
 // уже во время компиляции (аналог typeof(T)). Имя резолвится тем же
 // resolveTypeName, что и любое другое упоминание типа - сущность/структура
-// ИЛИ интерфейс (docs/ROADMAP.md - находка "тип ИмяИнтерфейса не
+// ИЛИ интерфейс (находка "тип ИмяИнтерфейса не
 // существует") регистрируется в Program.ReflectTargets (backend генерирует
 // под неё дескриптор), примитив - нет (его дескриптор эмитится всегда).
 func analyzeTypeOfExpr(sc *ctx, e *ast.TypeOfExpr) (ir.Expr, error) {
@@ -173,7 +173,7 @@ func analyzeAsExpr(sc *ctx, e *ast.AsExpr) (ir.Expr, error) {
 		return nil, fmt.Errorf("строка %d: \"как %s\": %w", e.Line, e.TypeName, err)
 	}
 	sc.a.markUsesReflection()
-	// KindInterface (docs/ROADMAP.md - находка "значение как ИмяИнтерфейса
+	// KindInterface (находка "значение как ИмяИнтерфейса
 	// не распаковывает боксированную реализацию") - регистрируется тем же
 	// путём, что и сущность: backend'у нужен дескриптор САМОГО интерфейса
 	// (тип_значения()/тип_параметра_метода(...) метода, встреченного через
