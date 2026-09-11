@@ -9,6 +9,15 @@ package ir
 type LaunchExpr struct {
 	Callee string
 	Args   []Expr
+	// Coroutine - true только для сахара "дождаться <асинхронная функция>
+	// (...)" (см. package doc ast.FunctionDecl.IsAsync, internal/semantic/
+	// concurrency.go, analyzeAwaitTask) - backend эмитит вызов на лёгком
+	// планировщике (internal/backend/cbackend/coroutine.go) вместо
+	// потока ОС из общего пула. false у ЯВНОГО "запустить <имя>(...)",
+	// даже если <имя> - асинхронная функция (SPEC.md, раздел 15: явный
+	// "запустить" продолжает работать без изменений, модель не меняется
+	// под ним никогда).
+	Coroutine bool
 }
 
 func (*LaunchExpr) expr() {}

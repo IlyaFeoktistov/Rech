@@ -63,6 +63,21 @@ const (
 	// разных функций делают представление "по типу результата" негодным,
 	// см. package doc internal/backend/cbackend/concurrency.go).
 	KindTask
+	// KindCoroTask - значение-дескриптор задачи, запущенной ФОНОВО на
+	// лёгком планировщике корутин ("поручить <асинхронная функция>(...)",
+	// docs/ROADMAP.md, Шаг 132) - тот же смысл, что и KindTask (Entity -
+	// имя обёрнутой функции, дескриптор потом дожидается обычным
+	// "дождаться"), отдельный Kind ТОЛЬКО потому, что "дождаться"
+	// (generateIRAwaitExpr, internal/backend/cbackend/concurrency.go)
+	// обязан различить, какую пару C-обёрток звать - поточную
+	// (rech_await_<имя>, concurrency.go) или корутинную
+	// (rech_coro_join_<имя>, coroutine_task.go) - различие живёт в самом
+	// ТИПЕ значения (переживает присваивание переменной, в отличие от
+	// проверки формы AST-узла), не только в Coroutine-флаге LaunchExpr,
+	// который эту переменную когда-то породил. На уровне Rech-кода
+	// НЕВИДИМО - оба вида дают одно и то же имя типа "Задача<...>"
+	// (Type.String()), программист не видит разницы.
+	KindCoroTask
 	// KindCallable - значение "функции как значения" ("Вызываемый",
 	// "функция как значение") - функция/метод, взятая по ссылке (&имя), или лямбда,
 	// присвоенная переменной/переданная аргументом. Entity несёт
@@ -246,6 +261,13 @@ func TaskType(funcName string) Type {
 	return Type{Kind: KindTask, Entity: funcName}
 }
 
+// CoroTaskType возвращает Type, соответствующий значению-дескриптору
+// задачи, запущенной ФОНОВО на планировщике корутин - "поручить
+// funcName(...)" (см. package doc KindCoroTask).
+func CoroTaskType(funcName string) Type {
+	return Type{Kind: KindCoroTask, Entity: funcName}
+}
+
 // NullableType возвращает Type, соответствующий "?<inner>" - Entity несёт
 // полное каноническое имя ("?" + inner.String()), см. package doc
 // KindNullable. inner.Kind == KindNullable (повторная обёртка "??Тип") -
@@ -285,7 +307,7 @@ func (t Type) String() string {
 	if t.Kind == KindEntity || t.Kind == KindInterface || t.Kind == KindCallable || t.Kind == KindExternEntity || t.Kind == KindNullable || t.Kind == KindPointer {
 		return t.Entity
 	}
-	if t.Kind == KindTask {
+	if t.Kind == KindTask || t.Kind == KindCoroTask {
 		return "Задача<" + t.Entity + ">"
 	}
 	switch t.Kind {

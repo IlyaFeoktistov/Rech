@@ -33,13 +33,13 @@ func isModuleVisibilityKeyword(t lexer.TokenType) bool {
 
 // governingModuleKeyword - ключевое слово верхнего уровня, с которым
 // должен согласоваться уже прочитанный модификатор видимости (p.cur() -
-// первый токен после него) - пропускает "экспортировать"/"абстрактный"
-// (сами по себе модификаторы, без собственного рода) в поисках
-// "функция"/"сущность"/"класс"/"структура".
+// первый токен после него) - пропускает "экспортировать"/"абстрактный"/
+// "асинхронная" (сами по себе модификаторы, без собственного рода) в
+// поисках "функция"/"сущность"/"класс"/"структура".
 func (p *Parser) governingModuleKeyword() lexer.TokenType {
 	for i := range 3 {
 		t := p.peekAt(i).Type
-		if t == lexer.KwExport || t == lexer.KwAbstract {
+		if t == lexer.KwExport || t == lexer.KwAbstract || t == lexer.KwAsync {
 			continue
 		}
 		return t

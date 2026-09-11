@@ -20,7 +20,7 @@ func (p *Parser) parseExportedDecl() (fn *ast.FunctionDecl, ent *ast.EntityDecl,
 	kw := p.advance() // "экспортировать"
 	switch p.cur().Type {
 	case lexer.KwFunction:
-		fn, err = p.parseFunction()
+		fn, err = p.parseFunction(false)
 		if err != nil {
 			return nil, nil, err
 		}

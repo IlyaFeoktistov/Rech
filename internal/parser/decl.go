@@ -210,7 +210,7 @@ func (p *Parser) parseEnumDecl() (*ast.EnumDecl, error) {
 // (checkNewKeywordAgreement), здесь нет "любая форма принимается"
 // запасного варианта - производному типу нужно какое-то одно конкретное имя.
 
-func (p *Parser) parseFunction() (*ast.FunctionDecl, error) {
+func (p *Parser) parseFunction(isAsync bool) (*ast.FunctionDecl, error) {
 	kw, err := p.expect(lexer.KwFunction)
 	if err != nil {
 		return nil, err
@@ -218,6 +218,9 @@ func (p *Parser) parseFunction() (*ast.FunctionDecl, error) {
 	name, err := p.expect(lexer.IDENT)
 	if err != nil {
 		return nil, fmt.Errorf("после \"функция\" ожидалось имя функции: %w", err)
+	}
+	if isAsync && name.Value == entryPointName {
+		return nil, fmt.Errorf("строка %d: %q - точка входа программы, не может быть \"асинхронная\"", kw.Line, entryPointName)
 	}
 	typeParams, err := p.parseGenericParams()
 	if err != nil {
@@ -262,7 +265,7 @@ func (p *Parser) parseFunction() (*ast.FunctionDecl, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ast.FunctionDecl{Name: name.Value, Params: params, ReturnType: returnType, Body: body, TypeParams: typeParams, Line: kw.Line, Tag: tag}, nil
+	return &ast.FunctionDecl{Name: name.Value, Params: params, ReturnType: returnType, Body: body, TypeParams: typeParams, Line: kw.Line, Tag: tag, IsAsync: isAsync}, nil
 }
 
 // parseParams разбирает "(" [ param { "," param } ] ")". Позиция парсера

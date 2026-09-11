@@ -100,6 +100,13 @@ type funcSig struct {
 	// гарантии потокобезопасности произвольного C-символа).
 	IsExtern bool
 
+	// IsAsync - объявлена с "асинхронная" (ast.FunctionDecl.IsAsync) -
+	// только у элементов funcs, никогда у methods. Нужен analyzeAwaitExpr:
+	// "дождаться <прямой вызов>()" такой функции - сахар, эквивалентный
+	// "дождаться запустить <вызов>()", без отдельного пути в IR (см.
+	// internal/semantic/concurrency.go, analyzeAwaitTask).
+	IsAsync bool
+
 	// IsAbstract - метод объявлен без тела (ast.MethodDecl.IsAbstract) -
 	// только у элементов methods, никогда у funcs (у обычной функции не
 	// бывает отсутствующего тела). После applyInheritance (собственный

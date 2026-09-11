@@ -202,6 +202,23 @@ type irGenCtx struct {
 	taskCode      strings.Builder
 	usesThreads   bool
 
+	// coroutineFuncs/coroTaskCode/usesCoroutines - тот же принцип, что и
+	// launchedFuncs/taskCode/usesThreads выше, но для "дождаться
+	// <асинхронная функция>(...)" (ir.LaunchExpr.Coroutine == true, см.
+	// internal/backend/cbackend/coroutine_task.go, ensureCoroTaskWrapper) -
+	// отдельная дедупликация/накопление: одна и та же функция может быть
+	// ОДНОВРЕМЕННО и явно "запущена" (usesThreads/launchedFuncs), и
+	// вызвана через сахар (usesCoroutines/coroutineFuncs) в разных местах
+	// программы - это два независимых пути кодогенерации на одну и ту же
+	// Rech-функцию, не взаимоисключающие. usesCoroutines (ИЛИ usesSockets -
+	// Шаг 132, plainSocketOpsCode теперь тоже опирается на планировщик
+	// корутин) гейтит coroutineRuntimeCode (coroutine.go) целиком -
+	// программа без обоих вовсе не платит за ucontext/epoll/kqueue
+	// рантайм.
+	coroutineFuncs map[string]bool
+	coroTaskCode   strings.Builder
+	usesCoroutines bool
+
 	// usesMutex - хотя бы одна "Блокировка" реально встретилась в
 	// программе (см. internal/backend/cbackend/mutex.go) - гейтит
 	// дополнительно (наравне с usesThreads) #include <pthread.h> на POSIX и
@@ -617,11 +634,12 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// поле vt в своей C-структуре (см. generateIREntityStruct), значит
 		// rech_vtable/rech_vtable_header обязаны быть объявлены, даже если
 		// slots в итоге пуст.
-		usesVtable:    len(participants) > 0,
-		excTypeIDs:    excTypeIDs,
-		excTypeNames:  excTypeNames,
-		excIsaTable:   excIsaTable,
-		launchedFuncs: map[string]bool{},
+		usesVtable:     len(participants) > 0,
+		excTypeIDs:     excTypeIDs,
+		excTypeNames:   excTypeNames,
+		excIsaTable:    excIsaTable,
+		launchedFuncs:  map[string]bool{},
+		coroutineFuncs: map[string]bool{},
 	}
 	ctx.irFuncs = map[string]*ir.Function{}
 	for _, fn := range prog.Functions {
@@ -1134,7 +1152,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	if ctx.usesThreads || ctx.usesHTTP2 {
 		sb.WriteString("#define GC_THREADS\n")
 	}
-	if ctx.usesGC || ctx.usesThreads || ctx.usesHTTP2 {
+	if ctx.usesGC || ctx.usesThreads || ctx.usesHTTP2 || ctx.usesCoroutines || ctx.usesSockets {
 		sb.WriteString("#include <gc.h>\n")
 	}
 	if ctx.includesStringH {
@@ -1212,7 +1230,11 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// различают "истёк таймаут" (EAGAIN/EWOULDBLOCK) от настоящей
 		// ошибки accept() - на Windows та же проверка идёт через
 		// WSAGetLastError()/WSAETIMEDOUT (winsock2.h), errno там не нужен.
-		sb.WriteString("#ifdef _WIN32\n#include <winsock2.h>\n#include <ws2tcpip.h>\n#else\n#include <sys/socket.h>\n#include <netinet/in.h>\n#include <arpa/inet.h>\n#include <netdb.h>\n#include <unistd.h>\n#include <errno.h>\n#endif\n")
+		// <fcntl.h> - "принять" на корутине (Шаг 132, plainSocketOpsCode)
+		// временно переводит слушающий сокет в неблокирующий режим
+		// (fcntl/F_GETFL/F_SETFL/O_NONBLOCK) перед accept() - дубль с
+		// ctx.usesSubprocess выше безвреден (обычный include guard).
+		sb.WriteString("#ifdef _WIN32\n#include <winsock2.h>\n#include <ws2tcpip.h>\n#else\n#include <sys/socket.h>\n#include <netinet/in.h>\n#include <arpa/inet.h>\n#include <netdb.h>\n#include <unistd.h>\n#include <errno.h>\n#include <fcntl.h>\n#endif\n")
 	}
 	// <openssl/ssl.h>/<openssl/err.h> - TLS ("слушать_tcp_защищённо", docs/
 	// ROADMAP.md, tls.go) - единственная внешняя (не входящая в стандартный
@@ -1322,6 +1344,24 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	} else {
 		appendCodeIf(&sb, panicGate, panicHelper)
 	}
+	// coroutineRuntimeCode (coroutine.go) - ЗДЕСЬ, не рядом с taskCode/
+	// coroTaskCode ниже (как было раньше, до Шага 132): rech_accept/
+	// rech_send_raw/rech_socket_read_raw (plainSocketOpsCode,
+	// builtins_shared.go, эмитируется дальше по файлу как часть
+	// socketHelpers) теперь тоже ссылаются на rech_coro_current/
+	// rech_coro_wait_readable/writable текстом - объявление обязано
+	// предшествовать первому использованию, а socketHelpers эмитируется
+	// значительно раньше, чем прежнее место (около taskCode). Зависит
+	// только от rech_panic (сразу выше - panicGate безусловно true для
+	// любой программы, см. её package doc про usesNullables/"?Сокет") и
+	// "#include <gc.h>" (эмитирован ещё раньше, в начале файла) - никаких
+	// других зависимостей у самого рантайма корутин нет. Гейтится
+	// ctx.usesCoroutines (есть хотя бы одна "дождаться <асинхронная
+	// функция>") ИЛИ ctx.usesSockets (сетевые builtin'ы теперь ВСЕГДА
+	// корутино-осведомлены во время исполнения - см. package doc
+	// plainSocketOpsCode, Шаг 132) - программа без обоих вовсе не платит
+	// за ucontext/epoll/kqueue рантайм.
+	appendCodeIf(&sb, ctx.usesCoroutines || ctx.usesSockets, coroutineRuntimeCode)
 	appendCodeIf(&sb, ctx.usesArgs, argFuncHelper)
 	appendCodeIf(&sb, ctx.usesCast, castHelpers)
 
@@ -1809,6 +1849,19 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// заполняется как побочный эффект генерации body ниже, поэтому текст
 	// уже готов к этому моменту, хотя размещается в файле раньше него.
 	appendCodeIf(&sb, ctx.taskCode.Len() > 0, ctx.taskCode.String())
+
+	// coroutineRuntimeCode (coroutine.go) - эмитится СИЛЬНО РАНЬШЕ этого
+	// места (сразу после rech_panic, до socketHelpers - Шаг 132, см. её
+	// собственный appendCodeIf выше по файлу) - rech_accept/rech_send_raw/
+	// rech_socket_read_raw (plainSocketOpsCode) теперь тоже ссылаются на
+	// rech_coro_current/rech_coro_wait_readable/writable текстом, а
+	// socketHelpers эмитируется задолго до этой точки (protos выше).
+	// coroTaskCode остаётся здесь - обёртки "дождаться <асинхронная
+	// функция>(...)" (тот же принцип, что и taskCode выше: заполняется как
+	// побочный эффект генерации тела ниже, текст уже готов к этому
+	// моменту) ссылаются на &rech_<имя> обёрнутых функций программы (нужны
+	// protos выше), не на socketHelpers - раньше им сюда не нужно.
+	appendCodeIf(&sb, ctx.coroTaskCode.Len() > 0, ctx.coroTaskCode.String())
 
 	// callableCode - обёртки "&имя"/тела лямбд (internal/backend/cbackend/
 	// callable.go) - тот же принцип, что и taskCode выше: заполняется как
@@ -3335,6 +3388,9 @@ func fromIRType(t ir.Type) valueType {
 	}
 	if t.Kind == ir.KindTask {
 		return taskType(t.Entity)
+	}
+	if t.Kind == ir.KindCoroTask {
+		return coroTaskType(t.Entity)
 	}
 	if t.Kind == ir.KindCallable {
 		return callableType(t.Entity)

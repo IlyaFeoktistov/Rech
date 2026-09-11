@@ -636,9 +636,13 @@ func (p *Parser) parseTopLevelItem(prog *ast.Program, topLevelStmts *[]ast.Stmt,
 	if err != nil {
 		return false, err
 	}
+	isAsync, err := p.parseAsyncModifier()
+	if err != nil {
+		return false, err
+	}
 	switch p.cur().Type {
 	case lexer.KwFunction:
-		fn, err := p.parseFunction()
+		fn, err := p.parseFunction(isAsync)
 		if err != nil {
 			return false, err
 		}

@@ -567,6 +567,8 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 		return p.parseNewExpr()
 	case lexer.KwLaunch:
 		return p.parseLaunchExpr()
+	case lexer.KwCoroLaunch:
+		return p.parseCoroLaunchExpr()
 	case lexer.KwAwait:
 		return p.parseAwaitExpr()
 	case lexer.KwThis:

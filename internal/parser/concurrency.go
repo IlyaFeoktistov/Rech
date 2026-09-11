@@ -23,6 +23,23 @@ func (p *Parser) parseLaunchExpr() (ast.Expr, error) {
 	return &ast.LaunchExpr{Call: call, Line: kw.Line}, nil
 }
 
+// parseCoroLaunchExpr разбирает "поручить <имя>(<арг>, ...)" - та же
+// грамматическая форма, что и "запустить" (см. package doc
+// ast.CoroLaunchExpr) - принадлежность к "асинхронная функция" проверяет
+// семантика, не парсер (тем же принципом, что и разбор запустить).
+func (p *Parser) parseCoroLaunchExpr() (ast.Expr, error) {
+	kw := p.advance() // "поручить"
+	if p.cur().Type != lexer.IDENT || p.peekAt(1).Type != lexer.LPAREN {
+		return nil, fmt.Errorf("строка %d, столбец %d: после \"поручить\" ожидался вызов асинхронной функции (\"имя(...)\")",
+			p.cur().Line, p.cur().Col)
+	}
+	call, err := p.parseCallExpr()
+	if err != nil {
+		return nil, err
+	}
+	return &ast.CoroLaunchExpr{Call: call, Line: kw.Line}, nil
+}
+
 // parseAwaitExpr разбирает "дождаться <выражение>" - выражение задачи
 // берётся на уровне postfix (переменная, доступ к полю) - не полное expr,
 // чтобы "дождаться а + б" не читалось неоднозначно ("дождаться а", потом
@@ -47,4 +64,26 @@ func (p *Parser) parseAwaitStmt() (ast.Stmt, error) {
 	}
 	await := expr.(*ast.AwaitExpr)
 	return &ast.ExprStmt{Await: await, Line: await.Line}, nil
+}
+
+// parseAsyncModifier разбирает необязательное "асинхронная" перед
+// "функция" (после видимости модуля, если она есть) - см.
+// ast.FunctionDecl.IsAsync. Согласуется только с "функция" (женский род) -
+// метод/сущность/"экспортировать" после "асинхронная" не поддерживаются в
+// этой версии (та же граница, что у ast.LaunchExpr.Call - только обычные
+// функции).
+func (p *Parser) parseAsyncModifier() (bool, error) {
+	if p.cur().Type != lexer.KwAsync {
+		return false, nil
+	}
+	tok := p.advance()
+	if tok.Value != "асинхронная" {
+		return false, fmt.Errorf("строка %d, столбец %d: модификатор согласуется со словом \"функция\" (женский род) - ожидалось \"асинхронная\", получено %q",
+			tok.Line, tok.Col, tok.Value)
+	}
+	if p.cur().Type != lexer.KwFunction {
+		return false, fmt.Errorf("строка %d, столбец %d: после \"асинхронная\" ожидалось \"функция\" (модификатор пока поддерживается только для обычных функций - не методов, не сущностей, не \"экспортировать\"), получено %q",
+			p.cur().Line, p.cur().Col, p.cur().Value)
+	}
+	return true, nil
 }

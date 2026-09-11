@@ -247,8 +247,18 @@ func ensureTaskWrapper(ctx *irGenCtx, funcName string) {
 	ctx.taskCode.WriteString(sb.String())
 }
 
-// generateIRLaunchExpr - "запустить <имя>(<арг>, ...)".
+// generateIRLaunchExpr - "запустить <имя>(<арг>, ...)" ИЛИ "поручить
+// <асинхронная функция>(...)" (e.Coroutine == true, Шаг 132 - см. package
+// doc coroutine_task.go, generateIRCoroLaunchExpr) - LaunchExpr как
+// САМОСТОЯТЕЛЬНОЕ выражение (не внутри AwaitExpr, тот перехватывает
+// коротинный случай раньше, см. generateIRAwaitExpr ниже) - именно этот
+// путь и достигается для "поручить" (сахар "дождаться <асинхронная
+// функция>()" никогда не доходит сюда вовсе, см. package doc
+// generateIRAwaitExpr).
 func generateIRLaunchExpr(ctx *irGenCtx, e *ir.LaunchExpr) (string, valueType, error) {
+	if e.Coroutine {
+		return generateIRCoroLaunchExpr(ctx, e)
+	}
 	ctx.usesThreads = true
 	ensureTaskWrapper(ctx, e.Callee)
 	argCodes := make([]string, len(e.Args))
@@ -262,8 +272,23 @@ func generateIRLaunchExpr(ctx *irGenCtx, e *ir.LaunchExpr) (string, valueType, e
 	return fmt.Sprintf("%s(%s)", mangleTaskLaunch(e.Callee), strings.Join(argCodes, ", ")), taskType(e.Callee), nil
 }
 
-// generateIRAwaitExpr - "дождаться <выражение>".
+// generateIRAwaitExpr - "дождаться <выражение>". Два коротинных случая
+// (см. package doc coroutine_task.go) - launch.Coroutine == true И Task
+// синтаксически прямой LaunchExpr (сахар "дождаться <асинхронная
+// функция>(...)", internal/semantic/concurrency.go, analyzeAwaitTask) -
+// composes launch+join сама, НЕ вызывая generateIRExpr(ctx, e.Task) вовсе
+// (который эмитил бы отдельный rech_coro_launch_.../нарушил бы
+// "запустить+дождаться в один присест"); ЛИБО Task - произвольное
+// выражение (обычно переменная), чей ТИП - KindCoroTask (результат
+// РАНЕЕ исполненного "поручить", Шаг 132) - тогда просто join над уже
+// готовым значением. Иначе (KindTask, поток ОС) - прежний путь.
 func generateIRAwaitExpr(ctx *irGenCtx, e *ir.AwaitExpr) (string, valueType, error) {
+	if launch, ok := e.Task.(*ir.LaunchExpr); ok && launch.Coroutine {
+		return generateIRCoroAwaitExpr(ctx, e, launch)
+	}
+	if ir.TypeOf(e.Task).Kind == ir.KindCoroTask {
+		return generateIRCoroJoinFromVar(ctx, e)
+	}
 	ctx.usesThreads = true
 	ensureTaskWrapper(ctx, e.Callee)
 	code, _, err := generateIRExpr(ctx, e.Task)

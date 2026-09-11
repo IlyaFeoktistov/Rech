@@ -39,6 +39,14 @@ const (
 	// package doc internal/backend/cbackend/concurrency.go) - всегда
 	// указатель на собственную C-структуру этой функции.
 	kindTask
+	// kindCoroTask - значение-дескриптор задачи, запущенной ФОНОВО на
+	// планировщике корутин ("поручить <асинхронная функция>(...)", Шаг
+	// 132) - см. package doc ir.KindCoroTask: отдельный от kindTask вид
+	// ТОЛЬКО потому, что "дождаться" должен различить пару обёрток
+	// (rech_await_<имя> vs rech_coro_join_<имя>) уже после того, как
+	// значение прошло через переменную, entity несёт то же самое - имя
+	// обёрнутой функции.
+	kindCoroTask
 	// kindCallable - значение типа "Вызываемый" (&имя/лямбда) -
 	// entity несёт каноническую строку сигнатуры (та же строка, что и
 	// ir.Type.Entity/ir.CallableSig.Name, см. internal/backend/cbackend/
@@ -136,6 +144,11 @@ func taskType(funcName string) valueType {
 	return valueType{kind: kindTask, entity: funcName}
 }
 
+// coroTaskType - см. package doc kindCoroTask.
+func coroTaskType(funcName string) valueType {
+	return valueType{kind: kindCoroTask, entity: funcName}
+}
+
 // callableType возвращает valueType, соответствующий значению типа
 // "Вызываемый" с канонической сигнатурой name.
 func callableType(name string) valueType {
@@ -201,6 +214,9 @@ func (t valueType) cType(ctx *irGenCtx) string {
 	}
 	if t.kind == kindTask {
 		return mangleTaskType(t.entity) + " *"
+	}
+	if t.kind == kindCoroTask {
+		return mangleCoroTaskType(t.entity) + " *"
 	}
 	if t.kind == kindCallable {
 		return mangleCallableType(t.entity)

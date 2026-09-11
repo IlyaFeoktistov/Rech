@@ -723,6 +723,8 @@ func (r *rewriter) rewriteExpr(e ast.Expr) error {
 		return r.rewriteExpr(e.Value)
 	case *ast.LaunchExpr:
 		return r.rewriteExpr(e.Call)
+	case *ast.CoroLaunchExpr:
+		return r.rewriteExpr(e.Call)
 	case *ast.AwaitExpr:
 		return r.rewriteExpr(e.Task)
 	case *ast.FuncRefExpr:

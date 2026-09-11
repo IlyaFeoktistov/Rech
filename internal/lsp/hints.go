@@ -400,6 +400,10 @@ func walkLambdaBodies(e ast.Expr, onLambda func([]ast.Stmt)) {
 		if v.Call != nil {
 			walkLambdaBodies(v.Call, onLambda)
 		}
+	case *ast.CoroLaunchExpr:
+		if v.Call != nil {
+			walkLambdaBodies(v.Call, onLambda)
+		}
 	case *ast.DerefExpr:
 		walkLambdaBodies(v.Value, onLambda)
 	case *ast.AddressOfExpr:
@@ -455,6 +459,11 @@ func exprContainsThis(e ast.Expr) bool {
 	case *ast.AwaitExpr:
 		return exprContainsThis(v.Task)
 	case *ast.LaunchExpr:
+		if v.Call == nil {
+			return false
+		}
+		return exprContainsThis(v.Call)
+	case *ast.CoroLaunchExpr:
 		if v.Call == nil {
 			return false
 		}

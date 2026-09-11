@@ -49,6 +49,9 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 	case *ast.LaunchExpr:
 		return analyzeLaunchExpr(sc, e)
 
+	case *ast.CoroLaunchExpr:
+		return analyzeCoroLaunchExpr(sc, e)
+
 	case *ast.AwaitExpr:
 		await, err := analyzeAwaitExpr(sc, e)
 		if err != nil {

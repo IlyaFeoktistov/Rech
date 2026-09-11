@@ -603,6 +603,9 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 			if fn.Exported {
 				return fmt.Errorf("функция %q: перегрузка не поддерживается для \"экспортировать\" в этой версии - C-символ вычисляется из настоящего имени функции без учёта списка параметров, коллизия с другой перегрузкой той же группы", name)
 			}
+			if fn.IsAsync {
+				return fmt.Errorf("функция %q: перегрузка не поддерживается для \"асинхронная\" в этой версии - \"дождаться %s(...)\" резолвит целевую функцию по голому имени, без учёта списка параметров", name, name)
+			}
 			sig, err := a.buildFreeFuncSig(fn, enums)
 			if err != nil {
 				return err
@@ -647,7 +650,7 @@ func (a *Analyzer) buildFreeFuncSig(fn *ast.FunctionDecl, enums map[string]map[s
 		paramStates[i] = a.aliasState[p.Type]
 		paramDefaults[i] = p.Default
 	}
-	sig := funcSig{Params: params, ParamStates: paramStates, ParamDefaults: paramDefaults}
+	sig := funcSig{Params: params, ParamStates: paramStates, ParamDefaults: paramDefaults, IsAsync: fn.IsAsync}
 	if fn.ReturnType != "" {
 		typ, err := resolveTypeName(a.entities, a.methods, a.aliases, a.interfaces, enums, fn.ReturnType)
 		if err != nil {

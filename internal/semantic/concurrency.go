@@ -67,21 +67,92 @@ func analyzeLaunchExpr(sc *ctx, e *ast.LaunchExpr) (ir.Expr, error) {
 	return &ir.LaunchExpr{Callee: callee, Args: args}, nil
 }
 
+// analyzeCoroLaunchExpr - "поручить <асинхронная функция>(<арг>, ...)"
+// (см. package doc ast.CoroLaunchExpr) - резолюция вызова та же самая, что
+// у "запустить" (analyzeLaunchExpr, не копия её кода), ДОПОЛНИТЕЛЬНО
+// требует funcSig.IsAsync - "поручить" (в отличие от "запустить")
+// поддерживает ТОЛЬКО функции, объявленные "асинхронная" (фоновый запуск
+// на планировщике корутин имеет смысл только для них - обычная функция
+// исполнялась бы синхронно на СВОЁМ ЖЕ вызывающем контексте, никакого
+// "фона" не было бы вовсе). Результат - тот же ir.LaunchExpr, что и у
+// сахара "дождаться <асинхронная функция>()" (analyzeAwaitTask), с
+// Coroutine == true - разница только в том, что "поручить" НЕ оборачивает
+// результат в AwaitExpr сразу же (не блокирует), "дождаться" делает это
+// потом, отдельно, над уже сохранённым в переменную значением.
+func analyzeCoroLaunchExpr(sc *ctx, e *ast.CoroLaunchExpr) (ir.Expr, error) {
+	launch, err := analyzeLaunchExpr(sc, &ast.LaunchExpr{Call: e.Call, Line: e.Line})
+	if err != nil {
+		return nil, err
+	}
+	l := launch.(*ir.LaunchExpr)
+	if sig, ok := sc.funcs[l.Callee]; !ok || !sig.IsAsync {
+		return nil, fmt.Errorf("строка %d: \"поручить\" поддерживает только \"асинхронная функция\" - %q не объявлена асинхронной", e.Line, e.Call.Callee)
+	}
+	l.Coroutine = true
+	return l, nil
+}
+
 // analyzeAwaitExpr - "дождаться <выражение>": Task обязан быть значением
-// задачи (TypeOf.Kind == KindTask, т. е. результатом LaunchExpr, включая
-// проведённое через переменную/поле). Callee уже несёт имя обёрнутой
-// функции (LaunchExpr.Callee, ir.TaskType) - сигнатура берётся из sc.funcs
-// заново, а не переносится откуда-то ещё, тем же принципом, что и везде в
-// этом пакете (символьная таблица одна на всю программу).
+// задачи (TypeOf.Kind == KindTask/KindCoroTask, т. е. результатом
+// LaunchExpr/CoroLaunchExpr, включая проведённое через переменную/поле,
+// или прямым вызовом "асинхронная функция" - см. analyzeAwaitTask).
+// Callee уже несёт имя обёрнутой функции (LaunchExpr.Callee, ir.TaskType/
+// CoroTaskType) - сигнатура берётся из sc.funcs заново, а не переносится
+// откуда-то ещё, тем же принципом, что и везде в этом пакете (символьная
+// таблица одна на всю программу).
 func analyzeAwaitExpr(sc *ctx, e *ast.AwaitExpr) (*ir.AwaitExpr, error) {
-	task, err := analyzeExpr(sc, e.Task)
+	task, err := analyzeAwaitTask(sc, e)
 	if err != nil {
 		return nil, err
 	}
 	t := ir.TypeOf(task)
-	if t.Kind != ir.KindTask {
-		return nil, fmt.Errorf("строка %d: \"дождаться\" ожидает значение задачи (результат \"запустить\"), получено %s", e.Line, t)
+	if t.Kind != ir.KindTask && t.Kind != ir.KindCoroTask {
+		return nil, fmt.Errorf("строка %d: \"дождаться\" ожидает значение задачи (результат \"запустить\"/\"поручить\" или вызов \"асинхронная функция\"), получено %s", e.Line, t)
 	}
 	sig := sc.funcs[t.Entity]
 	return &ir.AwaitExpr{Task: task, Callee: t.Entity, Type: sig.ReturnType, HasReturn: sig.HasReturn}, nil
+}
+
+// analyzeAwaitTask разбирает операнд "дождаться". Обычный случай -
+// произвольное выражение задачи (переменная/поле, несущие результат
+// "запустить"), анализируется как есть - идёт на поток ОС из общего пула,
+// как и раньше (ir.LaunchExpr.Coroutine остаётся false по умолчанию).
+// Особый случай - Task синтаксически ПРЯМОЙ вызов функции (не через
+// "запустить"), объявленной "асинхронная" (funcSig.IsAsync): "дождаться
+// получить_данные()" тогда десугарится в LaunchExpr здесь же, через
+// analyzeLaunchExpr (единый путь резолюции перегрузки/проверки аргументов
+// с обычным "запустить", не копия его кода), но с Coroutine == true -
+// backend (internal/backend/cbackend/coroutine.go, Шаги 128-130) эмитит
+// вызов на лёгком планировщике вместо потока ОС. Явный "запустить
+// получить_данные()" (не через эту функцию) по-прежнему даёт
+// Coroutine == false - модель под ним не меняется никогда (docs/SPEC.md,
+// раздел 15).
+//
+// НЕТ статической проверки на вложенный сахар (асинхронная функция,
+// изнутри вызывающая "дождаться <другая асинхронная функция>()") -
+// сознательно: реальное условие "сейчас исполняется код НА КОРУТИНЕ" -
+// динамическое, зависит от того, КАК была вызвана ОБЪЕМЛЮЩАЯ асинхронная
+// функция В ЭТОТ КОНКРЕТНЫЙ РАЗ (через "дождаться" - тогда да, напрямую
+// как обычная синхронная функция - тогда нет вовсе, см. package doc
+// ast.FunctionDecl.IsAsync), а не от того, объявлена ли она "асинхронная"
+// лексически - чисто лексическая проверка здесь отклоняла бы корректные
+// программы (асинхронная функция, вызванная НАПРЯМУЮ, вправе свободно
+// звать "дождаться" сколько угодно раз - она в этот момент не на
+// корутине вовсе). Единственно верная проверка - рантайм-проверка
+// НЕПОСРЕДСТВЕННО в момент входа в планировщик (cbackend,
+// rech_coro_await_run, rech_coro_current != NULL) - см. её package doc
+// про то, что это ЕДИНСТВЕННАЯ защита (осознанно принятое узкое
+// расхождение с интерпретатором - см. docs/ROADMAP.md, Шаг 130).
+func analyzeAwaitTask(sc *ctx, e *ast.AwaitExpr) (ir.Expr, error) {
+	if call, ok := e.Task.(*ast.CallExpr); ok {
+		if sig, exists := sc.funcs[call.Callee]; exists && sig.IsAsync {
+			launch, err := analyzeLaunchExpr(sc, &ast.LaunchExpr{Call: call, Line: e.Line})
+			if err != nil {
+				return nil, err
+			}
+			launch.(*ir.LaunchExpr).Coroutine = true
+			return launch, nil
+		}
+	}
+	return analyzeExpr(sc, e.Task)
 }

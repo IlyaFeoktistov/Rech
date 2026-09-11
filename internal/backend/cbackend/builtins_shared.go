@@ -1486,7 +1486,55 @@ static rech_socket_t rech_network_node(long long mode, const char *host, long lo
 // программа не использует "слушать_tcp_защищённо" (см. package doc
 // socketTypeAndConnectCode выше и ir_generator.go, выбор socketHelpers/
 // socketHelpersTLS по ctx.usesTLS).
+//
+// Шаг 132 (docs/ROADMAP.md, инкремент 6/6 async/await) - rech_accept/
+// rech_send_raw/rech_socket_read_raw теперь КОРУТИНО-ОСВЕДОМЛЕНЫ: если
+// текущий код исполняется на лёгкой корутине (rech_coro_current != NULL,
+// internal/backend/cbackend/coroutine.go, Шаги 128-131), они не блокируют
+// ВЕСЬ поток ОС на ожидании сети - переводят сокет в неблокирующий режим
+// и уступают планировщику (rech_coro_wait_readable/writable), пока
+// epoll/kqueue не сообщит о реальной готовности; тот же самый вызов из
+// ОБЫЧНОГО (не корутинного) кода продолжает блокировать поток ОС как
+// раньше - НЕТ отдельных "_лёгкий"-имён (решено пользователем через
+// AskUserQuestion в самом начале плана - "как в C#": поведение зависит от
+// контекста выполнения, не от того, какую функцию позвали). Именно это и
+// даёт экономию на тысячах одновременно простаивающих соединений
+// (сценарий "50-100 тыс. открытых, по большей части ждущих соединений",
+// ради которого весь план и затевался) - см. examples/проекты/
+// центр_уведомлений (Шаг 132). TLS-сокеты (tls.go) этим шагом НЕ
+// затронуты - осознанно вне первой итерации (см. docs/ROADMAP.md, Шаг
+// 127, "первая итерация - только TCP"). "установить_таймаут" не
+// действует, пока сокет в неблокирующем (корутинном) режиме - таймауты
+// самого ожидания fd (rech_coro_wait_readable/writable) - по-прежнему
+// открытый пункт (Шаг 129).
 var plainSocketOpsCode = fmt.Sprintf(`static %[5]s rech_accept(rech_socket_t s) {
+#ifndef _WIN32
+    // accept() не берёт флаг "не блокировать" напрямую (в отличие от
+    // MSG_DONTWAIT у send/recv ниже) - fcntl/O_NONBLOCK переводит сам
+    // сокет; остаётся неблокирующим и для последующих вызовов ПОСЛЕ
+    // этого (даже уже не на корутине) - осознанное, задокументированное
+    // упрощение первой итерации, реалистичный паттерн использования
+    // (один и тот же слушающий сокет из одного и того же контекста
+    // раз за разом) им не задет.
+    if (rech_coro_current != NULL) {
+        int rech_flags = fcntl(s, F_GETFL, 0);
+        fcntl(s, F_SETFL, rech_flags | O_NONBLOCK);
+        for (;;) {
+            rech_socket_t c = accept(s, NULL, NULL);
+            if (c != RECH_INVALID_SOCKET) {
+                return %[5]s_wrap(c);
+            }
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                rech_coro_wait_readable(s);
+                continue;
+            }
+            if (errno == EINTR) {
+                return %[5]s_empty();
+            }
+            rech_panic("%[1]s");
+        }
+    }
+#endif
     rech_socket_t c = accept(s, NULL, NULL);
     if (c == RECH_INVALID_SOCKET) {
 #ifdef _WIN32
@@ -1514,9 +1562,26 @@ var plainSocketOpsCode = fmt.Sprintf(`static %[5]s rech_accept(rech_socket_t s) 
 // содержимого, которое может нести нулевые байты (docs/ROADMAP.md, HTTP
 // highload - бинарно-безопасный HTTP-ответ, internal/backend/cbackend/
 // httpbytes.go). "rech_send" сама - тонкая обёртка над ней (len = strlen).
+// MSG_DONTWAIT (POSIX, обе ветки BSD sockets - Linux и macOS) - в отличие
+// от accept() не нужно менять режим самого сокета фактом вызова, флаг
+// действует только на ЭТОТ вызов send() - см. package doc plainSocketOpsCode.
 static void rech_send_raw(rech_socket_t s, const char *data, long long len) {
     long long sent = 0;
     while (sent < len) {
+#ifndef _WIN32
+        if (rech_coro_current != NULL) {
+            long long n = send(s, data + sent, (int)(len - sent), MSG_DONTWAIT);
+            if (n <= 0) {
+                if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                    rech_coro_wait_writable(s);
+                    continue;
+                }
+                rech_panic("%[2]s");
+            }
+            sent += n;
+            continue;
+        }
+#endif
         long long n = send(s, data + sent, (int)(len - sent), 0);
         if (n <= 0) {
             rech_panic("%[2]s");
@@ -1539,8 +1604,26 @@ static void rech_send(rech_socket_t s, const char *data) {
 // записи вместо расшифрованного HTTP-текста (ровно так был найден баг -
 // "принять_http" зависал в ожидании "\r\n\r\n", которого в шифротексте
 // нет и не будет). Сигнатура/семантика возврата - как у recv() (число
-// байт, 0 - собеседник закрыл соединение, отрицательное - ошибка).
+// байт, 0 - собеседник закрыл соединение, отрицательное - ошибка) -
+// сохранена и для корутинной ветки: настоящая ошибка (не EAGAIN)
+// возвращается КАК ЕСТЬ, вызывающий код (rech_recv) уже умеет её
+// обработать, дублировать эту логику здесь не нужно.
 static long long rech_socket_read_raw(rech_socket_t s, char *buf, long long max) {
+#ifndef _WIN32
+    if (rech_coro_current != NULL) {
+        for (;;) {
+            long long n = recv(s, buf, (int)max, MSG_DONTWAIT);
+            if (n >= 0) {
+                return n;
+            }
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                rech_coro_wait_readable(s);
+                continue;
+            }
+            return n;
+        }
+    }
+#endif
     return recv(s, buf, (int)max, 0);
 }
 

@@ -250,6 +250,9 @@ func TypeOf(e Expr) Type {
 	case *HasStateExpr:
 		return TypeBool
 	case *LaunchExpr:
+		if e.Coroutine {
+			return CoroTaskType(e.Callee)
+		}
 		return TaskType(e.Callee)
 	case *AwaitExpr:
 		return e.Type
