@@ -8,7 +8,11 @@
 // уже пример второго потребителя того же IR, не C backend'а.
 package cbackend
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/IlyaFeoktistov/Rech/internal/ir"
+)
 
 // entryPointName - функция с этим именем становится точкой входа программы
 // (C main). Остальные имена транслитерируются в валидные C-идентификаторы.
@@ -128,6 +132,26 @@ func mangleField(name string) string {
 	return "f_" + transliterate(name)
 }
 
+// exportedCtorCSymbol - настоящее C-имя экспортированного конструктора
+// (без транслитерации) - тем же принципом, что exportedMethodCSymbol выше
+// (общая формула для ctorCName и для проверки коллизий, mangling.go).
+func exportedCtorCSymbol(entity string) string {
+	return entity + "_новый"
+}
+
+// ctorCName - C-имя функции, выделяющей объект ("rech_new_X" по умолчанию,
+// mangleCtor) - настоящее exportedCtorCSymbol, если конструктор сущности
+// помечен "экспортировать" (docs/SPEC.md, "Экспорт в разделяемую
+// библиотеку") - тем же принципом, что и methodCName выше. Автор явно
+// решает экспорт конструктора отдельно от экспорта самой сущности - в
+// отличие от метода, конструктор нельзя вызвать снаружи по умолчанию вовсе.
+func ctorCName(ctx *irGenCtx, entity string) string {
+	if ctx.exportedCtors[entity] {
+		return exportedCtorCSymbol(entity)
+	}
+	return mangleCtor(entity)
+}
+
 // mangleCtor мангирует имя ссылочной сущности в имя её C-конструктора
 // (GC_MALLOC + заполнение полей, см. generateIREntityCtor) - отдельный
 // префикс от mangleType/mangleName по тому же принципу, что и у остальных
@@ -154,6 +178,56 @@ func mangleCtorInit(name string) string {
 // структурно исключают коллизию метода с функцией/типом того же имени.
 func mangleMethod(entity, method string) string {
 	return "rech_M_" + transliterate(entity) + "_" + transliterate(method)
+}
+
+// exportedMethodCSymbol - настоящее C-имя экспортированного метода (без
+// транслитерации) - общая формула для methodCName ниже и для проверки
+// коллизий (mangling.go, checkManglingCollisions), чтобы обе стороны не
+// могли разойтись.
+func exportedMethodCSymbol(entity, method string) string {
+	return entity + "_" + method
+}
+
+// buildExportedMethods собирает "сущность -> метод -> экспортирован" из
+// prog.Entities - общий код для обеих точек построения irGenCtx
+// (generateHeader/generateSource), чтобы формула не могла разойтись.
+func buildExportedMethods(prog *ir.Program) map[string]map[string]bool {
+	out := map[string]map[string]bool{}
+	for _, ent := range prog.Entities {
+		for _, m := range ent.Methods {
+			if !m.Exported {
+				continue
+			}
+			if out[ent.Name] == nil {
+				out[ent.Name] = map[string]bool{}
+			}
+			out[ent.Name][m.Name] = true
+		}
+	}
+	return out
+}
+
+// buildExportedCtors собирает "сущность -> конструктор экспортирован" из
+// prog.Entities - тем же принципом, что и buildExportedMethods выше.
+func buildExportedCtors(prog *ir.Program) map[string]bool {
+	out := map[string]bool{}
+	for _, ent := range prog.Entities {
+		if ent.Ctor != nil && ent.Ctor.Exported {
+			out[ent.Name] = true
+		}
+	}
+	return out
+}
+
+// methodCName - C-имя метода: exportedMethodCSymbol, если метод помечён
+// "экспортировать" (docs/SPEC.md, "Экспорт в разделяемую библиотеку") -
+// тем же принципом, что и funcCName/entityCName выше. Неэкспортированный
+// метод - как и раньше, mangleMethod.
+func methodCName(ctx *irGenCtx, entity, method string) string {
+	if ctx.exportedMethods[entity][method] {
+		return exportedMethodCSymbol(entity, method)
+	}
+	return mangleMethod(entity, method)
 }
 
 // mangleStaticField мангирует пару (сущность, статическое поле) в имя

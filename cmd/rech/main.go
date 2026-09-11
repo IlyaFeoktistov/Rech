@@ -221,16 +221,20 @@ func main() {
 			// .rechproj сборке неоткуда узнать список для линковки.
 			extraLibs = pf.Библиотеки()
 			extraLibPaths = pf.ПутиБиблиотек()
-			if deps, scopes, depLibs, derr := resolveDeps(pf); derr != nil {
+			if deps, scopes, depLibs, depLibPaths, derr := resolveDeps(pf); derr != nil {
 				fmt.Fprintln(os.Stderr, "ошибка:", derr)
 				os.Exit(1)
 			} else {
 				projectDeps = deps
 				projectDepScopes = scopes
 				// Библиотеки зависимостей (FFI-обёртки, сборка.библиотеки их
-				// собственного .rechproj) - вместе с уже собранным списком
-				// САМОГО проекта, без повторов (дедупликация ниже).
-				extraLibs = mergeLibraries(extraLibs, depLibs)
+				// собственного .rechproj, включая закрытые (бинарные)
+				// Rech-пакеты) - вместе с уже собранным списком САМОГО
+				// проекта, без повторов (дедупликация ниже) - LibraryPaths
+				// той же зависимости (её собственный каталог по умолчанию)
+				// избавляет потребителя от ручного "путь_библиотек".
+				extraLibs = mergeUnique(extraLibs, depLibs)
+				extraLibPaths = mergeUnique(extraLibPaths, depLibPaths)
 			}
 		}
 	}
@@ -250,16 +254,18 @@ func main() {
 	comp.PoolIdleTimeoutMs = poolIdleTimeoutMs
 	comp.HTTPMaxRequestBytes = httpMaxRequestBytes
 	build := func() (string, error) { return comp.Build(srcPath, keepC, extraLibs, extraLibPaths) }
-	buildLib := func() (string, string, error) { return comp.BuildLib(srcPath, keepC, extraLibs, extraLibPaths) }
+	buildLib := func() (string, string, string, error) { return comp.BuildLib(srcPath, keepC, extraLibs, extraLibPaths) }
 	if hasCode {
 		build = func() (string, error) { return comp.BuildSource(code, keepC, extraLibs, extraLibPaths) }
-		buildLib = func() (string, string, error) { return comp.BuildLibSource(code, keepC, extraLibs, extraLibPaths) }
+		buildLib = func() (string, string, string, error) {
+			return comp.BuildLibSource(code, keepC, extraLibs, extraLibPaths)
+		}
 	}
 
 	switch cmd {
 	case "build":
 		if isLib {
-			libPath, hPath, err := buildLib()
+			libPath, hPath, rechiPath, err := buildLib()
 			if err != nil {
 				fmt.Fprintln(os.Stderr, "ошибка:", err)
 				os.Exit(1)
@@ -273,9 +279,14 @@ func main() {
 					fmt.Fprintln(os.Stderr, "ошибка:", err)
 					os.Exit(1)
 				}
+				if rechiPath, err = placeInOutputDir(rechiPath, outDir, projName); err != nil {
+					fmt.Fprintln(os.Stderr, "ошибка:", err)
+					os.Exit(1)
+				}
 			}
 			fmt.Println(libPath)
 			fmt.Println(hPath)
+			fmt.Println(rechiPath)
 			return
 		}
 		binPath, err := build()

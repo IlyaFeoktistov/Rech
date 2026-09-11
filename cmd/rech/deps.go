@@ -13,43 +13,48 @@ import (
 
 // resolveDeps скачивает/находит в кеше все зависимости pf.Зависимости,
 // включая ТРАНЗИТИВНЫЕ (зависимости зависимостей - через их собственные
-// *.rechproj, если есть) и внешние библиотеки, которые они объявляют
-// (сборка.библиотеки - для линковки FFI-обёрток) - общий код для "rech
+// *.rechproj, если есть), внешние библиотеки, которые они объявляют
+// (сборка.библиотеки - для линковки FFI-обёрток, включая закрытые
+// (бинарные) Rech-пакеты, см. docs/SPEC.md) и путь для их поиска -
+// libPaths (internal/pkgfetch.Graph.LibraryPaths - собственный каталог
+// зависимости, если она сама не указала иначе, БЕЗ единой строчки
+// "сборка.путь_библиотек" в манифесте потребителя) - общий код для "rech
 // build/run" (перед компиляцией) и "rech install" (отдельно, без сборки).
 // nil-результаты, если pf вообще не объявляет зависимостей - тогда сборка
 // идёт как раньше, без внешних зависимостей.
-func resolveDeps(pf *project.File) (deps map[string]string, scopes map[string]map[string]string, libs []string, err error) {
+func resolveDeps(pf *project.File) (deps map[string]string, scopes map[string]map[string]string, libs, libPaths []string, err error) {
 	if len(pf.Зависимости) == 0 {
-		return nil, nil, nil, nil
+		return nil, nil, nil, nil, nil
 	}
 	lockPath := filepath.Join(pf.Dir, pkgfetch.LockFileName)
 	g, err := pkgfetch.ResolveGraph(pf.Зависимости, pf.Dir, lockPath, os.Stdout)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
-	return g.Scopes[pf.Dir], g.Scopes, g.Libraries, nil
+	return g.Scopes[pf.Dir], g.Scopes, g.Libraries, g.LibraryPaths, nil
 }
 
-// mergeLibraries объединяет список библиотек самого проекта (own) со
-// списком, собранным из зависимостей (fromDeps - internal/pkgfetch.
-// Graph.Libraries), без повторов, в порядке "свои сначала, потом чужие по
-// первой встрече".
-func mergeLibraries(own, fromDeps []string) []string {
+// mergeUnique объединяет список самого проекта (own) со списком,
+// собранным из зависимостей (fromDeps - internal/pkgfetch.Graph.Libraries
+// или .LibraryPaths, у обоих одна и та же форма "плоский список без
+// гарантированной уникальности"), без повторов, в порядке "свои сначала,
+// потом чужие по первой встрече".
+func mergeUnique(own, fromDeps []string) []string {
 	if len(fromDeps) == 0 {
 		return own
 	}
 	seen := make(map[string]bool, len(own)+len(fromDeps))
 	out := make([]string, 0, len(own)+len(fromDeps))
-	for _, lib := range own {
-		if !seen[lib] {
-			seen[lib] = true
-			out = append(out, lib)
+	for _, v := range own {
+		if !seen[v] {
+			seen[v] = true
+			out = append(out, v)
 		}
 	}
-	for _, lib := range fromDeps {
-		if !seen[lib] {
-			seen[lib] = true
-			out = append(out, lib)
+	for _, v := range fromDeps {
+		if !seen[v] {
+			seen[v] = true
+			out = append(out, v)
 		}
 	}
 	return out
@@ -78,7 +83,7 @@ func installDeps() error {
 		fmt.Println("зависимости не объявлены (в", projPath, "нет секции \"зависимости:\")")
 		return nil
 	}
-	_, scopes, libs, err := resolveDeps(pf)
+	_, scopes, libs, _, err := resolveDeps(pf)
 	if err != nil {
 		return err
 	}

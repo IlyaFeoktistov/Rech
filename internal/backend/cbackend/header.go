@@ -87,7 +87,9 @@ func generateHeader(prog *ir.Program) (string, error) {
 			exportedFuncNames[fn.Name] = true
 		}
 	}
-	ctx := &irGenCtx{entities: entities, exportedEntityNames: exportedEntityNames, exportedFuncNames: exportedFuncNames}
+	exportedMethods := buildExportedMethods(prog)
+	exportedCtors := buildExportedCtors(prog)
+	ctx := &irGenCtx{entities: entities, exportedEntityNames: exportedEntityNames, exportedFuncNames: exportedFuncNames, exportedMethods: exportedMethods, exportedCtors: exportedCtors}
 
 	var typedefs strings.Builder
 	for _, ent := range prog.Entities {
@@ -105,6 +107,18 @@ func generateHeader(prog *ir.Program) (string, error) {
 		}
 		protos.WriteString(cDocComment(fn.Doc))
 		fmt.Fprintf(&protos, "%s %s(%s);\n", cReturnTypeFor(ctx, fn.HasReturn, fn.ReturnType), funcCName(ctx, fn.Name), cParamListIR(ctx, fn.Params))
+	}
+	for _, ent := range prog.Entities {
+		for _, m := range ent.Methods {
+			if !m.Exported {
+				continue
+			}
+			protos.WriteString(cDocComment(m.Doc))
+			fmt.Fprintf(&protos, "%s %s(%s);\n", cReturnTypeFor(ctx, m.HasReturn, m.ReturnType), methodCName(ctx, ent.Name, m.Name), cMethodParamListIR(ctx, ent.Name, m.Params))
+		}
+		if ent.Ctor != nil && ent.Ctor.Exported {
+			fmt.Fprintf(&protos, "%s *%s(%s);\n", entityCName(ctx, ent.Name), ctorCName(ctx, ent.Name), cParamListIR(ctx, ent.Ctor.Params))
+		}
 	}
 
 	var sb strings.Builder

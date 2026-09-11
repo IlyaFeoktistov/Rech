@@ -139,7 +139,7 @@ func generateVtableInstance(ctx *irGenCtx, ent *ir.Entity) string {
 		if definer == "" {
 			continue
 		}
-		fmt.Fprintf(&sb, "        [%d] = (%s)&%s,\n", slot, vtfuncType, mangleMethod(definer, name))
+		fmt.Fprintf(&sb, "        [%d] = (%s)&%s,\n", slot, vtfuncType, methodCName(ctx, definer, name))
 	}
 	sb.WriteString("    }\n};\n\n")
 	return sb.String()

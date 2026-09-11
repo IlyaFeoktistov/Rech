@@ -37,6 +37,38 @@ func validateExports(prog *ir.Program) error {
 			}
 		}
 	}
+
+	for _, ent := range prog.Entities {
+		for _, m := range ent.Methods {
+			if !m.Exported {
+				continue
+			}
+			if !ent.Exported {
+				return fmt.Errorf("сущность %q: метод %q помечен \"экспортировать\", но сама сущность - нет (пометьте \"экспортировать\" и перед %q)", ent.Name, m.Name, ent.Name)
+			}
+			for _, p := range m.Params {
+				if err := checkExportableType(p.Type, exportedEntities); err != nil {
+					return fmt.Errorf("экспортируемый метод %q сущности %q: параметр %q: %w", m.Name, ent.Name, p.Name, err)
+				}
+			}
+			if m.HasReturn {
+				if err := checkExportableType(m.ReturnType, exportedEntities); err != nil {
+					return fmt.Errorf("экспортируемый метод %q сущности %q: тип результата: %w", m.Name, ent.Name, err)
+				}
+			}
+		}
+
+		if ent.Ctor != nil && ent.Ctor.Exported {
+			if !ent.Exported {
+				return fmt.Errorf("сущность %q: конструктор помечен \"экспортировать\", но сама сущность - нет (пометьте \"экспортировать\" и перед %q)", ent.Name, ent.Name)
+			}
+			for _, p := range ent.Ctor.Params {
+				if err := checkExportableType(p.Type, exportedEntities); err != nil {
+					return fmt.Errorf("экспортируемый конструктор сущности %q: параметр %q: %w", ent.Name, p.Name, err)
+				}
+			}
+		}
+	}
 	return nil
 }
 

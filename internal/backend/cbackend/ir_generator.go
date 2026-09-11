@@ -131,6 +131,16 @@ type irGenCtx struct {
 	// (неэкспортированные) объявления как есть, за mangleName/mangleType.
 	exportedFuncNames   map[string]bool
 	exportedEntityNames map[string]bool
+	// exportedMethods - сущность -> имя метода -> помечен "экспортировать"
+	// (prog.Entities[i].Methods[j].Exported) - methodCName (mangle.go)
+	// сверяется с ним тем же принципом, что exportedFuncNames/
+	// exportedEntityNames выше, но отдельным полем (метод не однозначно
+	// определён одним только именем без сущности-владельца).
+	exportedMethods map[string]map[string]bool
+	// exportedCtors - сущность -> конструктор помечен "экспортировать"
+	// (prog.Entities[i].Ctor.Exported) - ctorCName (mangle.go) сверяется с
+	// ним тем же принципом, что exportedMethods выше.
+	exportedCtors map[string]bool
 	// pointerInner - каноническое имя "Указатель<T>" (ir.Type.Entity) -> T,
 	// из prog.Pointers - тот же принцип, что и nullableInner выше, нужен
 	// valueType.cType, чтобы построить C-тип "T *" по одному только имени.
@@ -505,16 +515,20 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 // исполняется как программа), а вторым результатом возвращается текст
 // C-заголовка (.h) с прототипами
 // объявлений, помеченных "экспортировать" - см. header.go.
-func GenerateLibFromIR(prog *ir.Program) (cSource string, header string, err error) {
+func GenerateLibFromIR(prog *ir.Program) (cSource, header, interfaceStub string, err error) {
 	cSource, err = generateSource(prog, true)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	header, err = generateHeader(prog)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	return cSource, header, nil
+	interfaceStub, err = generateInterfaceStub(prog)
+	if err != nil {
+		return "", "", "", err
+	}
+	return cSource, header, interfaceStub, nil
 }
 
 // generateSource - общее тело GenerateFromIR/GenerateLibFromIR. libMode
@@ -554,6 +568,8 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 			exportedEntityNames[ent.Name] = true
 		}
 	}
+	exportedMethods := buildExportedMethods(prog)
+	exportedCtors := buildExportedCtors(prog)
 	usesGC := false
 	usesStateFlags := false
 	for _, ent := range prog.Entities {
@@ -618,6 +634,8 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		callableSigs:          callableSigs,
 		exportedFuncNames:     exportedFuncNames,
 		exportedEntityNames:   exportedEntityNames,
+		exportedMethods:       exportedMethods,
+		exportedCtors:         exportedCtors,
 		externCNames:          externCNames,
 		usesGC:                usesGC,
 		usesStateFlags:        usesStateFlags,
@@ -950,10 +968,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 				continue
 			}
 			if m.IsStatic {
-				fmt.Fprintf(&protos, "%s %s(%s);\n", cReturnTypeFor(ctx, m.HasReturn, m.ReturnType), mangleMethod(ent.Name, m.Name), cParamListIR(ctx, m.Params))
+				fmt.Fprintf(&protos, "%s %s(%s);\n", cReturnTypeFor(ctx, m.HasReturn, m.ReturnType), methodCName(ctx, ent.Name, m.Name), cParamListIR(ctx, m.Params))
 				continue
 			}
-			fmt.Fprintf(&protos, "%s %s(%s);\n", cReturnTypeFor(ctx, m.HasReturn, m.ReturnType), mangleMethod(ent.Name, m.Name), cMethodParamListIR(ctx, ent.Name, m.Params))
+			fmt.Fprintf(&protos, "%s%s %s(%s);\n", exportAttr(ctx, m.Exported), cReturnTypeFor(ctx, m.HasReturn, m.ReturnType), methodCName(ctx, ent.Name, m.Name), cMethodParamListIR(ctx, ent.Name, m.Params))
 		}
 		// Прототипы rech_init_X/rech_new_X - тем же принципом, что и у
 		// методов выше: сущность, эмитированная в prog.Entities поздно
@@ -972,7 +990,12 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 				ctorParams = ent.Ctor.Params
 			}
 			fmt.Fprintf(&protos, "static void %s(%s);\n", mangleCtorInit(ent.Name), cMethodParamListIR(ctx, ent.Name, ctorParams))
-			fmt.Fprintf(&protos, "static %s *%s(%s);\n", entityCName(ctx, ent.Name), mangleCtor(ent.Name), cParamListIR(ctx, ctorParams))
+			ctorExported := ctx.exportedCtors[ent.Name]
+			ctorStatic := "static "
+			if ctorExported {
+				ctorStatic = ""
+			}
+			fmt.Fprintf(&protos, "%s%s%s *%s(%s);\n", ctorStatic, exportAttr(ctx, ctorExported), entityCName(ctx, ent.Name), ctorCName(ctx, ent.Name), cParamListIR(ctx, ctorParams))
 		}
 	}
 	hasEntryPoint := false
@@ -2101,7 +2124,11 @@ func generateIREntityCtorInit(ctx *irGenCtx, ent *ir.Entity) (string, error) {
 // (GenerateFromIR), без отдельного прототипа и для этого случая тоже.
 func generateIREntityCtorNewWithInit(ctx *irGenCtx, ent *ir.Entity) string {
 	cType := entityCName(ctx, ent.Name)
-	fn := codegen.Func(mangleCtor(ent.Name)).Static().ReturnType(cType + " *")
+	exported := ctx.exportedCtors[ent.Name]
+	fn := codegen.Func(ctorCName(ctx, ent.Name)).ReturnType(exportAttr(ctx, exported) + cType + " *")
+	if !exported {
+		fn.Static()
+	}
 	params := make([]codegen.Param, len(ent.Ctor.Params))
 	for i, p := range ent.Ctor.Params {
 		params[i] = codegen.Parameter(fromIRType(p.Type).cType(ctx), mangleVar(p.Name))
@@ -2241,7 +2268,7 @@ func generateIRMethod(ctx *irGenCtx, entityName string, m *ir.Method) (string, e
 		// невозможен (парсер), поэтому ctx.thisEntity не выставляется.
 		paramList = cParamListIR(ctx, m.Params)
 	}
-	fmt.Fprintf(&sb, "%s %s(%s) {\n", cReturnTypeFor(ctx, m.HasReturn, m.ReturnType), mangleMethod(entityName, m.Name), paramList)
+	fmt.Fprintf(&sb, "%s%s %s(%s) {\n", exportAttr(ctx, m.Exported), cReturnTypeFor(ctx, m.HasReturn, m.ReturnType), methodCName(ctx, entityName, m.Name), paramList)
 	fmt.Fprintf(&sb, "    %s", tracePush(entityName+"."+m.Name))
 	if !m.IsStatic {
 		ctx.thisEntity = entityName
@@ -3254,7 +3281,7 @@ func generateIRNewExpr(ctx *irGenCtx, e *ir.NewExpr) (string, valueType, error) 
 		argCodes[i] = code
 	}
 	if ctx.entityIsRef(e.Entity) {
-		return fmt.Sprintf("%s(%s)", mangleCtor(e.Entity), strings.Join(argCodes, ", ")), entityType(e.Entity), nil
+		return fmt.Sprintf("%s(%s)", ctorCName(ctx, e.Entity), strings.Join(argCodes, ", ")), entityType(e.Entity), nil
 	}
 	parts := make([]string, len(argCodes))
 	for i, code := range argCodes {
@@ -3332,7 +3359,7 @@ func generateIRMethodCallExpr(ctx *irGenCtx, e *ir.MethodCallExpr) (string, valu
 	if ctx.needsDispatch(e.Entity) {
 		return generateDispatchCall(ctx, e, receiverCode, argCodes)
 	}
-	return fmt.Sprintf("%s(%s)", mangleMethod(e.Entity, e.Method), strings.Join(argCodes, ", ")), fromIRType(e.Type), nil
+	return fmt.Sprintf("%s(%s)", methodCName(ctx, e.Entity, e.Method), strings.Join(argCodes, ", ")), fromIRType(e.Type), nil
 }
 
 // generateIRStaticMethodCallExpr - "Тип::метод(...)" - как

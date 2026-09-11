@@ -15,9 +15,9 @@ import (
 
 // Analyzer инкапсулирует состояние семантического анализа.
 type Analyzer struct {
-	entities    map[string]entitySig
-	methods     map[string]map[string]funcSig
-	funcs       map[string]funcSig
+	entities map[string]entitySig
+	methods  map[string]map[string]funcSig
+	funcs    map[string]funcSig
 	// funcOverloads - имя перегруженной свободной функции -> её сигнатуры
 	// (funcSig.MangledName у каждой уже заполнено) - пусто (nil-запись) для
 	// любого имени без перегрузки, funcs хранит его сигнатуру напрямую под
@@ -47,10 +47,10 @@ type Analyzer struct {
 	// напрямую при перегрузке.
 	methodDeclNames map[*ast.MethodDecl]string
 	aliases         map[string]string
-	aliasState  map[string]string
-	enums       map[string]map[string]int64
-	interfaces  map[string]interfaceSig
-	externFuncs []*ir.ExternFuncDecl
+	aliasState      map[string]string
+	enums           map[string]map[string]int64
+	interfaces      map[string]interfaceSig
+	externFuncs     []*ir.ExternFuncDecl
 
 	// resolvedConsts/resolvingConsts - кэш и защита от цикла для констант
 	// уровня сущности (см. resolveEntityConstant), общие на весь Analyze -
@@ -666,10 +666,10 @@ func (a *Analyzer) buildFreeFuncSig(fn *ast.FunctionDecl, enums map[string]map[s
 // без учёта перегрузки (арность/уникальность имени внутри сущности
 // проверяется вызывающей стороной, collectEntities). states - sig.States
 // СОБСТВЕННОЙ (ещё не сплющенной с базовой) сигнатуры ent, нужен
-// resolveOpposesTag для перевода полной формы `` `становится` `` в краткую.
+// resolveOpposesTag для перевода полной формы “ `становится` “ в краткую.
 // overloadedNames - имена методов ent, перегруженных (2+ объявления) в этой
 // же сущности - resolveOpposesTag отказывает явной ошибкой, если тег
-// `` `противоположность:X` `` называет одно из них (см. package doc вызова
+// “ `противоположность:X` “ называет одно из них (см. package doc вызова
 // в collectEntities: X ПО ИМЕНИ среди siblings, при перегруженном X
 // нашёл бы первое попавшееся объявление произвольно).
 func (a *Analyzer) buildMethodSig(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, aliasState map[string]string, enums map[string]map[string]int64, ent *ast.EntityDecl, m *ast.MethodDecl, states map[string]string, overloadedNames map[string]bool) (funcSig, error) {
@@ -998,7 +998,7 @@ func (a *Analyzer) analyzeConstructor(ent *ast.EntityDecl) (*ir.Method, error) {
 		}
 		body[i] = irst
 	}
-	return &ir.Method{Params: params, Body: body, File: ent.File}, nil
+	return &ir.Method{Params: params, Body: body, File: ent.File, Exported: c.Exported}, nil
 }
 
 func (a *Analyzer) analyzeMethod(ent *ast.EntityDecl, m *ast.MethodDecl) (*ir.Method, error) {
@@ -1029,6 +1029,7 @@ func (a *Analyzer) analyzeMethod(ent *ast.EntityDecl, m *ast.MethodDecl) (*ir.Me
 		File:       ent.File,
 		Doc:        m.Doc,
 		Tag:        m.Tag,
+		Exported:   m.Exported,
 	}, nil
 }
 

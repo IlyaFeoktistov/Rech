@@ -78,6 +78,65 @@ func TestResolveGraphTransitiveDependencyAndLibraries(t *testing.T) {
 	}
 }
 
+// TestResolveGraphLibraryPathDefaultsToDependencyDir - зависимость со
+// "сборка.библиотеки" без "путь_библиотек" - LibraryPaths получает
+// СОБСТВЕННЫЙ каталог зависимости (dir) как разумное умолчание, без
+// единой строчки в манифесте потребителя (закрытый (бинарный) Rech-пакет,
+// кладущий .so рядом со своим *.rechproj - docs/SPEC.md).
+func TestResolveGraphLibraryPathDefaultsToDependencyDir(t *testing.T) {
+	repoA := makeGitRepoWithFiles(t, map[string]string{
+		"тест.rechproj": "проект:\n  имя: repoA\nфайлы:\n  главный: главный.rech\nсборка:\n  библиотеки: точка\n",
+		"главный.rech":  "функция ф() { вывести 1 }\n",
+	})
+
+	rootDir := t.TempDir()
+	cacheRoot := t.TempDir()
+	lockPath := filepath.Join(rootDir, ".rechlock")
+	rootDeps := map[string]project.Dependency{
+		"точка": {URL: repoA, Версия: "v1.0.0"},
+	}
+
+	g, err := ResolveGraphWithRoot(rootDeps, cacheRoot, rootDir, lockPath, nil)
+	if err != nil {
+		t.Fatalf("ResolveGraph: %v", err)
+	}
+	depDir, ok := g.Scopes[rootDir]["точка"]
+	if !ok {
+		t.Fatalf("ожидалась зависимость \"точка\", получено %+v", g.Scopes[rootDir])
+	}
+	if len(g.LibraryPaths) != 1 || g.LibraryPaths[0] != depDir {
+		t.Fatalf("ожидался LibraryPaths == [%q] (собственный каталог зависимости), получено %v", depDir, g.LibraryPaths)
+	}
+}
+
+// TestResolveGraphLibraryPathHonorsDependencyOwnPath - зависимость,
+// указавшая СВОЙ "сборка.путь_библиотек" (например, платформенный
+// подкаталог с готовым бинарником) - LibraryPaths несёт этот путь, не
+// каталог самого *.rechproj.
+func TestResolveGraphLibraryPathHonorsDependencyOwnPath(t *testing.T) {
+	repoA := makeGitRepoWithFiles(t, map[string]string{
+		"тест.rechproj": "проект:\n  имя: repoA\nфайлы:\n  главный: главный.rech\nсборка:\n  библиотеки: точка\n  путь_библиотек: сборка/linux-amd64\n",
+		"главный.rech":  "функция ф() { вывести 1 }\n",
+	})
+
+	rootDir := t.TempDir()
+	cacheRoot := t.TempDir()
+	lockPath := filepath.Join(rootDir, ".rechlock")
+	rootDeps := map[string]project.Dependency{
+		"точка": {URL: repoA, Версия: "v1.0.0"},
+	}
+
+	g, err := ResolveGraphWithRoot(rootDeps, cacheRoot, rootDir, lockPath, nil)
+	if err != nil {
+		t.Fatalf("ResolveGraph: %v", err)
+	}
+	depDir := g.Scopes[rootDir]["точка"]
+	want := filepath.Join(depDir, "сборка", "linux-amd64")
+	if len(g.LibraryPaths) != 1 || g.LibraryPaths[0] != want {
+		t.Fatalf("ожидался LibraryPaths == [%q], получено %v", want, g.LibraryPaths)
+	}
+}
+
 // TestResolveGraphCyclicDependencyRejected - repoX зависит от repoY, repoY
 // зависит от repoX - явная ошибка, не бесконечная рекурсия.
 func TestResolveGraphCyclicDependencyRejected(t *testing.T) {

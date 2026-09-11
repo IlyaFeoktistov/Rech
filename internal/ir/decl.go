@@ -519,6 +519,11 @@ type Method struct {
 	// тег_метода(индекс, ключ)/.тег_метода_текст(индекс), тем же принципом,
 	// что и Field.Tag.
 	Tag string
+	// Exported - см. ast.MethodDecl.Exported. internal/backend/cbackend
+	// сверяется с ним (methodCName, mangle.go), чтобы дать C-символу
+	// настоящее (не транслитерированное) имя вида "ИмяСущности_ИмяМетода" -
+	// тем же принципом, что и у Entity.Exported/Function.Exported.
+	Exported bool
 }
 
 // Stmt - общий маркерный интерфейс инструкций IR (как ast.Stmt).

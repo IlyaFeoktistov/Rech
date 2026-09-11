@@ -66,6 +66,22 @@ func checkManglingCollisions(prog *ir.Program) error {
 
 		methodMangled := map[string]string{}
 		for _, m := range ent.Methods {
+			if m.Exported {
+				// Экспортированный метод - настоящее имя (exportedMethodCSymbol,
+				// mangle.go), занимает ОБЩИЙ C-неймспейс с экспортированными
+				// функциями/typedef'ами сущностей (funcMangled/entityMangled
+				// выше), не приватную таблицу methodMangled этой сущности -
+				// тем же принципом, что и у экспортированной функции выше.
+				symbol := exportedMethodCSymbol(ent.Name, m.Name)
+				if other, exists := funcMangled[symbol]; exists {
+					return fmt.Errorf("метод %q сущности %q и объявление %q дают одно и то же C-имя %q - переименуйте одно из них", m.Name, ent.Name, other, symbol)
+				}
+				funcMangled[symbol] = fmt.Sprintf("%s.%s", ent.Name, m.Name)
+				if err := checkParamsAndBodyMangling(m.Params, m.Body); err != nil {
+					return fmt.Errorf("сущность %q: метод %q: %w", ent.Name, m.Name, err)
+				}
+				continue
+			}
 			mangledMethod := mangleMethod(ent.Name, m.Name)
 			if other, exists := methodMangled[mangledMethod]; exists {
 				return fmt.Errorf("сущность %q: методы %q и %q транслитерируются в одно и то же имя %q в C - переименуйте один из них", ent.Name, other, m.Name, mangledMethod)
@@ -78,6 +94,18 @@ func checkManglingCollisions(prog *ir.Program) error {
 		}
 
 		if ent.Ctor != nil {
+			if ent.Ctor.Exported {
+				// Экспортированный конструктор - тем же принципом, что и
+				// экспортированный метод выше: настоящее имя
+				// (exportedCtorCSymbol, mangle.go) в ОБЩЕМ C-неймспейсе с
+				// экспортированными функциями/методами/typedef'ами, не
+				// приватная таблица этой сущности.
+				symbol := exportedCtorCSymbol(ent.Name)
+				if other, exists := funcMangled[symbol]; exists {
+					return fmt.Errorf("конструктор сущности %q и объявление %q дают одно и то же C-имя %q - переименуйте одно из них", ent.Name, other, symbol)
+				}
+				funcMangled[symbol] = ent.Name + ".конструктор"
+			}
 			if err := checkParamsAndBodyMangling(ent.Ctor.Params, ent.Ctor.Body); err != nil {
 				return fmt.Errorf("сущность %q: конструктор: %w", ent.Name, err)
 			}

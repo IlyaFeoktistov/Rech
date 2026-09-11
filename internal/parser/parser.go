@@ -457,9 +457,20 @@ func (p *Parser) collectOneSignature(sigs map[string][]ast.Param, generics map[s
 	case lexer.KwAbstract, lexer.KwEntity, lexer.KwClass, lexer.KwStruct:
 		return p.collectEntitySignature(entityMethods)
 	case lexer.KwExport:
-		if next := p.peekAt(1).Type; next == lexer.KwAbstract || next == lexer.KwEntity || next == lexer.KwClass || next == lexer.KwStruct {
+		next := p.peekAt(1).Type
+		if next == lexer.KwAbstract || next == lexer.KwEntity || next == lexer.KwClass || next == lexer.KwStruct {
 			p.advance() // "экспортировать"
 			return p.collectEntitySignature(entityMethods)
+		}
+		if isExportListStart(next) {
+			// Списковая форма (exportlist.go) не объявляет ни функцию, ни
+			// сущность - только мутирует Exported у уже разобранных узлов,
+			// этому проходу (сигнатуры для естественного вызова) нечего в
+			// ней собирать, но токены нужно съесть целиком - иначе внешний
+			// цикл collectFunctionSignatures увидит "Точка"/"(" как начало
+			// нового (и невалидного) верхнеуровневого объявления.
+			_, err := p.parseExportPathList()
+			return err
 		}
 		p.advance()
 		return nil
@@ -661,6 +672,18 @@ func (p *Parser) parseTopLevelItem(prog *ast.Program, topLevelStmts *[]ast.Stmt,
 		ent.Visibility = vis
 		prog.Entities = append(prog.Entities, ent)
 	case lexer.KwExport:
+		if isExportListStart(p.peekAt(1).Type) {
+			items, err := p.parseExportPathList()
+			if err != nil {
+				return false, err
+			}
+			for _, item := range items {
+				if err := applyExportItem(prog, item); err != nil {
+					return false, err
+				}
+			}
+			break
+		}
 		fn, ent, err := p.parseExportedDecl()
 		if err != nil {
 			return false, err
@@ -988,6 +1011,54 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 			}
 			m3.Doc = doc
 			methods = append(methods, m3)
+
+		case lexer.KwExport:
+			// "экспортировать конструктор(...)" - конструктор, видимый за
+			// границей разделяемой библиотеки (docs/SPEC.md, "Экспорт в
+			// разделяемую библиотеку") - в отличие от метода, конструктор
+			// нельзя вызвать снаружи по умолчанию вовсе, только автор явно
+			// решает, пересекает ли создание объекта границу ABI.
+			if p.peekAt(1).Type == lexer.KwConstructor {
+				if ctor != nil {
+					return nil, fmt.Errorf("%s %q: конструктор объявлен более одного раза", label, name.Value)
+				}
+				p.advance() // "экспортировать"
+				c, err := p.parseConstructor()
+				if err != nil {
+					return nil, fmt.Errorf("%s %q: %w", label, name.Value, err)
+				}
+				c.Exported = true
+				ctor = c
+				break
+			}
+			// "экспортировать имя(...)" - метод, видимый за границей
+			// разделяемой библиотеки - только форма без "статический"/
+			// видимости: экспорт сам по себе делает метод публичным на
+			// границе ABI, сочетание с ними проверяется сразу здесь, а не в
+			// internal/semantic (та же строгость, что и у остальных
+			// модификаторов метода выше).
+			expTok := p.advance()
+			m4, err := p.parseMethod()
+			if err != nil {
+				return nil, fmt.Errorf(
+					"%s %q: %w",
+					label,
+					name.Value,
+					err,
+				)
+			}
+			if m4.IsStatic {
+				return nil, fmt.Errorf("строка %d: \"экспортировать\" перед статическим методом %q не поддержан - экспортируемый метод обязан иметь получателя", expTok.Line, m4.Name)
+			}
+			if m4.IsAbstract {
+				return nil, fmt.Errorf("строка %d: \"экспортировать\" перед абстрактным методом %q не поддержан - экспортированный символ обязан иметь реализацию", expTok.Line, m4.Name)
+			}
+			if m4.Visibility != ast.Public {
+				return nil, fmt.Errorf("строка %d: \"экспортировать\" метода %q не сочетается с модификатором видимости - экспорт сам по себе делает метод видимым за границей библиотеки", expTok.Line, m4.Name)
+			}
+			m4.Exported = true
+			m4.Doc = doc
+			methods = append(methods, m4)
 
 		default:
 			return nil, fmt.Errorf(

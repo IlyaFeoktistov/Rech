@@ -121,7 +121,7 @@ func TestBuildLibProducesLibraryAndHeader(t *testing.T) {
 	dir := t.TempDir()
 	srcPath := writeSource(t, dir, "либа.rech", libSource)
 
-	libPath, hPath, err := newTestCompiler().BuildLib(srcPath, false, nil, nil)
+	libPath, hPath, _, err := newTestCompiler().BuildLib(srcPath, false, nil, nil)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}

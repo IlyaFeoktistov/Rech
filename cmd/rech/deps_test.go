@@ -85,7 +85,7 @@ func TestInstallAndRunResolveExternalDependency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("project.Load: %v", err)
 	}
-	deps, scopes, _, err := resolveDeps(pf)
+	deps, scopes, _, _, err := resolveDeps(pf)
 	if err != nil {
 		t.Fatalf("resolveDeps: %v", err)
 	}

@@ -14,7 +14,7 @@ import (
 func TestGenerateHeaderPropagatesDocComment(t *testing.T) {
 	prog := &ir.Program{Functions: []*ir.Function{
 		{Name: "сумма", Exported: true, Doc: "Складывает два числа.\nВторая строка.",
-			Params: []ir.Param{{Name: "а", Type: ir.TypeInt}, {Name: "б", Type: ir.TypeInt}},
+			Params:     []ir.Param{{Name: "а", Type: ir.TypeInt}, {Name: "б", Type: ir.TypeInt}},
 			ReturnType: ir.TypeInt, HasReturn: true,
 			Body: []ir.Stmt{&ir.ReturnStmt{Value: &ir.BinaryExpr{Op: "+", Left: &ir.Identifier{Name: "а", Type: ir.TypeInt}, Right: &ir.Identifier{Name: "б", Type: ir.TypeInt}, Type: ir.TypeInt}}},
 		},
@@ -36,7 +36,7 @@ func TestGenerateLibFromIRDoesNotRequireEntryPoint(t *testing.T) {
 			Body: []ir.Stmt{&ir.ReturnStmt{Value: &ir.BinaryExpr{Op: "+", Left: &ir.Identifier{Name: "а", Type: ir.TypeInt}, Right: &ir.Identifier{Name: "б", Type: ir.TypeInt}, Type: ir.TypeInt}}},
 		},
 	}}
-	cSource, header, err := GenerateLibFromIR(prog)
+	cSource, header, _, err := GenerateLibFromIR(prog)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestGenerateLibFromIRHidesNonExportedFunction(t *testing.T) {
 		{Name: "публичная", Exported: true, Body: nil},
 		{Name: "приватная", Exported: false, Body: nil},
 	}}
-	cSource, header, err := GenerateLibFromIR(prog)
+	cSource, header, _, err := GenerateLibFromIR(prog)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestGenerateHeaderOpaqueEntityTypedef(t *testing.T) {
 			},
 		},
 	}
-	_, header, err := GenerateLibFromIR(prog)
+	_, header, _, err := GenerateLibFromIR(prog)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}

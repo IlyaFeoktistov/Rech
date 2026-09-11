@@ -29,6 +29,23 @@ type Graph struct {
 	// FFI (Шаг 7), заявляет требование к линковке тем же полем, что и
 	// обычный проект, оно просто попадает в общий список.
 	Libraries []string
+	// LibraryPaths - объединённый, дедуплицированный (в порядке первой
+	// встречи) список каталогов для поиска библиотек из Libraries выше
+	// (-L<путь>/rpath) - собран автоматически, без единой строчки
+	// "сборка.путь_библиотек" в манифесте ПОТРЕБИТЕЛЯ: у каждой
+	// зависимости, объявившей "сборка.библиотеки", берётся её собственный
+	// "сборка.путь_библиотек" (если она сама его указала - например,
+	// подкаталог с бинарником под конкретную платформу), а без него - её
+	// СОБСТВЕННЫЙ каталог (dir, тот же, что и в Scopes) как разумное
+	// умолчание: закрытый (бинарный, без исходников) Rech-пакет,
+	// публикующий готовый .so/.dylib/.dll рядом со своим *.rechproj, не
+	// требует от потребителя вручную угадывать путь к чужому каталогу
+	// кеша (internal/pkgfetch.CacheRoot) - тем же принципом, что и
+	// Libraries, работает для ЛЮБОЙ зависимости с "сборка.библиотеки", не
+	// только для специально оформленного "закрытого пакета" - обычная
+	// FFI-обёртка системной C-библиотеки, случайно кладущая свой .so
+	// рядом с исходниками, получает то же самое бесплатно.
+	LibraryPaths []string
 }
 
 // ResolveGraph - как Resolve, но рекурсивно обходит транзитивные
@@ -61,7 +78,8 @@ func ResolveGraphWithRoot(rootDeps map[string]project.Dependency, cacheRoot, roo
 	}
 	changed := false
 	seenLibs := map[string]bool{}
-	if err := resolveScope(cacheRoot, rootDeps, rootDir, lock, &changed, g, seenLibs, nil, progress); err != nil {
+	seenLibPaths := map[string]bool{}
+	if err := resolveScope(cacheRoot, rootDeps, rootDir, lock, &changed, g, seenLibs, seenLibPaths, nil, progress); err != nil {
 		return nil, err
 	}
 	if changed {
@@ -77,7 +95,7 @@ func ResolveGraphWithRoot(rootDeps map[string]project.Dependency, cacheRoot, roo
 // с собственным *.rechproj - рекурсивно резолвит её "зависимости:" тоже.
 // urlChain - цепочка URL уже посещённых на пути от корня (обнаружение
 // циклов - А зависит от Б, Б прямо или косвенно от А).
-func resolveScope(cacheRoot string, deps map[string]project.Dependency, scopeDir string, lock map[string]LockEntry, changed *bool, g *Graph, seenLibs map[string]bool, urlChain []string, progress io.Writer) error {
+func resolveScope(cacheRoot string, deps map[string]project.Dependency, scopeDir string, lock map[string]LockEntry, changed *bool, g *Graph, seenLibs map[string]bool, seenLibPaths map[string]bool, urlChain []string, progress io.Writer) error {
 	names := make([]string, 0, len(deps))
 	for n := range deps {
 		names = append(names, n)
@@ -108,16 +126,36 @@ func resolveScope(cacheRoot string, deps map[string]project.Dependency, scopeDir
 		if err != nil {
 			return fmt.Errorf("зависимость %q: манифест %s: %w", name, subProjPath, err)
 		}
-		for _, lib := range subPf.Библиотеки() {
+		libs := subPf.Библиотеки()
+		for _, lib := range libs {
 			if !seenLibs[lib] {
 				seenLibs[lib] = true
 				g.Libraries = append(g.Libraries, lib)
 			}
 		}
+		if len(libs) > 0 {
+			// Путь для линковки собранных выше библиотек - собственный
+			// "путь_библиотек" зависимости, если она сама его указала
+			// (например, подкаталог с бинарником под конкретную
+			// платформу), иначе её СОБСТВЕННЫЙ каталог (dir) - разумное
+			// умолчание для закрытого пакета, кладущего .so/.dylib/.dll
+			// прямо рядом со своим *.rechproj (см. package doc
+			// Graph.LibraryPaths).
+			libPaths := subPf.ПутиБиблиотек()
+			if len(libPaths) == 0 {
+				libPaths = []string{dir}
+			}
+			for _, p := range libPaths {
+				if !seenLibPaths[p] {
+					seenLibPaths[p] = true
+					g.LibraryPaths = append(g.LibraryPaths, p)
+				}
+			}
+		}
 		if len(subPf.Зависимости) == 0 {
 			continue
 		}
-		if err := resolveScope(cacheRoot, subPf.Зависимости, dir, lock, changed, g, seenLibs, append(urlChain, dep.URL), progress); err != nil {
+		if err := resolveScope(cacheRoot, subPf.Зависимости, dir, lock, changed, g, seenLibs, seenLibPaths, append(urlChain, dep.URL), progress); err != nil {
 			return err
 		}
 	}
