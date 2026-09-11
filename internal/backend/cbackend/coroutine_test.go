@@ -508,3 +508,61 @@ int main(void) {
 		t.Fatalf("несколько потоков ОС с независимыми планировщиками дали испорченный результат (гонка на разделяемом состоянии планировщика) - получено %q", out)
 	}
 }
+
+// TestCoroutineNestedWaitDone - РЕШАЮЩИЙ тест "дожатого" по прямой
+// просьбе пользователя снятия ограничения (Шаг 132, coroutine.go, package
+// doc про rech_coro_t.resume_ctx/rech_coro_step): корутина "outer",
+// исполняющаяся НА планировщике (запущена и ожидаема "root"'ом через
+// rech_coro_wait_done), сама спавнит "inner" и САМА вызывает
+// rech_coro_wait_done ВЛОЖЕННО, изнутри своего же тела - раньше это было
+// невозможно (общая на процесс/поток rech_sched_ctx), теперь безопасно
+// благодаря resume_ctx, лежащему на СВОЁМ месте C-стека для каждого
+// вложенного вызова rech_coro_step. "inner" ещё и уступает
+// (rech_coro_yield) ПЕРЕД тем, как завершиться - без корректного
+// сохранения/восстановления rech_coro_current вокруг вложенного
+// swapcontext это тоже было бы почвой для порчи состояния. Порядок вывода
+// доказывает, что вложенность работает, а не просто "не падает":
+// "outer running" -> "inner running" -> "outer got inner value: 42" ->
+// "root got outer value: 43".
+func TestCoroutineNestedWaitDone(t *testing.T) {
+	driver := `
+typedef struct { int done; int value; } coro_result_t;
+
+static void coro_inner(void *arg) {
+    coro_result_t *r = (coro_result_t *)arg;
+    printf("inner running\n");
+    rech_coro_yield();
+    r->value = 42;
+    r->done = 1;
+}
+
+static void coro_outer(void *arg) {
+    coro_result_t *r = (coro_result_t *)arg;
+    printf("outer running\n");
+    coro_result_t inner_r;
+    inner_r.done = 0;
+    inner_r.value = 0;
+    rech_coro_spawn(coro_inner, &inner_r);
+    rech_coro_wait_done(&inner_r.done);
+    printf("outer got inner value: %d\n", inner_r.value);
+    r->value = inner_r.value + 1;
+    r->done = 1;
+}
+
+int main(void) {
+    GC_INIT();
+    coro_result_t outer_r;
+    outer_r.done = 0;
+    outer_r.value = 0;
+    rech_coro_spawn(coro_outer, &outer_r);
+    rech_coro_wait_done(&outer_r.done);
+    printf("root got outer value: %d\n", outer_r.value);
+    return 0;
+}
+`
+	out := compileAndRunCoroutineDriver(t, driver)
+	want := "outer running\ninner running\nouter got inner value: 42\nroot got outer value: 43\n"
+	if out != want {
+		t.Fatalf("вложенный rech_coro_wait_done дал неверный результат/порядок - ожидалось %q, получено %q", want, out)
+	}
+}

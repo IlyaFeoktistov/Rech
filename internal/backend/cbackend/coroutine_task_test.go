@@ -33,7 +33,7 @@ func TestGenerateFromIRCoroAwaitEmitsCoroutineWrapper(t *testing.T) {
 	}
 	for _, want := range []string{
 		"#include <gc.h>",
-		"static RECH_THREAD_LOCAL ucontext_t rech_sched_ctx;",
+		"static RECH_THREAD_LOCAL rech_coro_t *rech_coro_queue_head = NULL;",
 		"static void rech_coro_spawn(void (*fn)(void *), void *arg) {",
 		"GC_add_roots(a->base, a->base + arena_bytes);",
 		"static void rech_coro_wait_done(int *done) {",
