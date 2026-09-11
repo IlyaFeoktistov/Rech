@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -222,6 +223,24 @@ func copyTree(src, dst string) error {
 	})
 }
 
+// platformLibraryPath - умолчание для "путь_библиотек" закрытой
+// зависимости, НЕ указавшей его сама: "<dir>/сборка/<GOOS>-<GOARCH>/"
+// ПОТРЕБИТЕЛЯ (runtime.GOOS/GOARCH этого процесса, не того, на котором
+// собирался пакет) - соглашение о раскладке многоплатформенного закрытого
+// пакета (docs/SPEC.md, "Закрытые (бинарные) пакеты") - автор кладёт
+// бинарник под КАЖДУЮ ОС в свой подкаталог (собирает на ней САМ -
+// кросс-компиляции самого Rech всё ещё нет), а `rech build/run` выбирает
+// нужный подкаталог автоматически по платформе, на которой запущен. Если
+// такого подкаталога физически нет на диске (однoплатформенный пакет,
+// автор кладёт бинарник прямо в dir) - dir как раньше, без изменений.
+func platformLibraryPath(dir string) string {
+	platformDir := filepath.Join(dir, "сборка", runtime.GOOS+"-"+runtime.GOARCH)
+	if info, err := os.Stat(platformDir); err == nil && info.IsDir() {
+		return platformDir
+	}
+	return dir
+}
+
 // resolveScope резолвит deps (все объявленные в ОДНОМ *.rechproj, живущем
 // в scopeDir) в g.Scopes[scopeDir], затем для каждой скачанной зависимости
 // с собственным *.rechproj - рекурсивно резолвит её "зависимости:" тоже.
@@ -269,13 +288,18 @@ func resolveScope(cacheRoot string, deps map[string]project.Dependency, scopeDir
 			// Путь для линковки собранных выше библиотек - собственный
 			// "путь_библиотек" зависимости, если она сама его указала
 			// (например, подкаталог с бинарником под конкретную
-			// платформу), иначе её СОБСТВЕННЫЙ каталог (dir) - разумное
-			// умолчание для закрытого пакета, кладущего .so/.dylib/.dll
-			// прямо рядом со своим *.rechproj (см. package doc
-			// Graph.LibraryPaths).
+			// платформу); без него - platformLibraryPath пробует
+			// "сборка/<GOOS>-<GOARCH>/" ПОТРЕБИТЕЛЯ (соглашение о
+			// раскладке многоплатформенного закрытого пакета - автор сам
+			// собирает и кладёт бинарник под КАЖДУЮ ОС в свой подкаталог,
+			// кросс-компиляции самого Rech всё ещё нет), а если такого
+			// подкаталога физически нет - её СОБСТВЕННЫЙ каталог (dir) -
+			// разумное умолчание для однoплатформенного закрытого пакета,
+			// кладущего .so/.dylib/.dll прямо рядом со своим .rechproj
+			// (см. package doc Graph.LibraryPaths).
 			libPaths := subPf.ПутиБиблиотек()
 			if len(libPaths) == 0 {
-				libPaths = []string{dir}
+				libPaths = []string{platformLibraryPath(dir)}
 			}
 			for _, p := range libPaths {
 				if !seenLibPaths[p] {

@@ -3,6 +3,7 @@ package pkgfetch
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -240,5 +241,62 @@ func TestResolveGraphMaterializeSkipsRecopyOnUnchangedCommit(t *testing.T) {
 	}
 	if _, err := os.Stat(sentinel); err != nil {
 		t.Fatalf("метка исчезла - зависимость была перекопирована, хотя коммит не менялся: %v", err)
+	}
+}
+
+// TestResolveGraphLibraryPathAutoSelectsConsumerPlatform - зависимость без
+// собственного "путь_библиотек", но с подкаталогом "сборка/<GOOS>-<GOARCH>/"
+// ПОТРЕБИТЕЛЯ - LibraryPaths выбирает ИМЕННО его, не голый каталог
+// зависимости (авто-выбор платформы, docs/ROADMAP.md, Шаг 135).
+func TestResolveGraphLibraryPathAutoSelectsConsumerPlatform(t *testing.T) {
+	platformDir := runtime.GOOS + "-" + runtime.GOARCH
+	repoA := makeGitRepoWithFiles(t, map[string]string{
+		"тест.rechproj":                        "проект:\n  имя: repoA\nфайлы:\n  главный: главный.rech\nсборка:\n  библиотеки: точка\n",
+		"главный.rech":                          "функция ф() { вывести 1 }\n",
+		"сборка/" + platformDir + "/маркер.txt": "бинарник для текущей платформы\n",
+	})
+
+	rootDir := t.TempDir()
+	cacheRoot := t.TempDir()
+	lockPath := filepath.Join(rootDir, ".rechlock")
+	rootDeps := map[string]project.Dependency{
+		"точка": {URL: repoA, Версия: "v1.0.0"},
+	}
+
+	g, err := ResolveGraphWithRoot(rootDeps, cacheRoot, rootDir, lockPath, nil)
+	if err != nil {
+		t.Fatalf("ResolveGraph: %v", err)
+	}
+	depDir := g.Scopes[rootDir]["точка"]
+	want := filepath.Join(depDir, "сборка", platformDir)
+	if len(g.LibraryPaths) != 1 || g.LibraryPaths[0] != want {
+		t.Fatalf("ожидался LibraryPaths == [%q] (платформенный подкаталог), получено %v", want, g.LibraryPaths)
+	}
+}
+
+// TestResolveGraphLibraryPathIgnoresOtherPlatformDir - подкаталог под
+// ЧУЖУЮ платформу не подходит - умолчание остаётся голым каталогом
+// зависимости, как для однoплатформенного пакета.
+func TestResolveGraphLibraryPathIgnoresOtherPlatformDir(t *testing.T) {
+	repoA := makeGitRepoWithFiles(t, map[string]string{
+		"тест.rechproj": "проект:\n  имя: repoA\nфайлы:\n  главный: главный.rech\nсборка:\n  библиотеки: точка\n",
+		"главный.rech":  "функция ф() { вывести 1 }\n",
+		"сборка/совсем-не-такая-платформа/маркер.txt": "чужая платформа\n",
+	})
+
+	rootDir := t.TempDir()
+	cacheRoot := t.TempDir()
+	lockPath := filepath.Join(rootDir, ".rechlock")
+	rootDeps := map[string]project.Dependency{
+		"точка": {URL: repoA, Версия: "v1.0.0"},
+	}
+
+	g, err := ResolveGraphWithRoot(rootDeps, cacheRoot, rootDir, lockPath, nil)
+	if err != nil {
+		t.Fatalf("ResolveGraph: %v", err)
+	}
+	depDir := g.Scopes[rootDir]["точка"]
+	if len(g.LibraryPaths) != 1 || g.LibraryPaths[0] != depDir {
+		t.Fatalf("ожидался LibraryPaths == [%q] (голый каталог зависимости), получено %v", depDir, g.LibraryPaths)
 	}
 }
