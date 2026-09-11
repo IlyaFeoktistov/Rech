@@ -217,6 +217,11 @@ go test ./internal/backend/cbackend/...   # только cbackend
 go test ./internal/interp/...              # только интерпретатор
 ```
 
+Или `make verify` (`Makefile` в корне) - `go vet`/`go test`/`./check_examples.sh`
+одной командой, тот же порядок, что и чуть ниже. `make build`/`make check`/
+`make fmt` - те же команды по отдельности, `make docs`/`make docs-serve` -
+сайт документации (см. README.md).
+
 `go test` не гоняет настоящий `cc` (см. "Частые ловушки" выше) и не строит
 `examples/` вовсе - изменение, которое ломает существующий пример (новая
 проверка семантики, переименованный/ставший зарезервированным builtin и

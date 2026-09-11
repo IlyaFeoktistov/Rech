@@ -261,15 +261,19 @@ python3 -m venv .venv-docs
 .venv-docs/bin/pip install -r requirements-docs.txt
 ```
 
-Дальше, из корня репозитория:
+Дальше, из корня репозитория (`make` сам создаст `.venv-docs` при первом
+запуске, если его ещё нет):
 
 ```sh
-# Локальный live-просмотр с автообновлением при правке .md (http://127.0.0.1:8000):
-.venv-docs/bin/mkdocs serve
+make docs         # собрать статический сайт в site/
+make docs-serve   # локальный live-просмотр с автообновлением (http://127.0.0.1:8000)
+```
 
-# Собрать статический сайт в site/ (можно открыть site/index.html
-# напрямую или выложить на любой статический хостинг):
+Или теми же командами напрямую, без `make`:
+
+```sh
 .venv-docs/bin/mkdocs build
+.venv-docs/bin/mkdocs serve
 ```
 
 `site/` и `.venv-docs/` - в `.gitignore`, не коммитятся.
