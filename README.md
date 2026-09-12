@@ -140,7 +140,9 @@ run ./cmd/rech ...` без установки вовсе - тоже можно, 
 
 - Debian/Ubuntu - `apt install libssl-dev libnghttp2-dev libpng-dev libjpeg-dev`.
 - Fedora - `dnf install openssl-devel libnghttp2-devel libpng-devel libjpeg-turbo-devel`.
-- macOS (Homebrew) - `brew install openssl nghttp2 libpng jpeg`.
+- macOS (Homebrew) - `brew install openssl@3 nghttp2 libpng jpeg` (голое
+  "openssl" - больше не formula в современном Homebrew, только версионные
+  "openssl@3"/"openssl@1.1").
 - Windows с vcpkg - `vcpkg install openssl nghttp2 libpng libjpeg-turbo` (не
   проверялось напрямую, тем же принципом, что и `bdwgc` выше).
 - Windows с MinGW-w64 через MSYS2 (не проверялось напрямую) -
