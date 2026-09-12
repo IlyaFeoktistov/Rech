@@ -3,7 +3,9 @@ package main
 import (
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -34,6 +36,39 @@ func writeTestFile(t *testing.T, path, src string) {
 	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
+}
+
+// buildEchoEnvBinary - настоящий нативный исполняемый файл (не shell-
+// скрипт), печатающий значение $RECH_TEST_VAR - runBinary (main.go) в
+// продакшене всегда запускает настоящий бинарник, собранный cbackend'ом
+// (.exe на Windows), поэтому и тест должен проверять его именно на таком
+// файле: ".sh" со сработавшим "#!/bin/sh" на Windows не запускается вовсе
+// (CreateProcess не понимает shebang, "%1 is not a valid Win32 application").
+// "go build" даёт один и тот же настоящий нативный бинарник на любой ОС без
+// платформенных развилок в самом тесте.
+func buildEchoEnvBinary(t *testing.T, dir string) string {
+	t.Helper()
+	srcPath := filepath.Join(dir, "echo_env.go")
+	writeTestFile(t, srcPath, `package main
+
+import (
+	"fmt"
+	"os"
+)
+
+func main() {
+	fmt.Println(os.Getenv("RECH_TEST_VAR"))
+}
+`)
+	binPath := filepath.Join(dir, "echo_env")
+	if runtime.GOOS == "windows" {
+		binPath += ".exe"
+	}
+	cmd := exec.Command("go", "build", "-o", binPath, srcPath)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("go build echo_env: %v\n%s", err, out)
+	}
+	return binPath
 }
 
 func TestRunTestsComposerStyleOutput(t *testing.T) {
@@ -132,15 +167,11 @@ func TestParseBuildArgsCodeAndPathConflictFails(t *testing.T) {
 // задана вовсе.
 func TestRunBinaryPassesEnv(t *testing.T) {
 	dir := t.TempDir()
-	scriptPath := filepath.Join(dir, "echo_env.sh")
-	writeTestFile(t, scriptPath, "#!/bin/sh\necho \"$RECH_TEST_VAR\"\n")
-	if err := os.Chmod(scriptPath, 0o755); err != nil {
-		t.Fatalf("chmod: %v", err)
-	}
+	binPath := buildEchoEnvBinary(t, dir)
 
 	os.Unsetenv("RECH_TEST_VAR")
 	out := captureStdout(t, func() {
-		if err := runBinary(scriptPath, map[string]string{"RECH_TEST_VAR": "из_манифеста"}); err != nil {
+		if err := runBinary(binPath, map[string]string{"RECH_TEST_VAR": "из_манифеста"}); err != nil {
 			t.Fatalf("runBinary: %v", err)
 		}
 	})
@@ -156,15 +187,11 @@ func TestRunBinaryPassesEnv(t *testing.T) {
 // задать порт контейнеру извне стало бы невозможно.
 func TestRunBinaryExternalEnvOverridesManifest(t *testing.T) {
 	dir := t.TempDir()
-	scriptPath := filepath.Join(dir, "echo_env.sh")
-	writeTestFile(t, scriptPath, "#!/bin/sh\necho \"$RECH_TEST_VAR\"\n")
-	if err := os.Chmod(scriptPath, 0o755); err != nil {
-		t.Fatalf("chmod: %v", err)
-	}
+	binPath := buildEchoEnvBinary(t, dir)
 
 	t.Setenv("RECH_TEST_VAR", "снаружи")
 	out := captureStdout(t, func() {
-		if err := runBinary(scriptPath, map[string]string{"RECH_TEST_VAR": "из_манифеста"}); err != nil {
+		if err := runBinary(binPath, map[string]string{"RECH_TEST_VAR": "из_манифеста"}); err != nil {
 			t.Fatalf("runBinary: %v", err)
 		}
 	})

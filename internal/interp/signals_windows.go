@@ -3,8 +3,9 @@
 package interp
 
 import (
-	"errors"
 	"syscall"
+
+	"golang.org/x/sys/windows"
 )
 
 // signalOrdinalToOS - Windows не знает POSIX-сигналов вообще, Go определяет
@@ -54,9 +55,31 @@ func init() {
 }
 
 // signalKill - Windows не знает kill(2) (syscall.Kill там не существует
-// вовсе, в отличие от Linux/Darwin) - настоящей отправки произвольного
-// сигнала произвольному pid на Windows нет в принципе (см. package doc
-// выше), "отправить_сигнал" здесь всегда паникует rtmsg.SignalSendFailed.
+// вовсе, в отличие от Linux/Darwin) - настоящей ДОСТАВКИ произвольного
+// сигнала (в POSIX-смысле - перехватываемого получателем через
+// "получен_сигнал") произвольному pid на Windows нет в принципе (см.
+// package doc выше про 13 sig-имён, которые Go определяет лишь для
+// исходной совместимости). Для ЧУЖОГО процесса (не себя самого) у "kill"
+// есть только ОДНО настоящее исполнимое действие на Windows - остановить
+// его целиком: TerminateProcess (тот же примитив, которым Go сам реализует
+// (*os.Process).Kill() на этой ОС) - соответствует POSIX-конвенции "128 +
+// номер сигнала" для кода завершения (WaitStatus.Signaled() у Go на
+// Windows всегда false, см. syscall/syscall_windows.go - "дождаться_
+// процесса", signals.go, читает ExitCode() напрямую, поэтому именно ЭТОТ
+// код возврата и должен туда попасть). Разница с Unix - там ЛЮБОЙ сигнал
+// из 13 (включая, например, SIGHUP) реально доставляется и может быть
+// перехвачен получателем; здесь - только останавливает его безусловно,
+// независимо от того, какой из 13 запрошен. Для СЕБЯ САМОГО (pid ==
+// os.Getpid()) это означало бы самозавершение вместо доставки - не то,
+// что нужно "получен_сигнал"-циклу (TestSignalSendDeliversToOwnProcess) -
+// но там ordinal - SIGUSR2, который на Windows sigUnsupported (signalSend,
+// signals.go, паникует ДО вызова этой функции), так что этот случай сюда
+// и не доходит.
 func signalKill(pid int, sig syscall.Signal) error {
-	return errors.New("signal delivery is not supported on Windows")
+	h, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, uint32(pid))
+	if err != nil {
+		return err
+	}
+	defer windows.CloseHandle(h)
+	return windows.TerminateProcess(h, uint32(128+int(sig)))
 }
