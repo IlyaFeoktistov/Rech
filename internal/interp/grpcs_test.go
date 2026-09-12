@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -123,7 +124,7 @@ func TestGRPCSServerAcceptsRealTLSClientOverALPN(t *testing.T) {
     grpc_отправить_сообщение(поток, байты_из_строки("ответ по TLS"))
     grpc_завершить(поток, 0, "")
 }
-`, port, certPath, keyPath))
+`, port, filepath.ToSlash(certPath), filepath.ToSlash(keyPath)))
 
 	res := <-clientDone
 	if res.err != nil {

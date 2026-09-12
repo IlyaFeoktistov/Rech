@@ -96,6 +96,12 @@ func cacheDirFor(root, url, version string) (string, error) {
 	if trimmed == "" {
 		return "", fmt.Errorf("пустой URL")
 	}
+	// ":" встречается в scp-style git-URL ("git@host:путь") и в путях
+	// локальных каталогов на Windows ("C:\..." - тесты используют такие
+	// пути как URL для клонирования локального репозитория): на Windows
+	// это превращает результат filepath.Join в невалидный путь с двумя
+	// "дисками" внутри одного пути, поэтому заменяем его до склейки.
+	trimmed = strings.ReplaceAll(trimmed, ":", "_")
 	safeVersion := strings.ReplaceAll(version, "/", "_")
 	return filepath.Join(root, trimmed+"@"+safeVersion), nil
 }

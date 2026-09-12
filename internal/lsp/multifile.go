@@ -63,7 +63,25 @@ func uriToPath(uri string) string {
 	if err != nil || u.Scheme != "file" {
 		return ""
 	}
-	return u.Path
+	return uriPathToOSPath(u.Path)
+}
+
+// uriPathToOSPath - обратное к osPathToURIPath ниже: "/C:/Users/..." (буква
+// диска Windows, экранированная лишним ведущим "/" по RFC 8089) -> "C:/...",
+// "/tmp/..." (обычный Unix-путь) остаётся как есть - отличить одно от
+// другого можно только по виду самого пути (буква диска + ":" сразу после
+// ведущего "/"), в самом URI разметки об ОС нет. filepath.FromSlash в конце
+// - на Windows "/" внутри пути (в т. ч. дальше буквы диска) не то же самое,
+// что "\", module.Load/os.ReadFile ждут родной разделитель.
+func uriPathToOSPath(p string) string {
+	if len(p) >= 4 && p[0] == '/' && isDriveLetter(p[1]) && p[2] == ':' && p[3] == '/' {
+		p = p[1:]
+	}
+	return filepath.FromSlash(p)
+}
+
+func isDriveLetter(b byte) bool {
+	return (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
 }
 
 // fileURI - обратное к uriToPath, для файлов, найденных на диске через
@@ -71,7 +89,22 @@ func uriToPath(uri string) string {
 // module.Module) - url.URL.String() сам percent-encode'ит не-ASCII сегменты
 // path обратно (симметрично uriToPath), не строит их конкатенацией строк.
 func fileURI(path string) string {
-	return (&url.URL{Scheme: "file", Path: path}).String()
+	return (&url.URL{Scheme: "file", Path: osPathToURIPath(path)}).String()
+}
+
+// osPathToURIPath - "C:\Users\..." (Windows) -> "/C:/Users/..." (RFC 8089 -
+// буква диска экранируется ЛИШНИМ ведущим "/", иначе "file://C:\Users\..."
+// у url.URL.String() выглядит как "file://<host>:<port>..." - "C" читается
+// как host, "\Users\..." - как невалидный порт); "/tmp/..." (Unix) уже
+// начинается с "/" - остаётся как есть, лишний "/" не добавляется.
+// filepath.ToSlash - url.URL.Path ожидает "/" как разделитель сегментов
+// пути, не "\".
+func osPathToURIPath(path string) string {
+	p := filepath.ToSlash(path)
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	return p
 }
 
 // tryLink пытается разрешить path (и весь граф "использовать" от него) тем
