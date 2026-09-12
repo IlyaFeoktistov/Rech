@@ -394,6 +394,11 @@ func genericMethodSigs(template string, elem ir.Type) (map[string]funcSig, bool)
 			"удалить": {Params: []ir.Type{ir.TypeInt}, ReturnType: elem, HasReturn: true},
 			"длина":   {ReturnType: ir.TypeInt, HasReturn: true},
 			"пусто":   {ReturnType: ir.TypeBool, HasReturn: true},
+			// "первый"/"последний" - тот же элемент, что "получить(0)"/
+			// "получить(длина - 1)" - пользователь явно попросил (много
+			// мест писали "получить(0)" вместо явного "первый элемент").
+			"первый":    {ReturnType: elem, HasReturn: true},
+			"последний": {ReturnType: elem, HasReturn: true},
 		}, true
 	case "Стопка":
 		return map[string]funcSig{

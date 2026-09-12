@@ -233,7 +233,8 @@ func (in *Interp) evalAstBinary(e *ast.BinaryExpr, env *Env, this *entityObj) (V
 }
 
 // evalAstCollectionMethod - только для чтения (длина/пусто/получить/верх/
-// первый у Список/Стопка/Очередь; длина/пусто/получить/содержит у Словарь),
+// первый/последний у Список/Стопка/Очередь; длина/пусто/получить/содержит
+// у Словарь),
 // без мутации (добавить/положить/установить/снять/извлечь/удалить) - watch-
 // выражение не должно незаметно менять состояние программы (в отличие от
 // вызова обычной функции/метода выше, где это уже риск, на который идут
@@ -275,6 +276,11 @@ func (in *Interp) evalAstCollectionMethod(obj *entityObj, method string, args []
 			return Value{}, fmt.Errorf("%s пуста", obj.typeName)
 		}
 		return obj.coll.elems[0], nil
+	case "последний":
+		if len(obj.coll.elems) == 0 {
+			return Value{}, fmt.Errorf("%s пуста", obj.typeName)
+		}
+		return obj.coll.elems[len(obj.coll.elems)-1], nil
 	case "длина":
 		return intValue(int64(len(obj.coll.elems))), nil
 	case "пусто":

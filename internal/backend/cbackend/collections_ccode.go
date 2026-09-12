@@ -32,6 +32,8 @@ func listCollectionCCode(name, elemC string) string {
 	remove := mangleMethod(name, "удалить")
 	length := mangleMethod(name, "длина")
 	empty := mangleMethod(name, "пусто")
+	first := mangleMethod(name, "первый")
+	last := mangleMethod(name, "последний")
 	outOfRange := escapeCString(rtmsg.IndexOutOfRange(name))
 	addr := structName + "_addr"
 
@@ -104,7 +106,19 @@ static bool %[8]s(%[2]s *this_) {
     return this_->len == 0;
 }
 
-`, elemC, structName, add, get, set, length, outOfRange, empty, addr, remove)
+// %[11]s/%[12]s - "первый()"/"последний()" - тот же элемент, что и %[4]s(0)/
+// %[4]s(длина-1), переиспользует её же проверку границ/паническое
+// сообщение (пустой список - тот же "выход за границы", не отдельная
+// панику).
+static %[1]s %[11]s(%[2]s *this_) {
+    return %[4]s(this_, 0);
+}
+
+static %[1]s %[12]s(%[2]s *this_) {
+    return %[4]s(this_, this_->len - 1);
+}
+
+`, elemC, structName, add, get, set, length, outOfRange, empty, addr, remove, first, last)
 }
 
 // stackCollectionCCode - как listCollectionCCode, для "Стопка<T>" (LIFO).
