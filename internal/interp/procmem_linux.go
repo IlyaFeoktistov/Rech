@@ -27,8 +27,29 @@ const procMemFindMaxRegionSize = 256 * 1024 * 1024
 // procAttach ниже про причину, почему это вообще нужно).
 var ptraceSessions sync.Map
 
+// ptraceCmd - произвольная функция fn, которую нужно выполнить НА
+// залоченном ОС-потоке сессии (см. package doc procAttach) - регистры/
+// точки останова/возобновить (tier3, procregs_linux.go) настолько же
+// thread-affine, насколько и сам attach/detach (все - часть одного
+// ptrace-протокола) - тем же каналом, что и раньше, просто действие
+// вместо жёстко зашитого "отключиться".
 type ptraceCmd struct {
+	fn   func() error
 	done chan error
+}
+
+// runOnPtraceSession выполняет fn на залоченном ОС-потоке уже
+// существующей ptrace-сессии pid - общая точка входа для ЛЮБОЙ ptrace-
+// операции этого файла и procregs_linux.go (регистры/точки останова/
+// возобновить). ok=false - сессии нет (не подключены/уже отключились).
+func runOnPtraceSession(pid int64, fn func() error) (err error, ok bool) {
+	v, loaded := ptraceSessions.Load(pid)
+	if !loaded {
+		return nil, false
+	}
+	done := make(chan error, 1)
+	v.(chan ptraceCmd) <- ptraceCmd{fn: fn, done: done}
+	return <-done, true
 }
 
 // procAttach - "подключиться_к_процессу(pid): Процесс" - ptrace(PTRACE_
@@ -64,8 +85,9 @@ func procAttach(pid int64) {
 			return
 		}
 		started <- nil
-		cmd := <-ch
-		cmd.done <- syscall.PtraceDetach(int(pid))
+		for cmd := range ch {
+			cmd.done <- cmd.fn()
+		}
 	}()
 	if err := <-started; err != nil {
 		panicRuntime("%s", rtmsg.ProcAttachFailed)
@@ -75,15 +97,20 @@ func procAttach(pid int64) {
 
 // procDetach - "отключиться" (Процесс, метод-сахар "отключиться_от_
 // процесса") - отправляет команду детача той же горутине/потоку, что
-// выполнил procAttach (см. package doc там).
+// выполнил procAttach (см. package doc там), затем закрывает канал -
+// сессия-горутина видит закрытый канал на следующей итерации "for cmd :=
+// range ch" и естественным образом завершается (никакой утечки горутин).
 func procDetach(pid int64) {
-	v, ok := ptraceSessions.LoadAndDelete(pid)
-	if !ok {
+	v, loaded := ptraceSessions.LoadAndDelete(pid)
+	if !loaded {
 		panicRuntime("%s", rtmsg.ProcDetachFailed)
 	}
+	ch := v.(chan ptraceCmd)
 	done := make(chan error, 1)
-	v.(chan ptraceCmd) <- ptraceCmd{done: done}
-	if err := <-done; err != nil {
+	ch <- ptraceCmd{fn: func() error { return syscall.PtraceDetach(int(pid)) }, done: done}
+	err := <-done
+	close(ch)
+	if err != nil {
 		panicRuntime("%s", rtmsg.ProcDetachFailed)
 	}
 }

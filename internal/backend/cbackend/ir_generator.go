@@ -1283,6 +1283,13 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// windows.h, подключённый безусловно выше.
 		sb.WriteString("#ifdef __linux__\n#include <sys/ptrace.h>\n#include <sys/uio.h>\n#include <sys/wait.h>\n#include <sys/types.h>\n#include <unistd.h>\n#endif\n")
 	}
+	if ctx.usesProcRegs {
+		// <sys/user.h> - struct user_regs_struct (PTRACE_GETREGS/SETREGS,
+		// procregs.go) - Linux-специфичный заголовок (тот же принцип, что
+		// и usesProcMem выше). На Windows не нужен - CONTEXT уже объявлена
+		// через windows.h.
+		sb.WriteString("#ifdef __linux__\n#include <sys/user.h>\n#endif\n")
+	}
 	if ctx.usesSockets {
 		// <errno.h> - только POSIX-ветка: "принять"/"установить_таймаут"
 		// различают "истёк таймаут" (EAGAIN/EWOULDBLOCK) от настоящей
@@ -1638,7 +1645,15 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// ниже (файловый ввод-вывод), и httpBytesHelpers (сетевой) - общий
 	// флаг, эмитится РОВНО один раз для программы, использующей и то, и
 	// другое сразу.
-	appendCodeIf(&sb, ctx.usesByteListWrap, bytesWrapHelper())
+	// ctx.usesProcMem - живой найденный баг: rech_proc_read (procmem.go,
+	// эмитируется ОДНИМ куском со всеми функциями мини-отладчика при
+	// подключиться_к_процессу/отключиться_от_процесса/регистры_процесса/
+	// точке останова/возобновить - не только настоящем чтении памяти)
+	// безусловно зовёт rech_bytes_wrap - гейтить отдельным флагом на
+	// КАЖДОМ вызывающем месте (internal/backend/cbackend/builtins_
+	// shared.go) ненадёжно, легко забыть при следующей функции того же
+	// семейства - надёжнее здесь, в точке эмиссии самого rech_proc_read.
+	appendCodeIf(&sb, ctx.usesByteListWrap || ctx.usesProcMem, bytesWrapHelper())
 	// http2SessionOpsCode - после socketHelpers/socketHelpersTLS
 	// (rech_connect_tcp) И bytesWrapHelper выше (rech_http2_read_data зовёт
 	// rech_bytes_wrap) И typedefs (её typedef "HTTP2Поток" уже должен быть
@@ -1769,6 +1784,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	appendCodeIf(&sb, ctx.usesSubprocess, subprocessRuntimeCode)
 	appendCodeIf(&sb, ctx.usesProcMem, procMemRuntimeCode)
 	appendCodeIf(&sb, ctx.usesProcMemFind, procMemFindHelper())
+	appendCodeIf(&sb, ctx.usesProcRegs, procRegsRuntimeCode())
 	appendCodeIf(&sb, ctx.usesConsole, consoleRuntimeCode())
 	appendCodeIf(&sb, ctx.usesNonBlockingRead, nonBlockingReadRuntimeCode())
 	// "rech_db_t" сам уже виден (dbHandleTypedefCode, эмитирован раньше
