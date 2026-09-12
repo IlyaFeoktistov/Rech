@@ -81,7 +81,7 @@ func (d *doc) localOccurrences(scope *funcScope, name string) []occPos {
 // topLevelOccurrences - все вхождения имени верхнего уровня (функция/
 // сущность/константа модуля) во всём документе - буквальным совпадением
 // текста, без словоформ (глагол естественного вызова и имя метода/функции
-// пишутся ровно как объявлены, без спряжения - см. docs/GRAMMAR.md,
+// пишутся ровно как объявлены, без спряжения - см. docs/GRAMMAR_DRAFT.md,
 // natural_method_call.go).
 func (d *doc) topLevelOccurrences(name string) []occPos {
 	from, to := 1, d.tokens[len(d.tokens)-1].Line

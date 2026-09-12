@@ -3,7 +3,7 @@ package morph
 import "testing"
 
 // golden-таблица словоформ, сверенная вручную с реальным русским
-// словоизменением - см. docs/MORPHOLOGY.md, "Стратегия тестирования".
+// словоизменением - см. docs/MORPHOLOGY_DESIGN.md, "Стратегия тестирования".
 // Ошибка здесь означает ошибку в данных (окончаниях), а не в логике.
 func TestNounParadigms(t *testing.T) {
 	cases := []struct {
@@ -296,7 +296,7 @@ func TestDictionaryRegisterNounPluralForm(t *testing.T) {
 // TestDictionaryRegisterNounFullException проверяет "список" -
 // nounFullExceptions (беглая гласная + написание "и" после заднеязычной во
 // мн.ч.), первое слово, потребовавшее готовой парадигмы вместо генератора
-// (docs/MORPHOLOGY.md, "Полностью готовая парадигма без генератора").
+// (docs/MORPHOLOGY_DESIGN.md, "Полностью готовая парадигма без генератора").
 func TestDictionaryRegisterNounFullException(t *testing.T) {
 	d := NewDictionary()
 	if err := d.RegisterNoun("список", Inanimate); err != nil {

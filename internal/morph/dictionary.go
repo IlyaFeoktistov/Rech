@@ -35,7 +35,7 @@ type NounInfo struct {
 // Analysis - один из возможных разборов словоформы, найденной в
 // Dictionary.Analyze. Для существительных заполнен Tag, для глаголов -
 // VerbForm. Срез из нескольких Analysis для одной словоформы - это
-// синкретизм падежей (см. docs/MORPHOLOGY.md) или совпадение словоформ
+// синкретизм падежей (см. docs/MORPHOLOGY_DESIGN.md) или совпадение словоформ
 // разных лемм, а не ошибка - разрешать неоднозначность (по ожидаемому
 // падежу параметра и т.п.) должен вызывающий код (парсер, шаг 3).
 type Analysis struct {
@@ -76,7 +76,7 @@ func (d *Dictionary) addReverse(form string, a Analysis) {
 // в следующем порядке: словарь исключений (exceptions.go) -> классификатор
 // по окончанию (ClassifyByEnding) -> для слов на "-ь" (там, где окончание
 // само по себе не определяет род) - справочный словарь OpenCorpora через
-// gomorphy (см. gomorphy_source.go и docs/MORPHOLOGY.md, "gomorphy: узкое
+// gomorphy (см. gomorphy_source.go и docs/MORPHOLOGY_DESIGN.md, "gomorphy: узкое
 // использование") -> для слов на "-ы"/"-и" (переменная объявлена сразу во
 // множественном числе, как обычно и называют коллекции - "сервисы",
 // "элементы") - попытка восстановить единственное число и проверить его
@@ -231,7 +231,7 @@ func (d *Dictionary) FormOf(lemma string, c Case) (string, bool) {
 
 // Analyze возвращает все известные разборы словоформы. Пустой срез - слово
 // не входит в словарь программы (обычный текст, а не идентификатор/системное
-// слово). Разрешение неоднозначности - на вызывающей стороне (docs/MORPHOLOGY.md).
+// слово). Разрешение неоднозначности - на вызывающей стороне (docs/MORPHOLOGY_DESIGN.md).
 func (d *Dictionary) Analyze(wordform string) []Analysis {
 	return d.reverse[wordform]
 }
