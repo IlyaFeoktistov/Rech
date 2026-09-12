@@ -1078,10 +1078,11 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// exit() объявлен - расхождение между двумя списками значило "exit()
 	// вызывается, а <stdlib.h> не подключён" (implicit-function-declaration
 	// - GCC на Linux это лишь предупреждение, но Apple Clang - жёсткая
-	// ошибка компиляции; живой баг, найден по логам CI 2026-09-12 -
-	// examples/обобщённые/коробка.rech и examples/основы/рефлексия.rech,
-	// единственные, что взводят usesNullables/UsesReflection без остальных
-	// условий ниже).
+	// ошибка компиляции). usesNullables фактически истинен почти всегда -
+	// встроенное "Исключение" безусловно регистрирует "?Целое" для поля
+	// "код" (см. package doc systemExceptionFields), значит panicHelper (а
+	// с ним и <stdlib.h>) эмитится в подавляющем большинстве программ, не
+	// только там, где пользователь сам пишет "?Тип".
 	ctx.includesStdlibH = ctx.usesConcat || usesGenerics || usesNullables || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesColor || ctx.usesQueryParams || ctx.usesCookies || ctx.usesRandom || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesRegex || ctx.usesHTTPHeaders || hasStructTargets || ctx.usesExit || ctx.usesTZ || ctx.usesHumanDate || prog.UsesReflection
 	ctx.includesMathH = ctx.usesMath
 	for _, ext := range prog.ExternFuncs {
