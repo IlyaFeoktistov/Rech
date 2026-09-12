@@ -1,4 +1,4 @@
-.PHONY: build vet test check fmt fmt-write verify install deb windows-installer installers hooks-install docs docs-serve clean
+.PHONY: build vet test check fmt fmt-write verify install deb windows-installer installers hooks-install docs docs-serve docs-image clean
 
 # Собрать компилятор в ./rech (тот же путь, что и в README.md/DEVELOPMENT.md) -
 # gitignored, не коммитится.
@@ -69,6 +69,12 @@ docs: .venv-docs/bin/mkdocs
 
 docs-serve: .venv-docs/bin/mkdocs
 	.venv-docs/bin/mkdocs serve
+
+# То же самое (mkdocs build), но упаковано в Docker-образ с nginx поверх -
+# именно его пушит .github/workflows/docs.yml и монтирует rechlang-site/
+# kubernetes под "/docs" (см. их README).
+docs-image:
+	docker build -f docs.Dockerfile -t rech-docs .
 
 clean:
 	rm -f rech

@@ -302,7 +302,14 @@ python3 -m venv .venv-docs
 ```sh
 make docs         # собрать статический сайт в site/
 make docs-serve   # локальный live-просмотр с автообновлением (http://127.0.0.1:8000)
+make docs-image   # то же самое, в Docker-образе с nginx (docs.Dockerfile)
 ```
+
+Docker-образ (`make docs-image`) - тот же, что публикует
+`.github/workflows/docs.yml` в GHCR (`ghcr.io/ilyafeoktistov/rech-docs`)
+при каждом мерже в `main` - его монтирует под путём `/docs` сайт языка
+([rechlang-site](https://github.com/IlyaFeoktistov/rechlang-site)/
+[kubernetes-манифесты](https://github.com/IlyaFeoktistov/rech-kubernetes)).
 
 Или теми же командами напрямую, без `make`:
 
