@@ -95,7 +95,11 @@ func TestRunCommandCapturesOutputSeparately(t *testing.T) {
 `)
 	// cmd.exe (Windows) завершает строки "echo" через "\r\n", sh - через
 	// "\n" - само разделение stdout/stderr (то, что здесь проверяется) от
-	// вида перевода строки не зависит.
+	// вида перевода строки не зависит. "1>&2" в исходной команде тоже
+	// требует пробела ПЕРЕД собой (иначе слился бы с "ошибка" в одно
+	// слово) - тот же квирк cmd.exe, что и у "&&" (буквально включает этот
+	// пробел в вывод "echo"), но убрать пробел здесь, в отличие от "&&",
+	// нельзя - только хвостовой пробел на строке проверке не важен.
 	out = strings.ReplaceAll(out, "\r", "")
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	want := []string{"вывод", "", "ошибка", "", "0"}
@@ -103,7 +107,7 @@ func TestRunCommandCapturesOutputSeparately(t *testing.T) {
 		t.Fatalf("ожидалось %d строк, получено %d: %q", len(want), len(lines), out)
 	}
 	for i, w := range want {
-		if lines[i] != w {
+		if strings.TrimRight(lines[i], " ") != w {
 			t.Fatalf("строка %d: ожидалось %q, получено %q (весь вывод %q)", i, w, lines[i], out)
 		}
 	}
