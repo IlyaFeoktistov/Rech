@@ -706,10 +706,24 @@ func (in *Interp) evalCollectionMethod(obj *entityObj, e *ir.MethodCallExpr, env
 		return v, nil
 
 	case "первый":
+		// Общий метод-имя у Очереди ("первый" - голова, БЕЗ извлечения) и
+		// Списка ("первый" - тот же элемент, что "получить(0)",
+		// пользователь явно попросил - много мест писали "получить(0)")
+		// - только паническое сообщение на пустой коллекции разное
+		// (obj.coll.template отличает их, метод-имя одно и то же).
 		if len(obj.coll.elems) == 0 {
-			panicRuntime("%s", rtmsg.EmptyQueueOp(obj.typeName))
+			if obj.coll.template == "Очередь" {
+				panicRuntime("%s", rtmsg.EmptyQueueOp(obj.typeName))
+			}
+			panicRuntime("%s", rtmsg.IndexOutOfRange(obj.typeName))
 		}
 		return in.cloneValue(obj.coll.elems[0]), nil
+
+	case "последний":
+		if len(obj.coll.elems) == 0 {
+			panicRuntime("%s", rtmsg.IndexOutOfRange(obj.typeName))
+		}
+		return in.cloneValue(obj.coll.elems[len(obj.coll.elems)-1]), nil
 
 	case "длина":
 		return intValue(int64(len(obj.coll.elems))), nil

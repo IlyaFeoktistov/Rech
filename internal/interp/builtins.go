@@ -353,6 +353,24 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 	case "найти_байты":
 		pid := args[0].Obj.fields["pid"].I
 		return intListValue(procFind(pid, bytesFromValue(args[1]))), true
+	case "регистры_процесса":
+		pid := args[0].Obj.fields["pid"].I
+		return registersValue(procRegsGet(pid)), true
+	case "установить_регистры_процесса":
+		pid := args[0].Obj.fields["pid"].I
+		procRegsSet(pid, registersFromValue(args[1]))
+		return Value{}, true
+	case "установить_точку_останова":
+		pid := args[0].Obj.fields["pid"].I
+		procBreakpointSet(pid, args[1].I)
+		return Value{}, true
+	case "снять_точку_останова":
+		pid := args[0].Obj.fields["pid"].I
+		procBreakpointRemove(pid, args[1].I)
+		return Value{}, true
+	case "возобновить_процесс":
+		pid := args[0].Obj.fields["pid"].I
+		return intValue(procResume(pid)), true
 	case "время_как_дата":
 		return timeToDate(args[0].I), true
 	case "дата_как_время":

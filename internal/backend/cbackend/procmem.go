@@ -14,22 +14,21 @@
 // попытке реально подключиться, вместо того чтобы либо не собраться
 // вовсе, либо тихо повести себя иначе.
 //
-//   - rech_proc_attach - Linux: ptrace(PTRACE_ATTACH) + waitpid -
-//     ОСТАНАВЛИВАЕТ целевой процесс (как это делает настоящий отладчик) -
-//     нужно уже здесь, не только для будущих регистров/точек останова:
-//     единообразное "подключились - процесс стоит смирно, пока читаем/
-//     пишем его память" вместо гонки с ним же самим. Windows:
-//     OpenProcess(PROCESS_QUERY_INFORMATION) только ПРОВЕРЯЕТ, что
-//     процесс с таким pid существует и доступен - НЕ останавливает его
-//     (у Windows нет ptrace-подобного "остановить по pid без полноценной
-//     отладочной сессии" - DebugActiveProcess превращает вызывающего в
-//     ЕДИНСТВЕННОГО отладчика процесса и требует цикла WaitForDebugEvent/
-//     ContinueDebugEvent, самостоятельная тема будущих регистров/точек
-//     останова, не этого шага). Честная асимметрия платформ, не полностью
-//     скрытая деталь реализации.
+//   - rech_proc_attach - ОСТАНАВЛИВАЕТ целевой процесс на ОБЕИХ
+//     платформах (нужно единообразно - не только для tier1, но и для
+//     регистров/точек останова, internal/backend/cbackend/procregs.go).
+//     Linux - ptrace(PTRACE_ATTACH) + waitpid. Windows -
+//     DebugActiveProcess (вызывающий становится ЕДИНСТВЕННЫМ отладчиком
+//     процесса) + первый WaitForDebugEvent (CREATE_PROCESS_DEBUG_EVENT,
+//     генерируется автоматически при подключении) - процесс остаётся
+//     остановленным, пока за него не вызван ContinueDebugEvent (см.
+//     rech_win_dbg_t/rech_win_session_* ниже - та же таблица сессий,
+//     нужна и здесь, и в procregs.go).
 //   - rech_proc_detach - Linux: PTRACE_DETACH (возобновляет процесс).
-//     Windows: ничего не делает (raз "подключиться" ничего не
-//     останавливало).
+//     Windows: ContinueDebugEvent за необработанное событие (иначе
+//     процесс так и останется висеть остановленным навсегда) +
+//     DebugActiveProcessStop (перестать быть отладчиком - процесс
+//     продолжает жить самостоятельно).
 //   - rech_proc_read/rech_proc_write - Linux: process_vm_readv/writev
 //     (не PTRACE_PEEKDATA/POKEDATA - тот работает только словами
 //     машинного размера, эти читают/пишут произвольное количество байт
@@ -49,7 +48,83 @@ import (
 // generic-инстанциации, возвращаемой "найти_байты" (адреса совпадений).
 const intListType = "Список<Целое>"
 
-var procMemRuntimeCode = fmt.Sprintf(`static %[1]s rech_proc_attach(long long pid) {
+var procMemRuntimeCode = fmt.Sprintf(`#ifdef _WIN32
+// rech_win_dbg_t - сессия DebugActiveProcess - "tid"/"pending"/
+// "has_pending" - поток и событие ПОСЛЕДНЕЙ остановки (нужны
+// GetThreadContext/SetThreadContext и ContinueDebugEvent, который обязан
+// указать ИМЕННО тот pid/tid, что был в событии) - используется и здесь
+// (attach/detach), и в internal/backend/cbackend/procregs.go (регистры/
+// точки останова/возобновить), поэтому таблица - здесь, в tier1.
+typedef struct {
+    long long pid;
+    DWORD tid;
+    int has_pending;
+    DEBUG_EVENT pending;
+} rech_win_dbg_t;
+static rech_win_dbg_t *rech_win_sessions = NULL;
+static long long rech_win_session_count = 0, rech_win_session_cap = 0;
+
+static rech_win_dbg_t *rech_win_session_find(long long pid) {
+    for (long long i = 0; i < rech_win_session_count; i++) {
+        if (rech_win_sessions[i].pid == pid) { return &rech_win_sessions[i]; }
+    }
+    return NULL;
+}
+
+static rech_win_dbg_t *rech_win_session_add(long long pid) {
+    if (rech_win_session_count == rech_win_session_cap) {
+        rech_win_session_cap = rech_win_session_cap == 0 ? 4 : rech_win_session_cap * 2;
+        rech_win_sessions = realloc(rech_win_sessions, sizeof(rech_win_dbg_t) * (size_t)rech_win_session_cap);
+    }
+    rech_win_dbg_t *s = &rech_win_sessions[rech_win_session_count++];
+    s->pid = pid;
+    s->tid = 0;
+    s->has_pending = 0;
+    return s;
+}
+
+static void rech_win_session_remove(long long pid) {
+    for (long long i = 0; i < rech_win_session_count; i++) {
+        if (rech_win_sessions[i].pid == pid) {
+            rech_win_sessions[i] = rech_win_sessions[rech_win_session_count - 1];
+            rech_win_session_count--;
+            return;
+        }
+    }
+}
+
+// rech_enable_debug_privilege - живой найденный баг: DebugActiveProcess
+// падает с ERROR_ACCESS_DENIED даже на СВОЙ собственный дочерний процесс
+// (запущенный обычным CreateProcess, БЕЗ флага DEBUG_PROCESS) - в отличие
+// от "родитель отлаживает потомка через CREATE_PROCESS с DEBUG_PROCESS",
+// подключение ПОСТФАКТУМ через DebugActiveProcess требует явно включённой
+// привилегии SeDebugPrivilege в токене текущего процесса - она есть у
+// большинства процессов (в т. ч. без прав администратора), но НЕ включена
+// по умолчанию (доступна - не значит активна, Windows-специфика
+// привилегий). Идемпотентно (статический флаг - один раз на процесс).
+static void rech_enable_debug_privilege(void) {
+    static int done = 0;
+    if (done) {
+        return;
+    }
+    done = 1;
+    HANDLE token;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token)) {
+        return;
+    }
+    LUID luid;
+    if (LookupPrivilegeValueA(NULL, "SeDebugPrivilege", &luid)) {
+        TOKEN_PRIVILEGES tp;
+        tp.PrivilegeCount = 1;
+        tp.Privileges[0].Luid = luid;
+        tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+        AdjustTokenPrivileges(token, FALSE, &tp, 0, NULL, NULL);
+    }
+    CloseHandle(token);
+}
+#endif
+
+static %[1]s rech_proc_attach(long long pid) {
     %[1]s out;
     out.%[2]s = pid;
 #if defined(__linux__)
@@ -61,11 +136,17 @@ var procMemRuntimeCode = fmt.Sprintf(`static %[1]s rech_proc_attach(long long pi
         rech_panic("%[3]s");
     }
 #elif defined(_WIN32)
-    HANDLE h = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, (DWORD)pid);
-    if (h == NULL) {
+    rech_enable_debug_privilege();
+    if (!DebugActiveProcess((DWORD)pid)) {
         rech_panic("%[3]s");
     }
-    CloseHandle(h);
+    rech_win_dbg_t *s = rech_win_session_add(pid);
+    if (!WaitForDebugEvent(&s->pending, INFINITE)) {
+        rech_win_session_remove(pid);
+        rech_panic("%[3]s");
+    }
+    s->tid = s->pending.dwThreadId;
+    s->has_pending = 1;
 #else
     rech_panic("%[3]s");
 #endif
@@ -78,7 +159,16 @@ static void rech_proc_detach(%[1]s p) {
         rech_panic("%[4]s");
     }
 #elif defined(_WIN32)
-    (void)p;
+    rech_win_dbg_t *s = rech_win_session_find(p.%[2]s);
+    if (s != NULL) {
+        if (s->has_pending) {
+            ContinueDebugEvent(s->pending.dwProcessId, s->pending.dwThreadId, DBG_CONTINUE);
+        }
+        rech_win_session_remove(p.%[2]s);
+    }
+    if (!DebugActiveProcessStop((DWORD)p.%[2]s)) {
+        rech_panic("%[4]s");
+    }
 #else
     (void)p;
     rech_panic("%[4]s");

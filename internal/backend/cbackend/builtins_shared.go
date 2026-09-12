@@ -277,6 +277,12 @@ type builtinFlags struct {
 	// заметно более тяжёлая операция, не нужная программе, которая только
 	// читает/пишет по уже известному адресу.
 	usesProcMemFind bool
+	// usesProcRegs - нужен ли procRegsRuntimeCode (procregs.go) -
+	// встроенные функции "регистры_процесса"/"установить_регистры_
+	// процесса"/"установить_точку_останова"/"снять_точку_останова"/
+	// "возобновить_процесс" (мини-отладчик, tier3) - гейтит "#include
+	// <sys/user.h>" (struct user_regs_struct) на Linux.
+	usesProcRegs bool
 }
 
 // builtinCallCode генерирует C-вызов встроенной функции (internal/builtins,
@@ -502,6 +508,31 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 		flags.usesProcMemFind = true
 		flags.usesPanic = true
 		return fmt.Sprintf("rech_proc_find(%s, %s)", args[0], args[1]), true
+	case "регистры_процесса":
+		flags.usesProcMem = true // rech_win_session_* (procmem.go) - зависимость procregs.go
+		flags.usesProcRegs = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_proc_get_regs(%s)", args[0]), true
+	case "установить_регистры_процесса":
+		flags.usesProcMem = true // rech_win_session_* (procmem.go) - зависимость procregs.go
+		flags.usesProcRegs = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_proc_set_regs(%s, %s)", args[0], args[1]), true
+	case "установить_точку_останова":
+		flags.usesProcMem = true // rech_win_session_* (procmem.go) - зависимость procregs.go
+		flags.usesProcRegs = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_proc_set_breakpoint(%s, %s)", args[0], args[1]), true
+	case "снять_точку_останова":
+		flags.usesProcMem = true // rech_win_session_* (procmem.go) - зависимость procregs.go
+		flags.usesProcRegs = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_proc_remove_breakpoint(%s, %s)", args[0], args[1]), true
+	case "возобновить_процесс":
+		flags.usesProcMem = true // rech_win_session_* (procmem.go) - зависимость procregs.go
+		flags.usesProcRegs = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_proc_resume(%s)", args[0]), true
 	case "установить_сырой_режим":
 		flags.usesConsole = true
 		return fmt.Sprintf("rech_set_raw_mode(%s)", args[0]), true

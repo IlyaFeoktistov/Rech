@@ -962,12 +962,13 @@ func TestAnalyzeEntityFieldsConstructorAndFieldAccess(t *testing.T) {
 }
 `)
 	// 1 пользовательская + "Запрос"/"Ответ"/"ДатаВремя"/"ОпцииКуки"/
-	// "Дейтаграмма"/"RGBЦвет"/"Процесс"/"РезультатКоманды"/"СостояниеБД"
-	// (структуры-данные) + "Исключение" - Analyze добавляет их во все
-	// out.Entities всегда, не только когда программа их использует - см.
-	// package doc registerHTTPEntity и buildIR (internal/semantic/analyzer.go).
-	if len(irProg.Entities) != 11 {
-		t.Fatalf("ожидалась 1 пользовательская сущность + 10 встроенных (Запрос/Ответ/ДатаВремя/ОпцииКуки/Дейтаграмма/RGBЦвет/Процесс/РезультатКоманды/СостояниеБД/Исключение), получено %d", len(irProg.Entities))
+	// "Дейтаграмма"/"RGBЦвет"/"Процесс"/"РезультатКоманды"/"СостояниеБД"/
+	// "Регистры" (структуры-данные) + "Исключение" - Analyze добавляет их
+	// во все out.Entities всегда, не только когда программа их использует -
+	// см. package doc registerHTTPEntity и buildIR (internal/semantic/
+	// analyzer.go).
+	if len(irProg.Entities) != 12 {
+		t.Fatalf("ожидалась 1 пользовательская сущность + 11 встроенных (Запрос/Ответ/ДатаВремя/ОпцииКуки/Дейтаграмма/RGBЦвет/Процесс/РезультатКоманды/СостояниеБД/Регистры/Исключение), получено %d", len(irProg.Entities))
 	}
 	entity := irProg.Entities[0]
 	if entity.Name != "Пользователь" || len(entity.Fields) != 2 {

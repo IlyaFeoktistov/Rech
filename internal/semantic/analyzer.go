@@ -561,6 +561,7 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 	registerProcessFuncs(funcs)
 	registerSubprocessFuncs(a.entities, funcs)
 	registerProcMemFuncs(funcs)
+	registerProcRegsFuncs(a.entities, funcs)
 	registerImageCodecFuncs(funcs)
 	// byName - объявления функций программы, сгруппированные по имени, в
 	// порядке первого появления имени (order) - функция может быть
@@ -1107,6 +1108,7 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 		&ir.Entity{Name: "RGBЦвет", IsStruct: true, Fields: ColorFields},
 		&ir.Entity{Name: "Процесс", IsStruct: true, Fields: ProcessFields},
 		&ir.Entity{Name: "РезультатКоманды", IsStruct: true, Fields: CommandResultFields},
+		&ir.Entity{Name: "Регистры", IsStruct: true, Fields: RegistersFields},
 		&ir.Entity{Name: dbStateEntityName, IsStruct: true, Fields: DBStateFields},
 	)
 	// "Исключение" - ссылочная сущность (не структура): "выбросить"
