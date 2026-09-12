@@ -94,20 +94,31 @@ static void rech_write_bytes(rech_file_t f, %[1]s *b) {
 
 static %[1]s *rech_read_whole_file_bytes(const char *path) {
     rech_file_t f = rech_open_mode(path, "rb", L"rb", "прочитать_файл_байты");
-    if (fseek(f, 0, SEEK_END) != 0 || ftell(f) < 0) {
-        rech_panic("%[3]s");
+    // Растущий буфер вместо fseek(SEEK_END)+ftell (найденный баг - virtual-
+    // файлы вроде "/proc/<pid>/maps" не поддерживают SEEK_END, ftell там
+    // всегда 0, из-за чего файл читался как пустой) - тот же приём, что
+    // уже использует rech_read_pipe_thread (subprocess.go) для пайпов,
+    // размер которых заранее неизвестен ни при каких обстоятельствах.
+    size_t cap = 4096, len = 0;
+    unsigned char *buf = malloc(cap);
+    for (;;) {
+        if (len + 1 >= cap) {
+            cap *= 2;
+            buf = realloc(buf, cap);
+        }
+        size_t n = fread(buf + len, 1, cap - len - 1, f);
+        len += n;
+        if (n == 0) {
+            break;
+        }
     }
-    long size = ftell(f);
-    rewind(f);
-    unsigned char *buf = malloc((size_t)size > 0 ? (size_t)size : 1);
-    size_t n = fread(buf, 1, (size_t)size, f);
-    if (n != (size_t)size && ferror(f)) {
+    if (ferror(f)) {
         free(buf);
         fclose(f);
         rech_panic("%[3]s");
     }
     fclose(f);
-    %[1]s *out = rech_bytes_wrap(buf, (long long)n);
+    %[1]s *out = rech_bytes_wrap(buf, (long long)len);
     free(buf);
     return out;
 }

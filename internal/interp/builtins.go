@@ -337,6 +337,22 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return waitProcess(args[0]), true
 	case "выполнить_команду":
 		return runCommand(args[0].S, args[1].S), true
+	case "подключиться_к_процессу":
+		procAttach(args[0].I)
+		return processValue(args[0].I), true
+	case "отключиться_от_процесса":
+		procDetach(args[0].Obj.fields["pid"].I)
+		return Value{}, true
+	case "прочитать_память":
+		pid := args[0].Obj.fields["pid"].I
+		return bytesValue(procRead(pid, args[1].I, args[2].I)), true
+	case "записать_память":
+		pid := args[0].Obj.fields["pid"].I
+		procWrite(pid, args[1].I, bytesFromValue(args[2]))
+		return Value{}, true
+	case "найти_байты":
+		pid := args[0].Obj.fields["pid"].I
+		return intListValue(procFind(pid, bytesFromValue(args[1]))), true
 	case "время_как_дата":
 		return timeToDate(args[0].I), true
 	case "дата_как_время":

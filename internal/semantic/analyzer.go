@@ -560,6 +560,7 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 	registerNumberBaseFuncs(funcs)
 	registerProcessFuncs(funcs)
 	registerSubprocessFuncs(a.entities, funcs)
+	registerProcMemFuncs(funcs)
 	registerImageCodecFuncs(funcs)
 	// byName - объявления функций программы, сгруппированные по имени, в
 	// порядке первого появления имени (order) - функция может быть

@@ -1159,6 +1159,14 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 
 	var sb strings.Builder
 	sb.WriteString("// Автоматически сгенерировано компилятором rech. Не редактировать руками.\n")
+	if ctx.usesProcMem {
+		// _GNU_SOURCE - ДО любого системного заголовка (glibc проверяет
+		// её при первом же include) - process_vm_readv/process_vm_writev
+		// (procmem.go) объявлены в <sys/uio.h> только при этом
+		// определении (man process_vm_readv(2), "Feature Test Macro
+		// Requirements").
+		sb.WriteString("#ifdef __linux__\n#define _GNU_SOURCE\n#endif\n")
+	}
 	sb.WriteString("#include <stdio.h>\n")
 	sb.WriteString("#include <stdbool.h>\n")
 	sb.WriteString("#include <stdint.h>\n")
@@ -1262,6 +1270,18 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// CreateThread уже объявлены через windows.h, подключённый
 		// безусловно выше.
 		sb.WriteString("#ifndef _WIN32\n#include <unistd.h>\n#include <sys/wait.h>\n#include <fcntl.h>\n#include <errno.h>\n#include <poll.h>\n#endif\n")
+	}
+	if ctx.usesProcMem {
+		// <sys/ptrace.h> - ptrace(PTRACE_ATTACH/PTRACE_DETACH). <sys/uio.h> -
+		// process_vm_readv/process_vm_writev + struct iovec. <sys/wait.h> -
+		// waitpid, сразу после PTRACE_ATTACH (см. package doc procmem.go).
+		// Именно "__linux__", не "#ifndef _WIN32" - обе функции
+		// process_vm_readv/writev - расширения Linux (см. package doc
+		// procmem.go про уже найденный баг того же класса у SIGSTKFLT/
+		// SIGPWR). На Windows ничего из этого не нужно - OpenProcess/
+		// ReadProcessMemory/WriteProcessMemory уже объявлены через
+		// windows.h, подключённый безусловно выше.
+		sb.WriteString("#ifdef __linux__\n#include <sys/ptrace.h>\n#include <sys/uio.h>\n#include <sys/wait.h>\n#include <sys/types.h>\n#include <unistd.h>\n#endif\n")
 	}
 	if ctx.usesSockets {
 		// <errno.h> - только POSIX-ветка: "принять"/"установить_таймаут"
@@ -1747,6 +1767,8 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	appendCodeIf(&sb, ctx.usesShutdownFlag, shutdownFlagCode)
 	appendCodeIf(&sb, ctx.usesSignals, signalRuntimeCode())
 	appendCodeIf(&sb, ctx.usesSubprocess, subprocessRuntimeCode)
+	appendCodeIf(&sb, ctx.usesProcMem, procMemRuntimeCode)
+	appendCodeIf(&sb, ctx.usesProcMemFind, procMemFindHelper())
 	appendCodeIf(&sb, ctx.usesConsole, consoleRuntimeCode())
 	appendCodeIf(&sb, ctx.usesNonBlockingRead, nonBlockingReadRuntimeCode())
 	// "rech_db_t" сам уже виден (dbHandleTypedefCode, эмитирован раньше

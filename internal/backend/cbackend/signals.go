@@ -28,6 +28,13 @@ import "github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 // ловятся, только если ПОСЛАНЫ другим процессом (см. "отправить_сигнал"),
 // не когда вызваны настоящей аппаратной ошибкой самой программы.
 //
+// SIGSTKFLT/SIGPWR (ordinal 20/29) - дополнительно обёрнуты в "#ifdef
+// __linux__" внутри POSIX-ветки (не просто "#ifndef _WIN32") - живой
+// найденный баг: это расширения Linux/glibc, на macOS (BSD-сигналы) этих
+// символов не существует вовсе - без этой границы файл не собирался на
+// macOS (см. internal/interp/signals_darwin.go - там оба ordinal'а
+// помечены sigUnsupported тем же принципом).
+//
 // #ifdef _WIN32 - sigaction недоступен вовсе (не POSIX API); MinGW CRT
 // определяет лишь малую часть перечисленных здесь имён сигналов (SIGINT/
 // SIGTERM/SIGABRT - остальные POSIX-специфичны, SIGHUP/SIGQUIT/SIGUSR1/
@@ -59,7 +66,9 @@ static void rech_sig_handler(int sig) {
     case SIGBUS: rech_sig_flags[17] = 1; break;
     case SIGFPE: rech_sig_flags[18] = 1; break;
     case SIGSEGV: rech_sig_flags[19] = 1; break;
+#ifdef __linux__
     case SIGSTKFLT: rech_sig_flags[20] = 1; break;
+#endif
     case SIGTTIN: rech_sig_flags[21] = 1; break;
     case SIGTTOU: rech_sig_flags[22] = 1; break;
     case SIGURG: rech_sig_flags[23] = 1; break;
@@ -68,7 +77,9 @@ static void rech_sig_handler(int sig) {
     case SIGVTALRM: rech_sig_flags[26] = 1; break;
     case SIGPROF: rech_sig_flags[27] = 1; break;
     case SIGIO: rech_sig_flags[28] = 1; break;
+#ifdef __linux__
     case SIGPWR: rech_sig_flags[29] = 1; break;
+#endif
     case SIGSYS: rech_sig_flags[30] = 1; break;
     default: break;
     }
@@ -112,7 +123,9 @@ static bool rech_got_signal(long long ordinal) {
     case 17: sigaction(SIGBUS, &sa, NULL); break;
     case 18: sigaction(SIGFPE, &sa, NULL); break;
     case 19: sigaction(SIGSEGV, &sa, NULL); break;
+#ifdef __linux__
     case 20: sigaction(SIGSTKFLT, &sa, NULL); break;
+#endif
     case 21: sigaction(SIGTTIN, &sa, NULL); break;
     case 22: sigaction(SIGTTOU, &sa, NULL); break;
     case 23: sigaction(SIGURG, &sa, NULL); break;
@@ -121,7 +134,9 @@ static bool rech_got_signal(long long ordinal) {
     case 26: sigaction(SIGVTALRM, &sa, NULL); break;
     case 27: sigaction(SIGPROF, &sa, NULL); break;
     case 28: sigaction(SIGIO, &sa, NULL); break;
+#ifdef __linux__
     case 29: sigaction(SIGPWR, &sa, NULL); break;
+#endif
     case 30: sigaction(SIGSYS, &sa, NULL); break;
     default: break;
     }
@@ -160,7 +175,9 @@ static void rech_send_signal(long long pid, long long ordinal) {
     case 17: sig = SIGBUS; break;
     case 18: sig = SIGFPE; break;
     case 19: sig = SIGSEGV; break;
+#ifdef __linux__
     case 20: sig = SIGSTKFLT; break;
+#endif
     case 21: sig = SIGTTIN; break;
     case 22: sig = SIGTTOU; break;
     case 23: sig = SIGURG; break;
@@ -169,7 +186,9 @@ static void rech_send_signal(long long pid, long long ordinal) {
     case 26: sig = SIGVTALRM; break;
     case 27: sig = SIGPROF; break;
     case 28: sig = SIGIO; break;
+#ifdef __linux__
     case 29: sig = SIGPWR; break;
+#endif
     case 30: sig = SIGSYS; break;
     default: rech_panic("` + escapeCString(rtmsg.SignalSendFailed) + `");
     }

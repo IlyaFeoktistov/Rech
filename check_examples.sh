@@ -36,6 +36,15 @@ declare -a project_dirs=()
 # экспорт_библиотеки_потребитель/), мог слинковаться против уже локально
 # собранного .so/.dylib/.dll без системной установки - cc/ld сами читают
 # оба этих переменных окружения (стандартное поведение, не Rech-специфика).
+# Живой найденный баг - без "LC_ALL=C" (ниже, `find ... | LC_ALL=C sort`)
+# порядок сортировки зависит от локали окружения (BSD sort на macOS-раннере
+# CI сортирует кириллицу иначе, чем ожидает эта логика) - "закрытый_пакет_
+# потребитель" мог попасть в списке РАНЬШЕ "закрытый_пакет" (библиотеки), и
+# сборка потребителя падала "library ... not found", хотя порядок каталогов
+# на диске был правильный. "LC_ALL=C" даёт чистую побайтовую сортировку
+# везде одинаково - "/" (0x2F) всегда раньше "_" (0x5F), поэтому у файла
+# библиотеки (.../закрытый_пакет/закрытый_пакет.rechproj) всегда меньший
+# путь, чем у потребителя (.../закрытый_пакет_потребитель/...).
 lib_search_paths=""
 
 add_lib_search_path() {
@@ -71,7 +80,7 @@ while IFS= read -r proj; do
         outdir=$(awk -F: '/^[[:space:]]*выход:/{gsub(/^[ \t]+|[ \t]+$/,"",$2); print $2; exit}' "$proj")
         [ -n "$outdir" ] && add_lib_search_path "$pd/$outdir"
     fi
-done < <(find examples -iname '*.rechproj' | sort)
+done < <(find examples -iname '*.rechproj' | LC_ALL=C sort)
 
 is_in_project_dir() {
     local f="$1"
@@ -88,7 +97,7 @@ while IFS= read -r f; do
     is_in_project_dir "$f" && continue
     grep -qF 'функция главная' "$f" || continue
     check "$f"
-done < <(find examples -iname '*.rech' | sort)
+done < <(find examples -iname '*.rech' | LC_ALL=C sort)
 
 echo
 echo "Итого: $total, ошибок: $failed"

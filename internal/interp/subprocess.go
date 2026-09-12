@@ -32,7 +32,16 @@ func spawnProcess(command string, args []string) Value {
 	if err := cmd.Start(); err != nil {
 		panicRuntime("%s", rtmsg.ProcessSpawnFailed)
 	}
-	fields := map[string]Value{"pid": intValue(int64(cmd.Process.Pid))}
+	return processValue(int64(cmd.Process.Pid))
+}
+
+// processValue строит значение сущности "Процесс" (только поле "pid") -
+// общий хвост "запустить_процесс" и "подключиться_к_процессу" (internal/
+// interp/procmem_linux.go|procmem_windows.go|procmem_other.go) - обеим
+// нужен один и тот же непрозрачный дескриптор, разница только в том, как
+// pid был получен (спавн против уже существующего процесса).
+func processValue(pid int64) Value {
+	fields := map[string]Value{"pid": intValue(pid)}
 	return Value{Type: ir.EntityType("Процесс"), Obj: &entityObj{typeName: "Процесс", fields: fields}}
 }
 

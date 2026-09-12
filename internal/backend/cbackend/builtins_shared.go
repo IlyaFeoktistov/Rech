@@ -264,6 +264,19 @@ type builtinFlags struct {
 	// применение то же - управление внешними процессами, но "Процесс"/
 	// "РезультатКоманды" не имеют отношения к сигналам ОС как таковым).
 	usesSubprocess bool
+	// usesProcMem - нужен ли procMemRuntimeCode (procmem.go) - встроенные
+	// функции "подключиться_к_процессу"/"отключиться_от_процесса"/
+	// "прочитать_память"/"записать_память" (мини-отладчик). Отдельный от
+	// usesSubprocess флаг - разная мотивация (управление СВОИМ дочерним
+	// процессом против чтения памяти ЛЮБОГО процесса по pid) и разные
+	// системные заголовки (ptrace/process_vm_readv, не fork/execvp).
+	usesProcMem bool
+	// usesProcMemFind - нужен ли procMemFindHelper (procmem.go) -
+	// встроенная функция "найти_байты" - отдельный от usesProcMem флаг:
+	// сканирование всего адресного пространства - самостоятельная,
+	// заметно более тяжёлая операция, не нужная программе, которая только
+	// читает/пишет по уже известному адресу.
+	usesProcMemFind bool
 }
 
 // builtinCallCode генерирует C-вызов встроенной функции (internal/builtins,
@@ -467,6 +480,28 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 		flags.usesSubprocess = true
 		flags.usesPanic = true
 		return fmt.Sprintf("rech_run_command(%s, %s)", args[0], args[1]), true
+	case "подключиться_к_процессу":
+		flags.usesProcMem = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_proc_attach(%s)", args[0]), true
+	case "отключиться_от_процесса":
+		flags.usesProcMem = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_proc_detach(%s)", args[0]), true
+	case "прочитать_память":
+		flags.usesProcMem = true
+		flags.usesByteListWrap = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_proc_read(%s, %s, %s)", args[0], args[1], args[2]), true
+	case "записать_память":
+		flags.usesProcMem = true
+		flags.usesByteListWrap = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_proc_write(%s, %s, %s)", args[0], args[1], args[2]), true
+	case "найти_байты":
+		flags.usesProcMemFind = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_proc_find(%s, %s)", args[0], args[1]), true
 	case "установить_сырой_режим":
 		flags.usesConsole = true
 		return fmt.Sprintf("rech_set_raw_mode(%s)", args[0]), true
@@ -1245,17 +1280,26 @@ static char *rech_read_line_from_file(rech_file_t f, bool *ok) {
 // режимом открытия (как rech_open/rech_open_write/rech_open_append выше).
 static char *rech_read_whole_file(const char *path) {
     rech_file_t f = rech_open_mode(path, "rb", L"rb", "прочитать_файл");
-    if (fseek(f, 0, SEEK_END) != 0 || ftell(f) < 0) {
+    // Растущий буфер вместо fseek(SEEK_END)+ftell - см. package doc
+    // rech_read_whole_file_bytes (bytesio.go) про найденный баг с virtual-
+    // файлами ("/proc/<pid>/maps" и подобные).
+    size_t cap = 4096, len = 0;
+    char *buf = malloc(cap);
+    for (;;) {
+        if (len + 1 >= cap) {
+            cap *= 2;
+            buf = realloc(buf, cap);
+        }
+        size_t n = fread(buf + len, 1, cap - len - 1, f);
+        len += n;
+        if (n == 0) {
+            break;
+        }
+    }
+    if (ferror(f)) {
         rech_panic("%[2]s");
     }
-    long size = ftell(f);
-    rewind(f);
-    char *buf = malloc((size_t)size + 1);
-    size_t n = fread(buf, 1, (size_t)size, f);
-    if (n != (size_t)size && ferror(f)) {
-        rech_panic("%[2]s");
-    }
-    buf[n] = '\0';
+    buf[len] = '\0';
     fclose(f);
     return buf;
 }
