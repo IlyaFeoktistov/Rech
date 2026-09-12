@@ -1,7 +1,7 @@
 // Package parser строит ast.Program из потока токенов лексера.
 //
 // Грамматика v0.1 (расширяется по этапам из подробный
-// EBNF-набросок - docs/GRAMMAR.md):
+// EBNF-набросок - docs/GRAMMAR_DRAFT.md):
 //
 //	program     := { newline } { ( function | entity ) { newline } }
 //	entity      := ( "сущность" | "класс" | "структура" ) IDENT newline "{" [ constants_section ] [ states_section ] [ fields_section ] [ methods_section ] "}"

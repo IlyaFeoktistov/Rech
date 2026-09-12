@@ -7,9 +7,14 @@
 пайплайн `Rech -> AST -> C -> нативный бинарник`. Руководство по языку
 (введение, философия, весь синтаксис по порядку) -
 [docs/MANUAL.md](docs/MANUAL.md); формальная спецификация того, что
-компилятор принимает прямо сейчас - [docs/SPEC.md](docs/SPEC.md); черновик
-синтаксиса для того, что запланировано, - [docs/GRAMMAR.md](docs/GRAMMAR.md);
-дизайн морфологического движка - [docs/MORPHOLOGY.md](docs/MORPHOLOGY.md).
+компилятор принимает прямо сейчас - [docs/SPEC.md](docs/SPEC.md); формальная
+грамматика (EBNF) того же самого - [docs/GRAMMAR.md](docs/GRAMMAR.md);
+падежное согласование и естественный синтаксис для пользователей языка -
+[docs/MORPHOLOGY.md](docs/MORPHOLOGY.md). Черновик синтаксиса для того, что
+запланировано, но ещё не реализовано, -
+[docs/GRAMMAR_DRAFT.md](docs/GRAMMAR_DRAFT.md); дизайн самого
+морфологического движка (внутреннее устройство `internal/morph`) -
+[docs/MORPHOLOGY_DESIGN.md](docs/MORPHOLOGY_DESIGN.md).
 
 Компилятор встраивает словарные данные OpenCorpora (через gomorphy) -
 атрибуция и условия лицензии CC BY-SA 4.0 - [NOTICE.md](NOTICE.md).
@@ -367,8 +372,10 @@ installer/macos/           - Homebrew formula (не проверена - нет 
 examples/                  - примеры программ на Rech, по тематическим подпапкам
 docs/MANUAL.md             - руководство по языку для пользователя (учебник)
 docs/SPEC.md               - формальная спецификация того, что реализовано прямо сейчас
-docs/GRAMMAR.md            - черновик синтаксиса для того, что запланировано
-docs/MORPHOLOGY.md         - дизайн морфологического движка
+docs/GRAMMAR.md            - формальная грамматика (EBNF) того же самого
+docs/MORPHOLOGY.md         - падежное согласование и естественный синтаксис для пользователей
+docs/GRAMMAR_DRAFT.md      - черновик синтаксиса для того, что запланировано (не публикуется)
+docs/MORPHOLOGY_DESIGN.md  - дизайн морфологического движка, internal/morph (не публикуется)
 ```
 
 ## Архитектура

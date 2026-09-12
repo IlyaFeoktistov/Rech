@@ -604,7 +604,7 @@ func TestParseClassIsSynonymForEntity(t *testing.T) {
 
 func TestParseFieldAtSameIndentAsHasEndsSection(t *testing.T) {
 	// Поле на той же глубине отступа, что и "имеет", уже не принадлежит
-	// секции (docs/GRAMMAR.md, "Секции внутри объявления сущности") -
+	// секции (docs/GRAMMAR_DRAFT.md, "Секции внутри объявления сущности") -
 	// после пустой секции тут нет ничего валидного (методов ещё нет), так
 	// что ожидаем ошибку разбора, а не поле в EntityDecl.Fields.
 	_, err := parseSource(t, `
@@ -1144,7 +1144,7 @@ func TestParseNewExprGenderAgreement(t *testing.T) {
 	// "-о"), "Пользователь" (мужской род, курируемое исключение) - по одному
 	// представителю каждого рода через ClassifyByEnding/исключения (без
 	// обращения к gomorphy, чьи теги для нарицательных слов не всегда
-	// однозначны - см. docs/MORPHOLOGY.md), плюс "Права" (plurale tantum,
+	// однозначны - см. docs/MORPHOLOGY_DESIGN.md), плюс "Права" (plurale tantum,
 	// число вместо рода).
 	src := `
 сущность Сова

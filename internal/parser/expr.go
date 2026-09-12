@@ -198,7 +198,7 @@ func (p *Parser) parseComparison() (ast.Expr, error) {
 // вместо осмысленного "Ошибке Деления" - голова должна склоняться, а не
 // хвост) - решение пользователя: не подключать здесь заведомо неверное
 // склонение, дождаться настоящего морфологического движка, который умеет
-// разбирать составные имена. См. docs/GRAMMAR.md, "Открытый вопрос:
+// разбирать составные имена. См. docs/GRAMMAR_DRAFT.md, "Открытый вопрос:
 // склонение составных имён".
 func (p *Parser) parseIsExpr(left ast.Expr) (ast.Expr, error) {
 	kw := p.advance() // "относится"
@@ -533,7 +533,7 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 			return &ast.IncDecExpr{Name: tok.Value, Op: op.Value, Prefix: false, Line: tok.Line}, nil
 		}
 		if params, ok := p.funcParams[tok.Value]; ok && len(params) > 0 && startsNaturalCallArg(p.peekAt(1)) {
-			// Естественный вызов как значение (docs/GRAMMAR.md, "Естественный
+			// Естественный вызов как значение (docs/GRAMMAR_DRAFT.md, "Естественный
 			// вызов как значение") - тот же parseNaturalCall, что и на месте
 			// самостоятельной инструкции (stmt.go): число слов фразы известно
 			// заранее (len(params), из предварительного прохода
