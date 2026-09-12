@@ -1,0 +1,25 @@
+#!/bin/sh
+# pre-commit - быстрые проверки на КАЖДЫЙ commit: gofmt (только на
+# застейдженные .go-файлы, не весь репозиторий - не блокировать commit
+# из-за форматирования В ДРУГИХ местах) + go build/vet (секунды, не
+# минуты). Полный набор (go test/check_examples.sh - тяжелее) - в
+# pre-push, не здесь. Ставится "make hooks-install" - см. RELEASING.md,
+# "Локальные git-хуки".
+set -eu
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+STAGED_GO_FILES="$(git diff --cached --name-only --diff-filter=ACM -- '*.go')"
+if [ -n "$STAGED_GO_FILES" ]; then
+    UNFORMATTED="$(gofmt -l $STAGED_GO_FILES)"
+    if [ -n "$UNFORMATTED" ]; then
+        echo "pre-commit: не отформатировано gofmt'ом:" >&2
+        echo "$UNFORMATTED" >&2
+        echo "исправить: gofmt -w $UNFORMATTED" >&2
+        exit 1
+    fi
+fi
+
+go build ./...
+go vet ./...

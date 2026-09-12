@@ -1,6 +1,12 @@
 /rech
 /docs/ROADMAP.md
 
+# Собранные установщики (make deb/windows-installer/installers) - не
+# коммитим, как и сам /rech выше.
+/dist
+/rech-setup.exe
+/installer/windows/rech.exe
+
 # MkDocs (пользовательская документация из docs/*.md, README.md) - собранный
 # сайт и venv для его сборки, не коммитим.
 /site

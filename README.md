@@ -55,11 +55,34 @@
   деинсталлятор) собрана и проверена вручную на настоящем Windows; пробы
   библиотек (Boehm GC/OpenSSL/nghttp2/libpng/libjpeg/клиенты БД) - НЕТ,
   только скомпилированы через `makensis` и проверены логикой, реального
-  Windows под рукой не было.
+  Windows под рукой не было. `installer/windows/build.ps1` запускается НА
+  Windows; собрать `rech-setup.exe` можно и с Linux/macOS/WSL - `make
+  windows-installer` (нужен `makensis` в `PATH` - кросс-платформенный, тот
+  же пакет NSIS).
 
-Ни один из установщиков не тянет за собой C-компилятор/внешние библиотеки
-сам - только проверяет их и подсказывает, что поставить (см. "Зависимости
-для сборки" ниже) - это внешние зависимости самой ОС, отдельные от Rech.
+Ни один из установщиков выше не тянет за собой C-компилятор/внешние
+библиотеки сам - только проверяет их и подсказывает, что поставить (см.
+"Зависимости для сборки" ниже) - это внешние зависимости самой ОС,
+отдельные от Rech.
+
+Настоящий пакет, который САМ ставит все нужные зависимости (не только
+подсказывает команду), а не просто собирает `rech` из исходников:
+
+- **Linux (`.deb`)** - `make deb` собирает `dist/rech_<версия>_<arch>.deb`;
+  `Depends` перечисляет компилятор и все опциональные библиотеки - `sudo
+  apt install ./dist/rech_*.deb` ставит их все сам, без единой ручной
+  команды (проверено на чистом `ubuntu:24.04` - собирается и запускает
+  Rech-программу сразу после установки). Для не-Debian дистрибутивов -
+  `install.sh` выше.
+- **macOS (Homebrew)** - `installer/macos/rech.rb`, `depends_on` на все
+  библиотеки (bdw-gc/openssl@3/nghttp2/libpng/jpeg-turbo/sqlite/libpq/
+  mysql-client): `brew install --HEAD installer/macos/rech.rb`. **Не
+  проверено** на настоящем macOS/Homebrew (нет такой машины) - написана
+  по документированному формату formula, тем же уровнем доверия, что и
+  непроверенные ветки Windows-установщика выше.
+
+`make installers` собирает и `.deb`, и `rech-setup.exe` одной командой
+(formula не участвует - статический файл, не собирается).
 
 Собрать и установить вручную (то же самое, что делают скрипты выше, но
 руками - см. "Установка бинарника `rech` глобально" ниже) или через `go
@@ -282,7 +305,8 @@ make docs-serve   # локальный live-просмотр с автообно
 
 Подробный гид "как вносить изменения в компилятор" (что в каком порядке
 трогать, частые ловушки, как тестировать) - [DEVELOPMENT.md](DEVELOPMENT.md).
-Здесь - только карта каталогов.
+Как оформить готовое изменение в PR и как устроен сам выпуск версии -
+[RELEASING.md](RELEASING.md). Здесь - только карта каталогов.
 
 Пайплайн компиляции (`cmd/rech` -> `internal/lexer` -> `internal/morph` ->
 `internal/parser`/`internal/ast` -> `internal/module` -> `internal/semantic`/
@@ -317,8 +341,10 @@ internal/debugadapter/     - сервер DAP (`rech debug`) поверх intern
 internal/rpcframe/         - общий транспортный кадр LSP/DAP (Content-Length + JSON)
 internal/debug/            - дамп AST/IR для отладки самого компилятора
 internal/version/          - версия компилятора (см. `rech version`)
-installer/unix/            - install.sh (Linux/macOS)
-installer/windows/         - setup.nsi/build.ps1 (Windows, без прав admin)
+installer/unix/            - install.sh (Linux/macOS, только собирает и проверяет)
+installer/windows/         - setup.nsi/build.ps1/build.sh (Windows, без прав admin)
+installer/linux/deb/       - настоящий .deb (apt/dpkg ставит зависимости сам)
+installer/macos/           - Homebrew formula (не проверена - нет macOS)
 examples/                  - примеры программ на Rech, по тематическим подпапкам
 docs/MANUAL.md             - руководство по языку для пользователя (учебник)
 docs/SPEC.md               - формальная спецификация того, что реализовано прямо сейчас

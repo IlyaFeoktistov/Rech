@@ -1,0 +1,78 @@
+name: CI
+
+# Гоняется на каждый PR (обязательный статус-чек для ветки main - см.
+# RELEASING.md, "Ветки и PR") и на push в любую НЕ-main ветку (main
+# защищена - прямой push в неё запрещён, см. тот же файл).
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - main
+
+jobs:
+  # go build/vet/test - НЕ требует cgo/системных C-библиотек вовсе (сам
+  # компилятор rech - чистый Go, cgo нигде не используется, см. internal/
+  # interp/signals_linux.go|signals_darwin.go|signals_windows.go и
+  # nonblocking_read_unix.go|nonblocking_read_windows.go - platform-specific
+  # через build tags, не cgo) - поэтому matrix проверяет ВСЕ три ОС без
+  # какой-либо установки внешних библиотек.
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test ./...
+
+  # check_examples.sh СОБИРАЕТ настоящим "rech build" каждый examples/*.rech
+  # - это уже требует cc + ВСЕ опциональные библиотеки (см. README.md,
+  # "Зависимости для сборки"). На Linux - те же пакеты, что и Depends
+  # installer/linux/deb/control.template (одна точка правды по составу
+  # списка, хоть и продублированная как ТЕКСТ - apt vs Homebrew).
+  examples-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Установить библиотеки сборки
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libgc-dev libssl-dev libnghttp2-dev libpng-dev libjpeg-dev libsqlite3-dev libpq-dev libmysqlclient-dev
+      - run: ./check_examples.sh
+
+  # Homebrew-имена библиотек - те же, что уже задокументированы в README.md
+  # ("Зависимости для сборки"). continue-on-error - эта комбинация (macOS
+  # GitHub runner + Homebrew keg-only openssl/mysql-client) не была
+  # проверена раньше первого реального запуска этого workflow - не должна
+  # валить весь CI, пока не подтверждена.
+  examples-macos:
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Установить библиотеки сборки (Homebrew)
+        run: |
+          brew install bdw-gc openssl nghttp2 libpng jpeg sqlite postgresql mysql-client
+          {
+            echo "CPATH=$(brew --prefix openssl)/include:$(brew --prefix mysql-client)/include:$(brew --prefix)/include"
+            echo "LIBRARY_PATH=$(brew --prefix openssl)/lib:$(brew --prefix mysql-client)/lib:$(brew --prefix)/lib"
+          } >> "$GITHUB_ENV"
+      - run: ./check_examples.sh
+
+  # Windows: полный check_examples.sh (нужны mingw-w64 + ВСЕ библиотеки,
+  # включая клиенты БД) пока не заведён - нет проверенного рецепта
+  # (installer/windows/setup.nsi сам предлагает vcpkg/MSYS2, но ни разу не
+  # проверялся живьём на реальном Windows). Отдельная задача на будущее,
+  # см. RELEASING.md.

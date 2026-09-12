@@ -1,0 +1,13 @@
+#!/bin/sh
+# pre-push - полный набор перед отправкой на сервер (тяжелее pre-commit,
+# зато выполняется только на push, не на каждый commit) - ровно "make
+# verify" (go vet/go test/check_examples.sh), тот же порядок, что и в CI
+# (.github/workflows/ci.yml). Ставится "make hooks-install" - см.
+# RELEASING.md, "Локальные git-хуки".
+set -eu
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+echo "pre-push: make verify..."
+make verify

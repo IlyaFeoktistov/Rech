@@ -1,0 +1,13 @@
+Package: rech
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: Rech Project <rech@localhost>
+Homepage: https://github.com/IlyaFeoktistov/Rech
+Depends: build-essential, git, libgc-dev, libssl-dev, libnghttp2-dev, libpng-dev, libjpeg-dev, libsqlite3-dev, libpq-dev, libmysqlclient-dev
+Section: devel
+Priority: optional
+Description: Компилятор языка программирования Rech
+ Транспилирует Rech в C и собирает системным компилятором. Depends
+ перечисляет всё, что нужно для сборки ЛЮБОЙ Rech-программы (см.
+ README.md, "Зависимости для сборки") - apt поставит их сам вместе с
+ самим rech, отдельно ничего доустанавливать не нужно.
