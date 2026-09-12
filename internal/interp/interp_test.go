@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -34,6 +35,24 @@ func runSrc(t *testing.T, src string) string {
 		t.Fatalf("исполнение: %v", err)
 	}
 	return buf.String()
+}
+
+// linuxOnlyCases - подмножество ключей cases (ниже), пропускаемых на
+// остальных платформах - Linux-специфика примера (реального ptrace/"/proc"
+// на Windows/macOS попросту нет), а не баг интерпретатора.
+var linuxOnlyCases = map[string]bool{
+	"основы/сторонний_процесс.rech": true,
+}
+
+// windowsWantOverrides - несколько ключей cases (ниже), чьё ожидаемое
+// значение на Windows отличается по настоящей причине (не баг) -
+// "cmd /C echo" эмитирует CRLF, POSIX-оболочка ("sh -c") - LF;
+// "выполнить_команду" отдаёт вывод оболочки БЕЗ нормализации переноса
+// строк (см. package doc decodeShellOutput, subprocess_windows.go -
+// только перекодирует OEM-кодовую страницу в UTF-8, переносы строк не
+// трогает намеренно - "вывод" отражает РЕАЛЬНЫЙ байтовый вывод оболочки).
+var windowsWantOverrides = map[string]string{
+	"основы/процессы.rech": "привет\r\n\n0\n7\n143\n",
 }
 
 // TestRunAllExamplesMatchCompiledOutput - сквозная проверка интерпретатора
@@ -99,6 +118,7 @@ func TestRunAllExamplesMatchCompiledOutput(t *testing.T) {
 		"основы/управление.rech":                           "больше пяти\n15\n120\nистина\n",
 		"основы/сигналы.rech":                              "ложь\nложь\nотправка не удалась (такого pid не существует): \nотправить_сигнал: не удалось отправить сигнал\n",
 		"основы/процессы.rech":                             "привет\n\n0\n7\n143\n",
+		"основы/сторонний_процесс.rech":                    "127\nистина\n",
 		"основы/выбор.rech":                                "два или три\nвыходной\nадминистратор\nобычный пользователь\n",
 		"основы/время.rech":                                "2023\n11\n14\n22\n13\n20\n2023-11-14 22:13:20\n1700000000\n2026-09-10 12:00:00\n",
 		"основы/часовые_пояса.rech":                        "2024-07-15 15:00:00\n2024-07-15 08:00:00\n2024-07-16 12:00:00\n",
@@ -135,6 +155,14 @@ func TestRunAllExamplesMatchCompiledOutput(t *testing.T) {
 	}
 	for rel, want := range cases {
 		t.Run(rel, func(t *testing.T) {
+			if linuxOnlyCases[rel] && runtime.GOOS != "linux" {
+				t.Skip("требует Linux (/proc, ptrace) - см. package doc linuxOnlyCases")
+			}
+			if runtime.GOOS == "windows" {
+				if w, ok := windowsWantOverrides[rel]; ok {
+					want = w
+				}
+			}
 			src, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
 			if err != nil {
 				t.Fatalf("read: %v", err)
