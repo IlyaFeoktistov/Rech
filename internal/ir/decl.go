@@ -344,6 +344,22 @@ type Entity struct {
 	// (rech_db_tx_t) и все три метода (запросить/выполнить/откатить)
 	// целиком синтезированы internal/backend/cbackend/dbtx.go.
 	IsTransaction bool
+	// IsExternStruct/ExternCName - "внешняя структура <ExternCName> как
+	// <Name>" (см. ast.EntityDecl.IsExternStruct/ExternCName,
+	// internal/semantic/analyzer.go копирует без изменений). cbackend сам
+	// эмитирует ОТДЕЛЬНЫЙ C-struct с тем же layout под мангл-именем (не
+	// typedef на ExternCName - оно может быть недоступно как тип вообще,
+	// см. "внешняя сущность void как Блок" рядом - только для случая,
+	// когда САМ ExternCName - известный header-объявленный символ (см.
+	// externSymbolHeader, extern_headers.go) нужен как временный МОСТ
+	// между несовместимыми по имени, но совместимыми по layout C-типами
+	// (__typeof__ в месте вызова - см. bridgeExternStructCallIfNeeded,
+	// ir_generator.go) - иначе компилятор C видит "invalid initializer"
+	// при прямом присваивании результата настоящей внешней функции (её
+	// возврат - ExternCName из системного заголовка) переменной нашего
+	// собственного, номинально другого struct-типа.
+	IsExternStruct bool
+	ExternCName    string
 	// BaseName - имя базовой сущности после "наследует", "" - нет
 	// базовой сущности. Fields ниже уже включает унаследованные поля
 	// (плоский список - поля базовой сущности первыми, в её собственном

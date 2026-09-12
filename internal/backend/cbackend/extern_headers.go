@@ -20,6 +20,12 @@
 // (internal/lsp/builtindocs.go и т. п.).
 package cbackend
 
+import (
+	"fmt"
+
+	"github.com/IlyaFeoktistov/Rech/internal/ir"
+)
+
 var externSymbolHeader = map[string]string{
 	// string.h
 	"strlen": "string.h", "strcpy": "string.h", "strncpy": "string.h",
@@ -36,6 +42,7 @@ var externSymbolHeader = map[string]string{
 	"rand": "stdlib.h", "srand": "stdlib.h", "exit": "stdlib.h",
 	"abort": "stdlib.h", "abs": "stdlib.h", "labs": "stdlib.h",
 	"qsort": "stdlib.h", "getenv": "stdlib.h", "system": "stdlib.h",
+	"div": "stdlib.h", "atexit": "stdlib.h",
 
 	// math.h
 	"sqrt": "math.h", "pow": "math.h", "sin": "math.h", "cos": "math.h",
@@ -62,4 +69,42 @@ func externPrototypeAlreadyProvided(ctx *irGenCtx, cName string) bool {
 	default:
 		return false
 	}
+}
+
+// bridgeExternStructCallCode - "внешняя структура X как Y" (Y.IsExternStruct,
+// см. package doc ir.Entity.IsExternStruct) с "внешняя функция ... : Y" -
+// РЕАЛЬНЫЙ возврат такого вызова МОЖЕТ оказаться настоящим C-типом X
+// (известный header-символ, см. externSymbolHeader - externPrototypeOfIR в
+// этом случае НЕ пишет свой прототип, полагается на заголовок), а не
+// собственным rech_T_... структурным типом cType - хоть оба совпадают по
+// layout (тот же контракт "внешняя структура"), это ДВА РАЗНЫХ C-типа
+// номинально - "cType v = div(...);" не компилируется ("invalid
+// initializer"). Мост - union-компаунд-литерал с доступом к нужному полю
+// сразу (type punning, GCC/Clang оба поддерживают тем же путём, что и
+// __typeof__ - ОБЕ конструкции GNU-расширения, не голый ISO C, тот же
+// компилятор, что уже используется проектом) - НЕ нужно знать настоящее
+// имя X как строку, только совпадение размера/layout через __typeof__(code).
+//
+// Вызывается ДО того, как ctx.includesStdlibH/includesStringH/includesMathH
+// вообще посчитаны (тела функций генерируются раньше, см. generateSource) -
+// значит НЕЛЬЗЯ здесь проверить externPrototypeAlreadyProvided, чтобы
+// понять, действительно ли в ЭТОМ конкретном случае был использован
+// настоящий заголовок вместо своего прототипа. Решение - не проверять
+// вовсе: если свой прототип В ИТОГЕ всё-таки был написан (заголовок не
+// понадобился), настоящий C-тип code УЖЕ равен cType (сам же прототип его
+// таким и объявил) - обёртка через union в этом случае оборачивает cType
+// сам через себя же, без всякого эффекта, лишний, но безопасный no-op.
+func bridgeExternStructCallCode(ctx *irGenCtx, value ir.Expr, entityName, cType, code string) (string, bool) {
+	call, ok := value.(*ir.CallExpr)
+	if !ok {
+		return "", false
+	}
+	if _, isExtern := ctx.externCNames[call.Callee]; !isExtern {
+		return "", false
+	}
+	ent := ctx.entities[entityName]
+	if ent == nil || !ent.IsExternStruct {
+		return "", false
+	}
+	return fmt.Sprintf("(union { __typeof__(%s) rech_ffi_src; %s rech_ffi_dst; }){ .rech_ffi_src = (%s) }.rech_ffi_dst", code, cType, code), true
 }
