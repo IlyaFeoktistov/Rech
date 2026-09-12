@@ -63,11 +63,18 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Установить библиотеки сборки (Homebrew)
+        # "openssl" (голое имя) в современном Homebrew больше не formula -
+        # только "openssl@3"/"openssl@1.1" (та же версия, что уже указана в
+        # installer/macos/rech.rb, depends_on "openssl@3" - здесь была
+        # рассинхронизация) - bare "openssl" валит ВЕСЬ "brew install" одной
+        # командой (Homebrew резолвит все имена ДО установки чего-либо),
+        # из-за чего ни один из пакетов (включая bdw-gc) не ставился вовсе,
+        # и линковщик не находил "-lgc" - живой баг, найден по логам CI.
         run: |
-          brew install bdw-gc openssl nghttp2 libpng jpeg sqlite postgresql mysql-client
+          brew install bdw-gc openssl@3 nghttp2 libpng jpeg sqlite postgresql mysql-client
           {
-            echo "CPATH=$(brew --prefix openssl)/include:$(brew --prefix mysql-client)/include:$(brew --prefix)/include"
-            echo "LIBRARY_PATH=$(brew --prefix openssl)/lib:$(brew --prefix mysql-client)/lib:$(brew --prefix)/lib"
+            echo "CPATH=$(brew --prefix openssl@3)/include:$(brew --prefix mysql-client)/include:$(brew --prefix)/include"
+            echo "LIBRARY_PATH=$(brew --prefix openssl@3)/lib:$(brew --prefix mysql-client)/lib:$(brew --prefix)/lib"
           } >> "$GITHUB_ENV"
       - run: ./check_examples.sh
 
