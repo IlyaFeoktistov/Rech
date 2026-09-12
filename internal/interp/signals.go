@@ -49,59 +49,67 @@ const (
 	signalOrdinalCount
 )
 
+// sigUnsupported - значение-часовой в signalOrdinalToOS (заполняется per-OS
+// файлами - signals_linux.go/signals_darwin.go/signals_windows.go) для
+// ordinal'ов, у которых на ЭТОЙ ОС просто нет соответствующего сигнала
+// (например, SIGSTKFLT/SIGPWR - расширения Linux/glibc, отсутствуют на
+// Darwin; на Windows отсутствует всё, кроме 13 сигналов, которые Go там
+// определяет для совместимости, см. signals_windows.go). "получен_сигнал"/
+// "отправить_сигнал" с таким ordinal'ом ведут себя как заведомо
+// недостижимый сигнал - не паникуют (в отличие от SIGKILL/SIGSTOP, которые
+// недостижимы по правилам самого языка, а не платформы), просто никогда не
+// срабатывают/не доставляются.
+const sigUnsupported = syscall.Signal(-1)
+
 // signalOrdinalToOS - ordinal ("получен_сигнал(СигналОС.SIGTERM)") ->
 // syscall.Signal, уже правильный для ТЕКУЩЕЙ платформы (в отличие от
 // numeric-значений StandardEnums, которые платформо-независимый индекс, не
-// настоящий номер сигнала - syscall.SIGUSR1 и т. п. сам разрешается Go
-// компилятором в верное число для GOOS/GOARCH). SIGKILL/SIGSTOP ЗДЕСЬ ЕСТЬ
-// (в отличие от прежней версии) - "отправить_сигнал" использует ту же
-// таблицу для ЛЮБОГО ordinal (kill() отправить их можно, только перехватить
-// самому нельзя) - "получен_сигнал" по-прежнему паникует на них РАНЬШЕ, чем
-// заглянуть в таблицу (signalReceived).
-var signalOrdinalToOS = [signalOrdinalCount]syscall.Signal{
-	sigOrdSIGHUP:    syscall.SIGHUP,
-	sigOrdSIGINT:    syscall.SIGINT,
-	sigOrdSIGQUIT:   syscall.SIGQUIT,
-	sigOrdSIGABRT:   syscall.SIGABRT,
-	sigOrdSIGKILL:   syscall.SIGKILL,
-	sigOrdSIGUSR1:   syscall.SIGUSR1,
-	sigOrdSIGUSR2:   syscall.SIGUSR2,
-	sigOrdSIGPIPE:   syscall.SIGPIPE,
-	sigOrdSIGALRM:   syscall.SIGALRM,
-	sigOrdSIGTERM:   syscall.SIGTERM,
-	sigOrdSIGCHLD:   syscall.SIGCHLD,
-	sigOrdSIGCONT:   syscall.SIGCONT,
-	sigOrdSIGSTOP:   syscall.SIGSTOP,
-	sigOrdSIGTSTP:   syscall.SIGTSTP,
-	sigOrdSIGWINCH:  syscall.SIGWINCH,
-	sigOrdSIGILL:    syscall.SIGILL,
-	sigOrdSIGTRAP:   syscall.SIGTRAP,
-	sigOrdSIGBUS:    syscall.SIGBUS,
-	sigOrdSIGFPE:    syscall.SIGFPE,
-	sigOrdSIGSEGV:   syscall.SIGSEGV,
-	sigOrdSIGSTKFLT: syscall.SIGSTKFLT,
-	sigOrdSIGTTIN:   syscall.SIGTTIN,
-	sigOrdSIGTTOU:   syscall.SIGTTOU,
-	sigOrdSIGURG:    syscall.SIGURG,
-	sigOrdSIGXCPU:   syscall.SIGXCPU,
-	sigOrdSIGXFSZ:   syscall.SIGXFSZ,
-	sigOrdSIGVTALRM: syscall.SIGVTALRM,
-	sigOrdSIGPROF:   syscall.SIGPROF,
-	sigOrdSIGIO:     syscall.SIGIO,
-	sigOrdSIGPWR:    syscall.SIGPWR,
-	sigOrdSIGSYS:    syscall.SIGSYS,
-}
+// настоящий номер сигнала). Заполняется per-OS файлом (signals_linux.go и
+// т. д.) - набор существующих на ОС сигналов разный (SIGSTKFLT/SIGPWR нет
+// на Darwin, на Windows есть только 13 из всего списка).
+var signalOrdinalToOS [signalOrdinalCount]syscall.Signal
 
 var (
-	signalFlags [signalOrdinalCount]atomic.Bool
-	signalOnce  [signalOrdinalCount]sync.Once
+	signalFlags     [signalOrdinalCount]atomic.Bool
+	signalSetupOnce sync.Once
 )
 
-// signalReceived - "получен_сигнал(сигнал: СигналОС): Логическое" -
-// регистрирует (лениво, один раз за сигнал - sync.Once, тот же принцип, что
-// ensureShutdownSignalHandler в shutdown.go) горутину, ждущую ИМЕННО этот
-// сигнал, и взводит atomic-флаг НАВСЕГДА при первом получении - не
-// сбрасывается, тем же принципом, что и "запрошена_остановка".
+// ensureSignalHandlers - регистрирует signal.Notify ДЛЯ ВСЕХ поддерживаемых
+// на этой ОС ordinal'ов сразу, один раз за жизнь программы - вызывается И
+// "получен_сигнал", И "отправить_сигнал" ПЕРВЫМ действием. Раньше
+// регистрация была ленивой и per-ordinal (внутри "получен_сигнал", только
+// на первый вызов ИМЕННО этого сигнала) - живой найденный баг:
+// "отправить_сигнал" себе самому РАНЬШЕ, чем хоть раз был вызван
+// "получен_сигнал" с тем же сигналом (типичный порядок в самом начале
+// "главная"), реально терял сигнал - Go отбрасывает сигнал, для которого на
+// момент доставки нет ни одного Notify, а "получен_сигнал" регистрировался
+// уже ПОСЛЕ отправки и ждал сигнал, который никогда не придёт
+// (TestSignalSendDeliversToOwnProcess, воспроизводится стабильно с
+// "-count=3" даже без изменений в этом файле). signal.Notify синхронен -
+// после возврата ensureSignalHandlers ЛЮБОЙ дальнейший kill() гарантированно
+// увидит уже настроенную подписку, "отправить_сигнал" больше не может
+// обогнать её.
+func ensureSignalHandlers() {
+	signalSetupOnce.Do(func() {
+		for idx := range signalOrdinalCount {
+			sig := signalOrdinalToOS[idx]
+			if sig == sigUnsupported {
+				continue
+			}
+			ch := make(chan os.Signal, 1)
+			signal.Notify(ch, sig)
+			idx := idx
+			go func() {
+				<-ch
+				signalFlags[idx].Store(true)
+			}()
+		}
+	})
+}
+
+// signalReceived - "получен_сигнал(сигнал: СигналОС): Логическое" - взводит
+// atomic-флаг НАВСЕГДА при первом получении - не сбрасывается, тем же
+// принципом, что и "запрошена_остановка".
 func signalReceived(ordinal int64) bool {
 	if ordinal == sigOrdSIGKILL || ordinal == sigOrdSIGSTOP {
 		panicRuntime("%s", rtmsg.SignalUncatchable)
@@ -109,28 +117,31 @@ func signalReceived(ordinal int64) bool {
 	if ordinal < 0 || ordinal >= signalOrdinalCount {
 		return false
 	}
-	idx := int(ordinal)
-	signalOnce[idx].Do(func() {
-		ch := make(chan os.Signal, 1)
-		signal.Notify(ch, signalOrdinalToOS[idx])
-		go func() {
-			<-ch
-			signalFlags[idx].Store(true)
-		}()
-	})
-	return signalFlags[idx].Load()
+	if signalOrdinalToOS[ordinal] == sigUnsupported {
+		return false
+	}
+	ensureSignalHandlers()
+	return signalFlags[ordinal].Load()
 }
 
 // signalSend - "отправить_сигнал(pid: Целое, сигнал: СигналОС): Ничто" -
-// kill(pid, sig), не signalReceived - НЕ паникует на SIGKILL/SIGSTOP (в
-// отличие от получения, отправить их другому процессу - обычное дело,
-// "kill -9"), паникует только если сама отправка не удалась (процесс не
-// существует - ESRCH, нет прав - EPERM).
+// kill(pid, sig) через signalKill (per-OS - см. signals_linux.go/
+// signals_darwin.go/signals_windows.go), не signalReceived - НЕ паникует на
+// SIGKILL/SIGSTOP (в отличие от получения, отправить их другому процессу -
+// обычное дело, "kill -9"), паникует, если сама отправка не удалась (процесс
+// не существует, нет прав, ordinal не поддержан этой ОС - windows умеет
+// доставить только 13 из полного списка). ensureSignalHandlers ПЕРЕД
+// signalKill - см. её package doc про TOCTOU-гонку, которую это закрывает.
 func signalSend(pid, ordinal int64) {
 	if ordinal < 0 || ordinal >= signalOrdinalCount {
 		panicRuntime("%s", rtmsg.SignalSendFailed)
 	}
-	if err := syscall.Kill(int(pid), signalOrdinalToOS[ordinal]); err != nil {
+	sig := signalOrdinalToOS[ordinal]
+	if sig == sigUnsupported {
+		panicRuntime("%s", rtmsg.SignalSendFailed)
+	}
+	ensureSignalHandlers()
+	if err := signalKill(int(pid), sig); err != nil {
 		panicRuntime("%s", rtmsg.SignalSendFailed)
 	}
 }
