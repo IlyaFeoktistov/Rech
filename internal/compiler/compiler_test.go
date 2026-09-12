@@ -3,6 +3,7 @@ package compiler
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -159,7 +160,12 @@ func TestBuildProducesExecutableBinaryAtSourcePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("бинарник не найден по %q: %v", binPath, err)
 	}
-	if info.Mode()&0o100 == 0 {
+	// Windows не знает Unix-бита "исполняемый" вовсе - os.FileInfo.Mode() у
+	// ЛЮБОГО обычного файла там всегда без бит владельца/группы/прочих на
+	// запуск (CreateProcess решает, можно ли запустить файл, по содержимому
+	// PE-заголовка, не по битам режима и не по расширению) - на этой ОС
+	// проверять нечего, сама проверка бессмысленна.
+	if runtime.GOOS != "windows" && info.Mode()&0o100 == 0 {
 		t.Fatalf("бинарник %q не исполняемый: mode=%v", binPath, info.Mode())
 	}
 	entries, err := os.ReadDir(dir)

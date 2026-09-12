@@ -2,6 +2,7 @@ package interp
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -80,21 +81,33 @@ func TestSpawnProcessMissingCommandPanics(t *testing.T) {
 // одновременно достаточно большие, чтобы упасть в дедлок при наивном
 // последовательном чтении сначала одного, потом другого.
 func TestRunCommandCapturesOutputSeparately(t *testing.T) {
+	// Без пробелов вокруг "&&" - у cmd.exe (Windows) команда до разделителя
+	// "&&" вбирает пробел ПЕРЕД ним буквально в вывод "echo" (обычный
+	// вывод стал бы "вывод ", с хвостовым пробелом) - "sh" (Unix) разделяет
+	// команды по "&&" одинаково что с пробелами, что без.
 	out := runSrc(t, `функция главная
 {
-    переменная р: РезультатКоманды = выполнить_команду("echo вывод && echo ошибка 1>&2")
+    переменная р: РезультатКоманды = выполнить_команду("echo вывод&&echo ошибка 1>&2")
     вывести р.вывод
     вывести р.ошибка
     вывести р.код_возврата
 }
 `)
+	// cmd.exe (Windows) завершает строки "echo" через "\r\n", sh - через
+	// "\n" - само разделение stdout/stderr (то, что здесь проверяется) от
+	// вида перевода строки не зависит. "1>&2" в исходной команде тоже
+	// требует пробела ПЕРЕД собой (иначе слился бы с "ошибка" в одно
+	// слово) - тот же квирк cmd.exe, что и у "&&" (буквально включает этот
+	// пробел в вывод "echo"), но убрать пробел здесь, в отличие от "&&",
+	// нельзя - только хвостовой пробел на строке проверке не важен.
+	out = strings.ReplaceAll(out, "\r", "")
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	want := []string{"вывод", "", "ошибка", "", "0"}
 	if len(lines) != len(want) {
 		t.Fatalf("ожидалось %d строк, получено %d: %q", len(want), len(lines), out)
 	}
 	for i, w := range want {
-		if lines[i] != w {
+		if strings.TrimRight(lines[i], " ") != w {
 			t.Fatalf("строка %d: ожидалось %q, получено %q (весь вывод %q)", i, w, lines[i], out)
 		}
 	}
@@ -119,13 +132,24 @@ func TestRunCommandNonzeroExitIsNotPanic(t *testing.T) {
 // рабочий каталог ИМЕННО этой команды, не всей программы (pwd внутри
 // команды обязан отразить его).
 func TestRunCommandRespectsWorkingDirectory(t *testing.T) {
-	out := runSrc(t, `функция главная
+	dir := t.TempDir()
+	// "pwd" - не команда cmd.exe вовсе на Windows (нет такого исполняемого
+	// файла по умолчанию), там та же роль - у встроенного "cd" без
+	// аргументов. "/tmp" как литерал тоже не годится - невалидный рабочий
+	// каталог для CreateProcess на Windows (нет буквы диска), поэтому
+	// каталог - настоящий t.TempDir(), тот же принцип, что и в
+	// project_test.go (TestLoadLibraryPathsResolvesRelativeToProjectDir).
+	pwdCmd := "pwd"
+	if runtime.GOOS == "windows" {
+		pwdCmd = "cd"
+	}
+	out := runSrc(t, fmt.Sprintf(`функция главная
 {
-    переменная р: РезультатКоманды = выполнить_команду("pwd", "/tmp")
+    переменная р: РезультатКоманды = выполнить_команду(%q, %q)
     вывести р.вывод
 }
-`)
-	if strings.TrimSpace(out) != "/tmp" {
-		t.Fatalf("ожидался вывод \"/tmp\", получено %q", out)
+`, pwdCmd, dir))
+	if strings.TrimSpace(out) != dir {
+		t.Fatalf("ожидался вывод %q, получено %q", dir, out)
 	}
 }

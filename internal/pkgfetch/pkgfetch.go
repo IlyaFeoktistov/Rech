@@ -96,6 +96,12 @@ func cacheDirFor(root, url, version string) (string, error) {
 	if trimmed == "" {
 		return "", fmt.Errorf("пустой URL")
 	}
+	// ":" встречается в scp-style git-URL ("git@host:путь") и в путях
+	// локальных каталогов на Windows ("C:\..." - тесты используют такие
+	// пути как URL для клонирования локального репозитория): на Windows
+	// это превращает результат filepath.Join в невалидный путь с двумя
+	// "дисками" внутри одного пути, поэтому заменяем его до склейки.
+	trimmed = strings.ReplaceAll(trimmed, ":", "_")
 	safeVersion := strings.ReplaceAll(version, "/", "_")
 	return filepath.Join(root, trimmed+"@"+safeVersion), nil
 }
@@ -165,17 +171,26 @@ func cloneAt(dir, url, ref string, fullClone bool) error {
 	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
 		return err
 	}
+	// "-c core.longpaths=true" - каталог кеша сам по себе уже вложенный
+	// (CacheRoot/cacheDirFor), git пишет объекты ЕЩЁ на несколько уровней
+	// глубже (.git/objects/xx/<hash>) - на Windows суммарный путь легко
+	// превышает MAX_PATH (260 символов, включён по умолчанию у git для
+	// Windows, если явно не включить longpaths) - "Filename too long" -
+	// живой баг, найден настоящим прогоном на Windows (кросс-компиляция
+	// его не ловит, git ведёт себя одинаково на всех ОС, ограничение - в
+	// самой файловой системе/API). Безвредно на Linux/macOS - там просто
+	// не используется git'ом (нет там такого ограничения).
 	var cmd *exec.Cmd
 	if fullClone {
-		cmd = exec.Command("git", "clone", "--quiet", url, dir)
+		cmd = exec.Command("git", "-c", "core.longpaths=true", "clone", "--quiet", url, dir)
 	} else {
-		cmd = exec.Command("git", "clone", "--quiet", "--depth", "1", "--branch", ref, url, dir)
+		cmd = exec.Command("git", "-c", "core.longpaths=true", "clone", "--quiet", "--depth", "1", "--branch", ref, url, dir)
 	}
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git clone %s: %w\n%s", url, err, out)
 	}
 	if fullClone {
-		checkout := exec.Command("git", "-C", dir, "checkout", "--quiet", ref)
+		checkout := exec.Command("git", "-c", "core.longpaths=true", "-C", dir, "checkout", "--quiet", ref)
 		if out, err := checkout.CombinedOutput(); err != nil {
 			return fmt.Errorf("git checkout %s (%s): %w\n%s", ref, url, err, out)
 		}

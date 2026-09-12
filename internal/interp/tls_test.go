@@ -135,7 +135,7 @@ func TestRunTLSListenerAcceptsHandshakeAndServesHTTP(t *testing.T) {
     }
     закрыть_сокет(слушатель)
 }
-`, port, certPath, keyPath))
+`, port, filepath.ToSlash(certPath), filepath.ToSlash(keyPath)))
 
 	res := <-clientDone
 	if res.err != nil {

@@ -161,7 +161,23 @@ FunctionEnd
 Section "Install"
     SetOutPath "$INSTDIR"
     File "rech.exe"
+    File "rech-file.ico"
     WriteUninstaller "$INSTDIR\uninstall.exe"
+
+    ; Значок Проводника для .rech/.rechproj/.rechi - ЗАГЛУШКА (не финальный
+    ; дизайн, см. rech-vscode/icons - тот же файл там уже подключён как
+    ; значок языка в самом VS Code). HKCU\Software\Classes (не HKCR/HKLM) -
+    ; тот же принцип, что и весь установщик (RequestExecutionLevel user,
+    ; без admin) - ассоциация видна только текущему пользователю. Один
+    ; общий ProgID на все три расширения - им нечего различать НА УРОВНЕ
+    ; иконки/ассоциации сейчас (открываются одним и тем же редактором),
+    ; заводить три идентичных ProgID незачем.
+    WriteRegStr HKCU "Software\Classes\.rech" "" "Rech.SourceFile"
+    WriteRegStr HKCU "Software\Classes\.rechproj" "" "Rech.SourceFile"
+    WriteRegStr HKCU "Software\Classes\.rechi" "" "Rech.SourceFile"
+    WriteRegStr HKCU "Software\Classes\Rech.SourceFile" "" "Файл Rech"
+    WriteRegStr HKCU "Software\Classes\Rech.SourceFile\DefaultIcon" "" "$INSTDIR\rech-file.ico,0"
+    System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0x0000, i 0, i 0)'
 
     ; Часовые пояса (IANA tzdata, формат TZif) - собственный читатель
     ; cbackend (internal/backend/cbackend/tzdata.go, "время_как_дата_в_
@@ -293,7 +309,14 @@ SectionEnd
 
 Section "Uninstall"
     Delete "$INSTDIR\rech.exe"
+    Delete "$INSTDIR\rech-file.ico"
     Delete "$INSTDIR\uninstall.exe"
     RMDir /r "$INSTDIR\zoneinfo"
     RMDir "$INSTDIR"
+
+    DeleteRegKey HKCU "Software\Classes\.rech"
+    DeleteRegKey HKCU "Software\Classes\.rechproj"
+    DeleteRegKey HKCU "Software\Classes\.rechi"
+    DeleteRegKey HKCU "Software\Classes\Rech.SourceFile"
+    System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0x0000, i 0, i 0)'
 SectionEnd

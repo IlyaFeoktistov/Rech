@@ -241,6 +241,11 @@ func TestLoadWithoutLibrariesReturnsNil(t *testing.T) {
 func TestLoadLibraryPathsResolvesRelativeToProjectDir(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "тест.rechproj")
+	// Абсолютный путь строится с ТЕМ ЖЕ диском, что и dir (пусто на Unix,
+	// "C:" и т.п. на Windows) - буквальный "/абсолютный/путь" без буквы
+	// диска на Windows НЕ абсолютный (filepath.IsAbs требует диск), тест
+	// иначе проверял бы разное поведение на разных ОС.
+	absPath := filepath.VolumeName(dir) + string(filepath.Separator) + "абсолютный" + string(filepath.Separator) + "путь"
 	content := `проект:
   имя: тест
 
@@ -248,7 +253,7 @@ func TestLoadLibraryPathsResolvesRelativeToProjectDir(t *testing.T) {
   главный: исходники/главный.rech
 
 сборка:
-  путь_библиотек: ../экспорт_библиотеки/сборка, /абсолютный/путь
+  путь_библиотек: ../экспорт_библиотеки/сборка, ` + absPath + `
 `
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("запись файла проекта: %v", err)
@@ -260,7 +265,7 @@ func TestLoadLibraryPathsResolvesRelativeToProjectDir(t *testing.T) {
 	got := pf.ПутиБиблиотек()
 	want := []string{
 		filepath.Join(dir, "../экспорт_библиотеки/сборка"),
-		"/абсолютный/путь",
+		absPath,
 	}
 	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("ПутиБиблиотек() = %v, ожидалось %v", got, want)

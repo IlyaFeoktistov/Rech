@@ -1,10 +1,10 @@
 package interp
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"runtime"
-	"strings"
 	"syscall"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
@@ -96,7 +96,7 @@ func runCommand(command, dir string) Value {
 	shell, flag := shellNameAndFlag()
 	cmd := exec.Command(shell, flag, command)
 	cmd.Dir = dir
-	var stdout, stderr strings.Builder
+	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
@@ -109,8 +109,8 @@ func runCommand(command, dir string) Value {
 		exitCode = exitErr.ExitCode()
 	}
 	fields := map[string]Value{
-		"вывод":        stringValue(stdout.String()),
-		"ошибка":       stringValue(stderr.String()),
+		"вывод":        stringValue(decodeShellOutput(stdout.Bytes())),
+		"ошибка":       stringValue(decodeShellOutput(stderr.Bytes())),
 		"код_возврата": intValue(int64(exitCode)),
 	}
 	return Value{Type: ir.EntityType("РезультатКоманды"), Obj: &entityObj{typeName: "РезультатКоманды", fields: fields}}
