@@ -1072,7 +1072,17 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// внешние_функции.rech, strlen + <string.h>, включённый совсем по
 	// другой причине - memcpy захваченной лямбды).
 	ctx.includesStringH = ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesPanicCatch || ctx.usesStringSplit || ctx.usesRegex || ctx.usesHTTPHeaders || ctx.usesColor || ctx.usesSubprocess || hasStructTargets || prog.UsesReflection || ctx.usesTZ || ctx.usesDateParse
-	ctx.includesStdlibH = ctx.usesConcat || usesGenerics || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesColor || ctx.usesQueryParams || ctx.usesCookies || ctx.usesRandom || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesRegex || ctx.usesHTTPHeaders || hasStructTargets || ctx.usesExit || ctx.usesTZ || ctx.usesHumanDate
+	// usesNullables/prog.UsesReflection - те же два условия, что у panicGate
+	// (ниже) сверх её собственных: panicGate решает, эмитить ли panicHelper
+	// (безусловный exit(1)), includesStdlibH - подключать ли <stdlib.h>, где
+	// exit() объявлен - расхождение между двумя списками значило "exit()
+	// вызывается, а <stdlib.h> не подключён" (implicit-function-declaration
+	// - GCC на Linux это лишь предупреждение, но Apple Clang - жёсткая
+	// ошибка компиляции; живой баг, найден по логам CI 2026-09-12 -
+	// examples/обобщённые/коробка.rech и examples/основы/рефлексия.rech,
+	// единственные, что взводят usesNullables/UsesReflection без остальных
+	// условий ниже).
+	ctx.includesStdlibH = ctx.usesConcat || usesGenerics || usesNullables || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesColor || ctx.usesQueryParams || ctx.usesCookies || ctx.usesRandom || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesRegex || ctx.usesHTTPHeaders || hasStructTargets || ctx.usesExit || ctx.usesTZ || ctx.usesHumanDate || prog.UsesReflection
 	ctx.includesMathH = ctx.usesMath
 	for _, ext := range prog.ExternFuncs {
 		protoStr, err := externPrototypeOfIR(ctx, ext)
@@ -2370,7 +2380,11 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 		cType := typ.cType(ctx)
 		mangled := mangleVar(s.Name)
 		tmp := mangled + "_INIT"
-		fmt.Fprintf(sb, "%s%s %s = %s;\n", ind, cType, tmp, code)
+		if bridged, ok := bridgeExternStructCallCode(ctx, s.Value, typ.entity, cType, code); ok {
+			fmt.Fprintf(sb, "%s%s %s = %s;\n", ind, cType, tmp, bridged)
+		} else {
+			fmt.Fprintf(sb, "%s%s %s = %s;\n", ind, cType, tmp, code)
+		}
 		fmt.Fprintf(sb, "%s%s %s = %s;\n", ind, cType, mangled, tmp)
 		return nil
 

@@ -10,12 +10,17 @@ on:
       - main
 
 jobs:
-  # go build/vet/test - НЕ требует cgo/системных C-библиотек вовсе (сам
-  # компилятор rech - чистый Go, cgo нигде не используется, см. internal/
-  # interp/signals_linux.go|signals_darwin.go|signals_windows.go и
+  # Сам компилятор rech - чистый Go (cgo нигде не используется, см.
+  # internal/interp/signals_linux.go|signals_darwin.go|signals_windows.go и
   # nonblocking_read_unix.go|nonblocking_read_windows.go - platform-specific
-  # через build tags, не cgo) - поэтому matrix проверяет ВСЕ три ОС без
-  # какой-либо установки внешних библиотек.
+  # через build tags, не cgo). НО internal/backend/cbackend/coroutine_test.go
+  # (POSIX-only, сам себя скипает на Windows) реальным cc КОМПИЛИРУЕТ и
+  # ЛИНКУЕТ C-код против bdw-gc (-lgc) как часть теста - Linux/macOS всё
+  # равно нужен настоящий cc + libgc-dev/bdw-gc, иначе `go test` падает на
+  # "gc.h: file not found" (живой баг, найден по логам CI 2026-09-12 -
+  # раньше это не проверялось, т.к. branch protection недоступен на
+  # приватном репозитории бесплатного GitHub, и падение "test" оставалось
+  # незамеченным).
   test:
     strategy:
       fail-fast: false
@@ -27,6 +32,12 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: Установить bdw-gc (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgc-dev
+      - name: Установить bdw-gc (macOS)
+        if: runner.os == 'macOS'
+        run: brew install bdw-gc
       - run: go build ./...
       - run: go vet ./...
       - run: go test ./...

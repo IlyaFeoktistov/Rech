@@ -969,6 +969,7 @@ func (a *Analyzer) analyzeEntity(ent *ast.EntityDecl) (*ir.Entity, error) {
 		Name: ent.Name, IsStruct: ent.IsStruct, IsAbstract: ent.IsAbstract, BaseName: ent.BaseName, Interfaces: ent.Interfaces,
 		Constants: constants, Fields: fields, StaticFields: staticFields, Methods: irMethods, Ctor: ctor, Doc: ent.Doc, Exported: ent.Exported,
 		StateNames: sig.StateNames, StateBitOffset: sig.StateBitOffset, HasStateFlags: sig.HasStateFlags, Tag: ent.Tag, File: ent.File,
+		IsExternStruct: ent.IsExternStruct, ExternCName: ent.ExternCName,
 	}, nil
 }
 
