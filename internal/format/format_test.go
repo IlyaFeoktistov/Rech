@@ -81,6 +81,29 @@ func TestFormatCanonicalizesDocCommentAlignment(t *testing.T) {
 	}
 }
 
+// TestFormatIndentsDocCommentToMethodDepth - НАЙДЕННЫЙ БАГ: doc-комментарий
+// метода внутри сущности (вложенность 1, отступ 4 пробела) печатался под
+// левый край целиком, кроме самой первой строки "/**" - computeLineDepths
+// помечал ВСЕ внутренние строки многострочного DOC_COMMENT как verbatim
+// (тот же механизм, что защищает TAG-литерал от порчи отступом), а
+// canonicalizeDocComments (doc_comment.go) кладёт их без отступа под
+// конкретный уровень вложенности, в расчёте, что его добавит именно
+// computeLineDepths - без этой добавки уровень терялся.
+func TestFormatIndentsDocCommentToMethodDepth(t *testing.T) {
+	src := "сущность Счётчик\n{\n" +
+		"    /**\n" +
+		"     * Входит в критический участок.\n" +
+		"     */\n" +
+		"    публичный войти(): Пусто\n    {\n        вернуть\n    }\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != src {
+		t.Fatalf("получено:\n%q\nожидалось (без изменений):\n%q", got, src)
+	}
+}
+
 // TestFormatCanonicalizesDocCommentExtraSpaceAfterStar - НАЙДЕННЫЙ БАГ
 // (пользователь заметил вживую на своём докблоке, doc_comment.go,
 // normalizeDocCommentLine): автор написал ДВА пробела после "*" на

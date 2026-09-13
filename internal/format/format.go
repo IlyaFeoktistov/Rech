@@ -101,13 +101,16 @@ func Format(src string) (string, error) {
 	normalized := strings.ReplaceAll(src, "\r\n", "\n")
 	lines := strings.Split(normalized, "\n")
 
-	depth, verbatim := computeLineDepths(toks, lines, prog)
+	depth, verbatim, docIndent := computeLineDepths(toks, lines, prog)
 
 	outLines := make([]string, 0, len(lines))
 	blankRun := 0
 	for i, line := range lines {
 		lineNo := i + 1
 		if verbatim[lineNo] {
+			if d, ok := docIndent[lineNo]; ok {
+				line = strings.Repeat(indentUnit, d) + line
+			}
 			outLines = append(outLines, line)
 			blankRun = 0
 			continue
@@ -141,11 +144,22 @@ func Format(src string) (string, error) {
 // которая индексируется как обычно (отступ перед открывающей "`"/"/**" всё
 // равно нужен) - такие строки форматтер обязан оставить байт-в-байт, не
 // трогая даже ведущие пробелы (это часть содержимого литерала/выравнивание
-// комментария, выбранное автором, не код).
-func computeLineDepths(toks []lexer.Token, lines []string, prog *ast.Program) (depth map[int]int, verbatim map[int]bool) {
+// комментария, выбранное автором, не код); docIndent[номер строки] -
+// СКОЛЬКО indentUnit нужно ДОБАВИТЬ ПЕРЕД verbatim-строкой doc-комментария
+// (не TAG - у шаблонной строки добавлять нечего, её отступ - часть данных
+// литерала). canonicalizeDocComments (doc_comment.go) уже привёл каждую
+// внутреннюю строку к " * <текст>"/" */" БЕЗ отступа под конкретный уровень
+// вложенности (см. её package doc - "собственный отступ каждой новой строки
+// не важен, computeLineDepths пересчитывает его с нуля позже"), в расчёте,
+// что она получит тот же отступ, что и открывающая "/**" - НАЙДЕННЫЙ БАГ:
+// verbatim у DOC_COMMENT означал "пропустить строку целиком", то есть эти
+// строки печатались с нулевым отступом независимо от вложенности - doc-блок
+// метода внутри сущности оказывался у левого края вместо уровня метода.
+func computeLineDepths(toks []lexer.Token, lines []string, prog *ast.Program) (depth map[int]int, verbatim map[int]bool, docIndent map[int]int) {
 	totalLines := len(lines)
 	depth = make(map[int]int, totalLines)
 	verbatim = make(map[int]bool)
+	docIndent = make(map[int]int)
 
 	// significant - toks без NEWLINE/EOF, только то, что реально видно на
 	// строке - нужен отдельно от toks, чтобы "предыдущий токен" (weightOf
@@ -208,6 +222,17 @@ func computeLineDepths(toks []lexer.Token, lines []string, prog *ast.Program) (d
 				for l := tok.Line + 1; l <= tok.Line+n; l++ {
 					verbatim[l] = true
 				}
+				if tok.Type == lexer.DOC_COMMENT {
+					// Та же глубина, что уже досталась открывающей "/**"
+					// (depth[tok.Line] - её эта же строка либо только что
+					// вычислила выше в этой самой итерации, либо это сделал
+					// более ранний токен на той же строке - в обоих случаях
+					// depth[tok.Line] к этому моменту уже посчитан).
+					d := depth[tok.Line]
+					for l := tok.Line + 1; l <= tok.Line+n; l++ {
+						docIndent[l] = d
+					}
+				}
 				lastSeenLine = tok.Line + n
 			}
 		}
@@ -220,7 +245,7 @@ func computeLineDepths(toks []lexer.Token, lines []string, prog *ast.Program) (d
 	applyHasSectionIndent(significant, lines, depth, totalLines)
 	applyWhenCaseIndent(significant, depth, totalLines)
 	applyGerundIndent(prog, significant, lines, depth, totalLines)
-	return depth, verbatim
+	return depth, verbatim, docIndent
 }
 
 // collectGerundStmtLines возвращает Line всех ast.GerundStmt, достижимых из
