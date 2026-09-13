@@ -77,7 +77,18 @@ var externSymbolHeader = map[string]string{
 func externPrototypeAlreadyProvided(ctx *irGenCtx, cName string) bool {
 	switch externSymbolHeader[cName] {
 	case "string.h":
-		return ctx.includesStringH
+		// На Windows <windows.h> (включённый безусловно, см. generateSource,
+		// "#ifdef _WIN32 ... #include <windows.h>") сам транзитивно тянет
+		// <string.h> целиком (MinGW: windows.h -> windef.h -> minwindef.h ->
+		// winnt.h -> guiddef.h -> string.h, ради memcmp у IsEqualGUID) - живой
+		// баг: "extern long long strlen(...)" конфликтовал с настоящим
+		// "size_t strlen(...)" из транзитивно включённого string.h, даже
+		// когда ctx.includesStringH сам по себе false (программа не
+		// использует ничего из string.h по СОБСТВЕННЫМ причинам cbackend).
+		// <stdlib.h>/<math.h> той же цепочкой НЕ затягиваются (atoi/srand/
+		// rand/sqrt/div/malloc/free в том же файле не конфликтуют) - поэтому
+		// тот же приём НЕ повторён для case "stdlib.h"/"math.h" ниже.
+		return ctx.includesStringH || runtime.GOOS == "windows"
 	case "stdlib.h":
 		return ctx.includesStdlibH
 	case "math.h":

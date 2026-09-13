@@ -1,6 +1,7 @@
 package cbackend
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -43,11 +44,23 @@ func TestExternPrototypeSkippedWhenHeaderAlreadyIncluded(t *testing.T) {
 // TestExternPrototypeKeptWhenHeaderNotIncluded - тот же strlen, но БЕЗ
 // ничего, что включило бы <string.h> по другой причине - собственный
 // extern-прототип остаётся как есть (единственный источник декларации).
+// На Windows - НАОБОРОТ: <windows.h> (включённый безусловно на этой
+// платформе) сам транзитивно тянет <string.h> (MinGW: windows.h -> ... ->
+// guiddef.h -> string.h), так что собственный прототип НЕ пишется, даже
+// когда ctx.includesStringH сам по себе false (см. externSymbolHeader,
+// extern_headers.go, живой баг - "conflicting types for 'strlen'" на
+// настоящей Windows).
 func TestExternPrototypeKeptWhenHeaderNotIncluded(t *testing.T) {
 	out := generateFromSrc(t, `
 внешняя функция strlen как длина_байт(текст: Строка): Целое
 функция главная { вывести длина_байт("привет") }
 `)
+	if runtime.GOOS == "windows" {
+		if strings.Contains(out, "extern long long strlen(") {
+			t.Fatalf("не ожидался собственный extern-прототип strlen на Windows (<windows.h> транзитивно тянет <string.h>), получено:\n%s", out)
+		}
+		return
+	}
 	if !strings.Contains(out, "extern long long strlen(") {
 		t.Fatalf("ожидался собственный extern-прототип strlen (string.h не включён), получено:\n%s", out)
 	}
