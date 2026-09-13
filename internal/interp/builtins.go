@@ -7,6 +7,7 @@ import (
 	"math"
 	"net"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -177,6 +178,20 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 	case "аргумент":
 		panicRuntime("%s", rtmsg.ArgIndexOutOfRangeFormat(args[0].I))
 		return Value{}, true
+	case "текущая_ос":
+		// Настоящий хост интерпретатора (runtime.GOOS) - в отличие от
+		// cbackend, где это целевая платформа СБОРКИ (может отличаться от
+		// хоста при кросс-компиляции), у interp сборки не существует
+		// вовсе - хост и "текущая ОС" совпадают буквально. Значения -
+		// StandardEnums "ОС" (internal/semantic/types.go).
+		switch runtime.GOOS {
+		case "windows":
+			return intValue(1), true
+		case "darwin":
+			return intValue(2), true
+		default:
+			return intValue(0), true
+		}
 	case "содержит":
 		return boolValue(strings.Contains(args[0].S, args[1].S)), true
 	case "сетевой_узел":

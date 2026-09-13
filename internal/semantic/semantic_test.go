@@ -2118,3 +2118,19 @@ func TestAnalyzeStructDeclSetsIRIsStruct(t *testing.T) {
 		t.Fatalf("ожидался ir.Entity(\"Пользователь\").IsStruct == false, получено %+v", пользователь)
 	}
 }
+
+// TestAnalyzeCurrentOSBuiltin - "текущая_ос()" (Целое) и встроенное
+// перечисление "ОС" (StandardEnums, internal/semantic/types.go) -
+// используются вместе тем же способом, что и остальные builtin-
+// перечисления (СигналОС/СетевойПротокол) - сравнение с "==".
+func TestAnalyzeCurrentOSBuiltin(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция главная
+{
+	если текущая_ос() == ОС.Linux { вывести "linux" }
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}

@@ -1439,6 +1439,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// за ucontext/epoll/kqueue рантайм.
 	appendCodeIf(&sb, ctx.usesCoroutines || ctx.usesSockets, coroutineRuntimeCode)
 	appendCodeIf(&sb, ctx.usesArgs, argFuncHelper)
+	appendCodeIf(&sb, ctx.usesCurrentOS, currentOSHelper)
 	appendCodeIf(&sb, ctx.usesCast, castHelpers)
 
 	if ctx.intDivMod.any() || ctx.uintDivMod.any() {

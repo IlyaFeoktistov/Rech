@@ -60,6 +60,9 @@ type builtinFlags struct {
 	// безусловно (см. argsGlobals), этот флаг - только про саму индексную
 	// функцию (нужен ей panicHelper).
 	usesArgs bool
+	// usesCurrentOS - нужен ли rech_current_os (встроенная функция
+	// "текущая_ос") - см. currentOSHelper.
+	usesCurrentOS bool
 	// usesSockets - нужны ли rech_listen_tcp/rech_accept/rech_connect_tcp/
 	// rech_connect_udp/rech_send/rech_recv/rech_close_socket (встроенные
 	// функции шага 8: слушать_tcp/принять/подключиться_tcp/
@@ -843,6 +846,9 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 		flags.usesArgs = true
 		flags.usesPanic = true
 		return fmt.Sprintf("rech_arg(%s)", args[0]), true
+	case "текущая_ос":
+		flags.usesCurrentOS = true
+		return "rech_current_os", true
 	case "содержит":
 		// usesStrCmp - тот же флаг, что и у "==" между Строка - оба нужны
 		// исключительно за <string.h>, здесь - за strstr.
@@ -985,6 +991,24 @@ const argFuncHelper = `static const char *rech_arg(long long i) {
     }
     return rech_argv[i + 1];
 }
+`
+
+// currentOSHelper - "текущая_ос" (встроенная функция, ir/type.go, Целое,
+// значения - индексы в StandardEnums["ОС"], internal/semantic/types.go, тот
+// же принцип, что и СигналОС/СетевойПротокол) - целевая платформа СБОРКИ
+// (не хоста, на котором в моменте запущен сам `cc` - кросс-компиляция
+// возможна) известна уже на этапе компиляции через стандартные
+// предопределённые макросы препроцессора C, поэтому это просто константа,
+// не настоящий рантайм-запрос ОС - ноль накладных расходов. Без
+// зависимостей (в отличие от argFuncHelper выше), emитируется безусловно
+// под usesCurrentOS, без panicHelper.
+const currentOSHelper = `#if defined(_WIN32)
+static const long long rech_current_os = 1;
+#elif defined(__APPLE__)
+static const long long rech_current_os = 2;
+#else
+static const long long rech_current_os = 0;
+#endif
 `
 
 // panicHelper - аварийное завершение процесса с понятным сообщением:
