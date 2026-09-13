@@ -325,7 +325,7 @@ enum           := "перечисление" IDENT { sep } "{" { sep } enum_memb
 enum_member    := IDENT [ "=" [ "-" ] INT ]
 enum_sep       := ( "," | sep ) { "," | sep }        (* запятая и/или перенос строки, оба допустимы *)
 
-statement      := var_decl | const_decl | assign | field_assign | null_coalesce_assign | index_assign
+statement      := var_decl | const_decl | assign | field_assign | field_incdec_stmt | null_coalesce_assign | index_assign
                 | become_stmt | print_stmt | show_stmt | assert_stmt | if_stmt | while_stmt | for_stmt
                 | break_stmt | continue_stmt
                 | return_stmt | call_stmt | method_call_stmt | incdec_stmt | throw_stmt | try_stmt | await_stmt
@@ -342,6 +342,11 @@ var_decl       := "переменная" IDENT [ ":" type_name ] "=" expr
 const_decl     := "константа" IDENT "=" expr
 assign         := IDENT assign_op expr
 field_assign   := ( IDENT | "этот" ) "." IDENT assign_op expr
+field_incdec_stmt := ( IDENT | "этот" ) "." IDENT ( "++" | "--" )
+                                             (* сахар над field_assign ("поле = поле + 1"/"- 1") -
+                                                значение отбрасывается, только как самостоятельная
+                                                инструкция (в отличие от incdec_stmt для простого
+                                                имени - у поля нет формы "как выражение") *)
 assign_op      := "=" | "+=" | "-=" | "*=" | "/=" | "%="
 null_coalesce_assign := IDENT "?=" expr
 index_assign   := IDENT "[" expr "]" "=" expr

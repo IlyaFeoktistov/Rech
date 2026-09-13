@@ -801,6 +801,72 @@ func TestParseFieldCompoundAssign(t *testing.T) {
 	}
 }
 
+// TestParseFieldIncDec - "получатель.поле++"/"--" - сахар над FieldAssign
+// ("поле = поле + 1"/"- 1"), тем же приёмом, что и составное присваивание
+// (TestParseFieldCompoundAssign) - НАЙДЕНО пользователем вживую: "++"/"--"
+// у простого имени переменной уже работали, у поля - нет, хотя "+="/"-="
+// у поля уже были поддержаны через ту же compoundAssignOps.
+func TestParseFieldIncDec(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная {
+    переменная пользователь = 0
+    пользователь.возраст++
+    пользователь.возраст--
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	wantOps := []string{"+", "-"}
+	for i, wantOp := range wantOps {
+		stmt, ok := prog.Functions[0].Body[i+1].(*ast.FieldAssign)
+		if !ok {
+			t.Fatalf("инструкция %d: ожидался FieldAssign, получено %T", i, prog.Functions[0].Body[i+1])
+		}
+		bin, ok := stmt.Value.(*ast.BinaryExpr)
+		if !ok || bin.Op != wantOp {
+			t.Fatalf("инструкция %d: ожидался BinaryExpr с оператором %q, получено %+v", i, wantOp, stmt.Value)
+		}
+		fa, ok := bin.Left.(*ast.FieldAccess)
+		if !ok || fa.Field != "возраст" {
+			t.Fatalf("инструкция %d: левый операнд должен быть доступом к полю \"возраст\", получено %+v", i, bin.Left)
+		}
+		lit, ok := bin.Right.(*ast.IntLiteral)
+		if !ok || lit.Value != 1 {
+			t.Fatalf("инструкция %d: правый операнд должен быть литералом 1, получено %+v", i, bin.Right)
+		}
+	}
+}
+
+// TestParseThisFieldIncDec - то же самое, получатель "этот" внутри тела
+// метода (не просто переменная).
+func TestParseThisFieldIncDec(t *testing.T) {
+	prog, err := parseSource(t, `
+сущность Счётчик {
+    имеет:
+        значение: Целое = 0
+
+    инкрементировать() {
+        этот.значение++
+    }
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	method := prog.Entities[0].Methods[0]
+	stmt, ok := method.Body[0].(*ast.FieldAssign)
+	if !ok {
+		t.Fatalf("ожидался FieldAssign, получено %T", method.Body[0])
+	}
+	if _, ok := stmt.Receiver.(*ast.ThisExpr); !ok {
+		t.Fatalf("ожидался получатель \"этот\", получено %+v", stmt.Receiver)
+	}
+	if stmt.Field != "значение" {
+		t.Fatalf("ожидалось поле \"значение\", получено %q", stmt.Field)
+	}
+}
+
 func TestParseNestedFieldAssign(t *testing.T) {
 	// "x.a.b = значение" - получатель присваивания ("x.a") сам вложенный
 	// доступ к полю, не просто IDENT (см. finishFieldAssign).

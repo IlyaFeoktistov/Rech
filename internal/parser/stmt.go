@@ -279,14 +279,25 @@ func (p *Parser) finishCallChainStmt(call *ast.CallExpr) (ast.Stmt, error) {
 		if opTok.Type == lexer.ASSIGN || isCompoundAssignTok(opTok.Type) {
 			return p.finishFieldAssign(e.Receiver, e.Field, e.Static, e.Line)
 		}
+		if isIncDecTok(opTok.Type) {
+			return p.finishFieldIncDec(e.Receiver, e.Field, e.Static, e.Line)
+		}
 	}
 	return nil, fmt.Errorf("строка %d, столбец %d: доступ к полю сам по себе не является инструкцией - нужен вызов метода или присваивание",
 		startLine, startCol)
 }
 
+// isIncDecTok - true у "++"/"--" (см. finishFieldIncDec).
+func isIncDecTok(t lexer.TokenType) bool {
+	return t == lexer.INCR || t == lexer.DECR
+}
+
 func (p *Parser) parseDotStatement() (ast.Stmt, error) {
 	if p.peekAt(3).Type == lexer.ASSIGN || isCompoundAssignTok(p.peekAt(3).Type) {
 		return p.parseFieldAssign()
+	}
+	if isIncDecTok(p.peekAt(3).Type) {
+		return p.parseFieldIncDec()
 	}
 	start := p.cur()
 	expr, err := p.parsePostfix()
@@ -300,6 +311,9 @@ func (p *Parser) parseDotStatement() (ast.Stmt, error) {
 		opTok := p.cur()
 		if opTok.Type == lexer.ASSIGN || isCompoundAssignTok(opTok.Type) {
 			return p.finishFieldAssign(e.Receiver, e.Field, e.Static, e.Line)
+		}
+		if isIncDecTok(opTok.Type) {
+			return p.finishFieldIncDec(e.Receiver, e.Field, e.Static, e.Line)
 		}
 	}
 	return nil, fmt.Errorf("строка %d, столбец %d: доступ к полю сам по себе не является инструкцией - нужен вызов метода или присваивание",
@@ -557,30 +571,50 @@ func (p *Parser) parseIndexAssign() (ast.Stmt, error) {
 	return &ast.ExprStmt{MethodCall: call, Line: receiverTok.Line}, nil
 }
 
-// parseFieldAssign разбирает "receiver.поле = выражение" - receiver РОВНО
-// один уровень (IDENT переменной или "этот"), без вложенности - самый
-// частый случай, отдельный быстрый путь без общей parsePostfix. Позиция
-// парсера на входе - на получателе. Присваивание в поле ВЛОЖЕННОЙ сущности
-// (`x.a.b = значение`) идёт другим путём - см. parseDotStatement,
-// finishFieldAssign.
-func (p *Parser) parseFieldAssign() (ast.Stmt, error) {
+// parseSimpleFieldReceiver разбирает "receiver.поле"/"receiver::поле" -
+// receiver РОВНО один уровень (IDENT переменной или "этот"), без
+// вложенности - общая голова parseFieldAssign/parseFieldIncDec (различаются
+// только хвостом - что идёт ПОСЛЕ имени поля). Позиция парсера на входе -
+// на получателе.
+func (p *Parser) parseSimpleFieldReceiver() (receiver ast.Expr, field string, static bool, line int, err error) {
 	receiverTok := p.advance() // IDENT получателя или "этот"
-	var receiver ast.Expr
 	if receiverTok.Type == lexer.KwThis {
 		if !p.inMethodBody {
-			return nil, fmt.Errorf("строка %d, столбец %d: \"этот\" валиден только внутри тела метода", receiverTok.Line, receiverTok.Col)
+			return nil, "", false, 0, fmt.Errorf("строка %d, столбец %d: \"этот\" валиден только внутри тела метода", receiverTok.Line, receiverTok.Col)
 		}
 		receiver = &ast.ThisExpr{Line: receiverTok.Line}
 	} else {
 		receiver = &ast.Identifier{Name: receiverTok.Value, Line: receiverTok.Line}
 	}
-	static := p.cur().Type == lexer.DBLCOLON
+	static = p.cur().Type == lexer.DBLCOLON
 	p.advance() // "." или "::"
-	field, err := p.expect(lexer.IDENT)
+	fieldTok, err := p.expect(lexer.IDENT)
 	if err != nil {
-		return nil, fmt.Errorf("после \".\" ожидалось имя поля: %w", err)
+		return nil, "", false, 0, fmt.Errorf("после \".\" ожидалось имя поля: %w", err)
 	}
-	return p.finishFieldAssign(receiver, field.Value, static, receiverTok.Line)
+	return receiver, fieldTok.Value, static, receiverTok.Line, nil
+}
+
+// parseFieldAssign разбирает "receiver.поле = выражение" - см. package doc
+// parseSimpleFieldReceiver. Присваивание в поле ВЛОЖЕННОЙ сущности
+// (`x.a.b = значение`) идёт другим путём - см. parseDotStatement,
+// finishFieldAssign.
+func (p *Parser) parseFieldAssign() (ast.Stmt, error) {
+	receiver, field, static, line, err := p.parseSimpleFieldReceiver()
+	if err != nil {
+		return nil, err
+	}
+	return p.finishFieldAssign(receiver, field, static, line)
+}
+
+// parseFieldIncDec разбирает "receiver.поле++"/"receiver.поле--" - см.
+// package doc parseSimpleFieldReceiver/finishFieldIncDec.
+func (p *Parser) parseFieldIncDec() (ast.Stmt, error) {
+	receiver, field, static, line, err := p.parseSimpleFieldReceiver()
+	if err != nil {
+		return nil, err
+	}
+	return p.finishFieldIncDec(receiver, field, static, line)
 }
 
 // finishFieldAssign разбирает хвост присваивания полю - "= выражение" (или
@@ -601,6 +635,34 @@ func (p *Parser) finishFieldAssign(receiver ast.Expr, field string, static bool,
 	}
 	if baseOp, ok := compoundAssignOps[opTok.Type]; ok {
 		value = &ast.BinaryExpr{Op: baseOp, Left: &ast.FieldAccess{Receiver: receiver, Field: field, Static: static, Line: line}, Right: value, Line: opTok.Line}
+	}
+	return &ast.FieldAssign{Receiver: receiver, Field: field, Static: static, Value: value, Line: line}, nil
+}
+
+// finishFieldIncDec разбирает хвост "receiver.поле++"/"receiver.поле--" -
+// после того как получатель и имя поля уже разобраны (позиция парсера на
+// входе - на "++"/"--"). Сахар над FieldAssign, тем же приёмом, что и
+// составные операторы у finishFieldAssign ("поле += выражение" -
+// "поле = поле + выражение") - "поле++" разворачивается в
+// "поле = поле + 1": НАЙДЕНО пользователем вживую - "++"/"--" у поля
+// сущности (в отличие от "+="/"-=", которые уже поддержаны finishFieldAssign
+// через ту же compoundAssignOps) не были разобраны никак. Отдельного узла
+// AST/IR не заводится (как и у "+=") - вся семантика (числовой тип
+// операнда "+"/константность и т. п.) уже проверяется обычным присваиванием
+// полю. В отличие от ast.IncDecExpr (простое имя переменной) - только
+// инструкция целиком ("поле++" на своей строке), не под-выражение
+// ("x = поле++" не поддержано - не запрошено).
+func (p *Parser) finishFieldIncDec(receiver ast.Expr, field string, static bool, line int) (ast.Stmt, error) {
+	op := p.advance() // "++" или "--"
+	baseOp := "+"
+	if op.Type == lexer.DECR {
+		baseOp = "-"
+	}
+	value := &ast.BinaryExpr{
+		Op:    baseOp,
+		Left:  &ast.FieldAccess{Receiver: receiver, Field: field, Static: static, Line: line},
+		Right: &ast.IntLiteral{Value: 1, Line: op.Line},
+		Line:  op.Line,
 	}
 	return &ast.FieldAssign{Receiver: receiver, Field: field, Static: static, Value: value, Line: line}, nil
 }
