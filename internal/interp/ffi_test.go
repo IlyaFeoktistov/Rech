@@ -121,3 +121,97 @@ func TestFFIStructFieldPointerAndCallback(t *testing.T) {
 		t.Fatalf("readFFIValue, поле \"данные\": получено %d, ожидалось 123", got)
 	}
 }
+
+// TestFFICallbackPoolMultipleSimultaneousCallbacks - пул слотов
+// (ffi_callback.go, ir.FFICallbackPoolSize) даёт НЕСКОЛЬКО ОДНОВРЕМЕННО
+// живых замыканий ОДНОЙ сигнатуры, не одно (раньше вторая регистрация
+// заменяла бы первую, и оба трамплина отвечали бы значением ВТОРОГО
+// замыкания) - обе регистрации выполнены ДО первого вызова любого из двух
+// трамплинов, оба трамплина вызваны реальным machine-level вызовом (тот же
+// приём, что и TestFFIStructFieldPointerAndCallback - purego.RegisterFunc
+// поверх адреса), проверено, что каждый отвечает СВОИМ значением.
+func TestFFICallbackPoolMultipleSimultaneousCallbacks(t *testing.T) {
+	in := buildInterp(t, `
+внешняя структура ОкноКласс как КлассОкна
+{
+    имеет:
+        обработчик: Вызываемый(Целое): Целое
+}
+
+функция главная { }
+`)
+	ent := in.entities["КлассОкна"]
+	if ent == nil || !ent.IsExternStruct {
+		t.Fatal("внешняя структура \"КлассОкна\" не найдена")
+	}
+	sigName := ent.Fields[0].Type.Entity
+
+	first := Value{Callable: &callableValue{call: func(args []Value, dbg *dbgThread) (Value, error) {
+		return intValue(args[0].I + 10), nil
+	}}}
+	second := Value{Callable: &callableValue{call: func(args []Value, dbg *dbgThread) (Value, error) {
+		return intValue(args[0].I + 20), nil
+	}}}
+
+	firstAddr, err := in.registerCallbackArg(sigName, first)
+	if err != nil {
+		t.Fatalf("registerCallbackArg (первое замыкание): %v", err)
+	}
+	secondAddr, err := in.registerCallbackArg(sigName, second)
+	if err != nil {
+		t.Fatalf("registerCallbackArg (второе замыкание): %v", err)
+	}
+	if firstAddr == secondAddr {
+		t.Fatalf("оба замыкания получили ОДИН И ТОТ ЖЕ адрес трамплина (%#x) - пул не разделяет слоты", firstAddr)
+	}
+
+	fnType := reflect.FuncOf([]reflect.Type{reflect.TypeFor[int64]()}, []reflect.Type{reflect.TypeFor[int64]()}, false)
+	callVia := func(addr uintptr, arg int64) int64 {
+		fnPtr := reflect.New(fnType)
+		purego.RegisterFunc(fnPtr.Interface(), addr)
+		return fnPtr.Elem().Call([]reflect.Value{reflect.ValueOf(arg)})[0].Int()
+	}
+
+	// Оба трамплина вызваны ПОСЛЕ того, как ОБА замыкания уже
+	// зарегистрированы - если бы регистрация второго молча заменяла слот
+	// первого (старая модель), вызов через firstAddr тоже вернул бы 21
+	// (5+20), а не 15 (5+10).
+	if got := callVia(firstAddr, 5); got != 15 {
+		t.Fatalf("первый трамплин: получено %d, ожидалось 15 (своё замыкание - 5+10)", got)
+	}
+	if got := callVia(secondAddr, 5); got != 25 {
+		t.Fatalf("второй трамплин: получено %d, ожидалось 25 (своё замыкание - 5+20)", got)
+	}
+}
+
+// TestFFICallbackPoolExhausted - регистрация сверх ir.FFICallbackPoolSize
+// одновременно живых слотов одной сигнатуры - явная ошибка, не тихая
+// подмена/переполнение.
+func TestFFICallbackPoolExhausted(t *testing.T) {
+	in := buildInterp(t, `
+внешняя структура ОкноКласс как КлассОкна
+{
+    имеет:
+        обработчик: Вызываемый(Целое): Целое
+}
+
+функция главная { }
+`)
+	ent := in.entities["КлассОкна"]
+	sigName := ent.Fields[0].Type.Entity
+
+	for i := 0; i < ir.FFICallbackPoolSize; i++ {
+		v := Value{Callable: &callableValue{call: func(args []Value, dbg *dbgThread) (Value, error) {
+			return intValue(0), nil
+		}}}
+		if _, err := in.registerCallbackArg(sigName, v); err != nil {
+			t.Fatalf("регистрация %d/%d: неожиданная ошибка: %v", i+1, ir.FFICallbackPoolSize, err)
+		}
+	}
+	extra := Value{Callable: &callableValue{call: func(args []Value, dbg *dbgThread) (Value, error) {
+		return intValue(0), nil
+	}}}
+	if _, err := in.registerCallbackArg(sigName, extra); err == nil {
+		t.Fatal("регистрация сверх пула должна была вернуть ошибку, получено nil")
+	}
+}
