@@ -89,13 +89,13 @@ func defaultFFILibraryNames() []string {
 // isFFIScalar (internal/semantic/types.go) - остальные (Указатель/внешняя
 // сущность/Вызываемый/внешняя структура) обрабатываются отдельно, позже.
 var ffiScalarGoTypes = map[ir.TypeKind]reflect.Type{
-	ir.KindInt:     reflect.TypeOf(int64(0)),
-	ir.KindFloat:   reflect.TypeOf(float64(0)),
-	ir.KindFloat32: reflect.TypeOf(float32(0)),
-	ir.KindBool:    reflect.TypeOf(false),
-	ir.KindByte:    reflect.TypeOf(uint8(0)),
-	ir.KindChar:    reflect.TypeOf(int32(0)),
-	ir.KindString:  reflect.TypeOf(""),
+	ir.KindInt:     reflect.TypeFor[int64](),
+	ir.KindFloat:   reflect.TypeFor[float64](),
+	ir.KindFloat32: reflect.TypeFor[float32](),
+	ir.KindBool:    reflect.TypeFor[bool](),
+	ir.KindByte:    reflect.TypeFor[uint8](),
+	ir.KindChar:    reflect.TypeFor[int32](),
+	ir.KindString:  reflect.TypeFor[string](),
 }
 
 // ffiGoType - Go-тип, которым будет маршалиться значение типа t на границе
@@ -110,7 +110,7 @@ func (in *Interp) ffiGoType(t ir.Type) (reflect.Type, error) {
 		// "внешняя сущность" - непрозрачный указатель, Value несёт его как
 		// есть в поле I (тот же приём, что и у Байт/Символ - сама структура
 		// Value не даёт отдельного поля под каждый Kind).
-		return reflect.TypeOf(uintptr(0)), nil
+		return reflect.TypeFor[uintptr](), nil
 	}
 	if t.Kind == ir.KindPointer {
 		elem, ok := in.pointerElemTypes[t.Entity]
@@ -126,7 +126,7 @@ func (in *Interp) ffiGoType(t ir.Type) (reflect.Type, error) {
 	if t.Kind == ir.KindCallable {
 		// "Вызываемый(...)" - на границе FFI это голый C-указатель на
 		// функцию (трамплин), не {fn, env} по значению - см. ffi_callback.go.
-		return reflect.TypeOf(uintptr(0)), nil
+		return reflect.TypeFor[uintptr](), nil
 	}
 	if t.Kind == ir.KindEntity {
 		if ent, ok := in.entities[t.Entity]; ok && ent.IsExternStruct {
@@ -410,7 +410,7 @@ func (in *Interp) resolveFFISymbol(cname string) (uintptr, error) {
 func (in *Interp) tryFFISymbol(libPath, cname string) (uintptr, bool) {
 	handle, ok := in.ffi.libs[libPath]
 	if !ok {
-		h, err := purego.Dlopen(libPath, purego.RTLD_NOW|purego.RTLD_GLOBAL)
+		h, err := ffiDlopen(libPath)
 		if err != nil {
 			in.ffi.libs[libPath] = 0
 			return 0, false
@@ -421,7 +421,7 @@ func (in *Interp) tryFFISymbol(libPath, cname string) (uintptr, bool) {
 	if handle == 0 {
 		return 0, false
 	}
-	addr, err := purego.Dlsym(handle, cname)
+	addr, err := ffiDlsym(handle, cname)
 	if err != nil {
 		return 0, false
 	}

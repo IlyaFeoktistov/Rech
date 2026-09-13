@@ -105,7 +105,7 @@ func TestFFIStructFieldPointerAndCallback(t *testing.T) {
 	if trampolineAddr == 0 {
 		t.Fatal("поле \"обработчик\": трамплин не зарегистрирован (адрес 0)")
 	}
-	fnType := reflect.FuncOf([]reflect.Type{reflect.TypeOf(int64(0))}, []reflect.Type{reflect.TypeOf(int64(0))}, false)
+	fnType := reflect.FuncOf([]reflect.Type{reflect.TypeFor[int64]()}, []reflect.Type{reflect.TypeFor[int64]()}, false)
 	fnPtr := reflect.New(fnType)
 	purego.RegisterFunc(fnPtr.Interface(), uintptr(trampolineAddr))
 	results := fnPtr.Elem().Call([]reflect.Value{reflect.ValueOf(int64(21))})

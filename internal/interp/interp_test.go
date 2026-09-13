@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -53,6 +54,12 @@ var linuxOnlyCases = map[string]bool{
 // трогает намеренно - "вывод" отражает РЕАЛЬНЫЙ байтовый вывод оболочки).
 var windowsWantOverrides = map[string]string{
 	"основы/процессы.rech": "привет\r\n\n0\n7\n143\n",
+	// srand(1); rand() - настоящий MSVCRT (UCRT) на Windows использует
+	// другой ГСЧ, чем glibc (не тот же алгоритм) - реальное число ПОСЛЕ
+	// srand(1) закономерно другое, не портируемо между libc, живая находка
+	// на настоящей Windows (не просто кросс-компиляция), сама вызов через
+	// FFI работает одинаково на обеих платформах.
+	"основы/внешние_функции.rech": "12\n42\n41\n3\n3\n2\n",
 }
 
 // TestRunAllExamplesMatchCompiledOutput - сквозная проверка интерпретатора
@@ -1455,8 +1462,11 @@ func TestRunConsoleInputEOFPanics(t *testing.T) {
 // подтягивает автоматически при компиляции, но которого нет в динамической
 // таблице символов для dlopen/dlsym (фундаментальное ограничение
 // dlopen-based FFI, не баг этого файла - см. docs/SPEC.md, раздел 12).
-// Результат сверен с реальным выводом того же исходника через cbackend
-// (comparator всегда "равно", 5 элементов - ровно 5 вызовов).
+// Сколько именно раз comparator вызывается для 5-элементного буфера "всё
+// равно" - деталь РЕАЛИЗАЦИИ qsort конкретной libc, не языка (glibc - 5
+// раз, Windows UCRT - 10 - живая находка на настоящей Windows через WSL,
+// не баг колбэка) - тест поэтому не сверяет точное число, только что
+// вызовов хотя бы один и счётчик растёт на 1 каждый раз.
 func TestRunCallsExternFuncCallbackArg(t *testing.T) {
 	got := runSrc(t, `
 внешняя сущность void как Блок
@@ -1477,9 +1487,19 @@ func TestRunCallsExternFuncCallbackArg(t *testing.T) {
 	вывести "готово"
 }
 `)
-	want := "1\n2\n3\n4\n5\nготово\n"
-	if got != want {
-		t.Fatalf("получено %q, ожидалось %q", got, want)
+	if !strings.HasSuffix(got, "готово\n") {
+		t.Fatalf("ожидалось \"готово\" последней строкой, получено %q", got)
+	}
+	counts := strings.Split(strings.TrimSuffix(got, "готово\n"), "\n")
+	counts = counts[:len(counts)-1] // TrimSuffix оставляет пустую строку последней
+	if len(counts) == 0 {
+		t.Fatalf("comparator ни разу не вызван, получено %q", got)
+	}
+	for i, line := range counts {
+		want := strconv.Itoa(i + 1)
+		if line != want {
+			t.Fatalf("вызов %d: получено %q, ожидалось %q (счётчик должен расти на 1 с каждым вызовом)", i+1, line, want)
+		}
 	}
 }
 
