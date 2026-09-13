@@ -75,7 +75,10 @@ type ffiRegistry struct {
 func defaultFFILibraryNames() []string {
 	switch runtime.GOOS {
 	case "windows":
-		return []string{"ucrtbase.dll", "msvcrt.dll"}
+		// kernel32.dll - как и libc/libm на других платформах, доступна любому
+		// Windows-процессу без явного подключения (cbackend её тоже не
+		// перечисляет отдельно - компоновщик MinGW/MSVC линкует её всегда).
+		return []string{"ucrtbase.dll", "msvcrt.dll", "kernel32.dll"}
 	case "darwin":
 		return []string{"libSystem.dylib"}
 	default:

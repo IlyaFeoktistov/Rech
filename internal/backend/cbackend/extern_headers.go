@@ -22,11 +22,27 @@ package cbackend
 
 import (
 	"fmt"
+	"runtime"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
 var externSymbolHeader = map[string]string{
+	// windows.h - подключается БЕЗУСЛОВНО на любой сборке под Windows (см.
+	// generateSource, "#ifdef _WIN32 ... #include <windows.h>"), не по
+	// флагу, как string.h/stdlib.h/math.h ниже - значит для КАЖДОЙ из
+	// перечисленных WinAPI-функций заголовок точно уже виден, вне
+	// зависимости от остального кода программы. DWORD (беззнаковый 32-бита) -
+	// частый реальный тип результата этих функций, конфликтующий с
+	// собственной догадкой Rech ("Целое" -> "long long") - найдено живьём
+	// (examples/основы/условная_компиляция.rech: GetCurrentProcessId,
+	// examples/проекты/условная_компиляция: GetTickCount). Список - те же
+	// функции, что уже встречаются в examples/ - не претендует на полноту
+	// всего WinAPI (см. package doc), расширять по мере нахождения новых
+	// коллизий.
+	"GetCurrentProcessId": "windows.h", "GetTickCount": "windows.h",
+	"GetLastError": "windows.h", "GetCurrentThreadId": "windows.h",
+	"Sleep": "windows.h",
 	// string.h
 	"strlen": "string.h", "strcpy": "string.h", "strncpy": "string.h",
 	"strcat": "string.h", "strncat": "string.h", "strcmp": "string.h",
@@ -66,6 +82,12 @@ func externPrototypeAlreadyProvided(ctx *irGenCtx, cName string) bool {
 		return ctx.includesStdlibH
 	case "math.h":
 		return ctx.includesMathH
+	case "windows.h":
+		// Целевая платформа сборки - хост самого компилятора rech (нет
+		// настоящей кросс-компиляции, см. internal/project/project.go,
+		// "сборка.платформа" принимает только "текущая") - тот же принцип,
+		// что и ast.CurrentPlatform().
+		return runtime.GOOS == "windows"
 	default:
 		return false
 	}

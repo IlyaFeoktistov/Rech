@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/IlyaFeoktistov/Rech/internal/ast"
 )
 
 func TestLoadDefaultsAndPaths(t *testing.T) {
@@ -216,6 +218,48 @@ func TestLoadLibraries(t *testing.T) {
 	got := pf.Библиотеки()
 	if len(got) != 2 || got[0] != "curl" || got[1] != "ssl" {
 		t.Fatalf("Библиотеки() = %v, ожидалось [curl ssl]", got)
+	}
+}
+
+// TestLoadPlatformLibraries - "сборка.библиотеки_linux"/"_windows"/"_macos"
+// (docs/SPEC.md, "#если ОС.<Член>") добавляются к безусловному списку
+// ТОЛЬКО на своей платформе - тест написан под платформу, на которой
+// реально исполняется (ast.CurrentPlatform()), тем же принципом, что и
+// windowsWantOverrides в internal/interp/interp_test.go (сама фича
+// платформозависима по определению).
+func TestLoadPlatformLibraries(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := `проект:
+  имя: тест
+
+файлы:
+  главный: исходники/главный.rech
+
+сборка:
+  библиотеки: curl
+  библиотеки_linux: X11
+  библиотеки_windows: user32, gdi32
+  библиотеки_macos: Cocoa
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	pf, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	got := pf.Библиотеки()
+	want := append([]string{"curl"}, splitCommaList(map[string]string{
+		"Linux": "X11", "Windows": "user32, gdi32", "MacOS": "Cocoa",
+	}[ast.CurrentPlatform()])...)
+	if len(got) != len(want) {
+		t.Fatalf("Библиотеки() = %v, ожидалось %v (текущая платформа - %s)", got, want, ast.CurrentPlatform())
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("Библиотеки() = %v, ожидалось %v (текущая платформа - %s)", got, want, ast.CurrentPlatform())
+		}
 	}
 }
 

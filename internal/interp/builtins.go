@@ -7,11 +7,11 @@ import (
 	"math"
 	"net"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
@@ -179,19 +179,11 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		panicRuntime("%s", rtmsg.ArgIndexOutOfRangeFormat(args[0].I))
 		return Value{}, true
 	case "текущая_ос":
-		// Настоящий хост интерпретатора (runtime.GOOS) - в отличие от
-		// cbackend, где это целевая платформа СБОРКИ (может отличаться от
-		// хоста при кросс-компиляции), у interp сборки не существует
-		// вовсе - хост и "текущая ОС" совпадают буквально. Значения -
-		// StandardEnums "ОС" (internal/semantic/types.go).
-		switch runtime.GOOS {
-		case "windows":
-			return intValue(1), true
-		case "darwin":
-			return intValue(2), true
-		default:
-			return intValue(0), true
-		}
+		// ast.CurrentPlatform - тот же общий источник (GOOS хоста ->
+		// "Linux"/"Windows"/"MacOS"), что использует и internal/module
+		// для "#если ОС.<Член>"/"_windows.rech"-суффиксов - не копия одного
+		// и того же switch в двух местах.
+		return intValue(ast.PlatformIndex(ast.CurrentPlatform())), true
 	case "содержит":
 		return boolValue(strings.Contains(args[0].S, args[1].S)), true
 	case "сетевой_узел":

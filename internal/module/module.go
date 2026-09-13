@@ -293,6 +293,11 @@ func (l *loader) load(path string, stack []string, deps map[string]string, root 
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	ast.StampFile(prog, path)
+	// "#если ОС.<Член> { ... }" (docs/SPEC.md) - разрешается ЗДЕСЬ, ДО
+	// declaredNames ниже - руки, не подошедшие под текущую платформу,
+	// никогда не попадают в declared/moduleVisibility/остальной конвейер
+	// (см. package doc ast.PlatformBlockDecl/ResolvePlatformBlocks).
+	ast.ResolvePlatformBlocks(prog, ast.CurrentPlatform())
 
 	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	m := &Module{Path: path, Qualifier: Qualifier(base), AST: prog}
@@ -405,7 +410,7 @@ func resolveImportPath(baseDir, projectRoot, importPath string, deps map[string]
 			}
 		}
 		parts := append([]string{projectRoot}, segments...)
-		return filepath.Join(parts...) + ".rech", "", nil
+		return platformSpecificPath(filepath.Join(parts...) + ".rech"), "", nil
 	}
 
 	segments := strings.Split(importPath, "/")
@@ -436,5 +441,24 @@ func resolveImportPath(baseDir, projectRoot, importPath string, deps map[string]
 		}
 	}
 	parts := append([]string{root}, rest...)
-	return filepath.Join(parts...) + ".rech", crossedInto, nil
+	return platformSpecificPath(filepath.Join(parts...) + ".rech"), crossedInto, nil
+}
+
+// platformSpecificPath - если рядом с path (уже посчитанный обычный
+// резолвинг "использовать X из "путь"", включая ".rech") лежит файл того
+// же имени с суффиксом "_windows"/"_linux"/"_macos" (нижний регистр) под
+// ТЕКУЩУЮ платформу (docs/SPEC.md) - используется ОН целиком вместо
+// обычного path, взаимозаменяемо (не слияние - см. package doc
+// ast.ResolvePlatformBlocks про тот же принцип у "#если") - обычный path
+// в этом случае не обязан существовать вовсе. Файл для ДРУГОЙ платформы,
+// лежащий рядом, просто никогда не читается этой сборкой - синтаксис,
+// валидный только там, никогда не всплывает.
+func platformSpecificPath(path string) string {
+	ext := filepath.Ext(path)
+	base := strings.TrimSuffix(path, ext)
+	suffixed := base + "_" + strings.ToLower(ast.CurrentPlatform()) + ext
+	if _, err := os.Stat(suffixed); err == nil {
+		return suffixed
+	}
+	return path
 }
