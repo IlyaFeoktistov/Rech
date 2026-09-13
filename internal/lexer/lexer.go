@@ -224,6 +224,9 @@ func (l *Lexer) next() (Token, error) {
 	case r == '~':
 		l.advance()
 		return Token{Type: BITNOT, Value: "~", Line: line, Col: col}, nil
+	case r == '#':
+		l.advance()
+		return Token{Type: HASH, Value: "#", Line: line, Col: col}, nil
 	case r == '?':
 		l.advance()
 		if l.peek() == '?' {

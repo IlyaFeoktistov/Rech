@@ -13,6 +13,15 @@ import (
 
 // Analyze производит IR из AST.
 func Analyze(prog *ast.Program) (*ir.Program, error) {
+	// "#если ОС.<Член> { ... }" (docs/SPEC.md) - обычно уже разрешён
+	// раньше, для КАЖДОГО отдельного файла, ДО их слияния в один prog
+	// (internal/module, package doc ast.ResolvePlatformBlocks) -
+	// идемпотентно (PlatformBlocks уже nil после первого разрешения) -
+	// повторный вызов здесь ничего не меняет для программы, прошедшей
+	// module.Load, но нужен вызывающим semantic.Analyze НАПРЯМУЮ, минуя
+	// module (например, тестовые хелперы вроде internal/interp.runSrc).
+	ast.ResolvePlatformBlocks(prog, ast.CurrentPlatform())
+
 	// Пользовательские generic-сущности/функции ("Коробка<T>") - раскрыты
 	// в обычные объявления ДО всего остального: дальше по конвейеру ничего
 	// не знает, что они когда-то были generic (см. package doc

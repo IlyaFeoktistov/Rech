@@ -39,6 +39,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"reflect"
 	"sync"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
@@ -477,6 +478,27 @@ type Interp struct {
 	generics   map[string]ir.GenericInstantiation
 	debugger   *Debugger
 
+	// externFuncs - "внешняя функция" (FFI, docs/SPEC.md, раздел 12) по
+	// Alias (тот же ключ, что ir.CallExpr.Callee) - см. ffi.go.
+	externFuncs map[string]*ir.ExternFuncDecl
+	// ffi - открытые библиотеки/зарегистрированные вызывающие обёртки FFI,
+	// см. package doc ffiRegistry (ffi.go).
+	ffi *ffiRegistry
+	// pointerElemTypes - ir.Program.Pointers (Name -> Inner) по имени
+	// инстанциации ("Указатель<Целое>") - нужно только ffi.go (ffiGoType),
+	// чтобы узнать T "Указатель<T>" параметра внешней функции - остальной
+	// интерпретатор выводит T из самого pointerTarget.get(), не отсюда.
+	pointerElemTypes map[string]ir.Type
+	// callableSigs - ir.Program.Callables по имени сигнатуры ("Вызываемый<
+	// Целое>Целое") - нужно только ffi_callback.go, чтобы узнать
+	// параметры/результат "Вызываемый(...)" параметра внешней функции.
+	callableSigs map[string]ir.CallableSig
+	// ffiLibraries/ffiLibraryPaths - ir.Program.FFILibraries/
+	// FFILibraryPaths ("сборка.библиотеки"/"путь_библиотек" .rechproj,
+	// если он есть) - нужно только ffi.go (resolveFFISymbol).
+	ffiLibraries    []string
+	ffiLibraryPaths []string
+
 	// interfaceImplementors - см. package doc ir.Program.InterfaceImplementors
 	// (internal/semantic уже вычислил его транзитивно, entitySatisfies) -
 	// нужен evalAsExpr для "значение как ИмяИнтерфейса".
@@ -557,16 +579,9 @@ func Run(prog *ir.Program, out io.Writer, stdin io.Reader) (err error) {
 }
 
 // newInterp - общая подготовка Run и NewDebugger (internal/interp/
-// debugger.go): проверка внешних функций (шаг 7, FFI - интерпретатор,
-// чистый Go, не умеет вызвать произвольный C-символ без настоящей
-// динамической линковки, которой пока нет, поэтому отказывается сам, а не
-// молча игнорирует/падает глубже), таблицы функций/сущностей/generic-
-// инстанциаций программы по имени, точка входа "главная".
+// debugger.go): таблицы функций/сущностей/generic-инстанциаций/внешних
+// функций (FFI, ffi.go) программы по имени, точка входа "главная".
 func newInterp(prog *ir.Program, out io.Writer, stdin io.Reader) (*Interp, *ir.Function, error) {
-	if len(prog.ExternFuncs) > 0 {
-		return nil, nil, fmt.Errorf("внешняя функция %q: внешние функции пока не поддерживаются интерпретатором/`rech test` - соберите и запустите программу через `rech build`/`rech run`",
-			prog.ExternFuncs[0].Alias)
-	}
 	in := &Interp{
 		out:                   out,
 		stdin:                 bufio.NewReader(stdin),
@@ -582,9 +597,30 @@ func newInterp(prog *ir.Program, out io.Writer, stdin io.Reader) (*Interp, *ir.F
 		dbPoolTimeoutMs:       prog.DBPoolTimeoutMs,
 		dbSQLiteBusyTimeoutMs: prog.DBSQLiteBusyTimeoutMs,
 		httpMaxRequestBytes:   prog.HTTPMaxRequestBytes,
+		ffiLibraries:          prog.FFILibraries,
+		ffiLibraryPaths:       prog.FFILibraryPaths,
+		externFuncs:           map[string]*ir.ExternFuncDecl{},
+		ffi: &ffiRegistry{
+			libs:          map[string]uintptr{},
+			fns:           map[string]reflect.Value{},
+			callbackSlots: map[string]*callableValue{},
+			callbackAddrs: map[string]uintptr{},
+			structTypes:   map[string]reflect.Type{},
+		},
+		pointerElemTypes: map[string]ir.Type{},
+		callableSigs:     map[string]ir.CallableSig{},
 	}
 	for _, fn := range prog.Functions {
 		in.funcs[fn.Name] = fn
+	}
+	for _, ext := range prog.ExternFuncs {
+		in.externFuncs[ext.Alias] = ext
+	}
+	for _, p := range prog.Pointers {
+		in.pointerElemTypes[p.Name] = p.Inner
+	}
+	for _, sig := range prog.Callables {
+		in.callableSigs[sig.Name] = sig
 	}
 	for _, ent := range prog.Entities {
 		in.entities[ent.Name] = ent

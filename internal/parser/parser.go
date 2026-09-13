@@ -703,6 +703,12 @@ func (p *Parser) parseTopLevelItem(prog *ast.Program, topLevelStmts *[]ast.Stmt,
 			return false, err
 		}
 		prog.Uses = append(prog.Uses, use)
+	case lexer.HASH:
+		block, err := p.parsePlatformBlock()
+		if err != nil {
+			return false, err
+		}
+		prog.PlatformBlocks = append(prog.PlatformBlocks, block)
 	case lexer.KwExternal:
 		switch p.peekAt(1).Type {
 		case lexer.KwEntity:

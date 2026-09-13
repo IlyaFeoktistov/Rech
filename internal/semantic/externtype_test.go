@@ -118,11 +118,13 @@ func TestAnalyzeExternFuncRejectsCallableResult(t *testing.T) {
 	}
 }
 
-// TestAnalyzeExternStructRejectsCallableField - "Вызываемый(...)" полем
-// внешней структуры (WNDCLASS.lpfnWndProc и подобные) не реализовано -
-// cbackend сегодня объявляет ЛЮБОЕ поле-Callable как {fn, env} по значению,
-// что исказило бы реальный layout внешней C-структуры.
-func TestAnalyzeExternStructRejectsCallableField(t *testing.T) {
+// TestAnalyzeExternStructAcceptsCallableField - "Вызываемый(...)" полем
+// внешней структуры (WNDCLASS.lpfnWndProc и подобные) - cbackend объявляет
+// такое поле голым указателем на функцию (ffiFieldDeclarator,
+// generateIREntityStruct), не {fn, env} по значению - маршалинг значения
+// при "новый"/присваивании - marshalCallbackArg, тот же приём, что и у
+// параметра внешней функции.
+func TestAnalyzeExternStructAcceptsCallableField(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 внешняя структура wndclass как ОконныйКласс
 {
@@ -131,8 +133,8 @@ func TestAnalyzeExternStructRejectsCallableField(t *testing.T) {
 }
 функция главная { вывести 1 }
 `)
-	if err == nil || !strings.Contains(err.Error(), "внешняя структура") {
-		t.Fatalf("ожидалась ошибка про недопустимое поле-колбэк, получено: %v", err)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 }
 

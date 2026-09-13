@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
@@ -177,6 +178,12 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 	case "аргумент":
 		panicRuntime("%s", rtmsg.ArgIndexOutOfRangeFormat(args[0].I))
 		return Value{}, true
+	case "текущая_ос":
+		// ast.CurrentPlatform - тот же общий источник (GOOS хоста ->
+		// "Linux"/"Windows"/"MacOS"), что использует и internal/module
+		// для "#если ОС.<Член>"/"_windows.rech"-суффиксов - не копия одного
+		// и того же switch в двух местах.
+		return intValue(ast.PlatformIndex(ast.CurrentPlatform())), true
 	case "содержит":
 		return boolValue(strings.Contains(args[0].S, args[1].S)), true
 	case "сетевой_узел":

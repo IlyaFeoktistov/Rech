@@ -61,6 +61,14 @@ const (
 	SHL    // << (сдвиг влево, только Целое)
 	SHR    // >> (сдвиг вправо, только Целое)
 
+	// HASH - "#" (условная компиляция по платформе - "#если ОС.<Член>
+	// { ... }", docs/SPEC.md) - решается на этапе компиляции (internal/
+	// module, ResolvePlatformBlocks), не то же самое, что рантайм "если"/
+	// "иначе" (оба - уже существующие KwIf/KwElse, отдельного ключевого
+	// слова для условия НЕ заведено - парсер сам различает по HASH перед
+	// KwIf/KwElse).
+	HASH // #
+
 	KwFunction    // функция
 	KwPrint       // вывести
 	KwShow        // показать (отладочный вывод значения вместе с типом)
@@ -373,6 +381,8 @@ func (t TokenType) String() string {
 		return "<<"
 	case SHR:
 		return ">>"
+	case HASH:
+		return "#"
 	case KwFunction:
 		return "функция"
 	case KwPrint:

@@ -356,19 +356,6 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 			if err != nil {
 				return fmt.Errorf("сущность %q: поле %q: %w", ent.Name, f.Name, err)
 			}
-			if ent.IsExternStruct && typ.Kind == ir.KindCallable {
-				// "Вызываемый(...)" полем внешней структуры (WNDPROC-в-структуре
-				// стиль, WNDCLASS.lpfnWndProc и т. п.) - НЕ реализовано (docs/
-				// "FFI: маршалинг колбэков") - в отличие от
-				// параметра "внешняя функция" (isFFIType ниже её уже пускает,
-				// тип результата - НЕ пускает, см. collectExternFuncSigs),
-				// полю нужен голый C-указатель на функцию в самой
-				// typedef-структуре (не {fn, env} по значению - это исказило бы
-				// реальный layout C-структуры), а cbackend сегодня объявляет
-				// ЛЮБОЕ поле-Callable только как {fn, env} - отдельная, более
-				// крупная доработка IR/кодогенерации, сознательно отложена.
-				return fmt.Errorf("внешняя структура %q: поле %q - \"Вызываемый(...)\" пока допустима только параметром \"внешняя функция\", не полем внешней структуры", ent.Name, f.Name)
-			}
 			if ent.IsExternStruct && !isFFIType(entities, methods, aliases, a.interfaces, enums, typ) {
 				return fmt.Errorf("внешняя структура %q: поле %q имеет тип %s - допустимы только примитивы (Целое/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\") и \"Указатель<T>\" над FFI-совместимым T - иначе реальный размер C-структуры был бы искажён", ent.Name, f.Name, typ)
 			}

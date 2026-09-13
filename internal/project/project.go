@@ -21,6 +21,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/IlyaFeoktistov/Rech/internal/ast"
 )
 
 // Dependency - одна внешняя зависимость из секции "зависимости:" -
@@ -75,6 +77,23 @@ type File struct {
 	// ("../экспорт_библиотеки/сборка, /общий/каталог/библиотек") - см.
 	// ПутиБиблиотек.
 	libraryPathsRaw string
+	// librariesWindowsRaw/librariesLinuxRaw/librariesMacosRaw -
+	// "сборка.библиотеки_windows"/"_linux"/"_macos" - тот же формат, что
+	// librariesRaw выше, но добавляются к общему списку ТОЛЬКО на
+	// соответствующей платформе (docs/SPEC.md, "#если ОС.<Член>") - нужны,
+	// когда объявления внешней функции для разных ОС приходят из разных
+	// библиотек (например, `user32`/`gdi32` только на Windows, `X11`
+	// только на Linux) - без разбивки по платформе линковщик пытался бы
+	// найти ВСЕ библиотеки сразу, а не только те, что реально нужны
+	// объявлениям программы для ЭТОЙ платформы.
+	librariesWindowsRaw string
+	librariesLinuxRaw   string
+	librariesMacosRaw   string
+	// libraryPathsWindowsRaw/libraryPathsLinuxRaw/libraryPathsMacosRaw -
+	// тот же принцип для "путь_библиотек_windows"/"_linux"/"_macos".
+	libraryPathsWindowsRaw string
+	libraryPathsLinuxRaw   string
+	libraryPathsMacosRaw   string
 	// dbPoolSizeRaw - "бд.размер_пула" как есть (ещё не разобрано в int) -
 	// см. DBPoolSize.
 	dbPoolSizeRaw string
@@ -109,6 +128,12 @@ func (pf *File) fields() map[string]*string {
 		"сборка.тип":                      &pf.Тип,
 		"сборка.библиотеки":               &pf.librariesRaw,
 		"сборка.путь_библиотек":           &pf.libraryPathsRaw,
+		"сборка.библиотеки_windows":       &pf.librariesWindowsRaw,
+		"сборка.библиотеки_linux":         &pf.librariesLinuxRaw,
+		"сборка.библиотеки_macos":         &pf.librariesMacosRaw,
+		"сборка.путь_библиотек_windows":   &pf.libraryPathsWindowsRaw,
+		"сборка.путь_библиотек_linux":     &pf.libraryPathsLinuxRaw,
+		"сборка.путь_библиотек_macos":     &pf.libraryPathsMacosRaw,
 		"бд.размер_пула":                  &pf.dbPoolSizeRaw,
 		"бд.таймаут_пула_мс":              &pf.dbPoolTimeoutMsRaw,
 		"бд.sqlite_таймаут_блокировки_мс": &pf.dbSQLiteBusyTimeoutMsRaw,
@@ -174,18 +199,30 @@ func FindUp(dir string) (string, error) {
 // (вызывающая сторона использует прежнее поведение module.LoadWithGraph -
 // каталог srcPath).
 func RootFor(srcPath string) (string, error) {
-	projPath, err := FindUp(filepath.Dir(filepath.Clean(srcPath)))
+	pf, err := LoadFor(srcPath)
 	if err != nil {
 		return "", err
 	}
-	if projPath == "" {
+	if pf == nil {
 		return "", nil
 	}
-	pf, err := Load(projPath)
-	if err != nil {
-		return "", err
-	}
 	return filepath.Dir(pf.MainPath()), nil
+}
+
+// LoadFor находит и разбирает .rechproj над srcPath тем же способом, что
+// RootFor (FindUp от его каталога) - нужен вызывающей стороне, которой
+// нужен сам File (например, "сборка.библиотеки"/"путь_библиотек" для FFI
+// интерпретатора, internal/testrunner), а не только каталог главного
+// файла. nil, nil - .rechproj не найден.
+func LoadFor(srcPath string) (*File, error) {
+	projPath, err := FindUp(filepath.Dir(filepath.Clean(srcPath)))
+	if err != nil {
+		return nil, err
+	}
+	if projPath == "" {
+		return nil, nil
+	}
+	return Load(projPath)
 }
 
 // Load читает и разбирает .rechproj по path, подставляет значения по
@@ -309,18 +346,14 @@ func (pf *File) KeepC() bool {
 	return pf.Режим == "отладка"
 }
 
-// Библиотеки разбирает "сборка.библиотеки" (через запятую, "curl, ssl") -
-// внешние библиотеки для линковки (-lcurl -lssl) при сборке. "внешняя
-// функция" в .rech-коде объявляет только сигнатуру, без привязки к
-// конкретной библиотеке - компилятор безусловно линкует весь список,
-// не пытаясь выяснить, какая внешняя функция из какой библиотеки (тот же
-// принцип, что и у -lm сейчас: линковка неиспользуемой библиотеки
-// безвредна). nil, если поле не указано.
-func (pf *File) Библиотеки() []string {
-	if pf.librariesRaw == "" {
+// splitCommaList разбирает raw через запятую, обрезая пробелы и
+// пропуская пустые элементы - общая часть Библиотеки/ПутиБиблиотек ниже
+// (и их платформенных вариантов) - nil, если raw == "".
+func splitCommaList(raw string) []string {
+	if raw == "" {
 		return nil
 	}
-	parts := strings.Split(pf.librariesRaw, ",")
+	parts := strings.Split(raw, ",")
 	out := make([]string, 0, len(parts))
 	for _, p := range parts {
 		if p = strings.TrimSpace(p); p != "" {
@@ -328,6 +361,42 @@ func (pf *File) Библиотеки() []string {
 		}
 	}
 	return out
+}
+
+// platformLibrariesRaw/platformLibraryPathsRaw - librariesWindowsRaw/
+// librariesLinuxRaw/librariesMacosRaw (и путевой аналог) по ТЕКУЩЕЙ
+// платформе (ast.CurrentPlatform()) - см. package doc полей выше.
+func (pf *File) platformLibrariesRaw() string {
+	return pf.platformField(pf.librariesWindowsRaw, pf.librariesLinuxRaw, pf.librariesMacosRaw)
+}
+
+func (pf *File) platformLibraryPathsRaw() string {
+	return pf.platformField(pf.libraryPathsWindowsRaw, pf.libraryPathsLinuxRaw, pf.libraryPathsMacosRaw)
+}
+
+func (pf *File) platformField(windows, linux, macos string) string {
+	switch ast.CurrentPlatform() {
+	case "Windows":
+		return windows
+	case "MacOS":
+		return macos
+	default:
+		return linux
+	}
+}
+
+// Библиотеки разбирает "сборка.библиотеки" (через запятую, "curl, ssl"),
+// плюс "сборка.библиотеки_windows"/"_linux"/"_macos" ТЕКУЩЕЙ платформы
+// (docs/SPEC.md, "#если ОС.<Член>") - внешние библиотеки для линковки
+// (-lcurl -lssl) при сборке. "внешняя функция" в .rech-коде объявляет
+// только сигнатуру, без привязки к конкретной библиотеке - компилятор
+// безусловно линкует весь список, не пытаясь выяснить, какая внешняя
+// функция из какой библиотеки (тот же принцип, что и у -lm сейчас:
+// линковка неиспользуемой библиотеки безвредна). nil, если ни одно поле
+// не указано.
+func (pf *File) Библиотеки() []string {
+	out := splitCommaList(pf.librariesRaw)
+	return append(out, splitCommaList(pf.platformLibrariesRaw())...)
 }
 
 // ПутиБиблиотек разбирает "сборка.путь_библиотек" (через запятую, тем же
@@ -356,16 +425,13 @@ func (pf *File) Библиотеки() []string {
 // текущего каталога с тем, что был при сборке, и ломался бы при запуске
 // бинарника из любого другого места. nil, если поле не указано.
 func (pf *File) ПутиБиблиотек() []string {
-	if pf.libraryPathsRaw == "" {
+	raw := splitCommaList(pf.libraryPathsRaw)
+	raw = append(raw, splitCommaList(pf.platformLibraryPathsRaw())...)
+	if len(raw) == 0 {
 		return nil
 	}
-	parts := strings.Split(pf.libraryPathsRaw, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
+	out := make([]string, 0, len(raw))
+	for _, p := range raw {
 		if !filepath.IsAbs(p) {
 			p = filepath.Join(pf.Dir, p)
 		}

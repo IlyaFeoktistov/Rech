@@ -737,13 +737,24 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	}
 	for _, ent := range prog.Entities {
 		dest := &typedefs
-		for _, f := range ent.Fields {
-			if f.Type.Kind == ir.KindCallable || callableCollections[f.Type.Entity] {
-				dest = &typedefsAfterCallables
-				break
+		if !ent.IsExternStruct {
+			// "внешняя структура" - поле "Вызываемый(...)" (если оно
+			// есть) эмитится ниже голым указателем на функцию
+			// (ffiParamCType), а не {fn, env}-структурой (callableTypedefs) -
+			// в отличие от ОБЫЧНОЙ сущности с таким полем, не нуждается в
+			// том, чтобы typedef колбэка был объявлен раньше.
+			for _, f := range ent.Fields {
+				if f.Type.Kind == ir.KindCallable || callableCollections[f.Type.Entity] {
+					dest = &typedefsAfterCallables
+					break
+				}
 			}
 		}
-		dest.WriteString(generateIREntityStruct(ctx, ent))
+		s, err := generateIREntityStruct(ctx, ent)
+		if err != nil {
+			return "", err
+		}
+		dest.WriteString(s)
 	}
 
 	// vtables - статические таблицы диспетчеризации участвующих сущностей
@@ -1428,6 +1439,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// за ucontext/epoll/kqueue рантайм.
 	appendCodeIf(&sb, ctx.usesCoroutines || ctx.usesSockets, coroutineRuntimeCode)
 	appendCodeIf(&sb, ctx.usesArgs, argFuncHelper)
+	appendCodeIf(&sb, ctx.usesCurrentOS, currentOSHelper)
 	appendCodeIf(&sb, ctx.usesCast, castHelpers)
 
 	if ctx.intDivMod.any() || ctx.uintDivMod.any() {
@@ -1978,15 +1990,15 @@ func appendCodeIf(sb *strings.Builder, appendIf bool, code string) {
 
 // generateIREntityStruct - C typedef struct для ent, как
 // C typedef struct для ent, по уже собранным internal/ir.Field.
-func generateIREntityStruct(ctx *irGenCtx, ent *ir.Entity) string {
+func generateIREntityStruct(ctx *irGenCtx, ent *ir.Entity) (string, error) {
 	if ent.IsMutex {
-		return mutexStructTypedef()
+		return mutexStructTypedef(), nil
 	}
 	if ent.IsSemaphore {
-		return semaphoreStructTypedef()
+		return semaphoreStructTypedef(), nil
 	}
 	if ent.IsTransaction {
-		return dbtxTypedefCode()
+		return dbtxTypedefCode(), nil
 	}
 	s := codegen.Struct(entityCName(ctx, ent.Name))
 	participates := ctx.dispatchParticipants[ent.Name]
@@ -2010,11 +2022,26 @@ func generateIREntityStruct(ctx *irGenCtx, ent *ir.Entity) string {
 		s.Field("char", "_rech_empty")
 	}
 	for _, f := range ent.Fields {
+		if ent.IsExternStruct && f.Type.Kind == ir.KindCallable {
+			// "Вызываемый(...)" полем "внешняя структура" (WNDCLASS.
+			// lpfnWndProc-стиль) - реальный C API читает/пишет ГОЛЫЙ
+			// указатель на функцию в самой typedef-структуре, не {fn, env}
+			// по значению (fromIRType(...).cType - callableType, см.
+			// callable.go) - декларатор с именем ВНУТРИ скобок
+			// (ffiFieldDeclarator, ffi_callback.go), FieldDeclarator (не
+			// обычный Field - см. её package doc, codegen/struct.go).
+			decl, err := ffiFieldDeclarator(ctx, f.Type, mangleField(f.Name))
+			if err != nil {
+				return "", err
+			}
+			s.FieldDeclarator(decl)
+			continue
+		}
 		s.Field(fromIRType(f.Type).cType(ctx), mangleField(f.Name))
 	}
 	w := codegen.NewWriter()
 	s.Write(w)
-	return w.String() + "\n"
+	return w.String() + "\n", nil
 }
 
 // generateIREntityCtor - конструктор ссылочной сущности ("сущность"/
@@ -2562,6 +2589,19 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 		code, _, err := generateIRExpr(ctx, s.Value)
 		if err != nil {
 			return err
+		}
+		if valType := ir.TypeOf(s.Value); valType.Kind == ir.KindCallable {
+			// "объект.поле = замыкание" - то же самое, что и поле у "новый
+			// Тип(...)" (generateIRNewExpr) - если поле принадлежит
+			// "внешняя структура", {fn, env} по значению не то, что
+			// ожидает C (голый указатель на функцию).
+			if recvEnt, ok := ctx.entities[ir.TypeOf(s.Receiver).Entity]; ok && recvEnt.IsExternStruct {
+				marshaled, err := ctx.marshalCallbackArg(valType, code)
+				if err != nil {
+					return err
+				}
+				code = marshaled
+			}
 		}
 		op := "."
 		if ctx.receiverIsPointer(s.Receiver) {
@@ -3364,6 +3404,19 @@ func generateIRNewExpr(ctx *irGenCtx, e *ir.NewExpr) (string, valueType, error) 
 	}
 	parts := make([]string, len(argCodes))
 	for i, code := range argCodes {
+		if ent.IsExternStruct && ent.Fields[i].Type.Kind == ir.KindCallable {
+			// "Вызываемый(...)" полем "внешняя структура" (WNDCLASS.
+			// lpfnWndProc-стиль) - тот же приём, что и у аргумента внешней
+			// функции (case *ir.CallExpr выше) - {fn, env} по значению не
+			// то, что ожидает C (голый указатель на функцию, тип поля уже
+			// объявлен так generateIREntityStruct'ом) - marshalCallbackArg
+			// подменяет code на C-имя trampoline.
+			marshaled, err := ctx.marshalCallbackArg(ent.Fields[i].Type, code)
+			if err != nil {
+				return "", typeUnknown, err
+			}
+			code = marshaled
+		}
 		parts[i] = fmt.Sprintf(".%s = %s", mangleField(ent.Fields[i].Name), code)
 	}
 	initList := strings.Join(parts, ", ")

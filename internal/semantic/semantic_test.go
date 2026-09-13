@@ -237,11 +237,9 @@ func TestAnalyzeBuiltinNameCollisionFails(t *testing.T) {
 
 // TestAnalyzeExternFuncBuildsIR - Analyze сам по себе успешно строит IR с
 // ExternFuncs (заполняет ir.Program.ExternFuncs, регистрирует Alias в
-// funcs) - отказ ради интерпретатора, у которого действительно нет
-// способа вызвать произвольный C-символ, находится в internal/interp.Run,
-// не здесь (см. TestRunRejectsExternFunc в internal/interp) - Analyze
-// используется и cbackend.GenerateFromIR, для которого внешние функции
-// работают полностью.
+// funcs) - реальный вызов (dlopen/dlsym через purego) находится в
+// internal/interp (см. TestRunCallsExternFunc) и в cbackend.GenerateFromIR
+// (настоящая линковка), не здесь.
 func TestAnalyzeExternFuncBuildsIR(t *testing.T) {
 	irProg := parseProgram(t, `
 внешняя функция abs как модуль_числа(n: Целое): Целое
@@ -2118,5 +2116,21 @@ func TestAnalyzeStructDeclSetsIRIsStruct(t *testing.T) {
 	}
 	if пользователь == nil || пользователь.IsStruct {
 		t.Fatalf("ожидался ir.Entity(\"Пользователь\").IsStruct == false, получено %+v", пользователь)
+	}
+}
+
+// TestAnalyzeCurrentOSBuiltin - "текущая_ос()" (Целое) и встроенное
+// перечисление "ОС" (StandardEnums, internal/semantic/types.go) -
+// используются вместе тем же способом, что и остальные builtin-
+// перечисления (СигналОС/СетевойПротокол) - сравнение с "==".
+func TestAnalyzeCurrentOSBuiltin(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция главная
+{
+	если текущая_ос() == ОС.Linux { вывести "linux" }
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 }

@@ -35,6 +35,12 @@ type Program struct {
 	// модификатора публичная, доступна через "использовать" из другого
 	// файла; приватная - видна только внутри своего файла.
 	Consts []*ConstDecl
+	// PlatformBlocks - "#если ОС.<Член> { ... }" верхнего уровня (см.
+	// platform.go, package doc PlatformBlockDecl) - разрешаются В обычные
+	// списки выше ДО семантического анализа (internal/module,
+	// ResolvePlatformBlocks), не самим парсером - остаются здесь до этого
+	// момента.
+	PlatformBlocks []*PlatformBlockDecl
 }
 
 func (*Program) node() {}
