@@ -1246,6 +1246,26 @@ func TestRunAssertFailsWithMessage(t *testing.T) {
 	}
 }
 
+// TestRunAssertMessageAcrossNewline - НАЙДЕНО пользователем вживую: "," у
+// "утверждать <условие>, <сообщение>" была единственным списком через
+// запятую во всём парсере, не допускавшим перенос строки после себя (все
+// остальные - аргументы вызова, "использовать", "наследует"/"реализует" и
+// т. д. - его уже допускали).
+func TestRunAssertMessageAcrossNewline(t *testing.T) {
+	got := runSrc(t, `
+функция главная
+{
+    переменная а = 2
+    утверждать а + 3 == 5,
+        "а должно быть равно 2"
+    вывести "ок"
+}
+`)
+	if got != "ок\n" {
+		t.Fatalf("получили %q", got)
+	}
+}
+
 func TestRunMutualRecursion(t *testing.T) {
 	got := runSrc(t, `
 функция чётное(n: Целое): Логическое
