@@ -82,10 +82,34 @@ func ensureCallbackTrampoline(ctx *irGenCtx, sigName string) (string, error) {
 	return name, nil
 }
 
-// ffiParamCType - C-тип параметра/поля на границе FFI: как fromIRType(t).
+// ffiCallableCParts - Result C-тип + список C-типов параметров (уже готовая
+// "%s, %s, ..."-строка, "void" если параметров нет) сигнатуры колбэка
+// sigName - общая часть ffiParamCType (анонимный тип для прототипа/
+// аргумента) и ffiFieldDeclarator (именованный декларатор для поля
+// структуры) ниже.
+func ffiCallableCParts(ctx *irGenCtx, sigName string) (resultC, paramList string, err error) {
+	sig, ok := ctx.callableSigs[sigName]
+	if !ok {
+		return "", "", fmt.Errorf("генерация C из IR: сигнатура колбэка %q не найдена среди \"Вызываемый\" программы", sigName)
+	}
+	resultC = callableResultCType(ctx, sig.Result)
+	params := make([]string, len(sig.Params))
+	for i, p := range sig.Params {
+		params[i] = fromIRType(p).cType(ctx)
+	}
+	paramList = "void"
+	if len(params) > 0 {
+		paramList = strings.Join(params, ", ")
+	}
+	return resultC, paramList, nil
+}
+
+// ffiParamCType - C-тип параметра на границе FFI: как fromIRType(t).
 // cType(ctx) для всего, КРОМЕ "Вызываемый(...)" - там ожидаемый реальным C
-// API тип - голый указатель на функцию ("Результат (*)(Параметры...)"), а
-// не {fn, env} по значению (см. package doc выше) - используется
+// API тип - голый АНОНИМНЫЙ указатель на функцию ("Результат (*)
+// (Параметры...)", без имени - годится для прототипа/аргумента вызова, но
+// НЕ для декларации поля/переменной, см. ffiFieldDeclarator), а не {fn,
+// env} по значению (см. package doc выше) - используется
 // externPrototypeOfIR (ir_generator.go) для самого прототипа внешней
 // функции, отдельно от marshalCallbackArg (который меняет уже
 // СГЕНЕРИРОВАННЫЙ КОД аргумента, не его C-тип в прототипе).
@@ -93,20 +117,25 @@ func ffiParamCType(ctx *irGenCtx, t ir.Type) (string, error) {
 	if t.Kind != ir.KindCallable {
 		return fromIRType(t).cType(ctx), nil
 	}
-	sig, ok := ctx.callableSigs[t.Entity]
-	if !ok {
-		return "", fmt.Errorf("генерация C из IR: сигнатура колбэка %q не найдена среди \"Вызываемый\" программы", t.Entity)
-	}
-	resultC := callableResultCType(ctx, sig.Result)
-	params := make([]string, len(sig.Params))
-	for i, p := range sig.Params {
-		params[i] = fromIRType(p).cType(ctx)
-	}
-	paramList := "void"
-	if len(params) > 0 {
-		paramList = strings.Join(params, ", ")
+	resultC, paramList, err := ffiCallableCParts(ctx, t.Entity)
+	if err != nil {
+		return "", err
 	}
 	return fmt.Sprintf("%s (*)(%s)", resultC, paramList), nil
+}
+
+// ffiFieldDeclarator - t (KindCallable) как ИМЕНОВАННЫЙ C-декларатор поля
+// "внешняя структура" - "Результат (*fieldName)(Параметры...)", имя ВНУТРИ
+// скобок после "*" (так C синтаксически требует для указателя на функцию -
+// в отличие от ffiParamCType, анонимного типа для прототипа, где имя не
+// нужно вовсе). См. generateIREntityStruct (ir_generator.go),
+// codegen.StructDecl.FieldDeclarator.
+func ffiFieldDeclarator(ctx *irGenCtx, t ir.Type, fieldName string) (string, error) {
+	resultC, paramList, err := ffiCallableCParts(ctx, t.Entity)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s (*%s)(%s)", resultC, fieldName, paramList), nil
 }
 
 // marshalCallbackArg - code уже сгенерированный C-код значения типа

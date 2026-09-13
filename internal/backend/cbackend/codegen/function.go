@@ -3,6 +3,12 @@ package codegen
 type Param struct {
 	Type string
 	Name string
+	// Raw - Type уже несёт ЗАВЕРШЁННЫЙ C-декларатор (тип и имя вместе,
+	// например "int (*compar)(int)" - указатель на функцию, чьё имя ДОЛЖНО
+	// быть внутри скобок после "*", не может быть просто дописано после
+	// всего типа обычным разделителем) - Name в этом случае не пишется,
+	// см. StructDecl.write.
+	Raw bool
 }
 
 func Parameter(typ, name string) Param {

@@ -7,27 +7,31 @@
 //
 // Поддержаны скаляры (isFFIScalar, internal/semantic/types.go), "внешняя
 // сущность", "внешняя структура" по значению (поля - рекурсивно те же
-// формы, включая "Указатель<T>" - см. ffiStructGoType), "Указатель<T>"/
-// "Вызываемый(...)" параметром (out-параметр/колбэк, см. examples/основы/
-// внешняя_функция_указатель.rech, ffi_callback.go) И "Указатель<T>"
-// результатом внешней функции. "Указатель<T>", пришедший ИЗ C (результат
-// внешней функции или поле структуры, читаемое из C) - "сырой" pointerTarget
-// (четвёртый случай, package doc internal/interp/pointer.go) - чтение/
-// запись через unsafe.Pointer/reflect (readRawPointerValue/
-// setRawPointerValue ниже), не через Env/entityObj/collection.
+// формы, включая "Указатель<T>"/"Вызываемый(...)" - см. ffiStructGoType),
+// "Указатель<T>"/"Вызываемый(...)" параметром (out-параметр/колбэк, см.
+// examples/основы/внешняя_функция_указатель.rech, ffi_callback.go) И
+// "Указатель<T>" результатом внешней функции. "Указатель<T>", пришедший
+// ИЗ C (результат внешней функции или поле структуры, читаемое из C) -
+// "сырой" pointerTarget (четвёртый случай, package doc internal/interp/
+// pointer.go) - чтение/запись через unsafe.Pointer/reflect
+// (readRawPointerValue/setRawPointerValue ниже), не через Env/entityObj/
+// collection. "Вызываемый(...)" полем "внешняя структура" (WNDCLASS.
+// lpfnWndProc-стиль) - трамплин через registerCallbackArg (ffi_callback.go),
+// тот же приём, что и параметром внешней функции - cbackend зеркалит это
+// же поведение своей стороной (internal/backend/cbackend/ir_generator.go,
+// generateIREntityStruct/generateIRNewExpr/FieldAssign - голый указатель
+// на функцию в C-структуре, не {fn, env}).
 //
 // НЕ поддержано - запись "Указатель<T>", несущего RECH-хранилище (не
 // "сырой", т. е. `&переменная`, не результат FFI), ПОЛЕМ внешней структуры
 // (в отличие от параметра внешней функции, ffiPointerArg - там есть куда
 // подвесить runtime.Pinner/writeback до конца ОДНОГО вызова; поле
 // структуры может пережить вызов) - явная паника при попытке, не тихая
-// порча. "Вызываемый(...)" ПОЛЕМ внешней структуры (WNDCLASS.lpfnWndProc-
-// стиль) - блокировано ещё СЕМАНТИЧЕСКИМ анализом (internal/semantic/
-// analyzer.go, "полем внешней структуры" - до IR, для обоих backend'ов
-// сразу), не только этим файлом - cbackend сегодня объявляет ЛЮБОЕ поле-
-// Callable как {fn, env} по значению, что исказило бы реальный layout
-// C-структуры; настоящая поддержка потребовала бы менять и cbackend, не
-// только interp - отдельная, более крупная, сознательно отложенная задача.
+// порча. Чтение "Вызываемый(...)" ПОЛЯ, пришедшего из C, обратно в
+// вызываемое Rech-значение - тоже не поддержано (обратный трамплин "raw C
+// указатель -> Rech-значение" не реализован) - такое поле читается как
+// обычный адрес (Value.I), просто не вызываемый (Callable == nil,
+// evalCallValueExpr сам даёт понятную ошибку при попытке вызвать).
 package interp
 
 import (
@@ -138,11 +142,10 @@ func (in *Interp) ffiGoType(t ir.Type) (reflect.Type, error) {
 // 12) - имена Go-полей ("F0", "F1", ...) не совпадают с Rech-именами
 // (кириллица - не всегда валидный экспортируемый Go-идентификатор), но
 // порядок/типы совпадают, что и определяет реальный layout для purego.
-// "Указатель<T>" полем - тоже строится (тем же ffiGoType, что и параметр) -
-// оставшееся ограничение на конкретные ЗНАЧЕНИЯ такого поля (не на сам тип)
-// описано в package doc файла и проверяется в рантайме (setFFIValue), не
-// здесь. "Вызываемый(...)" полем сюда вообще не доходит - блокировано
-// раньше, семантическим анализом (тоже см. package doc файла).
+// "Указатель<T>"/"Вызываемый(...)" полем - тоже строятся (тем же ffiGoType,
+// что и параметр) - оставшиеся ограничения на конкретные ЗНАЧЕНИЯ таких
+// полей (не на сам тип) описаны в package doc файла и проверяются в
+// рантайме (setFFIValue), не здесь.
 func (in *Interp) ffiStructGoType(ent *ir.Entity) (reflect.Type, error) {
 	if t, ok := in.ffi.structTypes[ent.Name]; ok {
 		return t, nil
@@ -182,6 +185,14 @@ func (in *Interp) setFFIValue(rv reflect.Value, v Value) {
 			panicRuntime("\"Указатель<T>\" полем внешней структуры/аргументом FFI поддержан только для адреса, уже пришедшего из C - не для &переменная")
 		}
 		rv.Set(reflect.NewAt(rv.Type().Elem(), v.Ptr.raw))
+		return
+	}
+	if v.Type.Kind == ir.KindCallable {
+		addr, err := in.registerCallbackArg(v.Type.Entity, v)
+		if err != nil {
+			panicRuntime("%v", err)
+		}
+		rv.SetUint(uint64(addr))
 		return
 	}
 	switch rv.Kind() {
