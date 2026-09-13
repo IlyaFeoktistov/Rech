@@ -107,6 +107,18 @@ func RunFile(path string) Result {
 	if err != nil {
 		return Result{Path: path, Err: err}
 	}
+	// "сборка.библиотеки"/"путь_библиотек" из .rechproj (если есть) -
+	// нужны только FFI интерпретатора (ffi.go, resolveFFISymbol), чтобы
+	// знать, где искать C-символ через dlopen/dlsym - cbackend их не через
+	// ir.Program получает вовсе (сам вызывает линкер).
+	pf, err := project.LoadFor(path)
+	if err != nil {
+		return Result{Path: path, Err: err}
+	}
+	if pf != nil {
+		irProg.FFILibraries = pf.Библиотеки()
+		irProg.FFILibraryPaths = pf.ПутиБиблиотек()
+	}
 	var buf bytes.Buffer
 	if err := interp.Run(irProg, &buf, os.Stdin); err != nil {
 		return Result{Path: path, Err: err, Stdout: buf.String()}

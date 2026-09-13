@@ -24,13 +24,27 @@
 package interp
 
 import (
+	"unsafe"
+
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
-// pointerTarget - см. package doc.
+// pointerTarget - см. package doc. Четвёртый, отдельный вид - raw (FFI,
+// ffi.go) - адрес не RECH-хранилища, а чужой (C) памяти: результат внешней
+// функции типа "Указатель<T>" или поле "Указатель<T>" структуры, читаемой
+// из C. get/set в этом случае идут через unsafe.Pointer/reflect (см.
+// ffi.go, in.readFFIValue/in.setFFIValue) - интерпретатору нужен доступ к
+// той же таблице типов (in.pointerElemTypes и т. д.), поэтому raw несёт
+// *Interp, в отличие от остальных трёх случаев. raw хранится уже как
+// unsafe.Pointer (не uintptr) - `go vet` (unsafeptr) справедливо не
+// одобряет хранение адреса как uintptr с последующим обратным
+// преобразованием в unsafe.Pointer (это небезопасно для памяти, за
+// которой следит Go GC), но здесь адрес всегда чужой (C), не Go-heap -
+// хранить его сразу как unsafe.Pointer одновременно и корректно, и не
+// вызывает эту диагностику.
 type pointerTarget struct {
-	env  *Env   // !=nil - переменная/параметр (env+name)
+	env  *Env // !=nil - переменная/параметр (env+name)
 	name string
 
 	obj   *entityObj // !=nil - поле сущности (obj+field)
@@ -39,6 +53,18 @@ type pointerTarget struct {
 	coll     *collection // !=nil - элемент списка (coll+index)
 	index    int64
 	collName string // имя инстанциации, только для сообщения об ошибке
+
+	// isRaw - четвёртый случай, см. package doc выше.
+	isRaw    bool
+	raw      unsafe.Pointer
+	elemType ir.Type
+	interp   *Interp
+}
+
+// rawPointerValue - Указатель<T>, несущий сырой чужой (C) адрес - см.
+// package doc pointerTarget. elemType - T (ir.Program.Pointers).
+func rawPointerValue(t, elemType ir.Type, addr unsafe.Pointer, in *Interp) Value {
+	return pointerValue(t, &pointerTarget{isRaw: true, raw: addr, elemType: elemType, interp: in})
 }
 
 func (p *pointerTarget) get() Value {
@@ -48,6 +74,8 @@ func (p *pointerTarget) get() Value {
 		return v
 	case p.obj != nil:
 		return p.obj.getField(p.field)
+	case p.isRaw:
+		return p.interp.readRawPointerValue(p.raw, p.elemType)
 	default:
 		if p.index < 0 || p.index >= int64(len(p.coll.elems)) {
 			panicRuntime("%s", rtmsg.IndexOutOfRange(p.collName))
@@ -62,6 +90,8 @@ func (p *pointerTarget) set(v Value) {
 		p.env.set(p.name, v)
 	case p.obj != nil:
 		p.obj.setField(p.field, v)
+	case p.isRaw:
+		p.interp.setRawPointerValue(p.raw, p.elemType, v)
 	default:
 		if p.index < 0 || p.index >= int64(len(p.coll.elems)) {
 			panicRuntime("%s", rtmsg.IndexOutOfRange(p.collName))

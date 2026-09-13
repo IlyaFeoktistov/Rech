@@ -237,11 +237,9 @@ func TestAnalyzeBuiltinNameCollisionFails(t *testing.T) {
 
 // TestAnalyzeExternFuncBuildsIR - Analyze сам по себе успешно строит IR с
 // ExternFuncs (заполняет ir.Program.ExternFuncs, регистрирует Alias в
-// funcs) - отказ ради интерпретатора, у которого действительно нет
-// способа вызвать произвольный C-символ, находится в internal/interp.Run,
-// не здесь (см. TestRunRejectsExternFunc в internal/interp) - Analyze
-// используется и cbackend.GenerateFromIR, для которого внешние функции
-// работают полностью.
+// funcs) - реальный вызов (dlopen/dlsym через purego) находится в
+// internal/interp (см. TestRunCallsExternFunc) и в cbackend.GenerateFromIR
+// (настоящая линковка), не здесь.
 func TestAnalyzeExternFuncBuildsIR(t *testing.T) {
 	irProg := parseProgram(t, `
 внешняя функция abs как модуль_числа(n: Целое): Целое

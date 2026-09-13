@@ -174,18 +174,30 @@ func FindUp(dir string) (string, error) {
 // (вызывающая сторона использует прежнее поведение module.LoadWithGraph -
 // каталог srcPath).
 func RootFor(srcPath string) (string, error) {
-	projPath, err := FindUp(filepath.Dir(filepath.Clean(srcPath)))
+	pf, err := LoadFor(srcPath)
 	if err != nil {
 		return "", err
 	}
-	if projPath == "" {
+	if pf == nil {
 		return "", nil
 	}
-	pf, err := Load(projPath)
-	if err != nil {
-		return "", err
-	}
 	return filepath.Dir(pf.MainPath()), nil
+}
+
+// LoadFor находит и разбирает .rechproj над srcPath тем же способом, что
+// RootFor (FindUp от его каталога) - нужен вызывающей стороне, которой
+// нужен сам File (например, "сборка.библиотеки"/"путь_библиотек" для FFI
+// интерпретатора, internal/testrunner), а не только каталог главного
+// файла. nil, nil - .rechproj не найден.
+func LoadFor(srcPath string) (*File, error) {
+	projPath, err := FindUp(filepath.Dir(filepath.Clean(srcPath)))
+	if err != nil {
+		return nil, err
+	}
+	if projPath == "" {
+		return nil, nil
+	}
+	return Load(projPath)
 }
 
 // Load читает и разбирает .rechproj по path, подставляет значения по

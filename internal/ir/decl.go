@@ -189,6 +189,17 @@ type Program struct {
 	// HTTPServerRequestTooLarge), вместо буферизации сколь угодно большого
 	// запроса в памяти без предела.
 	HTTPMaxRequestBytes int
+	// FFILibraries/FFILibraryPaths - "сборка.библиотеки"/"сборка.
+	// путь_библиотек" файла проекта (internal/project.File.Библиотеки/
+	// ПутиБиблиотек), если он есть - "" (пусто), если нет. cbackend
+	// использует их только при вызове линкера (не через ir.Program вовсе -
+	// ему достаточно строки -l/-L, кодогенерации это не касается);
+	// internal/interp (ffi.go, resolveFFISymbol) - единственный
+	// потребитель ЭТИХ двух полей - ему нужно резолвить C-символ через
+	// dlopen/dlsym в рантайме, без настоящей линковки, поэтому именно ему
+	// нужно ЗНАТЬ имена/пути библиотек, а не просто передать их линкеру.
+	FFILibraries    []string
+	FFILibraryPaths []string
 	// DBRowTargets - сущности, встретившиеся хоть раз ЭЛЕМЕНТОМ цели
 	// "запросить(...) как Список<Тип>" (DBRowsAsExpr, internal/semantic/
 	// db_rows.go), без повторов - тем же принципом, что и ParseTargets:

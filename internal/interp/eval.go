@@ -85,6 +85,9 @@ func (in *Interp) evalExpr(e ir.Expr, env *Env, cc *callCtx) (Value, error) {
 		if v, ok := in.evalBuiltinCall(e.Callee, args); ok {
 			return v, nil
 		}
+		if decl, ok := in.externFuncs[e.Callee]; ok {
+			return in.callExternFunc(decl, args)
+		}
 		fn, ok := in.funcs[e.Callee]
 		if !ok {
 			return Value{}, fmt.Errorf("функция %q не найдена во время исполнения", e.Callee)
