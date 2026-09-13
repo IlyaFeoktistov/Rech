@@ -603,8 +603,8 @@ func newInterp(prog *ir.Program, out io.Writer, stdin io.Reader) (*Interp, *ir.F
 		ffi: &ffiRegistry{
 			libs:          map[string]uintptr{},
 			fns:           map[string]reflect.Value{},
-			callbackSlots: map[string]*callableValue{},
-			callbackAddrs: map[string]uintptr{},
+			callbackSlots: map[string][]*callableValue{},
+			callbackAddrs: map[string][]uintptr{},
 			structTypes:   map[string]reflect.Type{},
 		},
 		pointerElemTypes: map[string]ir.Type{},

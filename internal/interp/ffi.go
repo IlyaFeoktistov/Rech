@@ -55,10 +55,11 @@ type ffiRegistry struct {
 	fns  map[string]reflect.Value
 
 	// callbackSlots/callbackAddrs - "Вызываемый(...)" параметром внешней
-	// функции, по имени сигнатуры (ir.Type.Entity) - см. package doc
-	// ffi_callback.go.
-	callbackSlots map[string]*callableValue
-	callbackAddrs map[string]uintptr
+	// функции, по имени сигнатуры (ir.Type.Entity) - пул из ir.
+	// FFICallbackPoolSize одновременно живых слотов на сигнатуру (индекс -
+	// порядковый номер регистрации), см. package doc ffi_callback.go.
+	callbackSlots map[string][]*callableValue
+	callbackAddrs map[string][]uintptr
 
 	// structTypes - "внешняя структура" по имени сущности -> уже построенный
 	// (reflect.StructOf) Go-тип, см. ffiStructGoType.
