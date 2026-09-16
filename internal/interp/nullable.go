@@ -45,6 +45,16 @@ func (in *Interp) evalNullCheckExpr(e *ir.NullCheckExpr, env *Env, cc *callCtx) 
 	if err != nil {
 		return Value{}, err
 	}
+	// "Указатель<T> ==/!= Ничто" - v.Ptr (нулевой указатель), не
+	// v.Nullable (has/value-обёртка "?Тип") - см. package doc
+	// coerceExpr/ir.NullLiteral (internal/semantic/nullable.go).
+	if ir.TypeOf(e.Value).Kind == ir.KindPointer {
+		has := v.Ptr != nil
+		if e.IsNot {
+			return boolValue(has), nil
+		}
+		return boolValue(!has), nil
+	}
 	has := v.Nullable != nil
 	if e.IsNot {
 		return boolValue(has), nil

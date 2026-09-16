@@ -23,6 +23,7 @@ package cbackend
 import (
 	"fmt"
 	"runtime"
+	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
@@ -43,6 +44,20 @@ var externSymbolHeader = map[string]string{
 	"GetCurrentProcessId": "windows.h", "GetTickCount": "windows.h",
 	"GetLastError": "windows.h", "GetCurrentThreadId": "windows.h",
 	"Sleep": "windows.h",
+	// user32.h/winuser.h (окна/сообщения) - та же коллизия, найденная живьём
+	// на WinAPI-примере окна (GetModuleHandleA возвращает HMODULE, не
+	// unsigned char*, RegisterClassA принимает CONST WNDCLASSA*, ShowWindow
+	// принимает WINBOOL/int, не bool, и т. д. - собственная догадка Rech по
+	// типам параметров/результата почти никогда textуально не совпадает с
+	// настоящим прототипом WinAPI, конфликт неизбежен для любой такой
+	// функции, раз windows.h виден безусловно).
+	"GetModuleHandleA": "windows.h", "RegisterClassA": "windows.h",
+	"CreateWindowExA": "windows.h", "ShowWindow": "windows.h",
+	"UpdateWindow": "windows.h", "GetMessageA": "windows.h",
+	"TranslateMessage": "windows.h", "DispatchMessageA": "windows.h",
+	"BeginPaint": "windows.h", "EndPaint": "windows.h",
+	"TextOutA": "windows.h", "PostQuitMessage": "windows.h",
+	"DefWindowProcA": "windows.h", "DestroyWindow": "windows.h",
 	// string.h
 	"strlen": "string.h", "strcpy": "string.h", "strncpy": "string.h",
 	"strcat": "string.h", "strncat": "string.h", "strcmp": "string.h",
@@ -102,6 +117,52 @@ func externPrototypeAlreadyProvided(ctx *irGenCtx, cName string) bool {
 	default:
 		return false
 	}
+}
+
+// bridgeExternHeaderArgCode - оборачивает code (уже сгенерированное
+// Rech-выражение аргумента вызова) в приведение к "(void *)", если C-тип
+// этого аргумента - указатель, а сама функция вызывается через прототип из
+// НАСТОЯЩЕГО заголовка (externPrototypeAlreadyProvided), не через
+// собственную догадку cbackend (externPrototypeOfIR). Нужно потому что
+// настоящий заголовок почти всегда объявляет параметр НЕПРОЗРАЧНЫМ
+// структурным указателем своего собственного имени (например, WinAPI:
+// HWND/HDC/LPMSG - каждый "typedef struct HWND__ *HWND;" и т. п., см.
+// windef.h "DECLARE_HANDLE"), а не тем же указательным C-типом, что
+// придумал бы для параметра сам Rech (unsigned char*/rech_T_имя* - живой
+// пример, найденный на WinAPI-примере окна: RegisterClassA ожидает "const
+// WNDCLASSA *", Rech передаёт "rech_T_okonnyjklass *") - ДВА РАЗНЫХ,
+// но ABI-совместимых (оба - просто адрес) типа указателя, компилятор C
+// теперь отказывается передавать один вместо другого без приведения
+// ("incompatible pointer type" - error по умолчанию у современных gcc/
+// mingw, раньше было только предупреждение). "void *" - единственный
+// указательный тип, неявно совместимый С ЛЮБЫМ другим указательным типом
+// в обе стороны без явного приведения (ISO C, 6.3.2.3) - оборачивание
+// аргумента в "(void *)" снимает проверку типа на СТОРОНЕ ПЕРЕДАЧИ,
+// компилятор молча преобразует его к тому, что реально ожидает настоящий
+// прототип из заголовка.
+func bridgeExternHeaderArgCode(ctx *irGenCtx, argType ir.Type, code string) string {
+	if !strings.HasSuffix(fromIRType(argType).cType(ctx), "*") {
+		return code
+	}
+	return fmt.Sprintf("(void *)(%s)", code)
+}
+
+// bridgeExternHeaderReturnCode - симметричный приём для РЕЗУЛЬТАТА вызова:
+// настоящий заголовок обычно объявляет результат непрозрачным структурным
+// указателем (например, GetModuleHandleA -> HMODULE), а Rech-сторона
+// (переменная/присваивание, использующие cType(ctx) результата дальше) -
+// собственным указательным типом. В отличие от аргумента - здесь нельзя
+// положиться на неявное преобразование через "void *" (это была бы
+// ИНИЦИАЛИЗАЦИЯ/присваивание из настоящего типа заголовка НАПРЯМУЮ в
+// Rech-тип, тот же класс ошибки, что и у аргумента, только с другой
+// стороны) - явное приведение ВСЕГО вызова к ожидаемому Rech-типу
+// разрешено для любой пары указательных типов в C без посредника.
+func bridgeExternHeaderReturnCode(ctx *irGenCtx, returnType ir.Type, code string) string {
+	ctype := fromIRType(returnType).cType(ctx)
+	if !strings.HasSuffix(ctype, "*") {
+		return code
+	}
+	return fmt.Sprintf("(%s)(%s)", ctype, code)
 }
 
 // bridgeExternStructCallCode - "внешняя структура X как Y" (Y.IsExternStruct,

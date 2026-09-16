@@ -10,8 +10,23 @@
 # собирает только сам .rechproj целиком) и .rech-файлы без "функция
 # главная" (библиотечные модули для "использовать ... из", не собираются
 # отдельно - см. examples/импорты/утилиты.rech, импортируется из
-# examples/импорты/главный.rech).
+# examples/импорты/главный.rech). Также пропускает windows_only_projects
+# ниже вне настоящей Windows - в отличие от условная_компиляция/
+# (файлы _linux/_windows выбираются САМИ, никогда не попадают в чужую
+# сборку), examples/проекты/windows_окна безусловно зовёт WinAPI - собрать
+# на Linux/macOS нечем (нет user32.dll/gdi32.dll), это не баг компилятора.
 set -uo pipefail
+
+windows_only_projects=("examples/проекты/windows_окна")
+is_windows_only_skipped() {
+    local pd="$1"
+    [ "$(go env GOOS)" = "windows" ] && return 1
+    local p
+    for p in "${windows_only_projects[@]}"; do
+        [ "$pd" = "$p" ] && return 0
+    done
+    return 1
+}
 cd "$(dirname "$0")"
 
 tmp_bin="$(mktemp -d)/rech"
@@ -73,8 +88,13 @@ check() {
 echo
 echo "== Проекты (.rechproj) =="
 while IFS= read -r proj; do
-    check "$proj"
     pd="$(dirname "$proj")"
+    if is_windows_only_skipped "$pd"; then
+        echo "ПРОПУЩЕНО $proj (только Windows, $(go env GOOS) - не она)"
+        project_dirs+=("$pd")
+        continue
+    fi
+    check "$proj"
     project_dirs+=("$pd")
     if grep -qE '^[[:space:]]*тип:[[:space:]]*библиотека' "$proj"; then
         outdir=$(awk -F: '/^[[:space:]]*выход:/{gsub(/^[ \t]+|[ \t]+$/,"",$2); print $2; exit}' "$proj")

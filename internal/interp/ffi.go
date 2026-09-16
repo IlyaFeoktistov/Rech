@@ -181,6 +181,14 @@ func (in *Interp) setFFIValue(rv reflect.Value, v Value) {
 		return
 	}
 	if v.Type.Kind == ir.KindPointer {
+		if v.Ptr == nil {
+			// "Ничто" (NULL) - см. package doc evalNullLiteral (nullable.go) -
+			// нулевой Go-указатель того же типа, симметрично readFFIValue
+			// ниже (NULL, пришедший ИЗ C, тоже даёт v.Ptr == nil, не
+			// pointerTarget{raw: nil}).
+			rv.Set(reflect.Zero(rv.Type()))
+			return
+		}
 		if !v.Ptr.isRaw {
 			// "Указатель<T>", несущий RECH-хранилище (не результат FFI) -
 			// полем структуры/вложенно не поддержано, см. package doc файла
@@ -226,11 +234,19 @@ func (in *Interp) readFFIValue(rv reflect.Value, irType ir.Type) Value {
 		return Value{Type: irType, Obj: obj}
 	}
 	if irType.Kind == ir.KindPointer {
+		addr := rv.UnsafePointer()
+		if addr == nil {
+			// Настоящий C NULL - тот же "Ничто", что и evalNullLiteral
+			// (nullable.go): v.Ptr == nil, НЕ pointerTarget{isRaw: true,
+			// raw: nil} - иначе "результат == Ничто" не совпал бы с
+			// реальным NULL, вернувшимся из внешней функции.
+			return Value{Type: irType}
+		}
 		// Адрес пришёл ИЗ C (результат внешней функции или поле структуры) -
 		// "сырой" pointerTarget (package doc файла) - не Env/entityObj/
 		// collection.
 		elem := in.pointerElemTypes[irType.Entity]
-		return rawPointerValue(irType, elem, rv.UnsafePointer(), in)
+		return rawPointerValue(irType, elem, addr, in)
 	}
 	switch rv.Kind() {
 	case reflect.String:
@@ -276,6 +292,12 @@ func (in *Interp) newFFIArgValue(v Value, goType reflect.Type) reflect.Value {
 // elemType - T (уже известен из ir.Program.Pointers, см. ffiGoType),
 // goType - *(Go-тип T).
 func (in *Interp) ffiPointerArg(v Value, elemType ir.Type, goType reflect.Type) (arg reflect.Value, writeback func()) {
+	if v.Ptr == nil {
+		// "Ничто" (NULL, см. package doc evalNullLiteral, nullable.go) -
+		// буквальный нулевой указатель, без буфера/writeback (разворачивать
+		// назад нечего).
+		return reflect.Zero(goType), func() {}
+	}
 	if v.Ptr.isRaw {
 		return reflect.NewAt(goType.Elem(), v.Ptr.raw), func() {}
 	}

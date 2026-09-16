@@ -146,8 +146,14 @@ func maybeUnwrapNarrowed(sc *ctx, value ir.Expr) ir.Expr {
 // несовпадении.
 func coerceExpr(sc *ctx, e ast.Expr, target ir.Type) (ir.Expr, error) {
 	if nl, ok := e.(*ast.NullLiteral); ok {
-		if target.Kind != ir.KindNullable {
-			return nil, fmt.Errorf("строка %d: \"Ничто\" допустимо только для значения nullable-типа (\"?Тип\"), ожидался %s", nl.Line, target)
+		// "Указатель<T>" - раздельный от "?Тип" случай: сам C-указатель уже
+		// нативно допускает NULL (cbackend.pointerType.cType - голое "T *"),
+		// значит "Ничто" здесь - не заворачивание в has/value (как у "?Тип"
+		// ниже), а буквальный нулевой указатель - см. package doc
+		// ir.NullLiteral.Type для разбора по Kind в generateIRExpr/
+		// evalNullLiteral обоих бэкендов.
+		if target.Kind != ir.KindNullable && target.Kind != ir.KindPointer {
+			return nil, fmt.Errorf("строка %d: \"Ничто\" допустимо только для значения nullable-типа (\"?Тип\") или \"Указатель<T>\", ожидался %s", nl.Line, target)
 		}
 		return &ir.NullLiteral{Type: target, Line: nl.Line}, nil
 	}
@@ -179,8 +185,11 @@ func analyzeNullCheck(sc *ctx, other ast.Expr, isNot bool, line int) (ir.Expr, e
 	if err != nil {
 		return nil, err
 	}
-	if typ := ir.TypeOf(value); typ.Kind != ir.KindNullable {
-		return nil, fmt.Errorf("строка %d: сравнение с \"Ничто\" применимо только к значению nullable-типа (\"?Тип\"), получен %s", line, typ)
+	// "Указатель<T> == Ничто" - тот же нулевой указатель, что и у coerceExpr
+	// выше, не has/value nullable-обёртка - оба бэкенда сами решают по
+	// ir.TypeOf(e.Value).Kind, как сравнивать (package doc там же).
+	if typ := ir.TypeOf(value); typ.Kind != ir.KindNullable && typ.Kind != ir.KindPointer {
+		return nil, fmt.Errorf("строка %d: сравнение с \"Ничто\" применимо только к значению nullable-типа (\"?Тип\") или \"Указатель<T>\", получен %s", line, typ)
 	}
 	return &ir.NullCheckExpr{Value: value, IsNot: isNot, Line: line}, nil
 }

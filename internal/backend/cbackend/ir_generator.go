@@ -2873,6 +2873,13 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 				}
 				code = marshaled
 			}
+			// Настоящий прототип из заголовка (не собственная догадка
+			// cbackend) почти наверняка объявляет параметр непрозрачным
+			// структурным указателем своего имени (HWND/HDC/...) - см.
+			// package doc bridgeExternHeaderArgCode (extern_headers.go).
+			if isExtern && externPrototypeAlreadyProvided(ctx, cName) {
+				code = bridgeExternHeaderArgCode(ctx, ir.TypeOf(a), code)
+			}
 			argCodes[i] = code
 		}
 		// Порядок проверки: builtin (inline C-выражение) -> внешняя функция
@@ -2899,7 +2906,11 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 			// вообще вызвать "главная" из самого же Rech-кода).
 			return fmt.Sprintf("%s(rech_argc, rech_argv)", callee), fromIRType(e.Type), nil
 		}
-		return fmt.Sprintf("%s(%s)", callee, strings.Join(argCodes, ", ")), fromIRType(e.Type), nil
+		callCode := fmt.Sprintf("%s(%s)", callee, strings.Join(argCodes, ", "))
+		if isExtern && e.HasReturn && externPrototypeAlreadyProvided(ctx, cName) {
+			callCode = bridgeExternHeaderReturnCode(ctx, e.Type, callCode)
+		}
+		return callCode, fromIRType(e.Type), nil
 
 	case *ir.NewExpr:
 		return generateIRNewExpr(ctx, e)
@@ -2987,6 +2998,14 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 
 	case *ir.NullLiteral:
 		t := fromIRType(e.Type)
+		if e.Type.Kind == ir.KindPointer {
+			// "Указатель<T>" - не "?Тип": сам C-указатель уже нативно
+			// нулевой ("T *", не has/value-структура) - "Ничто" здесь
+			// буквальный NULL (см. package doc coerceExpr,
+			// internal/semantic/nullable.go). <stdio.h> включается
+			// безусловно (см. generateSource) - NULL гарантированно виден.
+			return "NULL", t, nil
+		}
 		return fmt.Sprintf("%s_empty()", mangleType(t.entity)), t, nil
 
 	case *ir.NullWrapExpr:
@@ -3009,6 +3028,15 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 		code, _, err := generateIRExpr(ctx, e.Value)
 		if err != nil {
 			return "", typeUnknown, err
+		}
+		if ir.TypeOf(e.Value).Kind == ir.KindPointer {
+			// "Указатель<T> ==/!= Ничто" - прямое сравнение с NULL, не
+			// has/value nullable-обёртка (см. package doc ir.NullLiteral
+			// выше).
+			if e.IsNot {
+				return fmt.Sprintf("((%s) != NULL)", code), typeBool, nil
+			}
+			return fmt.Sprintf("((%s) == NULL)", code), typeBool, nil
 		}
 		if e.IsNot {
 			return fmt.Sprintf("((%s).has)", code), typeBool, nil

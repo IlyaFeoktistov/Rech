@@ -68,6 +68,12 @@ func rawPointerValue(t, elemType ir.Type, addr unsafe.Pointer, in *Interp) Value
 }
 
 func (p *pointerTarget) get() Value {
+	if p == nil {
+		// "Указатель<T>", равный "Ничто" (NULL) - см. package doc
+		// evalNullLiteral/evalNullCheckExpr (nullable.go) - разыменование
+		// такого указателя недопустимо, тот же rtmsg, что и у "?Тип".
+		panicRuntime("%s", rtmsg.NullAccess)
+	}
 	switch {
 	case p.env != nil:
 		v, _ := p.env.get(p.name)
@@ -85,6 +91,9 @@ func (p *pointerTarget) get() Value {
 }
 
 func (p *pointerTarget) set(v Value) {
+	if p == nil {
+		panicRuntime("%s", rtmsg.NullAccess)
+	}
 	switch {
 	case p.env != nil:
 		p.env.set(p.name, v)

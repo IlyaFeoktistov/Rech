@@ -83,6 +83,43 @@ func TestAnalyzeFuncRefStillWorksAlongsidePointers(t *testing.T) {
 	}
 }
 
+// TestAnalyzePointerNullLiteralOK - "Ничто" как значение "Указатель<T>" -
+// НЕ через "?Тип" (см. package doc coerceExpr, nullable.go): var-decl с
+// аннотацией типа, обычное присваивание, аргумент вызова и сравнение
+// "== Ничто"/"!= Ничто" - все точки, идущие через coerceExpr/
+// analyzeNullCheck.
+func TestAnalyzePointerNullLiteralOK(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция взять_указатель(п: Указатель<Целое>) { }
+функция главная
+{
+    переменная а: Указатель<Целое> = Ничто
+    утверждать а == Ничто
+    переменная б = 5
+    а = &б
+    утверждать а != Ничто
+    взять_указатель(Ничто)
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
+// TestAnalyzeNullLiteralStillRejectedForNonPointerNonNullable - "Ничто" по-
+// прежнему недопустимо для обычного (не "?Тип", не "Указатель<T>") типа.
+func TestAnalyzeNullLiteralStillRejectedForNonPointerNonNullable(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция главная
+{
+    переменная а: Целое = Ничто
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "\"Ничто\" допустимо только") {
+		t.Fatalf("ожидалась ошибка про недопустимость \"Ничто\" здесь, получено: %v", err)
+	}
+}
+
 func TestAnalyzeDerefRejectsNonPointer(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 функция главная
