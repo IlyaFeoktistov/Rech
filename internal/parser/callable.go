@@ -9,9 +9,12 @@ import (
 )
 
 // parseLambdaExpr разбирает "функция(<парам>: <Тип>, ...): <ТипРезультата>
-// { <тело> }" без имени, в позиции выражения - та же грамматика параметров/
-// тела, что и у именованного parseFunction, кроме имени и параметров типа
-// (лямбда не может быть generic). Позиция парсера на входе - на "функция".
+// [<список захвата>] { <тело> }" без имени, в позиции выражения - та же
+// грамматика параметров/тела, что и у именованного parseFunction, кроме
+// имени и параметров типа (лямбда не может быть generic). Список захвата -
+// необязательный "[...]" СРАЗУ ПЕРЕД телом (после типа результата, если
+// есть) - см. package doc ast.LambdaExpr/parseCaptureList. Позиция парсера
+// на входе - на "функция".
 func (p *Parser) parseLambdaExpr() (*ast.LambdaExpr, error) {
 	kw, err := p.expect(lexer.KwFunction)
 	if err != nil {
@@ -36,12 +39,62 @@ func (p *Parser) parseLambdaExpr() (*ast.LambdaExpr, error) {
 		returnType = normalizeReturnType(returnType)
 	}
 
+	hasCaptures := false
+	var captures []ast.CaptureSpec
+	if p.cur().Type == lexer.LBRACKET {
+		hasCaptures = true
+		captures, err = p.parseCaptureList()
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	p.skipNewlines()
 	body, err := p.parseBlock()
 	if err != nil {
 		return nil, err
 	}
-	return &ast.LambdaExpr{Params: params, ReturnType: returnType, Body: body, Line: kw.Line}, nil
+	return &ast.LambdaExpr{Params: params, ReturnType: returnType, HasCaptures: hasCaptures, Captures: captures, Body: body, Line: kw.Line}, nil
+}
+
+// parseCaptureList разбирает "[x, &y, ...]" (в т.ч. пустой "[]" - лямбда,
+// закрытая ото всех внешних переменных) - список имён через запятую, у
+// каждого - необязательный ведущий "&" (захват по ссылке, см. package doc
+// ast.CaptureSpec). Позиция парсера на входе - на "[".
+func (p *Parser) parseCaptureList() ([]ast.CaptureSpec, error) {
+	p.advance() // "["
+	p.skipNewlines()
+	var captures []ast.CaptureSpec
+	if p.cur().Type != lexer.RBRACKET {
+		for {
+			byRef := false
+			if p.cur().Type == lexer.BITAND {
+				byRef = true
+				p.advance()
+			}
+			name, err := p.expect(lexer.IDENT)
+			if err != nil {
+				return nil, fmt.Errorf("в списке захвата лямбды: %w", err)
+			}
+			captures = append(captures, ast.CaptureSpec{Name: name.Value, ByRef: byRef, Line: name.Line})
+			if p.cur().Type != lexer.COMMA {
+				break
+			}
+			p.advance() // ","
+			atClose, err := p.skipNewlinesAfterListComma(lexer.RBRACKET)
+			if err != nil {
+				return nil, err
+			}
+			if atClose {
+				break // висячая запятая перед "]"
+			}
+		}
+	}
+	p.skipNewlines()
+	if _, err := p.expect(lexer.RBRACKET); err != nil {
+		return nil, fmt.Errorf("после списка захвата лямбды ожидалось \"]\": %w", err)
+	}
+	return captures, nil
 }
 
 // callableTypeName - зарезервированное имя типа "функция как значение".

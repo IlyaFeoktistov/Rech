@@ -229,7 +229,17 @@ func generateIRLambdaExpr(ctx *irGenCtx, e *ir.LambdaExpr) (string, valueType, e
 		envType := mangleCallableEnvType(e.Name)
 		fields := make([]string, len(e.Captures))
 		for i, c := range e.Captures {
-			fields[i] = fmt.Sprintf(".%s = %s", mangleField(c.Name), varRef(ctx, c.Name))
+			// ByRef (см. package doc ir.CaptureVar) - поле окружения само
+			// уже "Указатель<T>" (envType typedef выше берёт cType от
+			// c.Type, который у ByRef - тип указателя) - здесь достаточно
+			// взять адрес внешней переменной, а не её значение, "&" -
+			// ровно то же самое, что и генерирует AddressOfExpr для
+			// обычного "&имя".
+			ref := varRef(ctx, c.Name)
+			if c.ByRef {
+				ref = "&" + ref
+			}
+			fields[i] = fmt.Sprintf(".%s = %s", mangleField(c.Name), ref)
 		}
 		envExpr = fmt.Sprintf("memcpy(GC_MALLOC(sizeof(%s)), &(%s){%s}, sizeof(%s))",
 			envType, envType, strings.Join(fields, ", "), envType)

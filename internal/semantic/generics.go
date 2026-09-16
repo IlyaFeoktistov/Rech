@@ -295,6 +295,7 @@ func substExpr(e ast.Expr, subst map[string]string) ast.Expr {
 	case *ast.LambdaExpr:
 		return &ast.LambdaExpr{
 			Params: substParams(e.Params, subst), ReturnType: substituteTypeString(e.ReturnType, subst),
+			HasCaptures: e.HasCaptures, Captures: e.Captures,
 			Body: substStmts(e.Body, subst), Line: e.Line,
 		}
 	default:

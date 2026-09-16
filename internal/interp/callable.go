@@ -54,10 +54,19 @@ func (in *Interp) evalFuncRefExpr(e *ir.FuncRefExpr) (Value, error) {
 func (in *Interp) evalLambdaExpr(e *ir.LambdaExpr, env *Env) (Value, error) {
 	capturedEnv := newEnv(nil)
 	for _, c := range e.Captures {
-		v, ok := env.get(c.Name)
-		if !ok {
+		if _, ok := env.get(c.Name); !ok {
 			return Value{}, fmt.Errorf("захваченная переменная %q не найдена во время исполнения", c.Name)
 		}
+		if c.ByRef {
+			// См. package doc ir.CaptureVar - тот же pointerTarget, что и
+			// у обычного "&имя" (evalAddressOfExpr, pointer.go): env -
+			// область видимости СНАРУЖИ, замкнутая в момент создания этого
+			// значения лямбды, не путать с capturedEnv (само окружение
+			// замыкания, которое здесь заполняется).
+			capturedEnv.declare(c.Name, pointerValue(c.Type, &pointerTarget{env: env, name: c.Name}))
+			continue
+		}
+		v, _ := env.get(c.Name)
 		capturedEnv.declare(c.Name, in.cloneValue(v))
 	}
 	return callableTypeValue(e.Type, func(args []Value, dbg *dbgThread) (Value, error) {

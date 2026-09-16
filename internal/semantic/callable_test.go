@@ -82,6 +82,104 @@ func TestAnalyzeLambdaCapture(t *testing.T) {
 	}
 }
 
+// TestAnalyzeLambdaExplicitCaptureListReplacesImplicit - явный список
+// захвата ("[x]") заменяет неявный целиком (C++-стиль, согласовано с
+// пользователем) - обращение к СВОБОДНОЙ переменной, не перечисленной в
+// списке, ошибка компиляции, даже если такая переменная существует в
+// объемлющей области видимости.
+func TestAnalyzeLambdaExplicitCaptureListReplacesImplicit(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция главная
+{
+    переменная x = 1
+    переменная z = 2
+    переменная ф = функция(): Пусто [x]
+    {
+        вывести x
+        вывести z
+    }
+    ф()
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), `"z" не объявлена`) {
+		t.Fatalf("ожидалась ошибка про необъявленную \"z\", получено %v", err)
+	}
+}
+
+// TestAnalyzeLambdaCaptureByRef - "&y" в списке захвата: тип захвата -
+// Указатель<T> (не T), запись изнутри тела видна снаружи (генерируется
+// через DerefAssignStmt/DerefExpr - см. package doc ir.CaptureVar).
+func TestAnalyzeLambdaCaptureByRef(t *testing.T) {
+	prog := parseProgram(t, `
+функция главная
+{
+    переменная у = 10
+    переменная ф = функция(): Пусто [&у]
+    {
+        у = у + 1
+    }
+    ф()
+}
+`)
+	fn := prog.Functions[0]
+	decl := fn.Body[1].(*ir.VarDecl)
+	lambda, ok := decl.Value.(*ir.LambdaExpr)
+	if !ok {
+		t.Fatalf("ожидался LambdaExpr, получено %T", decl.Value)
+	}
+	if len(lambda.Captures) != 1 || lambda.Captures[0].Name != "у" || !lambda.Captures[0].ByRef {
+		t.Fatalf("ожидался один захват \"у\" по ссылке, получено %+v", lambda.Captures)
+	}
+	wantType := "Указатель<Целое>"
+	if lambda.Captures[0].Type.String() != wantType {
+		t.Fatalf("ожидался тип захвата %q, получено %q", wantType, lambda.Captures[0].Type.String())
+	}
+	assign, ok := lambda.Body[0].(*ir.DerefAssignStmt)
+	if !ok {
+		t.Fatalf("ожидался DerefAssignStmt (прозрачная запись через указатель), получено %T", lambda.Body[0])
+	}
+	if id, ok := assign.Pointer.(*ir.Identifier); !ok || id.Name != "у" {
+		t.Fatalf("ожидался указатель на \"у\", получено %+v", assign.Pointer)
+	}
+}
+
+// TestAnalyzeLambdaCaptureDuplicateNameRejected - то же имя дважды в списке
+// захвата - ошибка компиляции, не тихое дублирование.
+func TestAnalyzeLambdaCaptureDuplicateNameRejected(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция главная
+{
+    переменная x = 1
+    переменная ф = функция(): Пусто [x, x]
+    {
+        вывести x
+    }
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "дважды в списке захвата") {
+		t.Fatalf("ожидалась ошибка про дублирование в списке захвата, получено %v", err)
+	}
+}
+
+// TestAnalyzeLambdaCaptureByRefIncDecRejected - "++"/"--" для переменной,
+// захваченной по ссылке - явно НЕ поддержано (см. package doc
+// analyzeIncDecExpr), не тихая порча значения.
+func TestAnalyzeLambdaCaptureByRefIncDecRejected(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция главная
+{
+    переменная у = 1
+    переменная ф = функция(): Пусто [&у]
+    {
+        у++
+    }
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "захвачено по ссылке") {
+		t.Fatalf("ожидалась ошибка про захват по ссылке, получено %v", err)
+	}
+}
+
 func TestAnalyzeCallValueExpr(t *testing.T) {
 	prog := parseProgram(t, `
 функция применить(значение: Целое, ф: Вызываемый(Целое): Целое): Целое

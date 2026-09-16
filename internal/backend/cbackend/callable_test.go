@@ -80,6 +80,47 @@ func TestGenerateFromIRLambdaCaptureEnv(t *testing.T) {
 	}
 }
 
+// TestGenerateFromIRLambdaCaptureByRefEnv - CaptureVar.ByRef true (явный
+// список захвата "&имя", см. package doc ir.CaptureVar) - поле окружения
+// само типа "Указатель<T>" (не T), значение строится через "&<текущая
+// C-переменная>" (адрес, не значение) - тот же C-код, что и у обычного
+// "&а" (AddressOfExpr, см. TestGenerateFromIRPointerAddressAndDeref,
+// pointer_test.go), не отдельный механизм.
+func TestGenerateFromIRLambdaCaptureByRefEnv(t *testing.T) {
+	ptrType := ir.Type{Kind: ir.KindPointer, Entity: "Указатель<Целое>"}
+	callableT := ir.CallableType(nil, nil)
+	lambda := &ir.LambdaExpr{
+		Name:     "__лямбда_1",
+		Captures: []ir.CaptureVar{{Name: "у", Type: ptrType, ByRef: true}},
+		Body: []ir.Stmt{&ir.DerefAssignStmt{
+			Pointer: &ir.Identifier{Name: "у", Type: ptrType},
+			Value:   &ir.IntLiteral{Value: 1},
+		}},
+		Type: callableT,
+	}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "у", Value: &ir.IntLiteral{Value: 10}},
+		&ir.VarDecl{Name: "ф", Value: lambda},
+	}}
+	out, err := GenerateFromIR(&ir.Program{
+		Functions: []*ir.Function{main},
+		Callables: []ir.CallableSig{{Name: callableT.Entity}},
+		Pointers:  []ir.PointerInstantiation{{Name: ptrType.Entity, Inner: ir.TypeInt}},
+	})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(out, "long long * f_u") {
+		t.Fatalf("ожидалось поле окружения типа long long *, получено:\n%s", out)
+	}
+	if !strings.Contains(out, "= &v_u") {
+		t.Fatalf("ожидалось построение окружения через адрес (\"&v_u\"), получено:\n%s", out)
+	}
+	if !strings.Contains(out, "*rech_captured->f_u = 1LL;") {
+		t.Fatalf("ожидалась запись через разыменование поля окружения, получено:\n%s", out)
+	}
+}
+
 // TestGenerateFromIRCallableParamEntityCollectionOrdering - сигнатура
 // "Вызываемый", принимающая generic-коллекцию с сущностью-элементом
 // (Список<T> у examples/бд/чанкование.rech, "чанковать_по_полю<T>(...,

@@ -53,6 +53,36 @@ func TestRunLambdaMutationPersistsAcrossCalls(t *testing.T) {
 	}
 }
 
+// TestRunLambdaExplicitCaptureByValueAndByRef - явный список захвата
+// "[x, &y]": x - копия (мутация СНАРУЖИ после вызова не видна изнутри - та
+// же семантика, что и у неявного захвата, TestRunLambdaCaptureIsSnapshotAtCreation
+// выше), y - по ссылке (мутация ИЗНУТРИ видна снаружи, без ручного
+// Указатель<T> - см. package doc ir.CaptureVar).
+func TestRunLambdaExplicitCaptureByValueAndByRef(t *testing.T) {
+	out := runSrc(t, `
+функция главная
+{
+    переменная x = 10
+    переменная y = 100
+
+    переменная ф = функция(): Пусто [x, &y]
+    {
+        y = y + 1
+        вывести x
+    }
+
+    ф()
+    ф()
+    вывести "снаружи"
+    вывести x
+    вывести y
+}
+`)
+	if out != "10\n10\nснаружи\n10\n102\n" {
+		t.Fatalf("получено %q", out)
+	}
+}
+
 func TestRunCallableAsArgument(t *testing.T) {
 	out := runSrc(t, `
 функция применить(значение: Целое, ф: Вызываемый(Целое): Целое): Целое

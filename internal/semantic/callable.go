@@ -159,6 +159,14 @@ func analyzeFuncRefExpr(sc *ctx, e *ast.FuncRefExpr) (ir.Expr, error) {
 	sig, ok := sc.funcs[e.Name]
 	if !ok {
 		if varType, isVar := sc.lookup(e.Name); isVar {
+			// Само захваченное по ссылке имя, ещё раз через "&" - явно НЕ
+			// поддержано (тот же принцип, что и у analyzeIncDecExpr выше):
+			// AddressOfExpr взял бы адрес МЕСТНОГО слота-указателя лямбды
+			// (env-поле), не адрес исходной внешней переменной - тихо
+			// неверная семантика вместо ясной ошибки.
+			if _, isByRef := sc.byRefPointerType(e.Name); isByRef {
+				return nil, fmt.Errorf("строка %d: %q уже захвачено по ссылке (\"&%s\" в списке захвата лямбды) - повторный \"&%s\" не поддержан", e.Line, e.Name, e.Name, e.Name)
+			}
 			ptrType, err := pointerTypeFor(sc, varType)
 			if err != nil {
 				return nil, fmt.Errorf("строка %d: %w", e.Line, err)
@@ -184,13 +192,26 @@ func analyzeFuncRefExpr(sc *ctx, e *ast.FuncRefExpr) (ir.Expr, error) {
 }
 
 // analyzeLambdaExpr анализирует "функция(<парам>: <Тип>, ...): <ТипРезультата>
-// { <тело> }" без имени - параметры/тело так же, как у обычной функции
-// (analyzeParamsAndBody), но в собственном ctx с parent = sc (newLambdaCtx):
-// свободные переменные тела (найденные через ctx.lookup, см. package doc
-// ctx.parent) становятся Captures лямбды - копией значения на момент
-// создания, тем же правилом, что и обычное присваивание (см. package doc
-// ir.CaptureVar). Имя (Name) - уникально на всю программу (a.lambdaCounter),
-// backend использует его как есть для C-функции тела лямбды.
+// [<список захвата>] { <тело> }" без имени - параметры/тело так же, как у
+// обычной функции (analyzeParamsAndBody), но в собственном ctx с
+// parent = sc (newLambdaCtx).
+//
+// БЕЗ явного списка захвата (e.HasCaptures == false, прежнее и по-прежнему
+// умолчание) - свободные переменные тела (найденные через ctx.lookup, см.
+// package doc ctx.parent) становятся Captures лямбды - копией значения на
+// момент создания, тем же правилом, что и обычное присваивание (см.
+// package doc ir.CaptureVar).
+//
+// С явным списком (analyzeCaptureList ниже) - список ЗАМЕНЯЕТ этот
+// механизм целиком (см. package doc ast.LambdaExpr.Captures): lc.parent
+// сбрасывается в nil ДО анализа тела - lookup внутри тела для имени, не
+// объявленного явно (параметр ИЛИ элемент списка захвата), проваливается
+// с обычной "переменная %q не объявлена", даже если такое имя существует
+// у sc - тело лямбды с "[...]" физически не может увидеть НИЧЕГО, кроме
+// перечисленного.
+//
+// Имя (Name) - уникально на всю программу (a.lambdaCounter), backend
+// использует его как есть для C-функции тела лямбды.
 func analyzeLambdaExpr(sc *ctx, e *ast.LambdaExpr) (*ir.LambdaExpr, error) {
 	params := make([]ir.Type, len(e.Params))
 	for i, p := range e.Params {
@@ -218,6 +239,20 @@ func analyzeLambdaExpr(sc *ctx, e *ast.LambdaExpr) (*ir.LambdaExpr, error) {
 			return nil, fmt.Errorf("строка %d: параметр %q: %w", p.Line, p.Name, err)
 		}
 	}
+
+	var explicitCaptures []ir.CaptureVar
+	if e.HasCaptures {
+		var err error
+		explicitCaptures, err = analyzeCaptureList(sc, lc, e.Captures)
+		if err != nil {
+			return nil, err
+		}
+		// См. package doc выше - список захвата ЗАМЕНЯЕТ неявный, не
+		// дополняет его: lookup внутри тела лямбды не должен подниматься
+		// к sc за не перечисленным в списке именем.
+		lc.parent = nil
+	}
+
 	body, err := analyzeBlock(lc, e.Body)
 	if err != nil {
 		return nil, err
@@ -235,9 +270,14 @@ func analyzeLambdaExpr(sc *ctx, e *ast.LambdaExpr) (*ir.LambdaExpr, error) {
 		return nil, fmt.Errorf("строка %d: %w", e.Line, err)
 	}
 
-	captures := make([]ir.CaptureVar, len(lc.captureOrder))
-	for i, name := range lc.captureOrder {
-		captures[i] = ir.CaptureVar{Name: name, Type: lc.captures[name]}
+	var captures []ir.CaptureVar
+	if e.HasCaptures {
+		captures = explicitCaptures
+	} else {
+		captures = make([]ir.CaptureVar, len(lc.captureOrder))
+		for i, name := range lc.captureOrder {
+			captures[i] = ir.CaptureVar{Name: name, Type: lc.captures[name]}
+		}
 	}
 
 	sc.a.lambdaCounter++
@@ -246,4 +286,54 @@ func analyzeLambdaExpr(sc *ctx, e *ast.LambdaExpr) (*ir.LambdaExpr, error) {
 		Name: name, Params: irParams, ReturnType: result, HasReturn: hasReturn,
 		Captures: captures, Body: body, Type: t,
 	}, nil
+}
+
+// analyzeCaptureList разрешает явный список захвата "[x, &y, ...]" - каждое
+// имя ищется в sc (объемлющая область видимости лямбды, ДО того как
+// lc.parent будет сброшен вызывающей стороной), затем объявляется В lc
+// (lc.declare) - ОБЫЧНОГО типа T (не Указатель<T>), даже у "&y": весь
+// остальной анализ тела лямбды (арифметика, аргументы вызовов, доступ к
+// полям и т. д.) видит такое имя как самую обычную переменную типа T,
+// ничем не отличающуюся от параметра - "прозрачность" ссылки (см. package
+// doc ir.CaptureVar) обеспечивают ТОЛЬКО две точки: analyzeExpr на
+// *ast.Identifier (чтение) и *ast.Assign (запись, stmt.go) - обе
+// проверяют lc.byRefPointerType(name) ДОПОЛНИТЕЛЬНО к обычному lookup.
+// "++"/"--" (analyzeIncDecExpr), "?="
+// (analyzeNullCoalesceAssignStmt) и "&y" САМОГО такого имени
+// (analyzeFuncRefExpr) для него явно отклонены отдельной проверкой в
+// каждом месте - не потому что этого нельзя было бы поддержать, а потому
+// что не запрошено (см. их package doc).
+func analyzeCaptureList(sc *ctx, lc *ctx, specs []ast.CaptureSpec) ([]ir.CaptureVar, error) {
+	captures := make([]ir.CaptureVar, 0, len(specs))
+	seen := map[string]bool{}
+	for _, cs := range specs {
+		if seen[cs.Name] {
+			return nil, fmt.Errorf("строка %d: %q дважды в списке захвата лямбды", cs.Line, cs.Name)
+		}
+		seen[cs.Name] = true
+		outerType, ok := sc.lookup(cs.Name)
+		if !ok {
+			return nil, fmt.Errorf("строка %d: %q не объявлено в окружающей области видимости - нечего захватывать", cs.Line, cs.Name)
+		}
+		if cs.ByRef {
+			ptrType, err := pointerTypeFor(sc, outerType)
+			if err != nil {
+				return nil, fmt.Errorf("строка %d: захват %q по ссылке: %w", cs.Line, cs.Name, err)
+			}
+			if err := lc.declare(cs.Name, outerType); err != nil {
+				return nil, fmt.Errorf("строка %d: %w", cs.Line, err)
+			}
+			if lc.byRefCaptures == nil {
+				lc.byRefCaptures = map[string]ir.Type{}
+			}
+			lc.byRefCaptures[cs.Name] = ptrType
+			captures = append(captures, ir.CaptureVar{Name: cs.Name, Type: ptrType, ByRef: true})
+			continue
+		}
+		if err := lc.declare(cs.Name, outerType); err != nil {
+			return nil, fmt.Errorf("строка %d: %w", cs.Line, err)
+		}
+		captures = append(captures, ir.CaptureVar{Name: cs.Name, Type: outerType})
+	}
+	return captures, nil
 }

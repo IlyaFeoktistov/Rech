@@ -124,6 +124,30 @@ type ctx struct {
 	parent       *ctx
 	captures     map[string]ir.Type
 	captureOrder []string
+
+	// byRefCaptures - имя внешней переменной (у ЭТОЙ лямбды, явно
+	// захваченной по ссылке - "&имя" в списке захвата, см. package doc
+	// ir.CaptureVar) -> её тип-указатель ("Указатель<T>"). Только у ctx
+	// лямбды с явным списком захвата - lookup/declare выше по-прежнему
+	// видят T (обычный тип значения, объявлен через declare как всегда) -
+	// эта карта нужна ДОПОЛНИТЕЛЬНО, ровно в тех нескольких местах
+	// семантического анализа, что оборачивают Identifier/Assign этого
+	// имени в Deref(Assign)Expr вместо обычного чтения/записи (см. package
+	// doc CaptureVar). НЕ стек по scope (в отличие от captures/consts
+	// выше) - byRefResolve ниже проверяет её напрямую, без обхода
+	// scopes - declare() отдельно отвергает попытку переобъявить то же имя
+	// вложенным блоком (VarDecl/параметр/и т.п.), поэтому спутать
+	// захваченное имя с затеняющей его локальной переменной той же лямбды
+	// невозможно.
+	byRefCaptures map[string]ir.Type
+}
+
+// byRefPointerType - true и тип-указатель ("Указатель<T>"), если name -
+// имя, явно захваченное этой лямбдой по ссылке (byRefCaptures) - см.
+// package doc ir.CaptureVar/ctx.byRefCaptures.
+func (c *ctx) byRefPointerType(name string) (ir.Type, bool) {
+	t, ok := c.byRefCaptures[name]
+	return t, ok
 }
 
 func newCtx(a *Analyzer, funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64, thisEntity string, returnType ir.Type, hasReturn bool, resolvedConsts map[string]ir.Expr, resolvingConsts map[string]bool) *ctx {
@@ -285,6 +309,20 @@ func (c *ctx) declare(name string, typ ir.Type) error {
 	top := c.scopes[len(c.scopes)-1]
 	if _, exists := top[name]; exists {
 		return fmt.Errorf("переменная %q уже объявлена в этой области видимости", name)
+	}
+	// Захваченное по ссылке имя (byRefCaptures) - НЕ по scope (см. package
+	// doc) - переобъявление ВЛОЖЕННЫМ блоком (если/пока/для) с тем же
+	// именем формально разрешено обычным затенением, но здесь запрещено
+	// явно: иначе byRefPointerType продолжил бы считать затенённое имя
+	// ссылкой на ВНЕШНЮЮ переменную, хотя лежащий в scopes тип - уже тип
+	// новой, отдельной локальной переменной - тихая порча вместо
+	// затенения. Сама лямбда с явным списком захвата не имеет "своих"
+	// вложенных byRefCaptures (declare для самих Captures вызывается один
+	// раз, до анализа тела, top в этот момент - единственная область
+	// видимости лямбды) - эта проверка защищает только от ПОЗДНЕЙШЕГО
+	// переобъявления внутри тела.
+	if _, isByRef := c.byRefCaptures[name]; isByRef {
+		return fmt.Errorf("переменная %q уже объявлена (захвачена по ссылке, \"&%s\" в списке захвата лямбды) - переобъявить её нельзя", name, name)
 	}
 	top[name] = typ
 	return nil

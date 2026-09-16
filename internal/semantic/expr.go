@@ -70,6 +70,13 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 			}
 			return nil, fmt.Errorf("строка %d: переменная %q не объявлена", e.Line, e.Name)
 		}
+		// Захвачено лямбдой по ссылке ("&имя" в явном списке захвата,
+		// package doc ir.CaptureVar) - чтение прозрачно идёт через
+		// указатель (DerefExpr), не напрямую - тем же приёмом, что и у
+		// ручного "*указ".
+		if ptrType, isByRef := sc.byRefPointerType(e.Name); isByRef {
+			return &ir.DerefExpr{Value: &ir.Identifier{Name: e.Name, Type: ptrType}, Type: typ, Line: e.Line}, nil
+		}
 		return &ir.Identifier{Name: e.Name, Type: typ}, nil
 
 	case *ast.UnaryExpr:
@@ -880,11 +887,24 @@ func analyzeUnaryExpr(sc *ctx, e *ast.UnaryExpr) (ir.Expr, error) {
 
 // analyzeIncDecExpr - "имя++"/"имя--"/"++имя"/"--имя" - применимо только к
 // уже объявленной переменной типа Целое/Число, как и Assign (не к полю
-// сущности, не к результату вызова).
+// сущности, не к результату вызова). Явно НЕ поддержано (осознанный срез,
+// не запрошено) - имя, захваченное лямбдой по ссылке (package doc
+// ir.CaptureVar): ir.IncDecExpr читает/пишет по ИМЕНИ напрямую (varRef/
+// env.get-set), не через Deref(Assign) - расширить его до работы через
+// указатель значило бы завести отдельный C-путь ради редкого сочетания
+// двух фич сразу, вместо ясной ошибки с очевидным обходом ("y = y + 1").
 func analyzeIncDecExpr(sc *ctx, e *ast.IncDecExpr) (ir.Expr, error) {
 	typ, ok := sc.lookup(e.Name)
 	if !ok {
 		return nil, fmt.Errorf("строка %d: переменная %q не объявлена", e.Line, e.Name)
+	}
+	if _, isByRef := sc.byRefPointerType(e.Name); isByRef {
+		baseOp := "+"
+		if e.Op == "--" {
+			baseOp = "-"
+		}
+		return nil, fmt.Errorf("строка %d: %q захвачено по ссылке (\"&%s\" в списке захвата лямбды) - %q для таких переменных не поддержан, используйте \"%s = %s %s 1\"",
+			e.Line, e.Name, e.Name, e.Op, e.Name, e.Name, baseOp)
 	}
 	if sc.isConst(e.Name) {
 		return nil, fmt.Errorf("строка %d: %q объявлено как \"константа\" - нельзя изменить (%s)", e.Line, e.Name, e.Op)

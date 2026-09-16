@@ -263,6 +263,12 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			return nil, fmt.Errorf("строка %d: переменной %q типа %s нельзя присвоить значение типа %s", s.Line, s.Name, declared, typ)
 		}
 		sc.setEstablished(s.Name, establishedForNewBinding(sc, s.Name, value))
+		// Захвачено лямбдой по ссылке - запись прозрачно идёт через
+		// указатель (DerefAssignStmt), не напрямую - см. package doc
+		// ir.CaptureVar/case *ast.Identifier выше (expr.go).
+		if ptrType, isByRef := sc.byRefPointerType(s.Name); isByRef {
+			return &ir.DerefAssignStmt{Pointer: &ir.Identifier{Name: s.Name, Type: ptrType}, Value: value, Line: s.Line}, nil
+		}
 		return &ir.Assign{Name: s.Name, Value: value, Line: s.Line}, nil
 
 	case *ast.NullCoalesceAssign:

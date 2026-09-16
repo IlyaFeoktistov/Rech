@@ -115,6 +115,67 @@ func TestParseLambdaExpr(t *testing.T) {
 	}
 }
 
+// TestParseLambdaExplicitCaptureList - "[x, &y]" сразу после типа
+// результата, перед телом (см. package doc ast.LambdaExpr.Captures) -
+// голое имя (ByRef false)/"&имя" (ByRef true).
+func TestParseLambdaExplicitCaptureList(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная
+{
+    переменная ф = функция(): Пусто [x, &y]
+    {
+        вывести x
+    }
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	decl, ok := prog.Functions[0].Body[0].(*ast.VarDecl)
+	if !ok {
+		t.Fatalf("ожидался VarDecl, получено %T", prog.Functions[0].Body[0])
+	}
+	lambda, ok := decl.Value.(*ast.LambdaExpr)
+	if !ok {
+		t.Fatalf("ожидался LambdaExpr, получено %T", decl.Value)
+	}
+	if !lambda.HasCaptures {
+		t.Fatal("ожидался HasCaptures == true")
+	}
+	if len(lambda.Captures) != 2 {
+		t.Fatalf("ожидалось 2 элемента списка захвата, получено %d", len(lambda.Captures))
+	}
+	if lambda.Captures[0].Name != "x" || lambda.Captures[0].ByRef {
+		t.Fatalf("ожидался первый элемент \"x\" по значению, получено %+v", lambda.Captures[0])
+	}
+	if lambda.Captures[1].Name != "y" || !lambda.Captures[1].ByRef {
+		t.Fatalf("ожидался второй элемент \"&y\" по ссылке, получено %+v", lambda.Captures[1])
+	}
+}
+
+// TestParseLambdaWithoutCaptureListUnaffected - лямбда БЕЗ "[...]" (обычная
+// форма) - HasCaptures остаётся false, поведение (неявный захват) не
+// меняется этой правкой вовсе.
+func TestParseLambdaWithoutCaptureListUnaffected(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная
+{
+    переменная ф = функция(): Пусто
+    {
+        вывести 1
+    }
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	decl := prog.Functions[0].Body[0].(*ast.VarDecl)
+	lambda := decl.Value.(*ast.LambdaExpr)
+	if lambda.HasCaptures {
+		t.Fatal("ожидался HasCaptures == false")
+	}
+}
+
 // Регрессия: "8 >> 2" (обычный побитовый сдвиг) не должен затрагиваться
 // специальным разбором закрывающей "<...>" типа "Вызываемый"/generic - тот
 // же регрессионный принцип, что и у shr_test.go (шаг 16).

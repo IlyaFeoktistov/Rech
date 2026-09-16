@@ -221,6 +221,12 @@ func analyzeNullCoalesceAssignStmt(sc *ctx, s *ast.NullCoalesceAssign) (ir.Stmt,
 	if sc.isConst(s.Name) {
 		return nil, fmt.Errorf("строка %d: %q объявлено как \"константа\" - нельзя присвоить новое значение", s.Line, s.Name)
 	}
+	// Захвачено лямбдой по ссылке - явно НЕ поддержано, тем же принципом,
+	// что и analyzeIncDecExpr (expr.go) - ir.NullCoalesceAssignStmt тоже
+	// читает/пишет по имени напрямую, без Deref(Assign).
+	if _, isByRef := sc.byRefPointerType(s.Name); isByRef {
+		return nil, fmt.Errorf("строка %d: %q захвачено по ссылке (\"&%s\" в списке захвата лямбды) - \"?=\" для таких переменных не поддержан", s.Line, s.Name, s.Name)
+	}
 	value, err := coerceExpr(sc, s.Value, declared)
 	if err != nil {
 		return nil, err
