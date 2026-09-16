@@ -89,6 +89,15 @@ type File struct {
 	librariesWindowsRaw string
 	librariesLinuxRaw   string
 	librariesMacosRaw   string
+	// headersRaw/headersWindowsRaw/headersLinuxRaw/headersMacosRaw -
+	// "сборка.заголовки"/"_windows"/"_linux"/"_macos" - тот же
+	// принцип/формат, что librariesRaw/librariesWindowsRaw и т. д. выше, но
+	// для C-заголовков (`#include <...>`), не библиотек для линковки - см.
+	// Заголовки.
+	headersRaw        string
+	headersWindowsRaw string
+	headersLinuxRaw   string
+	headersMacosRaw   string
 	// libraryPathsWindowsRaw/libraryPathsLinuxRaw/libraryPathsMacosRaw -
 	// тот же принцип для "путь_библиотек_windows"/"_linux"/"_macos".
 	libraryPathsWindowsRaw string
@@ -131,6 +140,10 @@ func (pf *File) fields() map[string]*string {
 		"сборка.библиотеки_windows":       &pf.librariesWindowsRaw,
 		"сборка.библиотеки_linux":         &pf.librariesLinuxRaw,
 		"сборка.библиотеки_macos":         &pf.librariesMacosRaw,
+		"сборка.заголовки":                &pf.headersRaw,
+		"сборка.заголовки_windows":        &pf.headersWindowsRaw,
+		"сборка.заголовки_linux":          &pf.headersLinuxRaw,
+		"сборка.заголовки_macos":          &pf.headersMacosRaw,
 		"сборка.путь_библиотек_windows":   &pf.libraryPathsWindowsRaw,
 		"сборка.путь_библиотек_linux":     &pf.libraryPathsLinuxRaw,
 		"сборка.путь_библиотек_macos":     &pf.libraryPathsMacosRaw,
@@ -383,6 +396,26 @@ func (pf *File) platformField(windows, linux, macos string) string {
 	default:
 		return linux
 	}
+}
+
+func (pf *File) platformHeadersRaw() string {
+	return pf.platformField(pf.headersWindowsRaw, pf.headersLinuxRaw, pf.headersMacosRaw)
+}
+
+// Заголовки разбирает "сборка.заголовки" (через запятую, "windows.h,
+// shellapi.h"), плюс "сборка.заголовки_windows"/"_linux"/"_macos" ТЕКУЩЕЙ
+// платформы - тем же принципом, что и Библиотеки ниже, но для C-заголовков
+// (`#include <...>` в сгенерированном файле), не библиотек для линковки.
+// Каждый настоящий заголовок делает видимым НАСТОЯЩИЙ прототип для ЛЮБОГО
+// "внешняя функция"/"внешняя структура" программы - cbackend больше не
+// пишет для них свой собственный (docs/SPEC.md, раздел 12, "Внешние
+// функции (FFI)") - при несовпадении сигнатуры настоящая ошибка всплывёт
+// при компиляции сгенерированного C, как и у любого обычного FFI-биндинга.
+// nil, если ни одно поле не указано (безусловно "как сейчас" -
+// компилятор сам пишет собственный прототип по типам объявления).
+func (pf *File) Заголовки() []string {
+	out := splitCommaList(pf.headersRaw)
+	return append(out, splitCommaList(pf.platformHeadersRaw())...)
 }
 
 // Библиотеки разбирает "сборка.библиотеки" (через запятую, "curl, ssl"),

@@ -150,7 +150,14 @@ type irGenCtx struct {
 	// вызывается по CName, не по mangleName(Alias) (тот не имеет отношения
 	// к настоящему символу).
 	externCNames map[string]string
-	thisEntity   string
+	// externHeaders - prog.ExternHeaders ("сборка.заголовки" файла проекта,
+	// internal/project.File.Заголовки) - nil, если проект их не объявил.
+	// Непусто - каждый эмитится "#include <...>" (generateSource) И
+	// externPrototypeAlreadyProvided доверяет ЛЮБОМУ "внешняя функция"
+	// программы целиком (не только курируемому externSymbolHeader) - см.
+	// package doc extern_headers.go.
+	externHeaders []string
+	thisEntity    string
 
 	// interfaces - интерфейсы программы по имени (см.
 	// internal/backend/cbackend/vtable.go).
@@ -641,6 +648,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		exportedMethods:       exportedMethods,
 		exportedCtors:         exportedCtors,
 		externCNames:          externCNames,
+		externHeaders:         prog.ExternHeaders,
 		usesGC:                usesGC,
 		usesStateFlags:        usesStateFlags,
 		libMode:               libMode,
@@ -1191,6 +1199,13 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// внутри <gc.h> (потоки, см. ensureTaskWrapper) активен только если сам
 	// <gc.h> уже видит, что windows.h включён.
 	sb.WriteString("#ifdef _WIN32\n#define WIN32_LEAN_AND_MEAN\n#include <windows.h>\n#include <shellapi.h>\n#endif\n")
+	// "сборка.заголовки" файла проекта (ctx.externHeaders) - подключены как
+	// есть, доверием пользователя (см. package doc extern_headers.go) -
+	// делает настоящий прототип видимым для ЛЮБОЙ "внешняя функция"/
+	// "внешняя структура" программы, не только курируемого списка ниже.
+	for _, h := range ctx.externHeaders {
+		fmt.Fprintf(&sb, "#include <%s>\n", h)
+	}
 	// gc.h - Boehm GC (сущность/класс - ссылочная семантика, выделяются
 	// GC_MALLOC, см. generateIREntityCtor) - только если в
 	// программе реально есть хотя бы одна ссылочная сущность (ctx.usesGC) -

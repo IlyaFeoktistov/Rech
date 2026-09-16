@@ -44,20 +44,12 @@ var externSymbolHeader = map[string]string{
 	"GetCurrentProcessId": "windows.h", "GetTickCount": "windows.h",
 	"GetLastError": "windows.h", "GetCurrentThreadId": "windows.h",
 	"Sleep": "windows.h",
-	// user32.h/winuser.h (окна/сообщения) - та же коллизия, найденная живьём
-	// на WinAPI-примере окна (GetModuleHandleA возвращает HMODULE, не
-	// unsigned char*, RegisterClassA принимает CONST WNDCLASSA*, ShowWindow
-	// принимает WINBOOL/int, не bool, и т. д. - собственная догадка Rech по
-	// типам параметров/результата почти никогда textуально не совпадает с
-	// настоящим прототипом WinAPI, конфликт неизбежен для любой такой
-	// функции, раз windows.h виден безусловно).
-	"GetModuleHandleA": "windows.h", "RegisterClassA": "windows.h",
-	"CreateWindowExA": "windows.h", "ShowWindow": "windows.h",
-	"UpdateWindow": "windows.h", "GetMessageA": "windows.h",
-	"TranslateMessage": "windows.h", "DispatchMessageA": "windows.h",
-	"BeginPaint": "windows.h", "EndPaint": "windows.h",
-	"TextOutA": "windows.h", "PostQuitMessage": "windows.h",
-	"DefWindowProcA": "windows.h", "DestroyWindow": "windows.h",
+	// Более широкий WinAPI (окна/сообщения и т. п.) сюда специально НЕ
+	// добавляется по одной функции за раз - у проекта, которому это нужно
+	// (examples/проекты/windows_окна), есть "сборка.заголовки: windows.h" -
+	// общий, не курируемый путь (см. package doc externPrototypeAlreadyProvided
+	// ниже), решающий тот же класс коллизий сразу для ЛЮБОГО имени, не
+	// только перечисленного здесь вручную.
 	// string.h
 	"strlen": "string.h", "strcpy": "string.h", "strncpy": "string.h",
 	"strcat": "string.h", "strncat": "string.h", "strcmp": "string.h",
@@ -83,13 +75,24 @@ var externSymbolHeader = map[string]string{
 	"round": "math.h", "trunc": "math.h",
 }
 
-// externPrototypeAlreadyProvided - true, если cName - известный (см.
-// externSymbolHeader) стандартный символ, а заголовок, объявляющий его, В
-// ЭТОЙ ПРОГРАММЕ и так уже включён по другой причине (ctx.includesStringH/
-// includesStdlibH/includesMathH, взведены после генерации ВСЕХ тел -
-// см. generateSource) - externPrototypeOfIR в этом случае не пишет
-// собственный extern-прототип, полагается на прототип из заголовка.
+// externPrototypeAlreadyProvided - true в ДВУХ случаях: (1) проект сам
+// явно объявил хотя бы один "сборка.заголовки" (ctx.externHeaders,
+// internal/project.File.Заголовки) - пользователь прямо попросил
+// подключить настоящие заголовки и берёт на себя ответственность за то,
+// что каждая его "внешняя функция"/"внешняя структура" там реально
+// объявлена (несовпадение - обычная ошибка компиляции сгенерированного C,
+// то же самое, что при написании FFI-биндинга руками на C); (2) cName -
+// известный (externSymbolHeader) стандартный символ, а заголовок,
+// объявляющий его, В ЭТОЙ ПРОГРАММЕ и так уже включён по другой причине
+// (ctx.includesStringH/includesStdlibH/includesMathH, взведены после
+// генерации ВСЕХ тел - см. generateSource) - тот же смысл, что и (1), но
+// без явного запроса пользователя (компилятор сам знает, что заголовок
+// точно виден). В обоих случаях externPrototypeOfIR не пишет собственный
+// extern-прототип, полагается на прототип из заголовка.
 func externPrototypeAlreadyProvided(ctx *irGenCtx, cName string) bool {
+	if len(ctx.externHeaders) > 0 {
+		return true
+	}
 	switch externSymbolHeader[cName] {
 	case "string.h":
 		// На Windows <windows.h> (включённый безусловно, см. generateSource,

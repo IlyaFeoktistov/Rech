@@ -221,6 +221,34 @@ func TestLoadLibraries(t *testing.T) {
 	}
 }
 
+// TestLoadHeaders - "сборка.заголовки" (docs/SPEC.md, раздел 12 "Внешние
+// функции (FFI)") - тот же формат, что и "сборка.библиотеки" выше, но для
+// C-заголовков ("#include <...>"), не библиотек для линковки.
+func TestLoadHeaders(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := `проект:
+  имя: тест
+
+файлы:
+  главный: исходники/главный.rech
+
+сборка:
+  заголовки: windows.h, shellapi.h
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	pf, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	got := pf.Заголовки()
+	if len(got) != 2 || got[0] != "windows.h" || got[1] != "shellapi.h" {
+		t.Fatalf("Заголовки() = %v, ожидалось [windows.h shellapi.h]", got)
+	}
+}
+
 // TestLoadPlatformLibraries - "сборка.библиотеки_linux"/"_windows"/"_macos"
 // (docs/SPEC.md, "#если ОС.<Член>") добавляются к безусловному списку
 // ТОЛЬКО на своей платформе - тест написан под платформу, на которой

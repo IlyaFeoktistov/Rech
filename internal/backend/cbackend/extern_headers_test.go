@@ -4,6 +4,10 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/IlyaFeoktistov/Rech/internal/lexer"
+	"github.com/IlyaFeoktistov/Rech/internal/parser"
+	"github.com/IlyaFeoktistov/Rech/internal/semantic"
 )
 
 // TestExternPrototypeSkippedWhenHeaderAlreadyIncluded - найденный живьём
@@ -63,5 +67,42 @@ func TestExternPrototypeKeptWhenHeaderNotIncluded(t *testing.T) {
 	}
 	if !strings.Contains(out, "extern long long strlen(") {
 		t.Fatalf("ожидался собственный extern-прототип strlen (string.h не включён), получено:\n%s", out)
+	}
+}
+
+// TestExternPrototypeSkippedForAnySymbolWhenProjectHeadersConfigured -
+// "сборка.заголовки" (internal/project.File.Заголовки, ir.Program.
+// ExternHeaders) - в ОТЛИЧИЕ от TestExternPrototypeSkippedWhenHeaderAlreadyIncluded
+// выше (курируемый externSymbolHeader, только несколько известных имён),
+// проект, явно объявивший хотя бы один заголовок, доверяется ЦЕЛИКОМ -
+// "extern функция" на ЛЮБОЕ (не курируемое) имя не получает собственного
+// прототипа, и сам заголовок эмитится "#include <...>" - см. package doc
+// externPrototypeAlreadyProvided.
+func TestExternPrototypeSkippedForAnySymbolWhenProjectHeadersConfigured(t *testing.T) {
+	toks, err := lexer.New(`
+внешняя функция НечтоНеКурируемое как позвать(): Целое
+функция главная { вывести позвать() }
+`).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, err := parser.New(toks).ParseProgram()
+	if err != nil {
+		t.Fatalf("парсер: %v", err)
+	}
+	irProg, err := semantic.Analyze(prog)
+	if err != nil {
+		t.Fatalf("семантический анализ: %v", err)
+	}
+	irProg.ExternHeaders = []string{"придуманный_заголовок.h"}
+	out, err := GenerateFromIR(irProg)
+	if err != nil {
+		t.Fatalf("GenerateFromIR: %v", err)
+	}
+	if !strings.Contains(out, "#include <придуманный_заголовок.h>") {
+		t.Fatalf("ожидался \"#include <придуманный_заголовок.h>\", получено:\n%s", out)
+	}
+	if strings.Contains(out, "extern long long НечтоНеКурируемое(") {
+		t.Fatalf("не ожидался собственный extern-прототип - проект сам объявил заголовок, получено:\n%s", out)
 	}
 }

@@ -71,8 +71,10 @@ type Backend interface {
 	// имеет значение, только если poolShrinkEnabled. httpMaxRequestBytes -
 	// "http.макс_размер_запроса_байт" файла проекта, тем же принципом, что
 	// dbPoolSize (0 - используй встроенное умолчание internal/semantic.
-	// DefaultHTTPMaxRequestBytes).
-	Generate(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int) (string, error)
+	// DefaultHTTPMaxRequestBytes). externHeaders - "сборка.заголовки" файла
+	// проекта (internal/project.File.Заголовки) - nil, если не указаны (см.
+	// ir.Program.ExternHeaders).
+	Generate(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int, externHeaders []string) (string, error)
 	// GenerateLib - как Generate, но для разделяемой библиотеки (`rech
 	// build --lib`): второй результат - текст C-заголовка (.h) с
 	// прототипами объявлений, помеченных "экспортировать"; третий - тот же
@@ -84,7 +86,7 @@ type Backend interface {
 	// исходники автора, не схлопывается в один плоский файл. libRoot == "" -
 	// нет файла проекта (BuildLibSource) - один плоский результат под
 	// ключом "".
-	GenerateLib(prog *ast.Program, libRoot string, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int) (cSource, header string, interfaceStubs map[string]string, err error)
+	GenerateLib(prog *ast.Program, libRoot string, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int, externHeaders []string) (cSource, header string, interfaceStubs map[string]string, err error)
 }
 
 // Toolchain отвечает за финальную сборку сгенерированного исходника
@@ -144,7 +146,7 @@ type defaultBackend struct{}
 // удалён.
 func NewBackend() Backend { return defaultBackend{} }
 
-func (defaultBackend) Generate(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int) (string, error) {
+func (defaultBackend) Generate(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int, externHeaders []string) (string, error) {
 	irProg, err := semantic.Analyze(prog)
 	if err != nil {
 		return "", err
@@ -163,11 +165,12 @@ func (defaultBackend) Generate(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, d
 	if httpMaxRequestBytes > 0 {
 		irProg.HTTPMaxRequestBytes = httpMaxRequestBytes
 	}
+	irProg.ExternHeaders = externHeaders
 
 	return cbackend.GenerateFromIR(irProg)
 }
 
-func (defaultBackend) GenerateLib(prog *ast.Program, libRoot string, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int) (string, string, map[string]string, error) {
+func (defaultBackend) GenerateLib(prog *ast.Program, libRoot string, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int, externHeaders []string) (string, string, map[string]string, error) {
 	irProg, err := semantic.Analyze(prog)
 	if err != nil {
 		return "", "", nil, err
@@ -186,6 +189,7 @@ func (defaultBackend) GenerateLib(prog *ast.Program, libRoot string, dbPoolSize,
 	if httpMaxRequestBytes > 0 {
 		irProg.HTTPMaxRequestBytes = httpMaxRequestBytes
 	}
+	irProg.ExternHeaders = externHeaders
 
 	return cbackend.GenerateLibFromIR(irProg, libRoot)
 }
@@ -239,6 +243,11 @@ type Compiler struct {
 	// (0 - не указан, используй встроенное умолчание internal/semantic.
 	// DefaultHTTPMaxRequestBytes), тем же принципом, что DBPoolSize.
 	HTTPMaxRequestBytes int
+	// ExternHeaders - "сборка.заголовки" файла проекта (internal/project.
+	// File.Заголовки) - заполняется cmd/rech перед вызовом Build, тем же
+	// принципом, что и Deps/DepScopes. nil - нет .rechproj или поле не
+	// указано (см. ir.Program.ExternHeaders).
+	ExternHeaders []string
 }
 
 // NewCompiler - провайдер для Wire, собирающий Compiler из готовых зависимостей.
@@ -336,7 +345,7 @@ func writeInterfaceStubs(stubs map[string]string, base, stubDir string) ([]strin
 // keepC - оба часть публичного API библиотеки, а не техническая заготовка
 // вроде .c.
 func (c *Compiler) compileLibProgram(prog *ast.Program, base, libRoot, stubDir string, keepC bool, extraLibs, extraLibPaths []string) (libPath, hPath string, rechiPaths []string, err error) {
-	cSource, header, interfaceStubs, err := c.Backend.GenerateLib(prog, libRoot, c.DBPoolSize, c.DBPoolTimeoutMs, c.DBSQLiteBusyTimeoutMs, c.PoolShrinkEnabled, c.PoolIdleTimeoutMs, c.HTTPMaxRequestBytes)
+	cSource, header, interfaceStubs, err := c.Backend.GenerateLib(prog, libRoot, c.DBPoolSize, c.DBPoolTimeoutMs, c.DBSQLiteBusyTimeoutMs, c.PoolShrinkEnabled, c.PoolIdleTimeoutMs, c.HTTPMaxRequestBytes, c.ExternHeaders)
 	if err != nil {
 		return "", "", nil, fmt.Errorf("генерация C: %w", err)
 	}
@@ -442,7 +451,7 @@ func (c *Compiler) BuildSource(src string, keepC bool, extraLibs, extraLibPaths 
 // compileProgram - общий хвост Build/BuildSource: генерация C, запись,
 // сборка бинарником, необязательная уборка .c.
 func (c *Compiler) compileProgram(prog *ast.Program, base string, keepC bool, extraLibs, extraLibPaths []string) (string, error) {
-	cSource, err := c.Backend.Generate(prog, c.DBPoolSize, c.DBPoolTimeoutMs, c.DBSQLiteBusyTimeoutMs, c.PoolShrinkEnabled, c.PoolIdleTimeoutMs, c.HTTPMaxRequestBytes)
+	cSource, err := c.Backend.Generate(prog, c.DBPoolSize, c.DBPoolTimeoutMs, c.DBSQLiteBusyTimeoutMs, c.PoolShrinkEnabled, c.PoolIdleTimeoutMs, c.HTTPMaxRequestBytes, c.ExternHeaders)
 	if err != nil {
 		return "", fmt.Errorf("генерация C: %w", err)
 	}

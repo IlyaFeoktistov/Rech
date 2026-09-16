@@ -200,6 +200,19 @@ type Program struct {
 	// нужно ЗНАТЬ имена/пути библиотек, а не просто передать их линкеру.
 	FFILibraries    []string
 	FFILibraryPaths []string
+	// ExternHeaders - "сборка.заголовки" файла проекта (internal/project.
+	// File.Заголовки), если он есть - nil, если нет. В ОТЛИЧИЕ от
+	// FFILibraries/FFILibraryPaths выше - нужен именно cbackend
+	// (internal/backend/cbackend/ir_generator.go, generateSource пишет
+	// "#include <заголовок>" для каждого - см. package doc extern_headers.go)
+	// - настоящий C-заголовок делает видимым НАСТОЯЩИЙ прототип для ЛЮБОГО
+	// "внешняя функция"/"внешняя структура" программы (компилятор больше не
+	// пишет свой собственный, потенциально расходящийся по типу - см.
+	// externPrototypeAlreadyProvided), без ручной курируемой таблицы имён на
+	// каждый новый символ. internal/interp игнорирует это поле полностью -
+	// у него нет ни компиляции, ни заголовков вовсе (FFI через dlopen/dlsym
+	// в рантайме, purego).
+	ExternHeaders []string
 	// DBRowTargets - сущности, встретившиеся хоть раз ЭЛЕМЕНТОМ цели
 	// "запросить(...) как Список<Тип>" (DBRowsAsExpr, internal/semantic/
 	// db_rows.go), без повторов - тем же принципом, что и ParseTargets:

@@ -144,6 +144,7 @@ func main() {
 	var outDir, projName, libRoot string
 	var extraLibs []string
 	var extraLibPaths []string
+	var extraHeaders []string
 	var projectDeps map[string]string
 	var projectDepScopes map[string]map[string]string
 	var runEnv map[string]string
@@ -221,6 +222,7 @@ func main() {
 			// .rechproj сборке неоткуда узнать список для линковки.
 			extraLibs = pf.Библиотеки()
 			extraLibPaths = pf.ПутиБиблиотек()
+			extraHeaders = pf.Заголовки()
 			if deps, scopes, depLibs, depLibPaths, derr := resolveDeps(pf); derr != nil {
 				fmt.Fprintln(os.Stderr, "ошибка:", derr)
 				os.Exit(1)
@@ -253,6 +255,7 @@ func main() {
 	comp.PoolShrinkEnabled = poolShrinkEnabled
 	comp.PoolIdleTimeoutMs = poolIdleTimeoutMs
 	comp.HTTPMaxRequestBytes = httpMaxRequestBytes
+	comp.ExternHeaders = extraHeaders
 	build := func() (string, error) { return comp.Build(srcPath, keepC, extraLibs, extraLibPaths) }
 	buildLib := func() (string, string, []string, error) {
 		return comp.BuildLib(srcPath, libRoot, outDir, keepC, extraLibs, extraLibPaths)
