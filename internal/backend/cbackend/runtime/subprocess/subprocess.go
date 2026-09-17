@@ -1,13 +1,8 @@
-package cbackend
+package subprocess
 
-import (
-	"fmt"
+import "fmt"
 
-	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/stringsplit"
-	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
-)
-
-// subprocessRuntimeCode - "запустить_процесс"/"дождаться_процесса"/
+// RuntimeCode - "запустить_процесс"/"дождаться_процесса"/
 // "выполнить_команду" (internal/semantic/subprocess.go, package doc там) -
 // три функции работы с внешними процессами:
 //
@@ -35,7 +30,7 @@ import (
 //     128+WTERMSIG при завершении сигналом (соглашение обычной POSIX-
 //     оболочки, $? после "kill"). Windows - OpenProcess по pid заново
 //     (Процесс несёт только pid, не HANDLE - тот же принцип, что и
-//     rech_send_signal в signals.go), WaitForSingleObject+
+//     rech_send_signal, runtime/signals), WaitForSingleObject+
 //     GetExitCodeProcess.
 //
 //   - rech_run_command - блокирующий запуск ЧЕРЕЗ системную оболочку
@@ -46,7 +41,7 @@ import (
 //     последовательное чтение до EOF одного, потом другого - классический
 //     дедлок, если потомок пишет в ОБА одновременно больше, чем влезает в
 //     буфер ядра одного из них, пока родитель ещё занят другим) - тот же
-//     poll(), что уже используют rech_can_read (nonblocking_read.go,
+//     poll(), что уже используют rech_can_read (runtime/console,
 //     usesNonBlockingRead), но здесь эмитится безусловно вместе с
 //     usesSubprocess, не завязан на тот флаг. Windows - тот же дедлок
 //     возможен теоретически (два анонимных пайпа, ReadFile блокирует), но
@@ -54,7 +49,15 @@ import (
 //     решается отдельным потоком (CreateThread), который дочитывает
 //     stdout, пока главный поток читает stderr - тот же принцип, что и
 //     usesThreads (concurrency.go), самостоятельный поток без пула.
-var subprocessRuntimeCode = fmt.Sprintf(`static %[1]s rech_spawn_process(const char *cmd, %[2]s *args) {
+//
+// procType/splitResultC/pidField/resultType/outputField/errorField/
+// exitCodeField/spawnFailedMsg/waitFailedMsg/runFailedMsg - уже вычислены
+// вызывающей стороной (mangleType/mangleField/escapeCString - внутренняя,
+// неэкспортированная инфраструктура cbackend, этот пакет от неё не
+// зависит).
+func RuntimeCode(procType, splitResultC, pidField, resultType, outputField, errorField, exitCodeField,
+	spawnFailedMsg, waitFailedMsg, runFailedMsg string) string {
+	return fmt.Sprintf(`static %[1]s rech_spawn_process(const char *cmd, %[2]s *args) {
 #ifndef _WIN32
     int errpipe[2];
     if (pipe(errpipe) != 0) {
@@ -338,6 +341,7 @@ static %[4]s rech_run_command(const char *cmd, const char *dir) {
     return result;
 #endif
 }
-`, mangleType("Процесс"), mangleType(stringsplit.ResultType), mangleField("pid"),
-	mangleType("РезультатКоманды"), mangleField("вывод"), mangleField("ошибка"), mangleField("код_возврата"),
-	escapeCString(rtmsg.ProcessSpawnFailed), escapeCString(rtmsg.SubprocessWaitFailed), escapeCString(rtmsg.CommandRunFailed))
+`, procType, splitResultC, pidField,
+		resultType, outputField, errorField, exitCodeField,
+		spawnFailedMsg, waitFailedMsg, runFailedMsg)
+}

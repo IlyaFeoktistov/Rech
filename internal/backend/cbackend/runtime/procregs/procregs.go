@@ -1,6 +1,6 @@
 // Мини-отладчик, tier3 - регистры процессора и точки останова - см.
 // package doc internal/semantic/procregs.go. Три ветки на платформу тем
-// же приёмом, что и procmem.go (tier1/tier2) - ЯВНО #if defined(__linux__)
+// же приёмом, что и runtime/procmem (tier1/tier2) - ЯВНО #if defined(__linux__)
 // /#elif defined(_WIN32)/#else, не "#ifndef _WIN32".
 //
 // Таблица точек останова (rech_bp_table) - общая для обеих платформ,
@@ -9,26 +9,27 @@
 // внутреннем шаге через уже поставленную точку в "возобновить".
 //
 // Таблица Windows-сессий DebugActiveProcess (rech_win_dbg_t/rech_win_
-// session_*) объявлена в procmem.go (tier1), не здесь - "подключиться_к_
+// session_*) объявлена в runtime/procmem (tier1), не здесь - "подключиться_к_
 // процессу" на Windows теперь тоже реально останавливает процесс через
 // DebugActiveProcess (нужно ОБЕИМ сторонам - и tier1 attach/detach, и
 // этому файлу), см. её package doc там же про причину. "прочитать_
 // память"/"записать_память"/"найти_байты" (tier1/tier2) от этой таблицы
 // не зависят вовсе (свои OpenProcess).
-package cbackend
+package procregs
 
 import (
 	"fmt"
 	"strings"
-
-	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
-// registerFieldNames - имена полей "Регистры" (internal/semantic/
+// RegisterFieldNames - имена полей "Регистры" (internal/semantic/
 // procregs.go, RegistersFields) - курируемый список ЗДЕСЬ ЖЕ (cbackend не
 // импортирует internal/semantic) - тот же принцип дублирования имени,
-// что и byteListType/queryParamsDictType (см. их package doc).
-var registerFieldNames = []string{
+// что и byteListType/httpserver.QueryParamsDictType (см. их package doc).
+// Вызывающая сторона манглит каждое имя (mangleField - внутренняя,
+// неэкспортированная инфраструктура cbackend) и передаёт результат
+// параллельным срезом в RuntimeCode - этот пакет от cbackend не зависит.
+var RegisterFieldNames = []string{
 	"rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp", "rip",
 	"r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15", "eflags",
 }
@@ -36,19 +37,21 @@ var registerFieldNames = []string{
 // linuxRegsCopyToOut/linuxRegsCopyFromIn - "out.f_X = (long long)regs.X;"/
 // "regs.X = (unsigned long long)r.f_X;" на каждое поле - struct
 // user_regs_struct (<sys/user.h>) называет поля СТРОЧНЫМИ буквами, точно
-// как registerFieldNames, кроме "eflags" - тоже строчными там же.
-func linuxRegsCopyToOut(structVar, outVar string) string {
+// как RegisterFieldNames, кроме "eflags" - тоже строчными там же.
+// mangledFields - уже манглированные имена (mangleField), в ТОМ ЖЕ
+// порядке, что и RegisterFieldNames (см. package doc выше).
+func linuxRegsCopyToOut(structVar, outVar string, mangledFields []string) string {
 	var sb strings.Builder
-	for _, name := range registerFieldNames {
-		fmt.Fprintf(&sb, "    %s.%s = (long long)%s.%s;\n", outVar, mangleField(name), structVar, name)
+	for i, name := range RegisterFieldNames {
+		fmt.Fprintf(&sb, "    %s.%s = (long long)%s.%s;\n", outVar, mangledFields[i], structVar, name)
 	}
 	return sb.String()
 }
 
-func linuxRegsCopyFromIn(structVar, inVar string) string {
+func linuxRegsCopyFromIn(structVar, inVar string, mangledFields []string) string {
 	var sb strings.Builder
-	for _, name := range registerFieldNames {
-		fmt.Fprintf(&sb, "    %s.%s = (unsigned long long)%s.%s;\n", structVar, name, inVar, mangleField(name))
+	for i, name := range RegisterFieldNames {
+		fmt.Fprintf(&sb, "    %s.%s = (unsigned long long)%s.%s;\n", structVar, name, inVar, mangledFields[i])
 	}
 	return sb.String()
 }
@@ -56,18 +59,18 @@ func linuxRegsCopyFromIn(structVar, inVar string) string {
 // windowsRegsCopyToOut/windowsRegsCopyFromIn - то же самое для Windows
 // CONTEXT (WinNT.h) - поля названы С ЗАГЛАВНОЙ буквы (Rax/Rbx/.../Rip/
 // R8..R15/EFlags), сама CONTEXT уже объявлена системным <windows.h>.
-func windowsRegsCopyToOut(structVar, outVar string) string {
+func windowsRegsCopyToOut(structVar, outVar string, mangledFields []string) string {
 	var sb strings.Builder
-	for _, name := range registerFieldNames {
-		fmt.Fprintf(&sb, "    %s.%s = (long long)%s.%s;\n", outVar, mangleField(name), structVar, windowsContextFieldName(name))
+	for i, name := range RegisterFieldNames {
+		fmt.Fprintf(&sb, "    %s.%s = (long long)%s.%s;\n", outVar, mangledFields[i], structVar, windowsContextFieldName(name))
 	}
 	return sb.String()
 }
 
-func windowsRegsCopyFromIn(structVar, inVar string) string {
+func windowsRegsCopyFromIn(structVar, inVar string, mangledFields []string) string {
 	var sb strings.Builder
-	for _, name := range registerFieldNames {
-		fmt.Fprintf(&sb, "    %s.%s = (DWORD64)%s.%s;\n", structVar, windowsContextFieldName(name), inVar, mangleField(name))
+	for i, name := range RegisterFieldNames {
+		fmt.Fprintf(&sb, "    %s.%s = (DWORD64)%s.%s;\n", structVar, windowsContextFieldName(name), inVar, mangledFields[i])
 	}
 	return sb.String()
 }
@@ -82,14 +85,15 @@ func windowsContextFieldName(name string) string {
 	return strings.ToUpper(name[:1]) + name[1:]
 }
 
-// procRegsRuntimeCode - "регистры_процесса"/"установить_регистры_
-// процесса"/"установить_точку_останова"/"снять_точку_останова"/
-// "возобновить_процесс" - см. package doc выше.
-func procRegsRuntimeCode() string {
-	regsType := mangleType("Регистры")
-	procType := mangleType("Процесс")
-	pidField := mangleField("pid")
-
+// RuntimeCode - "регистры_процесса"/"установить_регистры_процесса"/
+// "установить_точку_останова"/"снять_точку_останова"/"возобновить_процесс" -
+// см. package doc выше. regsType/procType/pidField/mangledFields -
+// манглированные C-имена (mangleType/mangleField), *Msg - уже
+// экранированные (escapeCString) сообщения об ошибке - вся эта
+// инфраструктура неэкспортирована в cbackend, этот пакет от неё не
+// зависит.
+func RuntimeCode(regsType, procType, pidField string, mangledFields []string,
+	readFailedMsg, writeFailedMsg, setBreakpointFailedMsg, removeBreakpointFailedMsg, resumeFailedMsg string) string {
 	return fmt.Sprintf(`typedef struct { long long pid; long long addr; unsigned char orig; } rech_bp_entry;
 static rech_bp_entry *rech_bp_table = NULL;
 static long long rech_bp_count = 0, rech_bp_cap = 0;
@@ -426,8 +430,8 @@ static long long rech_proc_resume(%[2]s p) {
 #endif
 }
 `, regsType, procType, pidField,
-		escapeCString(rtmsg.ProcRegsReadFailed), linuxRegsCopyToOut("regs", "out"), windowsRegsCopyToOut("ctx", "out"),
-		escapeCString(rtmsg.ProcRegsWriteFailed), linuxRegsCopyFromIn("regs", "r"), windowsRegsCopyFromIn("ctx", "r"),
-		escapeCString(rtmsg.ProcBreakpointSetFailed), escapeCString(rtmsg.ProcBreakpointRemoveFailed),
-		escapeCString(rtmsg.ProcResumeFailed))
+		readFailedMsg, linuxRegsCopyToOut("regs", "out", mangledFields), windowsRegsCopyToOut("ctx", "out", mangledFields),
+		writeFailedMsg, linuxRegsCopyFromIn("regs", "r", mangledFields), windowsRegsCopyFromIn("ctx", "r", mangledFields),
+		setBreakpointFailedMsg, removeBreakpointFailedMsg,
+		resumeFailedMsg)
 }

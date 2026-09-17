@@ -1,4 +1,4 @@
-// procMemRuntimeCode - "подключиться_к_процессу"/"отключиться_от_процесса"/
+// RuntimeCode - "подключиться_к_процессу"/"отключиться_от_процесса"/
 // "прочитать_память"/"записать_память" (internal/semantic/procmem.go,
 // package doc там) - мини-отладчик, доступ к памяти уже запущенного
 // процесса по pid, поверх уже существующей сущности "Процесс" (только
@@ -6,24 +6,23 @@
 //
 // Три ветки на платформу, ЯВНО (#if defined(__linux__)/#elif defined(_WIN32)
 // /#else), не "#ifndef _WIN32" - живой найденный баг того же класса уже
-// был (SIGSTKFLT/SIGPWR, internal/backend/cbackend/signals.go, не
-// собирались на macOS под "#ifndef _WIN32"): process_vm_readv/writev и
-// ptrace(PTRACE_ATTACH/PTRACE_DETACH) - расширения Linux, не обязаны
-// существовать (или вести себя так же) на других POSIX-системах - третья
-// ветка (macOS и все остальные) собирается, но паникует при первой же
-// попытке реально подключиться, вместо того чтобы либо не собраться
-// вовсе, либо тихо повести себя иначе.
+// был (SIGSTKFLT/SIGPWR, internal/backend/cbackend/runtime/signals),
+// process_vm_readv/writev и ptrace(PTRACE_ATTACH/PTRACE_DETACH) -
+// расширения Linux, не обязаны существовать (или вести себя так же) на
+// других POSIX-системах - третья ветка (macOS и все остальные)
+// собирается, но паникует при первой же попытке реально подключиться,
+// вместо того чтобы либо не собраться вовсе, либо тихо повести себя иначе.
 //
 //   - rech_proc_attach - ОСТАНАВЛИВАЕТ целевой процесс на ОБЕИХ
 //     платформах (нужно единообразно - не только для tier1, но и для
-//     регистров/точек останова, internal/backend/cbackend/procregs.go).
-//     Linux - ptrace(PTRACE_ATTACH) + waitpid. Windows -
-//     DebugActiveProcess (вызывающий становится ЕДИНСТВЕННЫМ отладчиком
-//     процесса) + первый WaitForDebugEvent (CREATE_PROCESS_DEBUG_EVENT,
-//     генерируется автоматически при подключении) - процесс остаётся
-//     остановленным, пока за него не вызван ContinueDebugEvent (см.
-//     rech_win_dbg_t/rech_win_session_* ниже - та же таблица сессий,
-//     нужна и здесь, и в procregs.go).
+//     регистров/точек останова, runtime/procregs). Linux -
+//     ptrace(PTRACE_ATTACH) + waitpid. Windows - DebugActiveProcess
+//     (вызывающий становится ЕДИНСТВЕННЫМ отладчиком процесса) + первый
+//     WaitForDebugEvent (CREATE_PROCESS_DEBUG_EVENT, генерируется
+//     автоматически при подключении) - процесс остаётся остановленным,
+//     пока за него не вызван ContinueDebugEvent (см. rech_win_dbg_t/
+//     rech_win_session_* ниже - та же таблица сессий, нужна и здесь, и в
+//     runtime/procregs).
 //   - rech_proc_detach - Linux: PTRACE_DETACH (возобновляет процесс).
 //     Windows: ContinueDebugEvent за необработанное событие (иначе
 //     процесс так и останется висеть остановленным навсегда) +
@@ -36,25 +35,26 @@
 //     хендлу, открытому и закрытому ВНУТРИ каждого вызова (Процесс несёт
 //     только pid, не HANDLE - тот же принцип, что и rech_wait_process,
 //     subprocess.go).
-package cbackend
+package procmem
 
-import (
-	"fmt"
+import "fmt"
 
-	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
-)
-
-// intListType - см. internal/semantic/procmem.go - каноническое имя
+// IntListType - см. internal/semantic/procmem.go - каноническое имя
 // generic-инстанциации, возвращаемой "найти_байты" (адреса совпадений).
-const intListType = "Список<Целое>"
+const IntListType = "Список<Целое>"
 
-var procMemRuntimeCode = fmt.Sprintf(`#ifdef _WIN32
+// RuntimeCode - см. package doc выше. procType/pidField/byteListType и
+// *Msg - уже вычисленные вызывающей стороной (mangleType/mangleField/
+// escapeCString - внутренняя, неэкспортированная инфраструктура cbackend,
+// этот пакет от неё не зависит).
+func RuntimeCode(procType, pidField, byteListType, attachFailedMsg, detachFailedMsg, readFailedMsg, writeFailedMsg string) string {
+	return fmt.Sprintf(`#ifdef _WIN32
 // rech_win_dbg_t - сессия DebugActiveProcess - "tid"/"pending"/
 // "has_pending" - поток и событие ПОСЛЕДНЕЙ остановки (нужны
 // GetThreadContext/SetThreadContext и ContinueDebugEvent, который обязан
 // указать ИМЕННО тот pid/tid, что был в событии) - используется и здесь
-// (attach/detach), и в internal/backend/cbackend/procregs.go (регистры/
-// точки останова/возобновить), поэтому таблица - здесь, в tier1.
+// (attach/detach), и в runtime/procregs (регистры/точки останова/
+// возобновить), поэтому таблица - здесь, в tier1.
 typedef struct {
     long long pid;
     DWORD tid;
@@ -237,19 +237,21 @@ static void rech_proc_write(%[1]s p, long long addr, %[5]s *b) {
     rech_panic("%[7]s");
 #endif
 }
-`, mangleType("Процесс"), mangleField("pid"),
-	escapeCString(rtmsg.ProcAttachFailed), escapeCString(rtmsg.ProcDetachFailed),
-	mangleType(byteListType), escapeCString(rtmsg.ProcMemReadFailed), escapeCString(rtmsg.ProcMemWriteFailed))
+`, procType, pidField,
+		attachFailedMsg, detachFailedMsg,
+		byteListType, readFailedMsg, writeFailedMsg)
+}
 
-// procMemFindHelper - "найти_байты(процесс, шаблон): Список<Целое>" -
-// сканирует ВСЕ читаемые страницы памяти процесса в поиске байтовой
-// сигнатуры "шаблон", возвращает адреса всех вхождений (наивный O(n*m)
-// memcmp по каждой странице - тот же класс сложности, что и у настоящих
-// "трейнеров"/сканеров памяти, не оптимизация под конкретный процессор).
-// Список<Целое> строится через уже автоматически сгенерированный метод
-// "добавить" ЭТОЙ ЖЕ generic-инстанциации (mangleMethod(intListType,
-// "добавить")) - тем же приёмом, что rech_split_string (stringsplit.go)
-// строит Список<Строка>, не отдельная копия логики роста массива.
+// FindHelper - "найти_байты(процесс, шаблон): Список<Целое>" - сканирует
+// ВСЕ читаемые страницы памяти процесса в поиске байтовой сигнатуры
+// "шаблон", возвращает адреса всех вхождений (наивный O(n*m) memcmp по
+// каждой странице - тот же класс сложности, что и у настоящих "трейнеров"/
+// сканеров памяти, не оптимизация под конкретный процессор). Список<Целое>
+// строится через уже автоматически сгенерированный метод "добавить" ЭТОЙ
+// ЖЕ generic-инстанциации (mangleMethod(IntListType, "добавить"), уже
+// вычислено вызывающей стороной) - тем же приёмом, что rech_split_string
+// (runtime/stringsplit) строит Список<Строка>, не отдельная копия логики
+// роста массива.
 //
 // Регион больше 256 МиБ - пропускается (не читается вовсе) - защита от
 // патологически огромных отображений (файлы, смэпленные целиком) без
@@ -258,14 +260,14 @@ static void rech_proc_write(%[1]s p, long long addr, %[5]s *b) {
 //
 // Linux - разбирает "/proc/<pid>/maps" построчно (fopen/fgets/sscanf -
 // формат "начало-конец права ..."), читает только страницы с правом "r"
-// через process_vm_readv (см. package doc procMemRuntimeCode выше).
-// Недоступный для чтения регион (сбой process_vm_readv) - пропускается,
-// не паника (одна нечитаемая страница не должна прерывать весь поиск).
-// Windows - VirtualQueryEx перебирает регионы адресного пространства с
-// начала (BaseAddress+RegionSize - следующий адрес), читает через
+// через process_vm_readv (см. package doc RuntimeCode выше). Недоступный
+// для чтения регион (сбой process_vm_readv) - пропускается, не паника
+// (одна нечитаемая страница не должна прерывать весь поиск). Windows -
+// VirtualQueryEx перебирает регионы адресного пространства с начала
+// (BaseAddress+RegionSize - следующий адрес), читает через
 // ReadProcessMemory только MEM_COMMIT-регионы без PAGE_NOACCESS/
 // PAGE_GUARD.
-func procMemFindHelper() string {
+func FindHelper(intListC, procType, byteListC, patternEmptyMsg, pidField, addMethod string) string {
 	return fmt.Sprintf(`static %[1]s *rech_proc_find(%[2]s p, %[3]s *needle) {
     if (needle->len <= 0) {
         rech_panic("%[4]s");
@@ -339,6 +341,6 @@ func procMemFindHelper() string {
 #endif
     return out;
 }
-`, mangleType(intListType), mangleType("Процесс"), mangleType(byteListType),
-		escapeCString(rtmsg.ProcMemPatternEmpty), mangleField("pid"), mangleMethod(intListType, "добавить"))
+`, intListC, procType, byteListC,
+		patternEmptyMsg, pidField, addMethod)
 }

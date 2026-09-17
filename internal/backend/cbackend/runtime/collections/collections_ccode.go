@@ -1,18 +1,21 @@
-package cbackend
+package collections
 
 import (
 	"fmt"
 	"strings"
-
-	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
-// listCollectionCCode строит C-текст (typedef struct + функции) для
-// конкретной инстанциации "Список<T>" по одному только имени и C-типу
-// элемента - без зависимости от кодогенерации, чтобы одна и та же
-// реализация (growable array) обслуживала любой путь кодогенерации, у
-// которого сигнатуры методов уже целиком в самих IR-узлах (MethodCallExpr),
-// а этому коду для кодогенерации нужен только сам C-текст.
+// ListCollectionCode строит C-текст (typedef struct + функции) для
+// конкретной инстанциации "Список<T>" по одному только C-типу элемента и
+// уже манглированным C-именам - без зависимости от кодогенерации, чтобы
+// одна и та же реализация (growable array) обслуживала любой путь
+// кодогенерации, у которого сигнатуры методов уже целиком в самих
+// IR-узлах (MethodCallExpr), а этому коду для кодогенерации нужен только
+// сам C-текст. structC/addMethod/getMethod/setMethod/removeMethod/
+// lengthMethod/emptyMethod/firstMethod/lastMethod/outOfRangeMsg - уже
+// вычислены вызывающей стороной (mangleType/mangleMethod/escapeCString -
+// внутренняя, неэкспортированная инфраструктура cbackend, этот пакет от
+// неё не зависит).
 //
 // this_->data растёт через GC_REALLOC (Boehm GC), не голый realloc - T
 // может быть указателем на GC_MALLOC'енную сущность (T элемент - сущность/
@@ -24,18 +27,9 @@ import (
 // содержимое, старый блок сам станет мусором) - применяется КО ВСЕМ
 // элементам без разбора по T (не только сущностям) ради одного простого
 // правила вместо двух путей кодогенерации.
-func listCollectionCCode(name, elemC string) string {
-	structName := mangleType(name)
-	add := mangleMethod(name, "добавить")
-	get := mangleMethod(name, "получить")
-	set := mangleMethod(name, "установить")
-	remove := mangleMethod(name, "удалить")
-	length := mangleMethod(name, "длина")
-	empty := mangleMethod(name, "пусто")
-	first := mangleMethod(name, "первый")
-	last := mangleMethod(name, "последний")
-	outOfRange := escapeCString(rtmsg.IndexOutOfRange(name))
-	addr := structName + "_addr"
+func ListCollectionCode(elemC, structC, addMethod, getMethod, setMethod, removeMethod,
+	lengthMethod, emptyMethod, firstMethod, lastMethod, outOfRangeMsg string) string {
+	addr := structC + "_addr"
 
 	return fmt.Sprintf(`struct %[2]s {
     %[1]s *data;
@@ -80,7 +74,7 @@ static void %[5]s(%[2]s *this_, long long index, %[1]s value) {
 
 // %[10]s - сдвигает хвост (индексы после index) на одну позицию влево
 // поэлементно (обычным присваиванием, не memmove - тот же приём, что и у
-// "извлечь" очереди ниже, queueCollectionCCode: не добавляет новую
+// "извлечь" очереди ниже, QueueCollectionCode: не добавляет новую
 // зависимость от <string.h> одним только использованием Список) и
 // возвращает удалённый элемент - та же семантика, что list.pop(i) в
 // Python/ArrayList.remove(int) в Java. O(n) от длины хвоста, как и любое
@@ -118,19 +112,11 @@ static %[1]s %[12]s(%[2]s *this_) {
     return %[4]s(this_, this_->len - 1);
 }
 
-`, elemC, structName, add, get, set, length, outOfRange, empty, addr, remove, first, last)
+`, elemC, structC, addMethod, getMethod, setMethod, lengthMethod, outOfRangeMsg, emptyMethod, addr, removeMethod, firstMethod, lastMethod)
 }
 
-// stackCollectionCCode - как listCollectionCCode, для "Стопка<T>" (LIFO).
-func stackCollectionCCode(name, elemC string) string {
-	structName := mangleType(name)
-	push := mangleMethod(name, "положить")
-	pop := mangleMethod(name, "снять")
-	top := mangleMethod(name, "верх")
-	length := mangleMethod(name, "длина")
-	empty := mangleMethod(name, "пусто")
-	onEmpty := escapeCString(rtmsg.EmptyStackOp(name))
-
+// StackCollectionCode - как ListCollectionCode, для "Стопка<T>" (LIFO).
+func StackCollectionCode(elemC, structC, pushMethod, popMethod, topMethod, lengthMethod, emptyMethod, onEmptyMsg string) string {
 	return fmt.Sprintf(`struct %[2]s {
     %[1]s *data;
     long long len;
@@ -169,19 +155,11 @@ static bool %[8]s(%[2]s *this_) {
     return this_->len == 0;
 }
 
-`, elemC, structName, push, pop, top, length, onEmpty, empty)
+`, elemC, structC, pushMethod, popMethod, topMethod, lengthMethod, onEmptyMsg, emptyMethod)
 }
 
-// queueCollectionCCode - как listCollectionCCode, для "Очередь<T>" (FIFO).
-func queueCollectionCCode(name, elemC string) string {
-	structName := mangleType(name)
-	add := mangleMethod(name, "добавить")
-	remove := mangleMethod(name, "извлечь")
-	first := mangleMethod(name, "первый")
-	length := mangleMethod(name, "длина")
-	empty := mangleMethod(name, "пусто")
-	onEmpty := escapeCString(rtmsg.EmptyQueueOp(name))
-
+// QueueCollectionCode - как ListCollectionCode, для "Очередь<T>" (FIFO).
+func QueueCollectionCode(elemC, structC, addMethod, removeMethod, firstMethod, lengthMethod, emptyMethod, onEmptyMsg string) string {
 	return fmt.Sprintf(`struct %[2]s {
     %[1]s *data;
     long long len;
@@ -224,13 +202,13 @@ static bool %[8]s(%[2]s *this_) {
     return this_->len == 0;
 }
 
-`, elemC, structName, add, remove, first, length, onEmpty, empty)
+`, elemC, structC, addMethod, removeMethod, firstMethod, lengthMethod, onEmptyMsg, emptyMethod)
 }
 
-// dictCollectionCCode строит C-текст для "Словарь<К, В>" - открытая
+// DictCollectionCode строит C-текст для "Словарь<К, В>" - открытая
 // адресация с линейным пробированием и надгробиями (state: 0 - пусто, 1 -
 // занято, 2 - удалено) - тот же принцип "растущий буфер через GC_MALLOC"
-// (см. package doc listCollectionCCode - тот же риск преждевременной
+// (см. package doc ListCollectionCode - тот же риск преждевременной
 // сборки мусора у entity-значения, та же причина не использовать голый
 // calloc/free), что и у списочных коллекций выше, но с рехешированием
 // вместо простого удвоения (перестройка слотов при росте - индекс зависит
@@ -239,21 +217,16 @@ static bool %[8]s(%[2]s *this_) {
 // вместо прямого сравнения/умножения значения - единственное отличие
 // между строковым и целочисленным (Целое/Байт/Символ/Логическое) ключом,
 // оба уже приведены к общему для printf-независимого кода C-типу keyC
-// вызывающей стороной (ir_generator.go).
-func dictCollectionCCode(name, keyC, valC string, isStringKey bool) string {
-	structName := mangleType(name)
-	slotType := structName + "_slot"
-	hashFn := structName + "_hash"
-	eqFn := structName + "_eq"
-	resizeFn := structName + "_resize"
-	findFn := structName + "_find"
-	set := mangleMethod(name, "установить")
-	get := mangleMethod(name, "получить")
-	has := mangleMethod(name, "содержит")
-	del := mangleMethod(name, "удалить")
-	length := mangleMethod(name, "длина")
-	empty := mangleMethod(name, "пусто")
-	notFound := escapeCString(rtmsg.DictKeyNotFound(name))
+// вызывающей стороной (ir_generator.go). structC/setMethod/getMethod/
+// hasMethod/delMethod/lengthMethod/emptyMethod/notFoundMsg - уже
+// вычислены вызывающей стороной (mangleType/mangleMethod/escapeCString).
+func DictCollectionCode(keyC, valC, structC, setMethod, getMethod, hasMethod, delMethod,
+	lengthMethod, emptyMethod, notFoundMsg string, isStringKey bool) string {
+	slotType := structC + "_slot"
+	hashFn := structC + "_hash"
+	eqFn := structC + "_eq"
+	resizeFn := structC + "_resize"
+	findFn := structC + "_find"
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb, `typedef struct {
@@ -269,7 +242,7 @@ struct %[4]s {
     long long used;
 };
 
-`, keyC, valC, slotType, structName)
+`, keyC, valC, slotType, structC)
 
 	if isStringKey {
 		fmt.Fprintf(&sb, `static unsigned long long %[1]s(%[2]s k) {
@@ -394,27 +367,26 @@ static bool %[15]s(%[2]s *this_) {
     return this_->count == 0;
 }
 
-`, resizeFn, structName, slotType, hashFn, findFn, keyC, eqFn, set, valC, get, notFound, has, del, length, empty)
+`, resizeFn, structC, slotType, hashFn, findFn, keyC, eqFn, setMethod, valC, getMethod, notFoundMsg, hasMethod, delMethod, lengthMethod, emptyMethod)
 
 	return sb.String()
 }
 
-// genericCtorCCode строит C-текст конструктора "новый Список<T>()"/
-// "новый Словарь<К, В>()" и т. п. - GC_MALLOC зануляет память сам
-// (см. gcAllocStmts, тот же принцип, что и у обычных ссылочных сущностей) -
+// GenericCtorCode строит C-текст конструктора "новый Список<T>()"/"новый
+// Словарь<К, В>()" и т. п. - GC_MALLOC зануляет память сам (см.
+// gcAllocStmts, тот же принцип, что и у обычных ссылочных сущностей) -
 // zero-значение (cap/count/used/slots-указатель на NULL) уже и есть
 // пустая коллекция, отдельно заполнять поля не нужно. Generic-инстанциации
 // стали ссылочными (ctx.entityIsRef) вместе с этим конструктором - раньше
 // "новый Список<T>()" был C-литералом структуры по значению
 // ("(Тип){0}"), теперь - настоящий указатель, тем же представлением, что
 // и у обычных сущностей, и тем же, что использует interp (Go-карта/срез
-// внутри значения - объект, не копия).
-func genericCtorCCode(name string) string {
-	structName := mangleType(name)
-	ctor := mangleCtor(name)
+// внутри значения - объект, не копия). structC/ctorName - уже вычислены
+// вызывающей стороной (mangleType/mangleCtor).
+func GenericCtorCode(structC, ctorName string) string {
 	return fmt.Sprintf(`static %[1]s *%[2]s(void) {
     return GC_MALLOC(sizeof(%[1]s));
 }
 
-`, structName, ctor)
+`, structC, ctorName)
 }

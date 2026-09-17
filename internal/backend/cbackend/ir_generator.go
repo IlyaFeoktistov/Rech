@@ -29,10 +29,13 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/multipart"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/numbase"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/process"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/procmem"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/procregs"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/regex"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/signals"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/stringsplit"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/strutil"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/subprocess"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/syncprim"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/tzdata"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/udp"
@@ -889,8 +892,12 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// объявлена/определена к месту вызова).
 		switch g.Template {
 		case "Список":
-			dest.WriteString(listCollectionCCode(g.Name, elemC))
-			dest.WriteString(genericCtorCCode(g.Name))
+			structC := mangleType(g.Name)
+			dest.WriteString(collections.ListCollectionCode(elemC, structC,
+				mangleMethod(g.Name, "добавить"), mangleMethod(g.Name, "получить"), mangleMethod(g.Name, "установить"),
+				mangleMethod(g.Name, "удалить"), mangleMethod(g.Name, "длина"), mangleMethod(g.Name, "пусто"),
+				mangleMethod(g.Name, "первый"), mangleMethod(g.Name, "последний"), escapeCString(rtmsg.IndexOutOfRange(g.Name))))
+			dest.WriteString(collections.GenericCtorCode(structC, mangleCtor(g.Name)))
 			if g.Equatable {
 				dest.WriteString(listEqualCCode(ctx, g))
 			}
@@ -901,19 +908,29 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 				dest.WriteString(collections.ListLiteralCode(mangleType(g.Name), elemC, mangleCtor(g.Name)))
 			}
 		case "Стопка":
-			dest.WriteString(stackCollectionCCode(g.Name, elemC))
-			dest.WriteString(genericCtorCCode(g.Name))
+			structC := mangleType(g.Name)
+			dest.WriteString(collections.StackCollectionCode(elemC, structC,
+				mangleMethod(g.Name, "положить"), mangleMethod(g.Name, "снять"), mangleMethod(g.Name, "верх"),
+				mangleMethod(g.Name, "длина"), mangleMethod(g.Name, "пусто"), escapeCString(rtmsg.EmptyStackOp(g.Name))))
+			dest.WriteString(collections.GenericCtorCode(structC, mangleCtor(g.Name)))
 		case "Очередь":
-			dest.WriteString(queueCollectionCCode(g.Name, elemC))
-			dest.WriteString(genericCtorCCode(g.Name))
+			structC := mangleType(g.Name)
+			dest.WriteString(collections.QueueCollectionCode(elemC, structC,
+				mangleMethod(g.Name, "добавить"), mangleMethod(g.Name, "извлечь"), mangleMethod(g.Name, "первый"),
+				mangleMethod(g.Name, "длина"), mangleMethod(g.Name, "пусто"), escapeCString(rtmsg.EmptyQueueOp(g.Name))))
+			dest.WriteString(collections.GenericCtorCode(structC, mangleCtor(g.Name)))
 		case "Словарь":
 			keyC := fromIRType(g.KeyType).cType(ctx)
 			isStringKey := g.KeyType.Kind == ir.KindString
 			if isStringKey {
 				ctx.usesDictString = true
 			}
-			dest.WriteString(dictCollectionCCode(g.Name, keyC, elemC, isStringKey))
-			dest.WriteString(genericCtorCCode(g.Name))
+			structC := mangleType(g.Name)
+			dest.WriteString(collections.DictCollectionCode(keyC, elemC, structC,
+				mangleMethod(g.Name, "установить"), mangleMethod(g.Name, "получить"), mangleMethod(g.Name, "содержит"),
+				mangleMethod(g.Name, "удалить"), mangleMethod(g.Name, "длина"), mangleMethod(g.Name, "пусто"),
+				escapeCString(rtmsg.DictKeyNotFound(g.Name)), isStringKey))
+			dest.WriteString(collections.GenericCtorCode(structC, mangleCtor(g.Name)))
 			if g.Equatable {
 				dest.WriteString(dictEqualCCode(ctx, g))
 			}
@@ -1883,10 +1900,24 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// небольшими самодостаточными хелперами.
 	appendCodeIf(&sb, ctx.usesShutdownFlag, process.ShutdownFlagCode)
 	appendCodeIf(&sb, ctx.usesSignals, signals.RuntimeCode(escapeCString(rtmsg.SignalUncatchable), escapeCString(rtmsg.SignalSendFailed)))
-	appendCodeIf(&sb, ctx.usesSubprocess, subprocessRuntimeCode)
-	appendCodeIf(&sb, ctx.usesProcMem, procMemRuntimeCode)
-	appendCodeIf(&sb, ctx.usesProcMemFind, procMemFindHelper())
-	appendCodeIf(&sb, ctx.usesProcRegs, procRegsRuntimeCode())
+	appendCodeIf(&sb, ctx.usesSubprocess, subprocess.RuntimeCode(mangleType("Процесс"), mangleType(stringsplit.ResultType), mangleField("pid"),
+		mangleType("РезультатКоманды"), mangleField("вывод"), mangleField("ошибка"), mangleField("код_возврата"),
+		escapeCString(rtmsg.ProcessSpawnFailed), escapeCString(rtmsg.SubprocessWaitFailed), escapeCString(rtmsg.CommandRunFailed)))
+	appendCodeIf(&sb, ctx.usesProcMem, procmem.RuntimeCode(mangleType("Процесс"), mangleField("pid"), mangleType(byteListType),
+		escapeCString(rtmsg.ProcAttachFailed), escapeCString(rtmsg.ProcDetachFailed),
+		escapeCString(rtmsg.ProcMemReadFailed), escapeCString(rtmsg.ProcMemWriteFailed)))
+	appendCodeIf(&sb, ctx.usesProcMemFind, procmem.FindHelper(mangleType(procmem.IntListType), mangleType("Процесс"), mangleType(byteListType),
+		escapeCString(rtmsg.ProcMemPatternEmpty), mangleField("pid"), mangleMethod(procmem.IntListType, "добавить")))
+	if ctx.usesProcRegs {
+		mangledFields := make([]string, len(procregs.RegisterFieldNames))
+		for i, name := range procregs.RegisterFieldNames {
+			mangledFields[i] = mangleField(name)
+		}
+		sb.WriteString(procregs.RuntimeCode(mangleType("Регистры"), mangleType("Процесс"), mangleField("pid"), mangledFields,
+			escapeCString(rtmsg.ProcRegsReadFailed), escapeCString(rtmsg.ProcRegsWriteFailed),
+			escapeCString(rtmsg.ProcBreakpointSetFailed), escapeCString(rtmsg.ProcBreakpointRemoveFailed),
+			escapeCString(rtmsg.ProcResumeFailed)))
+	}
 	appendCodeIf(&sb, ctx.usesConsole, console.RuntimeCode())
 	appendCodeIf(&sb, ctx.usesNonBlockingRead, console.NonBlockingReadRuntimeCode())
 	// "rech_db_t" сам уже виден (dbHandleTypedefCode, эмитирован раньше
