@@ -41,7 +41,14 @@ func (d *doc) hoverExternFunc(name string) (string, bool) {
 		if ef.Alias != ef.CName {
 			header += fmt.Sprintf("\n\nC-имя: `%s`", ef.CName)
 		}
-		return withDoc(codeBlock(header), ef.Doc), true
+		doc := ef.Doc
+		if doc == "" {
+			// Своей документации нет - последняя попытка, текст описания
+			// (не типы - те уже показаны выше, ровно как объявил
+			// пользователь) из подключённого заголовка, см. cheaders.go.
+			doc = d.headerDocFor(ef.CName, true)
+		}
+		return withDoc(codeBlock(header), doc), true
 	}
 	return "", false
 }
@@ -61,7 +68,11 @@ func (d *doc) hoverExternEntity(name string) (string, bool) {
 		if ee.Alias != ee.CName {
 			header += fmt.Sprintf("\n\nC-имя: `%s`", ee.CName)
 		}
-		return withDoc(codeBlock(header), ee.Doc), true
+		doc := ee.Doc
+		if doc == "" {
+			doc = d.headerDocFor(ee.CName, false)
+		}
+		return withDoc(codeBlock(header), doc), true
 	}
 	return "", false
 }
