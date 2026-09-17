@@ -486,28 +486,37 @@ func (s *server) handleCodeLens(msg *Message) {
 	lenses := d.codeLenses()
 	out := make([]any, len(lenses))
 	for i, cl := range lenses {
-		locations := make([]any, len(cl.Refs))
-		for j, ref := range cl.Refs {
-			uri := p.TextDocument.URI
-			if ref.File != "" {
-				uri = fileURI(ref.File)
-			}
-			locations[j] = map[string]any{
-				"uri": uri,
-				"range": map[string]any{
-					"start": map[string]any{"line": ref.Tok.Line - 1, "character": ref.Tok.Col - 1},
-					"end":   map[string]any{"line": ref.Tok.Line - 1, "character": ref.Tok.Col - 1 + len([]rune(ref.Tok.Value))},
-				},
-			}
-		}
 		lensPos := map[string]any{"line": cl.Line - 1, "character": 0}
-		out[i] = map[string]any{
-			"range": map[string]any{"start": lensPos, "end": lensPos},
-			"command": map[string]any{
+		var command map[string]any
+		if cl.Command != "" {
+			// "запустить тест" (codelens.go, runTestCodeLens) - готовая
+			// команда САМОГО расширения, не встроенная редактора - её
+			// аргументы (путь файла) уже готовы, ничего строить не нужно.
+			command = map[string]any{"title": cl.Title, "command": cl.Command, "arguments": cl.Args}
+		} else {
+			locations := make([]any, len(cl.Refs))
+			for j, ref := range cl.Refs {
+				uri := p.TextDocument.URI
+				if ref.File != "" {
+					uri = fileURI(ref.File)
+				}
+				locations[j] = map[string]any{
+					"uri": uri,
+					"range": map[string]any{
+						"start": map[string]any{"line": ref.Tok.Line - 1, "character": ref.Tok.Col - 1},
+						"end":   map[string]any{"line": ref.Tok.Line - 1, "character": ref.Tok.Col - 1 + len([]rune(ref.Tok.Value))},
+					},
+				}
+			}
+			command = map[string]any{
 				"title":     cl.Title,
 				"command":   "editor.action.showReferences",
 				"arguments": []any{p.TextDocument.URI, lensPos, locations},
-			},
+			}
+		}
+		out[i] = map[string]any{
+			"range":   map[string]any{"start": lensPos, "end": lensPos},
+			"command": command,
 		}
 	}
 	_ = s.rpc.Reply(msg.ID, out, nil)

@@ -4,20 +4,44 @@
 // стандартную панель "Найдено ссылок" редактора со всеми найденными
 // местами использования, а не просто печатает число, которым нельзя
 // воспользоваться (прежнее поведение, "редизайн 'число
-// ссылок' в hover").
+// ссылок' в hover"). Плюс "запустить тест" над "функция главная" тестового
+// файла (testrunner.TestFileSuffix) - единственный лишний CodeLens этого
+// пакета, у которого команда клиента - НЕ встроенная
+// "editor.action.showReferences" (см. Command/Args ниже).
 package lsp
 
-import "github.com/IlyaFeoktistov/Rech/internal/lexer"
+import (
+	"strings"
 
-// CodeLens - один "N ссылок" над объявлением на строке Line (1-индексная,
-// как lexer.Token.Line) - Refs несёт позиции всех найденных ссылок (см.
-// references.go/crossFileRefs - по всему дереву проекта, не только этому
-// документу), на которые редактор перейдёт при клике.
+	"github.com/IlyaFeoktistov/Rech/internal/lexer"
+	"github.com/IlyaFeoktistov/Rech/internal/testrunner"
+)
+
+// CodeLens - один пункт CodeLens на строке Line (1-индексная, как
+// lexer.Token.Line). Command == "" (обычный случай, "N ссылок") -
+// server.go сам строит клиентскую команду "editor.action.showReferences"
+// из Refs (позиции ссылок по всему дереву проекта, см. references.go/
+// crossFileRefs); Command != "" (только "запустить тест" ниже) - готовая
+// клиентская команда с аргументами Args, Refs не используется вовсе.
 type CodeLens struct {
-	Line  int
-	Title string
-	Refs  []refLocation
+	Line    int
+	Title   string
+	Refs    []refLocation
+	Command string
+	Args    []any
 }
+
+// runTestCommand - имя клиентской команды VS Code (rech-vscode/
+// extension.js, registerCommand), которую запускает клик по "запустить
+// тест" - в отличие от "editor.action.showReferences" (штатная команда
+// редактора), это команда САМОГО расширения, ей нужен путь файла как
+// единственный аргумент.
+const runTestCommand = "rech.runTestFile"
+
+// mainFuncName - "функция главная" (internal/parser.entryPointName,
+// неэкспортировано) - точка входа тестового файла, ровно как в обычной
+// программе (testrunner запускает её тем же путём, что и "rech run").
+const mainFuncName = "главная"
 
 // codeLenses строит по одному CodeLens на каждое СОБСТВЕННОЕ объявление
 // текущего документа (d.astProg - всегда разбор именно этого буфера, см.
@@ -49,7 +73,28 @@ func (d *doc) codeLenses() []CodeLens {
 	for _, c := range d.astProg.Consts {
 		out = append(out, d.newCodeLens(c.Line, matchModuleConstRefs, c.Name))
 	}
+	if lens, ok := d.runTestCodeLens(); ok {
+		out = append(out, lens)
+	}
 	return out
+}
+
+// runTestCodeLens - "▶ запустить тест" над "функция главная" - только для
+// тестового файла (testrunner.TestFileSuffix) с настоящим путём на диске
+// (d.path == "" у тестовых "test://..." документов пакета - там некуда
+// передавать команде путь для "rech test <файл>"). false, если файл - не
+// тест, у него нет пути, либо в нём нет "функция главная" вовсе (частично
+// написанный файл, лениентный разбор ещё не дошёл до неё/не нашёл).
+func (d *doc) runTestCodeLens() (CodeLens, bool) {
+	if d.path == "" || !strings.HasSuffix(d.path, testrunner.TestFileSuffix) {
+		return CodeLens{}, false
+	}
+	for _, fn := range d.astProg.Functions {
+		if fn.Name == mainFuncName {
+			return CodeLens{Line: fn.Line, Title: "▶ запустить тест", Command: runTestCommand, Args: []any{d.path}}, true
+		}
+	}
+	return CodeLens{}, false
 }
 
 func (d *doc) newCodeLens(line int, matcher func([]lexer.Token, string) []lexer.Token, name string) CodeLens {

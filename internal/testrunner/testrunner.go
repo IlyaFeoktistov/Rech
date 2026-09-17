@@ -29,8 +29,8 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/semantic"
 )
 
-// testFileSuffix - суффикс имени тестового файла (см. package doc).
-const testFileSuffix = "_тест.rech"
+// TestFileSuffix - суффикс имени тестового файла (см. package doc).
+const TestFileSuffix = "_тест.rech"
 
 // Result - исход одного тестового файла.
 type Result struct {
@@ -43,7 +43,7 @@ type Result struct {
 // Discover находит тестовые файлы в root: если root - файл, это ровно один
 // "тест" (независимо от имени - если пользователь явно указал файл, ему не
 // нужно повторно проверять соглашение об имени); если root - каталог,
-// рекурсивно находит все файлы с суффиксом testFileSuffix, пропуская
+// рекурсивно находит все файлы с суффиксом TestFileSuffix, пропуская
 // скрытые каталоги (например, ".git"). Результат отсортирован по пути -
 // детерминированный порядок вывода "rech test".
 func Discover(root string) ([]string, error) {
@@ -65,7 +65,7 @@ func Discover(root string) ([]string, error) {
 			}
 			return nil
 		}
-		if strings.HasSuffix(d.Name(), testFileSuffix) {
+		if strings.HasSuffix(d.Name(), TestFileSuffix) {
 			files = append(files, path)
 		}
 		return nil
