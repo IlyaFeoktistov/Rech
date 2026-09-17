@@ -1,20 +1,16 @@
-package cbackend
+package regex
 
-import (
-	"fmt"
+import "fmt"
 
-	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
-)
-
-// regexGroupsType/regexResultType - см. internal/semantic/regex.go - те же
-// имена generic-инстанциаций, принудительно зарегистрированных для
+// GroupsType/ResultType - см. internal/semantic/regex.go - те же имена
+// generic-инстанциаций, принудительно зарегистрированных для
 // "регулярное".
 const (
-	regexGroupsType = "Список<Строка>"
-	regexResultType = "Список<Совпадение>"
+	GroupsType = "Список<Строка>"
+	ResultType = "Список<Совпадение>"
 )
 
-// regexHelpers - "регулярное(строка, шаблон): Список<Совпадение>" - движок
+// Helpers - "регулярное(строка, шаблон): Список<Совпадение>" - движок
 // POSIX regex.h/regcomp/regexec (glibc, без внешней линковки - см. пакетную
 // документацию internal/interp/regex.go для Go regexp/RE2, используемого
 // интерпретатором). Синтаксис POSIX ERE (REG_EXTENDED) - НЕ идентичен RE2
@@ -49,7 +45,12 @@ const (
 // БЕЗ установленных locale-данных (в отличие от "ru_RU.UTF-8"), см. её
 // package doc в internal/interp/regex.go для того же принципа на стороне
 // Go (там просто не нужен - regexp/RE2 не завязан на локаль ОС вовсе).
-var regexHelpers = fmt.Sprintf(`static char *rech_regex_translate_pattern(const char *pattern) {
+// Параметры - уже вычисленные вызывающей стороной (mangleType/mangleField/
+// mangleMethod/escapeCString - внутренняя, неэкспортированная
+// инфраструктура cbackend, этот пакет от неё не зависит).
+func Helpers(mangledResultType, mangledGroupsType, groupsAddMethod,
+	mangledMatchType, textField, startField, invalidPatternMsg, groupsField, resultAddMethod string) string {
+	return fmt.Sprintf(`static char *rech_regex_translate_pattern(const char *pattern) {
     size_t len = strlen(pattern);
     char *out = malloc(len * 7 + 1);
     size_t oi = 0;
@@ -153,6 +154,7 @@ static %[1]s *rech_regex_find_all(const char *s, const char *pattern) {
     regfree(&re);
     return result;
 }
-`, mangleType(regexResultType), mangleType(regexGroupsType), mangleMethod(regexGroupsType, "добавить"),
-	mangleType("Совпадение"), mangleField("текст"), mangleField("начало"),
-	escapeCString(rtmsg.RegexInvalidPatternTemplate), mangleField("группы"), mangleMethod(regexResultType, "добавить"))
+`, mangledResultType, mangledGroupsType, groupsAddMethod,
+		mangledMatchType, textField, startField,
+		invalidPatternMsg, groupsField, resultAddMethod)
+}

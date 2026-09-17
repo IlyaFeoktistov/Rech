@@ -13,8 +13,11 @@ import (
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/bytesio"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/collections"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/color"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/concurrency"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/console"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/cookies"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/crypto"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/datetime"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/http2"
@@ -23,7 +26,10 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/httpwire"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/image"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/multipart"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/numbase"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/process"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/regex"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/stringsplit"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/strutil"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/syncprim"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/udp"
@@ -886,10 +892,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 				dest.WriteString(listEqualCCode(ctx, g))
 			}
 			if g.NeedsSafeIndex {
-				indexSafeGetCode.WriteString(listIndexSafeGetCCode(g.Name, mangleType("?"+g.ElemType.String())))
+				indexSafeGetCode.WriteString(collections.ListIndexSafeGetCode(mangleType(g.Name), mangleType("?"+g.ElemType.String())))
 			}
 			if g.NeedsListLiteral {
-				dest.WriteString(listLiteralCCode(g.Name, elemC))
+				dest.WriteString(collections.ListLiteralCode(mangleType(g.Name), elemC, mangleCtor(g.Name)))
 			}
 		case "Стопка":
 			dest.WriteString(stackCollectionCCode(g.Name, elemC))
@@ -909,7 +915,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 				dest.WriteString(dictEqualCCode(ctx, g))
 			}
 			if g.NeedsSafeIndex {
-				indexSafeGetCode.WriteString(dictIndexSafeGetCCode(g.Name, keyC, mangleType("?"+g.ElemType.String())))
+				indexSafeGetCode.WriteString(collections.DictIndexSafeGetCode(mangleType(g.Name), keyC, mangleType("?"+g.ElemType.String())))
 			}
 		default:
 			return "", fmt.Errorf("неизвестный generic-шаблон %q", g.Template)
@@ -934,7 +940,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	usesNullables := len(prog.Nullables) > 0
 	for _, n := range prog.Nullables {
 		elemC := fromIRType(n.Inner).cType(ctx)
-		code := nullableCollectionCCode(n.Name, elemC)
+		code := collections.NullableCode(mangleType(n.Name), elemC, escapeCString(rtmsg.NullAccess))
 		if n.Inner.Kind == ir.KindEntity && entities[n.Inner.Entity] != nil {
 			nullablesAfterTypedefs.WriteString(code)
 		} else {
@@ -1788,7 +1794,8 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// "добавить" Список<Строка>, уже эмитированные там (splitResultType
 	// зарегистрирован в prog.Generics принудительно, см. internal/semantic/
 	// stringsplit.go).
-	appendCodeIf(&sb, ctx.usesStringSplit, stringSplitHelper)
+	appendCodeIf(&sb, ctx.usesStringSplit, stringsplit.Helper(mangleType(stringsplit.ResultType),
+		mangleMethod(stringsplit.ResultType, "добавить"), rtmsg.SplitEmptySeparator))
 	// После genericsCodeAfterEntities выше (не только genericsCode) -
 	// rech_regex_find_all использует typedef/метод "добавить" Список<
 	// Совпадение> (элемент - сущность "Совпадение", см. её package doc
@@ -1796,10 +1803,13 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// "группы" сущности "Совпадение", regexResultType/regexGroupsType
 	// зарегистрированы в prog.Generics принудительно, см. internal/semantic/
 	// regex.go).
-	appendCodeIf(&sb, ctx.usesRegex, regexHelpers)
+	appendCodeIf(&sb, ctx.usesRegex, regex.Helpers(mangleType(regex.ResultType), mangleType(regex.GroupsType), mangleMethod(regex.GroupsType, "добавить"),
+		mangleType("Совпадение"), mangleField("текст"), mangleField("начало"),
+		escapeCString(rtmsg.RegexInvalidPatternTemplate), mangleField("группы"), mangleMethod(regex.ResultType, "добавить")))
 	// После typedefs - rech_time_to_date/rech_date_to_time/
 	// rech_date_to_string принимают/возвращают ДатаВремя по значению.
-	appendCodeIf(&sb, ctx.usesDateTime, datetimeHelpers)
+	appendCodeIf(&sb, ctx.usesDateTime, datetime.Helpers(mangleType("ДатаВремя"), mangleField("год"), mangleField("месяц"),
+		mangleField("день"), mangleField("час"), mangleField("минута"), mangleField("секунда")))
 	// После typedefs (rech_T_n_data_vremya - "?ДатаВремя" - уже объявлен,
 	// если usesDateParse) - rech_parse_date не зависит от datetimeHelpers
 	// выше (чистый разбор строки, без календарной арифметики).
@@ -1820,11 +1830,15 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// После datetimeHelpers выше (rech_date_to_human зовёт rech_date_to_time/
 	// rech_time_now).
 	appendCodeIf(&sb, ctx.usesHumanDate, datetime.HumanDateHelper(mangleType("ДатаВремя")))
-	appendCodeIf(&sb, ctx.usesColor, colorHelpers)
+	appendCodeIf(&sb, ctx.usesColor, color.Helpers(mangleType("RGBЦвет"),
+		mangleField("красный"), mangleField("зелёный"), mangleField("синий"), escapeCString(rtmsg.HexColorInvalidFormat)))
 	// numbase.go - "целое_в_*"/"целое_из_*" - не зависит от typedefs, только
 	// примитивы (Целое/Строка) - "из_*" зовёт rech_panic (panicHelper выше).
-	appendCodeIf(&sb, ctx.usesNumBase, numBaseToStringHelpers)
-	appendCodeIf(&sb, ctx.usesNumBase, numBaseFromStringHelpers())
+	appendCodeIf(&sb, ctx.usesNumBase, numbase.ToStringHelpers)
+	appendCodeIf(&sb, ctx.usesNumBase, numbase.FromStringHelpers(
+		escapeCString(rtmsg.NumBaseParseFailedFormat("целое_из_hex", "%s")),
+		escapeCString(rtmsg.NumBaseParseFailedFormat("целое_из_oct", "%s")),
+		escapeCString(rtmsg.NumBaseParseFailedFormat("целое_из_bin", "%s"))))
 	// process.go - "спать_мс" - не зависит от typedefs, только примитив
 	// (Целое).
 	appendCodeIf(&sb, ctx.usesSleep, process.Helpers)
@@ -1852,7 +1866,9 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	appendCodeIf(&sb, ctx.usesSigning, crypto.SigningHelpers)
 	// После typedefs (rech_T_opcii_kuki/rech_T_n_stroka уже объявлены) и
 	// после strConcatHelper выше (rech_cookie_string зовёт rech_str_concat).
-	appendCodeIf(&sb, ctx.usesCookies, cookieHelpers())
+	appendCodeIf(&sb, ctx.usesCookies, cookies.Helpers(mangleType("?Строка"), mangleType("ОпцииКуки"),
+		mangleField("путь"), mangleField("домен"), mangleField("максимальный_возраст"),
+		mangleField("только_http"), mangleField("безопасный"), mangleField("тот_же_сайт")))
 	// После typedefs (rech_T_n_stroka - "?Строка" - уже объявлен, тем же
 	// принципом, что и usesCookies выше).
 	appendCodeIf(&sb, ctx.usesEnv, process.EnvHelpers(mangleType("?Строка")))

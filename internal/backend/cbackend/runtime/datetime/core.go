@@ -1,19 +1,23 @@
-package cbackend
+package datetime
 
 import "fmt"
 
-// datetimeHelpers - "время"/"время_как_дата"/"дата_как_время"/
-// "дату_в_строку" - см. package doc internal/interp/datetime.go для
-// полного обоснования алгоритма (Ховард Хиннант, чистая целочисленная
-// арифметика вместо gmtime_r/timegm/gmtime_s/_mkgmtime - их доступность и
-// точное поведение расходится между POSIX/MinGW/musl, собственная
-// реализация переносима без единого #ifdef и байт-в-байт совпадает с
-// портом того же алгоритма на Go в internal/interp). rech_time_now -
-// единственная функция здесь, которой действительно нужен системный
-// источник времени (текущий момент нельзя вычислить арифметикой) -
-// обычный ANSI C time() из <time.h>, доступен без единого #ifdef на любой
-// платформе, которую собирает internal/toolchain.
-var datetimeHelpers = fmt.Sprintf(`static long long rech_time_now(void) {
+// Helpers - "время"/"время_как_дата"/"дата_как_время"/"дату_в_строку" -
+// см. package doc internal/interp/datetime.go для полного обоснования
+// алгоритма (Ховард Хиннант, чистая целочисленная арифметика вместо
+// gmtime_r/timegm/gmtime_s/_mkgmtime - их доступность и точное поведение
+// расходится между POSIX/MinGW/musl, собственная реализация переносима
+// без единого #ifdef и байт-в-байт совпадает с портом того же алгоритма на
+// Go в internal/interp). rech_time_now - единственная функция здесь,
+// которой действительно нужен системный источник времени (текущий момент
+// нельзя вычислить арифметикой) - обычный ANSI C time() из <time.h>,
+// доступен без единого #ifdef на любой платформе, которую собирает
+// internal/toolchain. dtType/yearField/monthField/dayField/hourField/
+// minuteField/secondField - уже вычисленные вызывающей стороной
+// (mangleType/mangleField - внутренняя, неэкспортированная инфраструктура
+// cbackend, этот пакет от неё не зависит).
+func Helpers(dtType, yearField, monthField, dayField, hourField, minuteField, secondField string) string {
+	return fmt.Sprintf(`static long long rech_time_now(void) {
     return (long long)time(NULL);
 }
 
@@ -72,5 +76,5 @@ static char *rech_date_to_string(%[1]s d) {
         d.%[2]s, d.%[3]s, d.%[4]s, d.%[5]s, d.%[6]s, d.%[7]s);
     return out;
 }
-`, mangleType("ДатаВремя"), mangleField("год"), mangleField("месяц"), mangleField("день"),
-	mangleField("час"), mangleField("минута"), mangleField("секунда"))
+`, dtType, yearField, monthField, dayField, hourField, minuteField, secondField)
+}

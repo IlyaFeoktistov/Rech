@@ -1,22 +1,18 @@
-// Package cbackend, продолжение - см. package doc internal/semantic/
+// Package numbase, продолжение - см. package doc internal/semantic/
 // numbase.go. Разбор префикса - вручную по ДВУМ конкретным символам
 // ("0"+x/X, o/O, b/B), не strncasecmp - непортируемая libc-функция (нет
 // под этим именем на Windows/MSVC), которой в рантайме до сих пор нигде
 // нет (тот же принцип, что и у rech_cookie_value/rech_header_value,
-// httpheaders.go/cookies.go).
-package cbackend
+// runtime/httpwire/httpheaders.go, runtime/cookies).
+package numbase
 
-import (
-	"fmt"
+import "fmt"
 
-	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
-)
-
-// numBaseToStringHelpers - "целое_в_hex"/"целое_в_oct"/"целое_в_bin" -
-// форматируют БИТОВЫЙ ПАТТЕРН n (unsigned long long, не величину - см.
-// package doc numbase.go). Двоичная форма - вручную (нет printf-спецификатора
-// для base 2, в отличие от "%llx"/"%llo").
-const numBaseToStringHelpers = `static char *rech_int_to_hex(long long n) {
+// ToStringHelpers - "целое_в_hex"/"целое_в_oct"/"целое_в_bin" - форматируют
+// БИТОВЫЙ ПАТТЕРН n (unsigned long long, не величину - см. package doc
+// numbase.go). Двоичная форма - вручную (нет printf-спецификатора для
+// base 2, в отличие от "%llx"/"%llo").
+const ToStringHelpers = `static char *rech_int_to_hex(long long n) {
     char *out = GC_MALLOC(20);
     snprintf(out, 20, "0x%llx", (unsigned long long)n);
     return out;
@@ -50,14 +46,16 @@ static char *rech_int_to_bin(long long n) {
 
 `
 
-// numBaseFromStringHelpers - "целое_из_hex"/"целое_из_oct"/"целое_из_bin" -
+// FromStringHelpers - "целое_из_hex"/"целое_из_oct"/"целое_из_bin" -
 // необязательный префикс (регистронезависимо - проверка по КОНКРЕТНОЙ
 // букве в обоих регистрах, не strncasecmp, см. package doc), затем цифры
 // своей системы счисления через strtoull (bit-паттерн, не проверка
 // величины) - endptr == digits (ни одной цифры) или *endptr != '\0'
 // (лишний символ после цифр) - ошибка, тем же принципом, что и
-// rech_read_int (builtins_shared.go).
-func numBaseFromStringHelpers() string {
+// rech_read_int (builtins_shared.go). hexMsg/octMsg/binMsg - уже готовые
+// шаблоны сообщений об ошибке (см. MsgFormat ниже), вычисленные вызывающей
+// стороной.
+func FromStringHelpers(hexMsg, octMsg, binMsg string) string {
 	return fmt.Sprintf(`static long long rech_int_from_hex(const char *s) {
     const char *digits = s;
     if (digits[0] == '0' && (digits[1] == 'x' || digits[1] == 'X')) {
@@ -103,13 +101,5 @@ static long long rech_int_from_bin(const char *s) {
     return (long long)v;
 }
 
-`, numBaseMsgFormat("целое_из_hex"), numBaseMsgFormat("целое_из_oct"), numBaseMsgFormat("целое_из_bin"))
-}
-
-// numBaseMsgFormat - шаблон сообщения об ошибке для одной из целое_из_*,
-// уже несущий literal текст (см. rtmsg.NumBaseParseFailedFormat) и
-// оставшийся "%%s" для runtime-подстановки самой строки (snprintf выше,
-// тем же двойным-Sprintf приёмом, что и rech_read_int, builtins_shared.go).
-func numBaseMsgFormat(op string) string {
-	return escapeCString(rtmsg.NumBaseParseFailedFormat(op, "%s"))
+`, hexMsg, octMsg, binMsg)
 }

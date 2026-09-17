@@ -3,6 +3,7 @@ package cbackend
 import (
 	"fmt"
 
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/stringsplit"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
@@ -337,6 +338,6 @@ static %[4]s rech_run_command(const char *cmd, const char *dir) {
     return result;
 #endif
 }
-`, mangleType("Процесс"), mangleType(splitResultType), mangleField("pid"),
+`, mangleType("Процесс"), mangleType(stringsplit.ResultType), mangleField("pid"),
 	mangleType("РезультатКоманды"), mangleField("вывод"), mangleField("ошибка"), mangleField("код_возврата"),
 	escapeCString(rtmsg.ProcessSpawnFailed), escapeCString(rtmsg.SubprocessWaitFailed), escapeCString(rtmsg.CommandRunFailed))

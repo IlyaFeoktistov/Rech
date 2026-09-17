@@ -3,6 +3,8 @@ package cbackend
 import (
 	"strings"
 	"testing"
+
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/regex"
 )
 
 // TestGenerateFromIRRegexEmitsFindAllHelperAndCorrectFieldAccess -
@@ -21,7 +23,7 @@ func TestGenerateFromIRRegexEmitsFindAllHelperAndCorrectFieldAccess(t *testing.T
 	if !strings.Contains(out, "rech_regex_find_all(") {
 		t.Fatalf("ожидался вызов rech_regex_find_all, получено:\n%s", out)
 	}
-	start := strings.Index(out, "static "+mangleType(regexResultType)+" *rech_regex_find_all")
+	start := strings.Index(out, "static "+mangleType(regex.ResultType)+" *rech_regex_find_all")
 	if start < 0 {
 		t.Fatalf("не найден хелпер rech_regex_find_all, получено:\n%s", out)
 	}

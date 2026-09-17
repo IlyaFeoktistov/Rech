@@ -10,30 +10,21 @@
 // минимальный HTTP-клиент этого компилятора (сравнимо с "chunked-кодирование
 // не поддерживается" - честно задокументированное ограничение, не тихий
 // пробел).
-package cbackend
+package cookies
 
 import "fmt"
 
-// cookieHelpers - rech_cookie_value/rech_cookie_string одним куском,
-// эмитится безусловно, только если ctx.usesCookies (см. ir_generator.go) -
-// сразу после typedefs (ссылается на уже готовый rech_T_n_stroka и
-// rech_T_opcii_kuki, mangleType/mangleField вычисляют настоящие C-имена,
-// не только "Строка"/"ОпцииКуки" - несколько десятков строк, тот же
-// принцип, что datetimeHelpers). rech_str_concat (usesConcat, взводится
-// сразу при регистрации вызова "строка_куки" в builtinCallCode) - обычный
-// malloc, не GC_MALLOC (ни она, ни rech_cookie_value ниже не требуют
-// Boehm GC вовсе - тот же принцип, что и у остальной работы со строками в
-// этом рантайме).
-func cookieHelpers() string {
-	nullableStr := mangleType("?Строка")
-	opts := mangleType("ОпцииКуки")
-	path := mangleField("путь")
-	domain := mangleField("домен")
-	maxAge := mangleField("максимальный_возраст")
-	httpOnly := mangleField("только_http")
-	secure := mangleField("безопасный")
-	sameSite := mangleField("тот_же_сайт")
-
+// Helpers - rech_cookie_value/rech_cookie_string одним куском, эмитится
+// безусловно, только если ctx.usesCookies (см. ir_generator.go) - сразу
+// после typedefs (ссылается на уже готовый rech_T_n_stroka и
+// rech_T_opcii_kuki). rech_str_concat (usesConcat, взводится сразу при
+// регистрации вызова "строка_куки" в builtinCallCode) - обычный malloc, не
+// GC_MALLOC (ни она, ни rech_cookie_value ниже не требуют Boehm GC вовсе -
+// тот же принцип, что и у остальной работы со строками в этом рантайме).
+// Параметры - уже вычисленные вызывающей стороной (mangleType/mangleField -
+// внутренняя, неэкспортированная инфраструктура cbackend, этот пакет от
+// неё не зависит).
+func Helpers(nullableStr, opts, pathField, domainField, maxAgeField, httpOnlyField, secureField, sameSiteField string) string {
 	return fmt.Sprintf(`// значение_куки(запрос, имя) - разбирает заголовок "Cookie: a=1; b=2" (если
 // он есть) и ищет пару с именем name.
 static %[1]s rech_cookie_value(const char *headers, const char *name) {
@@ -96,5 +87,5 @@ static char *rech_cookie_string(const char *name, const char *value, %[2]s opts)
     }
     return out;
 }
-`, nullableStr, opts, path, domain, maxAge, httpOnly, secure, sameSite)
+`, nullableStr, opts, pathField, domainField, maxAgeField, httpOnlyField, secureField, sameSiteField)
 }

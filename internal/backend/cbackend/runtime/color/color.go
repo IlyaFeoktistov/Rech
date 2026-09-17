@@ -1,12 +1,8 @@
-package cbackend
+package color
 
-import (
-	"fmt"
+import "fmt"
 
-	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
-)
-
-// colorHelpers - "rgbцвет_из_hex(Строка): RGBЦвет"/"rgbцвет_в_hex(RGBЦвет):
+// Helpers - "rgbцвет_из_hex(Строка): RGBЦвет"/"rgbцвет_в_hex(RGBЦвет):
 // Строка" - нативная реализация того же самого, что делает Rech-библиотека
 // examples/консоль/цвет.rech (её "Цвет"/"цвет_из_hex"/"цвет_в_hex" -
 // пользовательские имена, СВОЯ отдельная сущность, не эта - оба имени
@@ -16,7 +12,12 @@ import (
 // канал, без побайтового Rech-кода. sscanf возвращает число успешно
 // разобранных полей - меньше 3 (не 6 шестнадцатеричных цифр подряд, либо не
 // hex-символ вовсе) - паника, а не тихо частично заполненный результат.
-var colorHelpers = fmt.Sprintf(`static %[1]s rech_hex_to_color(char *hex) {
+// mangledType/redField/greenField/blueField/invalidFormatMsg - уже
+// вычисленные вызывающей стороной (mangleType/mangleField/escapeCString -
+// внутренняя, неэкспортированная инфраструктура cbackend, этот пакет от
+// неё не зависит).
+func Helpers(mangledType, redField, greenField, blueField, invalidFormatMsg string) string {
+	return fmt.Sprintf(`static %[1]s rech_hex_to_color(char *hex) {
     const char *s = hex;
     if (s[0] == '#') {
         s++;
@@ -37,4 +38,5 @@ static char *rech_color_to_hex(%[1]s c) {
     snprintf(out, 8, "#%%02X%%02X%%02X", c.%[2]s, c.%[3]s, c.%[4]s);
     return out;
 }
-`, mangleType("RGBЦвет"), mangleField("красный"), mangleField("зелёный"), mangleField("синий"), escapeCString(rtmsg.HexColorInvalidFormat))
+`, mangledType, redField, greenField, blueField, invalidFormatMsg)
+}
