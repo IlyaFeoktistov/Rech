@@ -185,7 +185,7 @@ func TestHoverOnEntityShowsExplicitCtorSignature(t *testing.T) {
 	if !strings.Contains(text, "сущность Точка") {
 		t.Fatalf("неожиданный текст hover: %q", text)
 	}
-	if !strings.Contains(text, "новый Точка(x: Целое, y: Целое)") {
+	if !strings.Contains(text, "новая Точка(x: Целое, y: Целое)") {
 		t.Fatalf("ожидалась сигнатура конструктора в hover: %q", text)
 	}
 }
@@ -233,7 +233,7 @@ func TestHoverOnStructWithoutCtorShowsFieldsAsPositionalArgs(t *testing.T) {
 	if !ok {
 		t.Fatalf("ожидался hover на имени структуры Пара")
 	}
-	if !strings.Contains(text, "новый Пара(первый: Целое, второй: Строка)") {
+	if !strings.Contains(text, "новая Пара(первый: Целое, второй: Строка)") {
 		t.Fatalf("ожидалась позиционная сигнатура полей в hover: %q", text)
 	}
 }

@@ -383,6 +383,29 @@ func CompoundNounAgreement(name string) (gender Gender, number Number, ok bool) 
 	return NounAgreement(name)
 }
 
+// NewKeywordFor возвращает форму конструктора "новый"/"новая"/"новое"/
+// "новые", согласованную с (gender, number) - общая для internal/parser
+// (checkNewKeywordAgreement - проверяет фактически написанную форму) и
+// internal/lsp (hover/signature help - какую форму ПОКАЗАТЬ рядом с именем
+// сущности, см. package doc definition этих мест) - тот же принцип "не
+// дублировать логику между потребителями", что и у остальных таблиц этого
+// пакета. Masculine (в т. ч. gender не распознан вызывающей стороной вовсе -
+// нулевое значение Gender) - "новый" по умолчанию, тот же permissive
+// fallback, что и у CompoundNounAgreement/NounAgreement.
+func NewKeywordFor(gender Gender, number Number) string {
+	if number == Plural {
+		return "новые"
+	}
+	switch gender {
+	case Feminine:
+		return "новая"
+	case Neuter:
+		return "новое"
+	default:
+		return "новый"
+	}
+}
+
 // SystemVerbs - курируемый словарь глаголов стандартной библиотеки. Формы
 // заданы вручную (см. docs/MORPHOLOGY_DESIGN.md, "Глаголы: явно заданные формы") -
 // в частности "войти"/"выйти" специально показывают, что семья "-йти"

@@ -64,6 +64,9 @@ func (d *doc) definition(line, col int) (definitionPos, bool) {
 		if pos, ok := builtinDefinitionPos(name); ok {
 			return pos, true
 		}
+		if pos, ok := builtinTypeDefinitionPos(name); ok {
+			return pos, true
+		}
 		return definitionPos{}, false
 	}
 

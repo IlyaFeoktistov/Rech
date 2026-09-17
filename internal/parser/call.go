@@ -133,22 +133,6 @@ func (p *Parser) parseNewExpr() (ast.Expr, error) {
 	return &ast.NewExpr{Type: typeName, Args: args, FieldNames: fieldNames, Line: kw.Line}, nil
 }
 
-// newKeywordFor возвращает форму конструктора, согласованную с (gender,
-// number) - "новый"/"новая"/"новое"/"новые".
-func newKeywordFor(gender morph.Gender, number morph.Number) string {
-	if number == morph.Plural {
-		return "новые"
-	}
-	switch gender {
-	case morph.Feminine:
-		return "новая"
-	case morph.Neuter:
-		return "новое"
-	default:
-		return "новый"
-	}
-}
-
 // checkNewKeywordAgreement проверяет, что фактически написанная форма
 // конструктора (kw.Value) согласуется по роду/числу с typeName -
 // morph.CompoundNounAgreement (составные имена вида "ОпцииКуки" -
@@ -164,7 +148,7 @@ func (p *Parser) checkNewKeywordAgreement(kw lexer.Token, typeName string) error
 	if !ok {
 		return nil
 	}
-	want := newKeywordFor(gender, number)
+	want := morph.NewKeywordFor(gender, number)
 	if kw.Value != want {
 		return fmt.Errorf("строка %d, столбец %d: сущность %q требует форму %q, получено %q",
 			kw.Line, kw.Col, typeName, want, kw.Value)

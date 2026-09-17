@@ -87,7 +87,7 @@ func TestSignatureHelpOnConstructor(t *testing.T) {
 	if !ok {
 		t.Fatalf("ожидалась signature help внутри конструктора")
 	}
-	if sig.Label != "новый Точка(x: Целое, y: Целое)" {
+	if sig.Label != "новая Точка(x: Целое, y: Целое)" {
 		t.Fatalf("неожиданный label: %q", sig.Label)
 	}
 	if sig.ActiveParam != 1 {

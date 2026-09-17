@@ -1,6 +1,9 @@
 package lsp
 
-import "testing"
+import (
+	"net/url"
+	"testing"
+)
 
 func TestDefinitionOnFunctionCallJumpsToDecl(t *testing.T) {
 	d := newDoc("test://a.rech", hoverTestSrc)
@@ -150,6 +153,79 @@ func TestDefinitionOnBuiltinFuncJumpsToSyntheticStub(t *testing.T) {
 	}
 	if pos.Line != 1 || pos.Col != runeCol(t, content, "корень") {
 		t.Fatalf("позиция имени в заглушке не совпадает с самим текстом: %+v, текст %q", pos, content)
+	}
+}
+
+// TestDefinitionOnReservedEntityWithFieldsJumpsToSyntheticStub - "перейти к
+// определению" на ГОЛОМ имени зарезервированной сущности с известными
+// полями (internal/lsp/builtindocs.go, reservedEntityFields) - "Процесс" -
+// НАЙДЕННЫЙ БАГ (репортнуто пользователем - "не для всех сущностей переход
+// работает"): у неё нет ast.EntityDecl вовсе (регистрируется компилятором
+// синтетически, internal/semantic/analyzer.go), в отличие от обычных
+// сущностей "перейти к определению" на ней не делал ничего.
+func TestDefinitionOnReservedEntityWithFieldsJumpsToSyntheticStub(t *testing.T) {
+	src := "функция главная\n{\n    переменная x: Процесс = запустить_процесс(\"ls\", новый Список<Строка>())\n}\n"
+	d := newDoc("test://a.rech", src)
+	line := lineOf(t, src, "x: Процесс")
+	col := runeCol(t, "    переменная x: Процесс = запустить_процесс(\"ls\", новый Список<Строка>())", "Процесс")
+	pos, ok := d.definition(line, col)
+	if !ok {
+		t.Fatalf("ожидалось определение зарезервированной сущности \"Процесс\"")
+	}
+	if pos.URI != builtinStubURI("Процесс") {
+		t.Fatalf("ожидался синтетический URI %q, получено %q", builtinStubURI("Процесс"), pos.URI)
+	}
+	content, ok := builtinTypeStubSource("Процесс")
+	if !ok {
+		t.Fatalf("ожидался синтезированный текст-заглушка для \"Процесс\"")
+	}
+	if pos.Line != 1 || pos.Col != runeCol(t, content, "Процесс") {
+		t.Fatalf("позиция имени в заглушке не совпадает с самим текстом: %+v, текст %q", pos, content)
+	}
+}
+
+// TestDefinitionOnBareBuiltinTypeJumpsToSyntheticStub - та же проверка, что
+// и выше, для типа БЕЗ известных полей (builtinTypeDocs, но не
+// reservedEntityFields) - "Файл" - заглушка тогда несёт только голое имя,
+// без блока "{ имеет: ... }".
+func TestDefinitionOnBareBuiltinTypeJumpsToSyntheticStub(t *testing.T) {
+	src := "функция главная\n{\n    переменная x: Файл = стандартный_ввод()\n}\n"
+	d := newDoc("test://a.rech", src)
+	line := lineOf(t, src, "x: Файл")
+	col := runeCol(t, "    переменная x: Файл = стандартный_ввод()", "Файл")
+	pos, ok := d.definition(line, col)
+	if !ok {
+		t.Fatalf("ожидалось определение встроенного типа \"Файл\"")
+	}
+	if pos.URI != builtinStubURI("Файл") {
+		t.Fatalf("ожидался синтетический URI %q, получено %q", builtinStubURI("Файл"), pos.URI)
+	}
+	content, ok := builtinTypeStubSource("Файл")
+	if !ok {
+		t.Fatalf("ожидался синтезированный текст-заглушка для \"Файл\"")
+	}
+	if pos.Line != 1 || pos.Col != runeCol(t, content, "Файл") {
+		t.Fatalf("позиция имени в заглушке не совпадает с самим текстом: %+v, текст %q", pos, content)
+	}
+}
+
+// TestBuiltinStubNamePercentDecodesURI - vscode.Uri.toString() percent-
+// encode'ит кириллицу в пути ("rech-builtin:///%D0%BA...rech"), тем же
+// принципом, что и настоящий "file://" (см. package doc multifile.go,
+// uriToPath) - НАЙДЕННЫЙ БАГ: builtinStubName раньше не декодировал вовсе
+// (наивный TrimPrefix/TrimSuffix), клиент открывал заглушку встроенной
+// функции/типа ПУСТОЙ, хотя и Go unit-тесты (прямой вызов с кириллицей "в
+// обход" URI-кодирования), и hand-crafted JSON-RPC smoke-test (ASCII-only
+// URI) сервер считали полностью корректным - разрыв был именно в этом
+// декодировании.
+func TestBuiltinStubNamePercentDecodesURI(t *testing.T) {
+	uri := builtinStubScheme + ":///" + url.PathEscape("корень") + builtinStubSuffix
+	name, ok := builtinStubName(uri)
+	if !ok {
+		t.Fatalf("ожидалось успешное извлечение имени из %q", uri)
+	}
+	if name != "корень" {
+		t.Fatalf("ожидалось имя \"корень\", получено %q", name)
 	}
 }
 

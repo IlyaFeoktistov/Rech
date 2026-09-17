@@ -31,6 +31,21 @@ func TestHoverCoversAllReservedEntityNames(t *testing.T) {
 	}
 }
 
+// TestDefinitionCoversAllReservedEntityNames - та же проверка, что и
+// TestHoverCoversAllReservedEntityNames выше, но для "перейти к
+// определению" (builtinTypeDefinitionPos, builtindefinition.go) - каждое
+// имя из builtins.ReservedEntityNames должно вести хоть куда-то, не молчать.
+func TestDefinitionCoversAllReservedEntityNames(t *testing.T) {
+	for name := range builtins.ReservedEntityNames {
+		if name == "Паника" {
+			continue // псевдо-тип, см. комментарий в TestHoverCoversAllReservedEntityNames
+		}
+		if _, ok := builtinTypeDefinitionPos(name); !ok {
+			t.Errorf("нет \"перейти к определению\" для зарезервированной сущности %q (builtins.ReservedEntityNames)", name)
+		}
+	}
+}
+
 // TestHoverKeywordCoversAllTokenTypes - каждое ключевое слово языка (internal/
 // lexer.KeywordTokenTypes) должно иметь запись в keywordDocs - находка при
 // сборке справочника документации ("документацию тоже надо сверить, вдруг

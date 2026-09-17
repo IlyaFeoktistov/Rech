@@ -30,6 +30,7 @@ var reservedEntityFields = map[string][]ir.Field{
 	"ДекодированноеИзображение": semantic.ImageCodecFields,
 	"Процесс":          semantic.ProcessFields,
 	"РезультатКоманды": semantic.CommandResultFields,
+	"Регистры":         semantic.RegistersFields,
 }
 
 // reservedEntityCtorSignature - "новый Тип(поле: Тип, ...)" для name из
@@ -46,7 +47,7 @@ func (d *doc) reservedEntityCtorSignature(name string) (string, bool) {
 	for i, f := range fields {
 		params[i] = ir.Param{Name: f.Name, Type: f.Type}
 	}
-	return d.functionSignature("новый "+name, params, false, ir.Type{}), true
+	return d.functionSignature(entityCtorKeyword(name)+" "+name, params, false, ir.Type{}), true
 }
 
 // keywordDocs - однострочная документация ключевых слов языка для hover -
@@ -174,6 +175,7 @@ var builtinTypeDocs = map[string]string{
 	"Совпадение":     "одно совпадение регулярного выражения (текст/начало/группы: Список<Строка>) - элемент результата `регулярное(...)`",
 	"HTTP2Поток":     "сессия + номер потока внутри неё (сессия: HTTP2Сессия, ид: Целое) - один запрос/ответ HTTP/2, параметр/результат `http2_*`-функций",
 	"ДекодированноеИзображение": "результат `png_декодировать_файл`/`jpeg_декодировать_файл` - ширина/высота/пиксели: Список<Байт>",
+	"Регистры": "общие регистры x86-64 (rax..r15/rip/eflags) остановленного процесса - результат `регистры_процесса`, параметр `установить_регистры_процесса`",
 }
 
 // mutexMethodDocs - "захватить"/"освободить" на "Блокировке" (без
@@ -424,8 +426,23 @@ func hoverBuiltinFunc(name string) (string, bool) {
 		}
 		return block, true
 	}
-	if sig, ok := reservedFuncSignatures[name]; ok {
-		return codeBlock(sig), true
+	if full, ok := reservedFuncSignatures[name]; ok {
+		// НАЙДЕННЫЙ БАГ (репортнуто пользователем - "для" подсвечивается как
+		// ключевое слово внутри описания): full несёт СИГНАТУРУ И ОПИСАНИЕ
+		// вместе через " — " (тот же формат, что уже разбирает
+		// builtinStubParts, builtindefinition.go) - заворачивать его
+		// ЦЕЛИКОМ в codeBlock (```rech ... ```) заставляло редактор
+		// подсвечивать обычный русский текст описания КАК КОД Rech - любое
+		// совпадение с ключевым словом языка ("для", "если", "новый", "этот"
+		// и т. п.) в прозе описания подсвечивалось наравне с настоящим
+		// кодом. Разделяем так же, как и builtinStubParts - в код-блок идёт
+		// только сигнатура, описание - как обычный markdown-текст под ним
+		// (та же форма, что и у ветки builtins.ByName выше).
+		sig, doc, found := strings.Cut(full, " — ")
+		if !found {
+			return codeBlock(full), true
+		}
+		return codeBlock(sig) + "\n\n" + doc, true
 	}
 	return "", false
 }

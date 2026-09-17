@@ -154,7 +154,8 @@ func (d *doc) callSignatureAt(openIdx, line int) (SignatureHelp, bool) {
 		if !ok {
 			return SignatureHelp{}, false
 		}
-		name := "новый " + d.disp(ent.Name)
+		entName := d.disp(ent.Name)
+		name := entityCtorKeyword(entName) + " " + entName
 		labels := appendParamDefaults(d.paramLabels(params), d.ctorParamDefaults(ent))
 		return SignatureHelp{Label: d.functionSignatureFromLabels(name, labels, false, ir.Type{}), ParamLabels: labels}, true
 	}

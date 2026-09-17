@@ -7,6 +7,7 @@ import (
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
+	"github.com/IlyaFeoktistov/Rech/internal/morph"
 )
 
 // hover строит текст всплывающей подсказки для позиции (line, col, оба
@@ -207,7 +208,33 @@ func (d *doc) entityCtorSignature(ent *ir.Entity) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	return d.functionSignature("новый "+d.disp(ent.Name), params, false, ir.Type{}), true
+	// appendParamDefaults/ctorParamDefaults - те же самые (signaturehelp.go),
+	// что и у "новый Тип(...)" в signature help - НАЙДЕННЫЙ БАГ (репортнуто
+	// пользователем - "не вижу в ховере дефолтные значения хотя бы для
+	// Запроса"): hover строил сигнатуру напрямую через d.functionSignature
+	// (голые "имя: Тип" без "= значение"), signature help - через
+	// appendParamDefaults - те же данные, два разных места сборки строки, и
+	// только одно из двух подключало значения по умолчанию.
+	labels := appendParamDefaults(d.paramLabels(params), d.ctorParamDefaults(ent))
+	name := d.disp(ent.Name)
+	return d.functionSignatureFromLabels(entityCtorKeyword(name)+" "+name, labels, false, ir.Type{}), true
+}
+
+// entityCtorKeyword - "новый"/"новая"/"новое"/"новые", согласованное по
+// роду/числу с именем сущности name (morph.CompoundNounAgreement) - тот же
+// принцип, что и сам язык требует от написанного текста (internal/parser/
+// call.go, checkNewKeywordAgreement/morph.NewKeywordFor) - hover/signature
+// help должны ПОКАЗЫВАТЬ ту же форму, которую парсер потребовал бы, а не
+// голое "новый" для любого имени (репортнуто пользователем - "новая
+// Точка(...)", не "новый Точка(...)"). Род/число не определились
+// (CompoundNounAgreement, ok == false) - "новый" тем же permissive
+// fallback, что и у самого языка.
+func entityCtorKeyword(name string) string {
+	gender, number, ok := morph.CompoundNounAgreement(name)
+	if !ok {
+		return "новый"
+	}
+	return morph.NewKeywordFor(gender, number)
 }
 
 // ctorParamList - параметры конструктора ent, тем же путём, что и
