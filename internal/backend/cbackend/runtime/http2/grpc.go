@@ -3,27 +3,23 @@
 // nghttp2-биндинг, тот же rech_http2_stream_t/rech_http2_session_t) -
 // повторно использует rech_http2_read_data/rech_http2_send_data/
 // rech_http2_send_trailer/rech_http2_finish_stream/rech_http2_header
-// (http2SessionOpsCode) по имени, поэтому эмитируется В ТОМ ЖЕ файле ПОСЛЕ
-// http2SessionOpsCode (см. ir_generator.go) - C требует видеть определение
+// (SessionOpsCode) по имени, поэтому эмитируется В ТОМ ЖЕ файле ПОСЛЕ
+// SessionOpsCode (см. ir_generator.go) - C требует видеть определение
 // статической функции раньше её вызова.
-package cbackend
+package http2
 
-import (
-	"fmt"
+import "fmt"
 
-	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
-)
+// GRPCContentType - "content-type" gRPC-запросов/ответов.
+const GRPCContentType = "application/grpc"
 
-const grpcContentType = "application/grpc"
-
-// grpcSessionOpsCode - публичные C-функции, соответствующие каждой
+// GRPCSessionOpsCode - публичные C-функции, соответствующие каждой
 // grpc_*-функции Rech (см. internal/semantic/grpc.go) - тот же приём
-// fmt.Sprintf-шаблона, что и у http2SessionOpsCode.
-func grpcSessionOpsCode() string {
-	streamC := mangleType(http2StreamTypeC)
-	byteListC := mangleType(byteListType)
-	nullableByteListC := mangleType("?" + byteListType)
-	optStringC := mangleType("?Строка")
+// fmt.Sprintf-шаблона, что и у SessionOpsCode. Параметры - уже вычисленные
+// вызывающей стороной значения (см. package doc http2.go).
+func GRPCSessionOpsCode(streamC, byteListC, nullableByteListC, optStringC string,
+	streamSessionField, streamIDField string,
+	openStreamFailedMsg, framingErrorMsg, compressedUnsupportedMsg, statusMissingMsg, statusInvalidMsg string) string {
 	return fmt.Sprintf(`static %[1]s rech_grpc_open_stream(rech_http2_session_t *sess, const char *path) {
     rech_http2_stream_t *st = GC_MALLOC(sizeof(rech_http2_stream_t));
     st->status = -1;
@@ -177,8 +173,8 @@ static const char *rech_grpc_error_message(%[1]s potok) {
     return raw.has ? raw.value : "";
 }
 
-`, streamC, byteListC, http2StreamSessionField, http2StreamIDField, escapeCString(rtmsg.HTTP2OpenStreamFailed),
+`, streamC, byteListC, streamSessionField, streamIDField, openStreamFailedMsg,
 		nullableByteListC+"_empty", nullableByteListC, nullableByteListC+"_wrap",
-		grpcContentType, len(grpcContentType), escapeCString(rtmsg.GRPCFramingError), escapeCString(rtmsg.GRPCCompressedUnsupported),
-		optStringC, escapeCString(rtmsg.GRPCStatusMissing), escapeCString(rtmsg.GRPCStatusInvalid))
+		GRPCContentType, len(GRPCContentType), framingErrorMsg, compressedUnsupportedMsg,
+		optStringC, statusMissingMsg, statusInvalidMsg)
 }

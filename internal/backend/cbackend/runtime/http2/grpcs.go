@@ -10,7 +10,7 @@
 // TLS-рантайм: НОВАЯ функция/СВОЙ SSL_CTX на fd, не общая точка входа.
 //
 // Серверная сторона gRPC-СЕССИИ переиспользует "http2_принять_сессию" без
-// единой правки на уровне Rech-программы (см. http2AcceptSessionAcceptCode,
+// единой правки на уровне Rech-программы (см. acceptSessionAcceptCode,
 // http2.go) - тот listener, что вернула "слушать_grpcs" ниже, уже
 // зарегистрирован в rech_tls_registry (tls.go) ТОЧНО так же, как у обычной
 // "слушать_tcp_защищённо" - rech_accept сама делает SSL_accept, находит
@@ -19,24 +19,23 @@
 // tcp_защищённо"). Клиентская сторона - ОТДЕЛЬНАЯ функция ниже
 // (rech_connect_tcp_tls, tls.go, ALPN не предлагает вовсе - см. её же
 // package doc про риск того же рода для "запрос").
-package cbackend
+package http2
 
-import (
-	"fmt"
+import "fmt"
 
-	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
-)
-
-// grpcsALPNProtoListC - wire-формат ALPN protocol list (RFC 7301): один
+// GRPCSALPNProtoListC - wire-формат ALPN protocol list (RFC 7301): один
 // байт длины + сами байты, повторить на каждый протокол - здесь только
 // "h2" (2 байта) - НЕ "h2c" (cleartext, не имеет смысла внутри TLS) и НЕ
 // "http/1.1" (эта функция - только для gRPC, http2_принять_сессию не
 // умеет обслуживать HTTP/1.1-фрейминг).
-const grpcsALPNProtoListC = `"\x02h2"`
+const GRPCSALPNProtoListC = `"\x02h2"`
 
-// grpcsListenAndConnectCode - "слушать_grpcs(порт, серт, ключ): Сокет" +
+// GRPCSListenAndConnectCode - "слушать_grpcs(порт, серт, ключ): Сокет" +
 // "новая_grpcs_сессия(хост, порт): HTTP2Сессия" - см. package doc.
-func grpcsListenAndConnectCode() string {
+// Сообщения - уже экранированные (escapeCString - внутренняя,
+// неэкспортированная инфраструктура cbackend, этот пакет от неё не
+// зависит).
+func GRPCSListenAndConnectCode(certLoadFailedMsg, clientHandshakeFailedMsg, alpnRejectedMsg string) string {
 	return fmt.Sprintf(`static int rech_grpcs_alpn_select_cb(SSL *ssl, const unsigned char **out, unsigned char *outlen,
                                       const unsigned char *in, unsigned int inlen, void *arg) {
     (void)ssl;
@@ -122,5 +121,5 @@ static rech_http2_session_t *rech_grpcs_new_session(const char *host, long long 
     return sess;
 }
 
-`, grpcsALPNProtoListC, escapeCString(rtmsg.GRPCSCertLoadFailed), escapeCString(rtmsg.GRPCSClientHandshakeFailed), escapeCString(rtmsg.GRPCSALPNRejected))
+`, GRPCSALPNProtoListC, certLoadFailedMsg, clientHandshakeFailedMsg, alpnRejectedMsg)
 }

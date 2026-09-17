@@ -23,28 +23,36 @@
 // на pthread/POSIX-сокеты напрямую, не через уже существующую Windows-ветку
 // остального рантайма (concurrency.go/tls.go) - отдельная, непроверенная
 // работа, оставлена как явный, а не молчаливый пробел.
-package cbackend
+//
+// Функции этого файла принимают уже вычисленные C-имена/экранированные
+// сообщения параметрами, не вычисляют их сами (mangleType/mangleField/
+// escapeCString - внутренняя, неэкспортированная инфраструктура cbackend,
+// этот пакет от неё не зависит - тот же приём, что и у остальных
+// runtime/*-пакетов).
+package http2
 
-import (
-	"fmt"
+import "fmt"
 
-	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
+// StreamSessionFieldName/StreamIDFieldName - имена полей "HTTP2Поток"
+// (internal/semantic/http2.go, http2StreamFields) ДО мангла - вызывающая
+// сторона (ir_generator.go) манглит их сама (mangleField) и передаёт
+// результат параметром SessionOpsCode/грпс-хелперам (grpc.go использует то
+// же самое поле "сессия"/"ид", мангленное тем же способом).
+const (
+	StreamSessionFieldName = "сессия"
+	StreamIDFieldName      = "ид"
 )
 
-// mangleField применяется здесь к статически известным именам полей
-// "HTTP2Поток" (internal/semantic/http2.go, http2StreamFields) - та же
-// функция, что и для полей пользовательских сущностей, но сущность сама
-// не проходит через generateIREntityStruct (нет ast.EntityDecl) - только
-// имена полей мангланы тем же способом, чтобы совпасть с typedef'ом,
-// который эмитирует общий механизм регистрации встроенных сущностей.
-var http2StreamSessionField = mangleField("сессия")
-var http2StreamIDField = mangleField("ид")
+// StreamTypeC - см. internal/semantic/http2.go, http2StreamType - тот же
+// принцип дублирования имени константой в нескольких пакетах, что и
+// byteListType (ir_generator.go).
+const StreamTypeC = "HTTP2Поток"
 
-// http2SessionTypedefCode - typedef rech_http2_session_t/rech_http2_stream_t
+// SessionTypedefCode - typedef rech_http2_session_t/rech_http2_stream_t
 // (внутреннее устройство сессии/потока) и вспомогательные растущие буферы -
 // C-структуры, о которых Rech-программа не знает вовсе (видит только
 // непрозрачный указатель, см. valuetype.go, typeHTTP2Session).
-const http2SessionTypedefCode = `#if defined(_WIN32)
+const SessionTypedefCode = `#if defined(_WIN32)
 #error "HTTP/2 (nghttp2) пока не поддержан на Windows"
 #endif
 
@@ -92,11 +100,11 @@ typedef struct rech_http2_session {
     // компилируемым, даже когда программа использует ТОЛЬКО h2c (нет ни
     // grpcs, ни какого-либо другого TLS - <openssl/ssl.h> тогда вовсе не
     // подключён, см. ir_generator.go) - каст к "SSL *" происходит только
-    // внутри send_cb/io_thread (http2CallbacksCode ниже), И ТОЛЬКО когда
+    // внутри send_cb/io_thread (CallbacksCode ниже), И ТОЛЬКО когда
     // usesTLS истинно (там этот заголовок уже гарантированно виден). NULL -
     // обычный h2c-поток; ненулевое значение выставляется один раз, в
     // rech_http2_accept_session/rech_http2_new_session/rech_grpcs_*
-    // (http2SessionOpsCode/grpcs.go), не здесь.
+    // (SessionOpsCode/grpc.go), не здесь.
     void *tls_ssl;
     // ssl_io_lock - ЖИВОЙ НАЙДЕННЫЙ БАГ (grpcs, Шаг 95): один SSL* не
     // потокобезопасен для ОДНОВРЕМЕННЫХ SSL_read/SSL_write из разных
@@ -109,7 +117,7 @@ typedef struct rech_http2_session {
     // держало бы ЗАБЛОКИРОВАННЫМИ вообще все http2_*/grpc_*-функции
     // (тоже нужен sess->lock) почти постоянно - живая находка ВТОРОГО
     // порядка (первая попытка чинить через sess->lock), не гипотетически.
-    // rech_http2_locked_read/send_cb (http2CallbacksCode) используют
+    // rech_http2_locked_read/send_cb (CallbacksCode) используют
     // pthread_mutex_TRYlock на ЭТОМ отдельном мьютексе - кто не успел,
     // тот НЕ ждёт, а отступает (EAGAIN у чтения, NGHTTP2_ERR_WOULDBLOCK у
     // записи - оба уже штатно обрабатываются существующей логикой цикла/
@@ -259,7 +267,7 @@ static void rech_http2_enqueue(rech_http2_session_t *sess, int32_t stream_id) {
 
 `
 
-// http2CallbacksCode - колбэки nghttp2 (см. package doc) - разбор входящих
+// CallbacksCode - колбэки nghttp2 (см. package doc) - разбор входящих
 // заголовков/данных/закрытия потока, отправка исходящих байт на сокет,
 // поставщик данных для DATA-фреймов (читает из stream->send_buf, отдаёт
 // EOF+трейлеры, когда http2_завершить_поток пометил send_eof и буфер
@@ -268,8 +276,8 @@ static void rech_http2_enqueue(rech_http2_session_t *sess, int32_t stream_id) {
 // (recv/send) - функция, не const, ЧТОБЫ эта ветка не появлялась вовсе в
 // программе без единого TLS-биндинга (undefined-символ SSL_read/SSL_write
 // без <openssl/ssl.h>, включаемого только при usesTLS - см. package doc
-// поля tls_ssl, http2SessionTypedefCode).
-func http2CallbacksCode(usesTLS bool) string {
+// поля tls_ssl, SessionTypedefCode).
+func CallbacksCode(usesTLS bool) string {
 	sendExpr := "send(sess->fd, data, length, 0)"
 	recvExpr := "recv(sess->fd, buf, sizeof(buf), 0)"
 	sslIOHelpers := ""
@@ -289,7 +297,7 @@ func http2CallbacksCode(usesTLS bool) string {
 		// сразу после освобождения, на следующий опрос) - ГОЛОДАНИЕ
 		// основного потока, тоже воспроизведено живым прогоном (стало
 		// только хуже - зависало почти всегда, не изредка). Отдельный
-		// ssl_io_lock (rech_http2_session_t, http2SessionTypedefCode) +
+		// ssl_io_lock (rech_http2_session_t, SessionTypedefCode) +
 		// pthread_mutex_TRYlock с двух сторон - кто не успел, тот НЕ ждёт:
 		// send_cb при занятом мьютексе возвращает NGHTTP2_ERR_WOULDBLOCK
 		// (штатный сигнал nghttp2 "повтори позже" - сам io_thread зовёт
@@ -499,19 +507,8 @@ static void *rech_http2_io_thread(void *arg) {
 `, sendExpr, recvExpr)
 }
 
-// http2StreamTypeC - см. internal/semantic/http2.go, http2StreamType - тот
-// же принцип дублирования имени константой в нескольких пакетах, что и
-// byteListType (bytesio.go).
-const http2StreamTypeC = "HTTP2Поток"
-
-// http2SessionOpsCode - публичные C-функции, соответствующие каждой
-// http2_*-функции Rech (см. internal/semantic/http2.go) - генерируется как
-// fmt.Sprintf-шаблон, чтобы встроить готовые (уже экранированные) тексты
-// сообщений rtmsg и настоящие манглированные C-имена (не угаданные строки -
-// mangleType/mangleField решают транслитерацию сами) прямо в тело функций,
-// тем же приёмом, что и у socketHelpers/plainSocketOpsCode.
-// http2AcceptSessionAcceptCode - только САМ accept() внутри rech_http2_
-// accept_session (Шаг 95, grpcs) - единственный фрагмент в http2SessionOpsCode,
+// acceptSessionAcceptCode - только САМ accept() внутри rech_http2_
+// accept_session (Шаг 95, grpcs) - единственный фрагмент в SessionOpsCode,
 // которому нужно различать usesTLS: обычный accept() (openssl вообще не
 // подключён программе без единого TLS-биндинга) против rech_accept
 // (tls.go - единственная точка настоящего accept()+SSL_accept, тот же
@@ -525,38 +522,46 @@ const http2StreamTypeC = "HTTP2Поток"
 // заменяется отдельной функцией, чтобы всё остальное тело rech_http2_
 // accept_session (создание сессии/nghttp2_session_server_new/...) осталось
 // буквально тем же кодом, что и раньше.
-func http2AcceptSessionAcceptCode(usesTLS bool) string {
+func acceptSessionAcceptCode(usesTLS bool, acceptFailedMsg, optSocketC string) string {
 	if !usesTLS {
 		return fmt.Sprintf(`rech_socket_t fd = accept(listener, NULL, NULL);
     if (fd < 0) {
         rech_panic("%[1]s");
-    }`, escapeCString(rtmsg.HTTP2AcceptFailed))
+    }`, acceptFailedMsg)
 	}
 	return fmt.Sprintf(`%[1]s accepted = rech_accept(listener);
     while (!accepted.has) {
         accepted = rech_accept(listener);
     }
-    rech_socket_t fd = accepted.value;`, mangleType("?Сокет"))
+    rech_socket_t fd = accepted.value;`, optSocketC)
 }
 
-// http2AcceptSessionTLSAssocCode - см. http2AcceptSessionAcceptCode - после
+// acceptSessionTLSAssocCode - см. acceptSessionAcceptCode - после
 // получения fd, но ДО заведения самой rech_http2_session_t: rech_tls_conn
 // (tls.go) находит уже установленное SSL* (rech_accept выше уже сделал
 // SSL_accept, если listener был зарегистрирован как TLS) - пусто, если
 // программа TLS вообще не использует (openssl не подключён).
-func http2AcceptSessionTLSAssocCode(usesTLS bool) string {
+func acceptSessionTLSAssocCode(usesTLS bool) string {
 	if !usesTLS {
 		return ""
 	}
 	return "\n    sess->tls_ssl = rech_tls_conn(fd);"
 }
 
-func http2SessionOpsCode(usesTLS bool) string {
-	streamC := mangleType(http2StreamTypeC)
-	optStringC := mangleType("?Строка")
-	byteListC := mangleType(byteListType)
-	acceptCode := http2AcceptSessionAcceptCode(usesTLS)
-	tlsAssocCode := http2AcceptSessionTLSAssocCode(usesTLS)
+// SessionOpsCode - публичные C-функции, соответствующие каждой http2_*-
+// функции Rech (см. internal/semantic/http2.go) - генерируется как
+// fmt.Sprintf-шаблон, чтобы встроить готовые (уже экранированные) тексты
+// сообщений rtmsg и настоящие манглированные C-имена (не угаданные строки -
+// mangleType/mangleField решают транслитерацию сами) прямо в тело функций,
+// тем же приёмом, что и у socketHelpers/plainSocketOpsCode. Все параметры -
+// уже вычисленные вызывающей стороной значения (см. package doc наверху).
+func SessionOpsCode(usesTLS bool, streamC, optStringC, byteListC, optSocketC string,
+	acceptFailedMsg, handshakeFailedMsg, dialFailedMsg, sessionClosedMsg string,
+	streamSessionField, streamIDField string,
+	openStreamFailedMsg, streamNotFoundMsg string,
+	recvInvalidMaxMsg, invalidTrailerNameMsg string) string {
+	acceptCode := acceptSessionAcceptCode(usesTLS, acceptFailedMsg, optSocketC)
+	tlsAssocCode := acceptSessionTLSAssocCode(usesTLS)
 	return fmt.Sprintf(`static void rech_http2_start_thread(rech_http2_session_t *sess) {
     pthread_mutex_init(&sess->lock, NULL);
     pthread_mutex_init(&sess->ssl_io_lock, NULL);
@@ -854,9 +859,9 @@ static void rech_http2_finish_stream(%[13]s potok) {
     pthread_mutex_unlock(&sess->lock);
 }
 
-`, rtmsg.HTTP2AcceptFailed, rtmsg.HTTP2HandshakeFailed, rtmsg.HTTP2DialFailed,
-		rtmsg.HTTP2SessionClosed, http2StreamSessionField, http2StreamIDField,
-		rtmsg.HTTP2OpenStreamFailed, rtmsg.HTTP2StreamNotFound, optStringC,
-		optStringC+"_wrap", byteListC, rtmsg.HTTP2RecvInvalidMax, streamC,
-		rtmsg.HTTP2InvalidTrailerName, acceptCode, tlsAssocCode)
+`, acceptFailedMsg, handshakeFailedMsg, dialFailedMsg,
+		sessionClosedMsg, streamSessionField, streamIDField,
+		openStreamFailedMsg, streamNotFoundMsg, optStringC,
+		optStringC+"_wrap", byteListC, recvInvalidMaxMsg, streamC,
+		invalidTrailerNameMsg, acceptCode, tlsAssocCode)
 }

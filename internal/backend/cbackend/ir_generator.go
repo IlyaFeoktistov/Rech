@@ -17,6 +17,7 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/console"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/crypto"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/datetime"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/http2"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/httpbytes"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/httpserver"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/httpwire"
@@ -613,7 +614,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		if ent.HasStateFlags {
 			usesStateFlags = true
 		}
-		if ent.Name == http2StreamTypeC {
+		if ent.Name == http2.StreamTypeC {
 			// "HTTP2Поток" сам - структура (IsStruct, не попадает под
 			// проверку выше), но её РАНТАЙМ (http2.go - сессия/поток
 			// nghttp2, заголовки, растущие буферы) выделяет память через
@@ -1536,8 +1537,8 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// см. её отдельную, более позднюю точку эмиссии) - можно эмитить сразу
 	// вместе с typedef'ом.
 	if ctx.usesHTTP2 {
-		sb.WriteString(http2SessionTypedefCode)
-		sb.WriteString(http2CallbacksCode(ctx.usesTLS))
+		sb.WriteString(http2.SessionTypedefCode)
+		sb.WriteString(http2.CallbacksCode(ctx.usesTLS))
 	}
 
 	// genericForwardDecl - "typedef struct rech_T_... rech_T_...;" для
@@ -1718,22 +1719,32 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// виден) - typedef/колбэки самой сессии эмитированы РАНЬШЕ (см. их
 	// отдельную точку выше, рядом с dbHandleTypedefCode).
 	if ctx.usesHTTP2 {
-		sb.WriteString(http2SessionOpsCode(ctx.usesTLS))
+		sb.WriteString(http2.SessionOpsCode(ctx.usesTLS,
+			mangleType(http2.StreamTypeC), mangleType("?Строка"), mangleType(byteListType), mangleType("?Сокет"),
+			escapeCString(rtmsg.HTTP2AcceptFailed), escapeCString(rtmsg.HTTP2HandshakeFailed), escapeCString(rtmsg.HTTP2DialFailed), escapeCString(rtmsg.HTTP2SessionClosed),
+			mangleField(http2.StreamSessionFieldName), mangleField(http2.StreamIDFieldName),
+			escapeCString(rtmsg.HTTP2OpenStreamFailed), escapeCString(rtmsg.HTTP2StreamNotFound),
+			escapeCString(rtmsg.HTTP2RecvInvalidMax), escapeCString(rtmsg.HTTP2InvalidTrailerName)))
 	}
-	// grpcSessionOpsCode - ПОСЛЕ http2SessionOpsCode выше (зовёт rech_http2_*
-	// по имени, см. package doc grpc.go) И после nullablesCode/
-	// nullablesAfterTypedefs (обе группы уже эмитированы раньше по коду
-	// функции - см. их точки выше; "?Список<Байт>"_wrap/_empty оттуда).
+	// http2.GRPCSessionOpsCode - ПОСЛЕ http2.SessionOpsCode выше (зовёт
+	// rech_http2_* по имени, см. package doc runtime/http2/grpc.go) И после
+	// nullablesCode/nullablesAfterTypedefs (обе группы уже эмитированы
+	// раньше по коду функции - см. их точки выше; "?Список<Байт>"_wrap/
+	// _empty оттуда).
 	if ctx.usesGRPC {
-		sb.WriteString(grpcSessionOpsCode())
+		sb.WriteString(http2.GRPCSessionOpsCode(mangleType(http2.StreamTypeC), mangleType(byteListType), mangleType("?"+byteListType), mangleType("?Строка"),
+			mangleField(http2.StreamSessionFieldName), mangleField(http2.StreamIDFieldName),
+			escapeCString(rtmsg.HTTP2OpenStreamFailed), escapeCString(rtmsg.GRPCFramingError), escapeCString(rtmsg.GRPCCompressedUnsupported),
+			escapeCString(rtmsg.GRPCStatusMissing), escapeCString(rtmsg.GRPCStatusInvalid)))
 	}
-	// grpcsListenAndConnectCode - ПОСЛЕ http2SessionOpsCode выше (зовёт
-	// rech_http2_new_callbacks/rech_http2_start_thread по имени) И после
-	// socketHelpersTLS (rech_listen_tcp/rech_tls_register/SSL_CTX_new -
-	// usesGRPCS форсирует usesTLS, см. её дизайн-flag в builtins_shared.go)
-	// - см. package doc grpcs.go.
+	// http2.GRPCSListenAndConnectCode - ПОСЛЕ http2.SessionOpsCode выше
+	// (зовёт rech_http2_new_callbacks/rech_http2_start_thread по имени) И
+	// после socketHelpersTLS (rech_listen_tcp/rech_tls_register/SSL_CTX_new
+	// - usesGRPCS форсирует usesTLS, см. её дизайн-flag в builtins_
+	// shared.go) - см. package doc runtime/http2/grpcs.go.
 	if ctx.usesGRPCS {
-		sb.WriteString(grpcsListenAndConnectCode())
+		sb.WriteString(http2.GRPCSListenAndConnectCode(
+			escapeCString(rtmsg.GRPCSCertLoadFailed), escapeCString(rtmsg.GRPCSClientHandshakeFailed), escapeCString(rtmsg.GRPCSALPNRejected)))
 	}
 	// После bytesWrapHelper выше - rech_bytes_from_string зовёт
 	// rech_bytes_wrap напрямую.
