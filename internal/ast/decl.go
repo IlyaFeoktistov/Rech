@@ -99,6 +99,11 @@ type ExternFuncDecl struct {
 	Params     []Param
 	ReturnType string // "" - функция ничего не возвращает (C void)
 	Line       int
+	// Doc - текст doc-комментария ("/** ... */") прямо перед объявлением,
+	// "" - его не было (см. EntityDecl.Doc про общий принцип). internal/lsp
+	// показывает его при наведении на Alias вместо описания из заголовка,
+	// если оно есть - "своя документация имеет приоритет над чужой".
+	Doc string
 }
 
 func (*ExternFuncDecl) node() {}
@@ -117,6 +122,8 @@ type ExternEntityDecl struct {
 	CName string
 	Alias string
 	Line  int
+	// Doc - см. ExternFuncDecl.Doc.
+	Doc string
 }
 
 func (*ExternEntityDecl) node() {}

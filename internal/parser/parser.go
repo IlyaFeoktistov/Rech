@@ -716,6 +716,7 @@ func (p *Parser) parseTopLevelItem(prog *ast.Program, topLevelStmts *[]ast.Stmt,
 			if err != nil {
 				return false, err
 			}
+			extEnt.Doc = doc
 			prog.ExternEntities = append(prog.ExternEntities, extEnt)
 		case lexer.KwStruct:
 			extStruct, err := p.parseExternStructDecl()
@@ -729,6 +730,7 @@ func (p *Parser) parseTopLevelItem(prog *ast.Program, topLevelStmts *[]ast.Stmt,
 			if err != nil {
 				return false, err
 			}
+			ext.Doc = doc
 			prog.ExternFuncs = append(prog.ExternFuncs, ext)
 		}
 	case lexer.KwEnum:

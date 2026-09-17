@@ -86,6 +86,12 @@ func (d *doc) hoverBareName(name string, line int) (string, bool) {
 		block := withDoc(codeBlock(d.functionSignature(d.disp(fn.Name), fn.Params, fn.HasReturn, fn.ReturnType)), fn.Doc)
 		return block, true
 	}
+	if block, ok := d.hoverExternFunc(name); ok {
+		return block, true
+	}
+	if block, ok := d.hoverExternEntity(name); ok {
+		return block, true
+	}
 	if ent, ok := d.entities[name]; ok {
 		kind := "сущность"
 		if ent.IsStruct {
