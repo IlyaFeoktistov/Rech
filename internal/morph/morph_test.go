@@ -175,6 +175,31 @@ func TestBuildNounParadigmAdjectiveShapedAccusative(t *testing.T) {
 	}
 }
 
+// TestNounAgreementTrueBareAyaNounsNotMisreadAsAdjective - "стая"/"свая" -
+// настоящие существительные на голое "-ая" (не субстантивированные
+// прилагательные), найдено пользователем при проверке ClassAdjHardFeminine/
+// ClassAdjSoftFeminine (см. их package doc, noun.go) - без записи в
+// nounGenderExceptions классификатор принял бы их за прилагательное и дал
+// бы неверный винительный ("стую"/"свую" вместо "стаю"/"сваю").
+func TestNounAgreementTrueBareAyaNounsNotMisreadAsAdjective(t *testing.T) {
+	dict := NewDictionary()
+	for _, tc := range []struct {
+		word      string
+		wantAccSg string
+	}{
+		{"стая", "стаю"},
+		{"свая", "сваю"},
+	} {
+		if err := dict.RegisterNoun(tc.word, Inanimate); err != nil {
+			t.Fatalf("RegisterNoun(%q): %v", tc.word, err)
+		}
+		got, ok := dict.FormOf(tc.word, Accusative)
+		if !ok || got != tc.wantAccSg {
+			t.Errorf("FormOf(%q, Accusative) = %q, %v; want %q, true", tc.word, got, ok, tc.wantAccSg)
+		}
+	}
+}
+
 // TestNounAgreementDetectsPluralEnding - слово, реально написанное во
 // множественном числе ("маршруты" - буквально множественное от "маршрут"),
 // должно давать Number=Plural - раньше ClassifyByEnding по умолчанию читал
