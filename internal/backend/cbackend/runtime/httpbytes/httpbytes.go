@@ -6,19 +6,19 @@
 // Эмитится ПОСЛЕ genericsCode (typedef/методы Список<Байт>) И ПОСЛЕ
 // httpServerHelpersCode (rech_recv_http_request/rech_http_parse_head,
 // httpserver.go) - использует и то, и другое.
-package cbackend
+package httpbytes
 
 import "fmt"
 
-// httpBytesRequestType/httpBytesResponseType - см. internal/semantic/
-// httpbytes.go, package doc queryParamsDictType (httpserver.go) для того
-// же принципа дублирования имени константой в обоих пакетах.
+// RequestType/ResponseType - см. internal/semantic/httpbytes.go, package
+// doc queryParamsDictType (httpserver.go) для того же принципа
+// дублирования имени константой в обоих пакетах.
 const (
-	httpBytesRequestType  = "ЗапросБайты"
-	httpBytesResponseType = "ОтветБайты"
+	RequestType  = "ЗапросБайты"
+	ResponseType = "ОтветБайты"
 )
 
-// httpBytesHelpers - "принять_http_байты"/"отправить_http_ответ_байты".
+// Helpers - "принять_http_байты"/"отправить_http_ответ_байты".
 // "принять_http_байты" переиспользует rech_recv_http_request/
 // rech_http_parse_head целиком (httpserver.go) - разница с обычным
 // "принять_http" ровно в одном месте: тело строится через rech_bytes_wrap
@@ -26,10 +26,11 @@ const (
 // (strlen, обрезающий на первом нулевом байте). "отправить_http_ответ_
 // байты" - симметрично "отправить_http_ответ" (httpserver.go), но шлёт
 // resp.тело->data/->len через rech_send_raw (builtins_shared.go/tls.go),
-// не rech_send (strlen).
-func httpBytesHelpers() string {
-	reqType := mangleType(httpBytesRequestType)
-	respType := mangleType(httpBytesResponseType)
+// не rech_send (strlen). reqType/respType/addrField/portField/methodField/
+// pathField/bodyField/headersField/codeField - уже вычисленные вызывающей
+// стороной (mangleType/mangleField - внутренняя, неэкспортированная
+// инфраструктура cbackend, этот пакет от неё не зависит).
+func Helpers(reqType, respType, addrField, portField, methodField, pathField, bodyField, headersField, codeField string) string {
 	return fmt.Sprintf(`static %[1]s rech_http_accept_request_bytes(rech_socket_t s) {
     long long raw_len = 0;
     char *raw = rech_recv_http_request(s, &raw_len);
@@ -66,7 +67,5 @@ static void rech_http_send_response_bytes(rech_socket_t s, %[2]s resp) {
     rech_send_raw(s, full, (long long)need + body_len);
     free(full);
 }
-`, reqType, respType,
-		mangleField("адрес"), mangleField("порт"), mangleField("метод"), mangleField("путь"),
-		mangleField("тело"), mangleField("заголовки"), mangleField("код"))
+`, reqType, respType, addrField, portField, methodField, pathField, bodyField, headersField, codeField)
 }

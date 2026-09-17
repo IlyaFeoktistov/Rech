@@ -1,12 +1,8 @@
-package cbackend
+package httpserver
 
-import (
-	"fmt"
+import "fmt"
 
-	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
-)
-
-// httpServerHelpers - "принять_http"/"отправить_http_ответ" (см.
+// Helpers - "принять_http"/"отправить_http_ответ" (см.
 // internal/semantic/httpserver.go, package doc) - минимальный HTTP-сервер
 // поверх уже существующих сетевых примитивов (rech_accept/rech_send/
 // rech_close_socket, socketHelpers), не отдельный сетевой механизм.
@@ -24,10 +20,8 @@ import (
 // регистронезависимо вручную (без <ctype.h> - однократный ручной
 // case-fold дешевле нового заголовка ради одной функции).
 //
-// httpServerHelpersCode - была константой, стала функцией параметром
 // maxRequestBytes (ir.Program.HTTPMaxRequestBytes, "http.
-// макс_размер_запроса_байт" файла проекта) - тот же приём, что и
-// concurrency.ThreadPoolCode (runtime/concurrency/threadpool.go): значение запекается препроцессорным
+// макс_размер_запроса_байт" файла проекта) запекается препроцессорным
 // макросом (RECH_HTTP_MAX_REQUEST_BYTES), а не читается как переменная
 // рантайма, потому что для одной программы оно ровно одно и известно уже
 // на этапе кодогенерации. rech_recv_http_request проверяет его дважды: как
@@ -38,7 +32,14 @@ import (
 // каждой итерации накопления заголовков ДО "\r\n\r\n" - клиент, никогда не
 // заканчивающий заголовки, иначе рос бы в памяти без предела тем же самым
 // буфером, что и настоящее тело.
-func httpServerHelpersCode(maxRequestBytes int) string {
+//
+// methodField/pathField/addrField/headersField/portField/bodyField/
+// requestType/responseType/codeField/recvFailedMsg/requestTooLargeMsg -
+// уже вычисленные вызывающей стороной (mangleField/mangleType/
+// escapeCString - внутренняя, неэкспортированная инфраструктура cbackend,
+// этот пакет от неё не зависит).
+func Helpers(maxRequestBytes int, methodField, pathField, addrField, headersField, portField, bodyField,
+	requestType, responseType, codeField, recvFailedMsg, requestTooLargeMsg string) string {
 	return fmt.Sprintf(`#define RECH_HTTP_MAX_REQUEST_BYTES %[11]d
 
 static long long rech_http_content_length(const char *buf, const char *end) {
@@ -64,7 +65,7 @@ static long long rech_http_content_length(const char *buf, const char *end) {
 // percent-encode нелатинские байты в пути (RFC 3986), в отличие от
 // query-строки "+" здесь НЕ означает пробел (это не
 // application/x-www-form-urlencoded) - поэтому отдельная пара функций, не
-// переиспользование rech_qp_url_decode ниже (queryParamsHelper) - тот
+// переиспользование rech_qp_url_decode ниже (QueryParamsHelper) - тот
 // специфичен для query-строки и не всегда даже эмитируется (только если
 // программа вызвала "параметры_пути" хоть раз), а декодирование пути нужно
 // ВСЕГДА, как только используется "принять_http".
@@ -203,7 +204,7 @@ static char *rech_recv_http_request(rech_socket_t s, long long *out_len) {
 // rech_http_parse_head - разбирает СТРОКУ запроса (метод, путь - с
 // процент-декодированием сегмента до "?") и блок заголовков из raw - общая
 // часть rech_http_accept_request/rech_http_accept_request_bytes
-// (httpbytes.go), различающихся только тем, КАК получить "тело" из
+// (runtime/httpbytes), различающихся только тем, КАК получить "тело" из
 // *out_body_sep + 4 (Строка через rech_dup против Список<Байт> через
 // rech_bytes_wrap с точной длиной, недоступной иначе). *out_method/
 // *out_path/*out_headers - уже готовые Rech-Строки (rech_dup(""), если не
@@ -308,21 +309,21 @@ static void rech_http_send_response(rech_socket_t s, %[8]s resp) {
     rech_send(s, full);
     free(full);
 }
-`, mangleField("метод"), mangleField("путь"), mangleField("адрес"), mangleField("заголовки"),
-		mangleField("порт"), mangleField("тело"), mangleType("Запрос"), mangleType("Ответ"),
-		mangleField("код"), rtmsg.HTTPServerRecvFailed, maxRequestBytes, rtmsg.HTTPServerRequestTooLarge)
+`, methodField, pathField, addrField, headersField,
+		portField, bodyField, requestType, responseType,
+		codeField, recvFailedMsg, maxRequestBytes, requestTooLargeMsg)
 }
 
-// queryParamsDictType - см. internal/semantic/httpserver.go,
+// QueryParamsDictType - см. internal/semantic/httpserver.go,
 // registerHTTPServerFuncs - имя generic-инстанциации, принудительно
 // зарегистрированной для "параметры_пути" (попадает в prog.Generics тем же
 // путём, что и любая generic-коллекция, реально написанная пользователем -
 // buildIR не различает "пользователь написал" от "builtin зарегистрировал")
 // - typedef/методы уже эмитятся общим циклом по prog.Generics раньше этого
 // блока.
-const queryParamsDictType = "Словарь<Строка, Строка>"
+const QueryParamsDictType = "Словарь<Строка, Строка>"
 
-// queryParamsHelper - "параметры_пути" (см. internal/semantic/
+// QueryParamsHelper - "параметры_пути" (см. internal/semantic/
 // httpserver.go, package doc) - разбирает query-строку ("?a=1&b=2" - часть
 // до "?", если есть, игнорируется) в Словарь<Строка, Строка> с процент-
 // декодированием (rech_qp_url_decode - тот же алгоритм, что
@@ -341,8 +342,12 @@ const queryParamsDictType = "Словарь<Строка, Строка>"
 // описано в Шаг 41 связал баг именно с рефлексией,
 // вероятно, по конкретному примеру, где он был впервые замечен, а не по
 // действительной причине). Исправлено - GC_MALLOC вместо стековой
-// структуры, возврат указателя.
-var queryParamsHelper = fmt.Sprintf(`static int rech_qp_hex_digit(char c) {
+// структуры, возврат указателя. dictType/addMethod - уже вычисленные
+// вызывающей стороной (mangleType/mangleMethod - внутренняя,
+// неэкспортированная инфраструктура cbackend, этот пакет от неё не
+// зависит).
+func QueryParamsHelper(dictType, addMethod string) string {
+	return fmt.Sprintf(`static int rech_qp_hex_digit(char c) {
     if (c >= '0' && c <= '9') return c - '0';
     if (c >= 'a' && c <= 'f') return c - 'a' + 10;
     if (c >= 'A' && c <= 'F') return c - 'A' + 10;
@@ -408,4 +413,5 @@ static %[1]s *rech_query_params(const char *path) {
     }
     return out;
 }
-`, mangleType(queryParamsDictType), mangleMethod(queryParamsDictType, "установить"))
+`, dictType, addMethod)
+}

@@ -17,11 +17,15 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/console"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/crypto"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/datetime"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/httpbytes"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/httpserver"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/httpwire"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/image"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/multipart"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/process"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/strutil"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/syncprim"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/udp"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
@@ -1678,16 +1682,21 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// Ответ по значению, их typedef должен быть уже виден.
 	appendCodeIf(&sb, ctx.usesHTTP, httpHelpers)
 	// После typedefs, тем же принципом, что и usesHTTP выше.
-	appendCodeIf(&sb, ctx.usesHTTPServer, httpServerHelpersCode(prog.HTTPMaxRequestBytes))
+	appendCodeIf(&sb, ctx.usesHTTPServer, httpserver.Helpers(prog.HTTPMaxRequestBytes,
+		mangleField("метод"), mangleField("путь"), mangleField("адрес"), mangleField("заголовки"),
+		mangleField("порт"), mangleField("тело"), mangleType("Запрос"), mangleType("Ответ"),
+		mangleField("код"), rtmsg.HTTPServerRecvFailed, rtmsg.HTTPServerRequestTooLarge))
 	// После typedefs и rechDupHelper выше - rech_recv_from возвращает
 	// "Дейтаграмма" по значению (её typedef уже должен быть виден) и
 	// зовёт rech_dup для адреса отправителя.
-	appendCodeIf(&sb, ctx.usesUDPDatagram, udpDatagramHelpers())
+	appendCodeIf(&sb, ctx.usesUDPDatagram, udp.DatagramHelpers(mangleType("Дейтаграмма"),
+		mangleField("данные"), mangleField("адрес"), mangleField("порт")))
 	// После genericsCode выше - rech_query_params использует typedef/
 	// метод "установить" Словарь<Строка, Строка>, уже эмитированные там
 	// (queryParamsDictType зарегистрирован в prog.Generics принудительно,
 	// см. internal/semantic/httpserver.go).
-	appendCodeIf(&sb, ctx.usesQueryParams, queryParamsHelper)
+	appendCodeIf(&sb, ctx.usesQueryParams, httpserver.QueryParamsHelper(
+		mangleType(httpserver.QueryParamsDictType), mangleMethod(httpserver.QueryParamsDictType, "установить")))
 	// После genericsCode выше - rech_bytes_wrap (bytesio.go, bytesWrapHelper)
 	// использует typedef Список<Байт> (зарегистрирован в prog.Generics
 	// принудительно, internal/semantic/bytesio.go). Нужна и bytesIOHelpers
@@ -1731,7 +1740,9 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	appendCodeIf(&sb, ctx.usesByteStringConv, bytesio.StringConvHelpers(mangleType(byteListType)))
 	// После bytesWrapHelper (rech_bytes_wrap) И rechDupHelper (rech_dup)
 	// выше - rech_parse_multipart (multipart.go) использует обе.
-	appendCodeIf(&sb, ctx.usesMultipart, multipartHelpers())
+	appendCodeIf(&sb, ctx.usesMultipart, multipart.Helpers(mangleType(byteListType), mangleType(multipart.FormPartType),
+		mangleType(multipart.ResultType), mangleField("имя"), mangleField("имя_файла"), mangleField("тип_содержимого"),
+		mangleField("данные"), mangleMethod(multipart.ResultType, "добавить"), rtmsg.MultipartMissingBoundary))
 	// После genericsCode выше И после fileHelpers (usesFileIO, эмитирована
 	// намного раньше) - rech_read_bytes и соседи (internal/backend/
 	// cbackend/bytesio.go) используют typedef/методы Список<Байт>
@@ -1759,7 +1770,9 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// (usesHTTPServer, эмитирована раньше - rech_recv_http_request/
 	// rech_http_parse_head) - rech_http_accept_request_bytes/rech_http_
 	// send_response_bytes (httpbytes.go) используют и то, и другое.
-	appendCodeIf(&sb, ctx.usesHTTPBytes, httpBytesHelpers())
+	appendCodeIf(&sb, ctx.usesHTTPBytes, httpbytes.Helpers(mangleType(httpbytes.RequestType), mangleType(httpbytes.ResponseType),
+		mangleField("адрес"), mangleField("порт"), mangleField("метод"), mangleField("путь"),
+		mangleField("тело"), mangleField("заголовки"), mangleField("код")))
 	// После genericsCode выше - rech_split_string использует typedef/метод
 	// "добавить" Список<Строка>, уже эмитированные там (splitResultType
 	// зарегистрирован в prog.Generics принудительно, см. internal/semantic/

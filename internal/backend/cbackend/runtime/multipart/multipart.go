@@ -3,35 +3,27 @@
 // полный RFC-парсер). Эмитится ПОСЛЕ genericsCode (typedef/метод
 // "добавить" Список<ЧастьФормы>, зарегистрирован в prog.Generics
 // принудительно) И ПОСЛЕ bytesWrapHelper (rech_bytes_wrap).
-package cbackend
+package multipart
 
-import (
-	"fmt"
+import "fmt"
 
-	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
-)
-
+// FormPartType/ResultType - см. internal/semantic/multipart.go, package
+// doc queryParamsDictType (httpserver.go) для того же принципа
+// дублирования имени константой в обоих пакетах.
 const (
-	formPartType        = "ЧастьФормы"
-	multipartResultType = "Список<ЧастьФормы>"
+	FormPartType = "ЧастьФормы"
+	ResultType   = "Список<ЧастьФормы>"
 )
 
-// multipartHelpers - "разобрать_multipart(тело, заголовки): Список<
-// ЧастьФормы>". "Список<T>" над сущностью (в отличие от "Список<Байт>")
-// хранит элементы ПО ЗНАЧЕНИЮ (тот же приём, что и regex.go,
-// rech_regex_find_all - "Совпадение item; ...; добавить(result, item)") -
-// не нужен отдельный конструктор "ЧастьФормы", просто локальная
-// переменная-структура на каждую часть.
-func multipartHelpers() string {
-	byteType := mangleType(byteListType)
-	resultType := mangleType(multipartResultType)
-	partType := mangleType(formPartType)
-	addMethod := mangleMethod(multipartResultType, "добавить")
-	nameField := mangleField("имя")
-	filenameField := mangleField("имя_файла")
-	contentTypeField := mangleField("тип_содержимого")
-	dataField := mangleField("данные")
-
+// Helpers - "разобрать_multipart(тело, заголовки): Список<ЧастьФормы>".
+// "Список<T>" над сущностью (в отличие от "Список<Байт>") хранит элементы
+// ПО ЗНАЧЕНИЮ (тот же приём, что и regex.go, rech_regex_find_all -
+// "Совпадение item; ...; добавить(result, item)") - не нужен отдельный
+// конструктор "ЧастьФормы", просто локальная переменная-структура на
+// каждую часть. Параметры - уже вычисленные вызывающей стороной
+// (mangleType/mangleField/mangleMethod - внутренняя, неэкспортированная
+// инфраструктура cbackend, этот пакет от неё не зависит).
+func Helpers(byteType, partType, resultType, nameField, filenameField, contentTypeField, dataField, addMethod, missingBoundaryMsg string) string {
 	return fmt.Sprintf(`// rech_memfind - ищет needle (needlelen байт) в haystack (haylen байт) -
 // собственная реализация, не memmem (GNU-расширение, не гарантирован на
 // MinGW/Windows) - NULL, если не найдено. needlelen <= 0 - совпадает с
@@ -250,5 +242,5 @@ static %[3]s *rech_parse_multipart(%[1]s *body, const char *headers) {
     free(delim);
     return result;
 }
-`, byteType, partType, resultType, nameField, filenameField, contentTypeField, dataField, addMethod, rtmsg.MultipartMissingBoundary)
+`, byteType, partType, resultType, nameField, filenameField, contentTypeField, dataField, addMethod, missingBoundaryMsg)
 }

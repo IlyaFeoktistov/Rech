@@ -1,4 +1,4 @@
-package cbackend
+package udp
 
 import (
 	"fmt"
@@ -6,19 +6,17 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
-// udpDatagramHelpers - "получить_от"/"отправить_в" (internal/semantic,
+// DatagramHelpers - "получить_от"/"отправить_в" (internal/semantic,
 // registerNetworkFuncs) - recvfrom/sendto над udp-узлом, полученным
 // "сетевой_узел(СетевойПротокол.UDP, "", порт)" (см. rech_listen_udp, builtins_shared.go) -
 // в отличие от rech_recv/rech_send (подключённый сокет, собеседник уже
 // зафиксирован connect()), здесь каждый вызов сам несёт адрес - "Дейтаграмма"
 // (result "получить_от") несёт АДРЕС ОТПРАВИТЕЛЯ, чтобы ответить именно ему
-// через "отправить_в", без отдельного "подключения".
-func udpDatagramHelpers() string {
-	datagramC := mangleType("Дейтаграмма")
-	dataField := mangleField("данные")
-	addrField := mangleField("адрес")
-	portField := mangleField("порт")
-
+// через "отправить_в", без отдельного "подключения". datagramC/dataField/
+// addrField/portField - уже вычисленные вызывающей стороной (mangleType/
+// mangleField - внутренняя, неэкспортированная инфраструктура cbackend,
+// этот пакет от неё не зависит).
+func DatagramHelpers(datagramC, dataField, addrField, portField string) string {
 	return fmt.Sprintf(`static %[1]s rech_recv_from(rech_socket_t s, long long max) {
     if (max <= 0) {
         rech_panic("%[6]s");
