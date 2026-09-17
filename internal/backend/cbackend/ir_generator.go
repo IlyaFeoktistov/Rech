@@ -19,6 +19,7 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/httpwire"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/process"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/strutil"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/syncprim"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
@@ -681,10 +682,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	for _, fn := range prog.Functions {
 		ctx.irFuncs[fn.Name] = fn
 	}
-	if ent, ok := entities[mutexEntityName]; ok && ent.IsMutex {
+	if ent, ok := entities[syncprim.MutexEntityName]; ok && ent.IsMutex {
 		ctx.usesMutex = true
 	}
-	if ent, ok := entities[semaphoreEntityName]; ok && ent.IsSemaphore {
+	if ent, ok := entities[syncprim.SemaphoreEntityName]; ok && ent.IsSemaphore {
 		ctx.usesSemaphore = true
 	}
 	if ent, ok := entities[transactionEntityName]; ok && ent.IsTransaction {
@@ -976,13 +977,15 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// функций/методов программы), поэтому код, использующий её РАНЬШЕ
 		// по файлу, не может полагаться на текстовый порядок определений,
 		// как обычные сущности - только на эти прототипы.
-		protos.WriteString(mutexPrototypes())
+		protos.WriteString(syncprim.MutexPrototypes(mangleType(syncprim.MutexEntityName), mangleCtor(syncprim.MutexEntityName),
+			mangleMethod(syncprim.MutexEntityName, "захватить"), mangleMethod(syncprim.MutexEntityName, "освободить")))
 	}
 	if ctx.usesSemaphore {
 		// Та же причина, что у mutexPrototypes выше - "Семафор" тоже может
 		// добавиться в out.Entities поздно относительно кода, который её
 		// использует.
-		protos.WriteString(semaphorePrototypes())
+		protos.WriteString(syncprim.SemaphorePrototypes(mangleType(syncprim.SemaphoreEntityName), mangleCtor(syncprim.SemaphoreEntityName),
+			mangleMethod(syncprim.SemaphoreEntityName, "захватить"), mangleMethod(syncprim.SemaphoreEntityName, "освободить")))
 	}
 	if ctx.usesDBTransaction {
 		// Та же причина, что у mutexPrototypes/semaphorePrototypes выше.

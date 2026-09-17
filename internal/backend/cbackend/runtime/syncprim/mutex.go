@@ -10,46 +10,49 @@
 // здесь, а не генератором обычных методов/полей (generateIREntityStruct/
 // generateIREntityCtor только распознают IsMutex и отдают этот текст, не
 // строят его из Fields/Methods, которых у неё попросту нет).
-package cbackend
+//
+// Функции этого файла принимают уже вычисленные C-идентификаторы
+// (mangleType/mangleCtor/mangleMethod - internal/backend/cbackend/mangle.go)
+// параметрами, а не вычисляют их сами - mangleType/mangleCtor/mangleMethod
+// не экспортированы (внутренняя инфраструктура cbackend), а этот пакет не
+// зависит от cbackend вовсе (см. package doc внутри repo про подпакеты
+// runtime/*).
+package syncprim
 
 import "fmt"
 
-const mutexEntityName = "Блокировка"
+// MutexEntityName - Rech-имя сущности "Блокировка".
+const MutexEntityName = "Блокировка"
 
-// mutexStructTypedef - C-структура "Блокировка": единственный член -
+// MutexStructTypedef - C-структура "Блокировка": единственный член -
 // нативный примитив ОС, без "vt" (никогда не участвует в наследовании/
 // интерфейсах).
-func mutexStructTypedef() string {
+func MutexStructTypedef(mangledType string) string {
 	return fmt.Sprintf(
 		"typedef struct {\n#ifdef _WIN32\n    CRITICAL_SECTION native;\n#else\n    pthread_mutex_t native;\n#endif\n} %s;\n\n",
-		mangleType(mutexEntityName),
+		mangledType,
 	)
 }
 
-// mutexPrototypes - прототипы конструктора и обоих методов "Блокировки" -
+// MutexPrototypes - прототипы конструктора и обоих методов "Блокировки" -
 // эмитятся в общий "protos" builder (ir_generator.go), независимо от того,
 // в какой момент выполнения программы её ir.Entity добавлен в
 // prog.Entities (см. package doc internal/semantic/analyzer.go, buildIR,
 // про то, почему это может случиться поздно, уже после кода, который её
 // использует).
-func mutexPrototypes() string {
-	cType := mangleType(mutexEntityName)
+func MutexPrototypes(mangledType, ctorName, lockMethod, unlockMethod string) string {
 	return fmt.Sprintf(
 		"static %[1]s *%[2]s(void);\nstatic void %[3]s(%[1]s *this_);\nstatic void %[4]s(%[1]s *this_);\n",
-		cType, mangleCtor(mutexEntityName), mangleMethod(mutexEntityName, "захватить"), mangleMethod(mutexEntityName, "освободить"),
+		mangledType, ctorName, lockMethod, unlockMethod,
 	)
 }
 
-// mutexRuntimeCode - конструктор ("новая Блокировка()") и оба метода
+// MutexRuntimeCode - конструктор ("новая Блокировка()") и оба метода
 // ("захватить"/"освободить") одним куском - эмитится безусловно, ровно
 // один раз, только если ctx.usesMutex (см. GenerateFromIR). Позиция в файле
 // (тот же builder, что и generateIREntityCtor обычных сущностей) - раньше
 // тел функций/методов программы, которые могут её вызывать.
-func mutexRuntimeCode() string {
-	cType := mangleType(mutexEntityName)
-	ctor := mangleCtor(mutexEntityName)
-	lock := mangleMethod(mutexEntityName, "захватить")
-	unlock := mangleMethod(mutexEntityName, "освободить")
+func MutexRuntimeCode(mangledType, ctorName, lockMethod, unlockMethod string) string {
 	return fmt.Sprintf(`static %[1]s *%[2]s(void) {
     %[1]s *p = GC_MALLOC(sizeof(%[1]s));
 #ifdef _WIN32
@@ -76,5 +79,5 @@ static void %[4]s(%[1]s *this_) {
 #endif
 }
 
-`, cType, ctor, lock, unlock)
+`, mangledType, ctorName, lockMethod, unlockMethod)
 }

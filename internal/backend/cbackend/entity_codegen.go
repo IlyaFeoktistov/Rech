@@ -8,17 +8,20 @@ import (
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/codegen"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/syncprim"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/timespec"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
+	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
 // generateIREntityStruct - C typedef struct для ent, как
 // C typedef struct для ent, по уже собранным internal/ir.Field.
 func generateIREntityStruct(ctx *irGenCtx, ent *ir.Entity) (string, error) {
 	if ent.IsMutex {
-		return mutexStructTypedef(), nil
+		return syncprim.MutexStructTypedef(mangleType(syncprim.MutexEntityName)), nil
 	}
 	if ent.IsSemaphore {
-		return semaphoreStructTypedef(), nil
+		return syncprim.SemaphoreStructTypedef(mangleType(syncprim.SemaphoreEntityName)), nil
 	}
 	if ent.IsTransaction {
 		return dbtxTypedefCode(), nil
@@ -92,10 +95,17 @@ func generateIREntityStruct(ctx *irGenCtx, ent *ir.Entity) (string, error) {
 // тип, не код на каждый "новый" - тот же принцип, что и у show-функций.
 func generateIREntityCtor(ctx *irGenCtx, ent *ir.Entity) (string, error) {
 	if ent.IsMutex {
-		return mutexRuntimeCode(), nil
+		cType := mangleType(syncprim.MutexEntityName)
+		return syncprim.MutexRuntimeCode(cType, mangleCtor(syncprim.MutexEntityName),
+			mangleMethod(syncprim.MutexEntityName, "захватить"), mangleMethod(syncprim.MutexEntityName, "освободить")), nil
 	}
 	if ent.IsSemaphore {
-		return semaphoreRuntimeCode(), nil
+		cType := mangleType(syncprim.SemaphoreEntityName)
+		timeoutPanic := fmt.Sprintf(`rech_panic("%s");`, escapeCString(rtmsg.SemaphoreAcquireTimeout))
+		deadlineCode := timespec.DeadlineCode("rech_sem_deadline", "таймаут_мс")
+		return syncprim.SemaphoreRuntimeCode(cType, mangleCtor(syncprim.SemaphoreEntityName),
+			mangleMethod(syncprim.SemaphoreEntityName, "захватить"), mangleMethod(syncprim.SemaphoreEntityName, "освободить"),
+			timeoutPanic, deadlineCode), nil
 	}
 	if ent.IsTransaction {
 		// "Транзакция" не имеет ни конструктора, ни обычных полей вообще

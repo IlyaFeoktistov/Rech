@@ -22,41 +22,36 @@
 // - относительный таймаут, переиздаваемый заново на каждой итерации цикла
 // (та же осознанная неточность при ложных пробуждениях, что и у
 // rech_db_checkout - не новое допущение).
-package cbackend
+package syncprim
 
-import (
-	"fmt"
+import "fmt"
 
-	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/timespec"
-	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
-)
+// SemaphoreEntityName - Rech-имя сущности "Семафор".
+const SemaphoreEntityName = "Семафор"
 
-const semaphoreEntityName = "Семафор"
-
-// semaphoreStructTypedef - C-структура "Семафор": счётчик разрешений +
+// SemaphoreStructTypedef - C-структура "Семафор": счётчик разрешений +
 // нативный мьютекс+condvar, без "vt" (никогда не участвует в
 // наследовании/интерфейсах, как и "Блокировка").
-func semaphoreStructTypedef() string {
+func SemaphoreStructTypedef(mangledType string) string {
 	return fmt.Sprintf(
 		"typedef struct {\n    long long count;\n#ifdef _WIN32\n    CRITICAL_SECTION mutex;\n    CONDITION_VARIABLE cond;\n#else\n    pthread_mutex_t mutex;\n    pthread_cond_t cond;\n#endif\n} %s;\n\n",
-		mangleType(semaphoreEntityName),
+		mangledType,
 	)
 }
 
-// semaphorePrototypes - прототипы конструктора и обоих методов "Семафора" -
+// SemaphorePrototypes - прототипы конструктора и обоих методов "Семафора" -
 // эмитятся в общий "protos" builder (ir_generator.go), тем же принципом,
-// что и mutexPrototypes (её package doc - тот же порядковый аргумент:
+// что и MutexPrototypes (её package doc - тот же порядковый аргумент:
 // "Семафор" может добавиться в prog.Entities поздно относительно кода,
 // который её использует).
-func semaphorePrototypes() string {
-	cType := mangleType(semaphoreEntityName)
+func SemaphorePrototypes(mangledType, ctorName, acquireMethod, releaseMethod string) string {
 	return fmt.Sprintf(
 		"static %[1]s *%[2]s(long long начальное_значение);\nstatic void %[3]s(%[1]s *this_, long long таймаут_мс);\nstatic void %[4]s(%[1]s *this_);\n",
-		cType, mangleCtor(semaphoreEntityName), mangleMethod(semaphoreEntityName, "захватить"), mangleMethod(semaphoreEntityName, "освободить"),
+		mangledType, ctorName, acquireMethod, releaseMethod,
 	)
 }
 
-// semaphoreRuntimeCode - конструктор ("новый Семафор(N)") и оба метода
+// SemaphoreRuntimeCode - конструктор ("новый Семафор(N)") и оба метода
 // ("захватить"/"освободить") одним куском - эмитится безусловно, ровно один
 // раз, только если ctx.usesSemaphore (см. GenerateFromIR). "захватить"
 // ждёт, пока count не станет > 0 (pthread_cond_wait/SleepConditionVariableCS
@@ -65,20 +60,14 @@ func semaphorePrototypes() string {
 // WakeConditionVariable, не broadcast - "захватить" сам решит, кому из
 // нескольких ожидающих в итоге достанется разрешение, обычная семантика
 // счётного семафора).
-func semaphoreRuntimeCode() string {
-	cType := mangleType(semaphoreEntityName)
-	ctor := mangleCtor(semaphoreEntityName)
-	acquire := mangleMethod(semaphoreEntityName, "захватить")
-	release := mangleMethod(semaphoreEntityName, "освободить")
-	// timeoutPanic/deadlineCode - изолированные fmt.Sprintf каждый ровно на
-	// свою подстановку, а не единый Sprintf на весь текст функции целиком
-	// (тем же приёмом и по той же причине, что dbCommonHelperFuncsCode,
-	// db.go) - оба уже несут настоящие "%" (rtmsg-сообщение может
-	// содержать его, timespec.DeadlineCode - C-оператор деления по модулю),
-	// которые сломались бы, пройдя ЕЩЁ раз через внешний Sprintf ниже
-	// (интерпретировались бы как чужие verb'ы).
-	timeoutPanic := fmt.Sprintf(`rech_panic("%s");`, escapeCString(rtmsg.SemaphoreAcquireTimeout))
-	deadlineCode := timespec.DeadlineCode("rech_sem_deadline", "таймаут_мс")
+//
+// timeoutPanic/deadlineCode - уже готовые куски C (rech_panic(...)
+// с экранированным сообщением, вычисление дедлайна pthread_cond_timedwait -
+// timespec.DeadlineCode) - вычисляются вызывающей стороной
+// (entity_codegen.go), не этим пакетом: экранирование C-строк
+// (escapeCString) - внутренняя инфраструктура cbackend, этот пакет от неё
+// не зависит.
+func SemaphoreRuntimeCode(mangledType, ctorName, acquireMethod, releaseMethod, timeoutPanic, deadlineCode string) string {
 	return fmt.Sprintf(`static %[1]s *%[2]s(long long начальное_значение) {
     %[1]s *p = GC_MALLOC(sizeof(%[1]s));
     p->count = начальное_значение;
@@ -92,7 +81,7 @@ func semaphoreRuntimeCode() string {
     return p;
 }
 
-`, cType, ctor) +
+`, mangledType, ctorName) +
 		fmt.Sprintf(`static void %[1]s(%[2]s *this_, long long таймаут_мс) {
 #ifdef _WIN32
     EnterCriticalSection(&this_->mutex);
@@ -105,7 +94,7 @@ func semaphoreRuntimeCode() string {
         while (this_->count == 0) {
             if (!SleepConditionVariableCS(&this_->cond, &this_->mutex, ждать_мс)) {
                 LeaveCriticalSection(&this_->mutex);
-                `, acquire, cType) + timeoutPanic + `
+                `, acquireMethod, mangledType) + timeoutPanic + `
             }
         }
     }
@@ -145,5 +134,5 @@ func semaphoreRuntimeCode() string {
 #endif
 }
 
-`, release, cType)
+`, releaseMethod, mangledType)
 }
