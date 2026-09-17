@@ -109,7 +109,22 @@ func (d *doc) hoverBareName(name string, line int) (string, bool) {
 		if ctor, ok := d.entityCtorSignature(ent); ok {
 			header += "\n" + ctor
 		}
-		block := withDoc(codeBlock(header), ent.Doc)
+		// entDoc/builtinTypeDocs: сущность УЖЕ зарегистрирована в d.entities
+		// (значит где-то в файле встретилась раньше места наведения) - но у
+		// зарезервированных сущностей (internal/semantic/mutex.go,
+		// semaphore.go, dbtx.go, ...) ir.Entity строится напрямую компилятором
+		// и Doc никогда не заполняется (заполняется только для пользовательских
+		// сущностей из doc-комментария, internal/semantic/analyzer.go
+		// buildIR). Без этого отката ветка builtinTypeDocs ниже вообще не
+		// достигается (она под "else"-условием d.entities[name] отсутствует),
+		// и описание "Блокировка"/"Семафор"/"Транзакция"/... пропадает
+		// целиком, как только сущность где-то использована в файле
+		// (НАЙДЕННЫЙ БАГ - репортнуто пользователем).
+		entDoc := ent.Doc
+		if entDoc == "" {
+			entDoc = builtinTypeDocs[name]
+		}
+		block := withDoc(codeBlock(header), entDoc)
 		return block, true
 	}
 	if doc, ok := builtinTypeDocs[name]; ok {

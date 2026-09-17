@@ -87,3 +87,27 @@ func TestHoverOnMutexAcquireReleaseShowsDoc(t *testing.T) {
 		t.Fatalf("неожиданный текст hover: %q", text)
 	}
 }
+
+// TestHoverOnMutexTypeNameShowsDocAfterFirstUse - НАЙДЕННЫЙ БАГ: как только
+// "Блокировка" где-то встретилась в файле, она попадает в d.entities как
+// ir.Entity с пустым Doc (mutexIRType, internal/semantic/mutex.go - Doc
+// заполняется только у пользовательских сущностей, buildIR). hoverBareName
+// (internal/lsp/hover.go) до фикса брал описание ИСКЛЮЧИТЕЛЬНО из ent.Doc в
+// этой ветке, так что builtinTypeDocs (с настоящим описанием "мьютекс -
+// синхронизация...") никогда не проверялся - hover на самом имени типа
+// показывал только заголовок с конструктором, без единого слова описания.
+func TestHoverOnMutexTypeNameShowsDocAfterFirstUse(t *testing.T) {
+	d := newDoc("test://a.rech", mutexHoverTestSrc)
+	if d.irProg == nil {
+		t.Fatalf("документ не разобрался")
+	}
+	line := lineOf(t, mutexHoverTestSrc, "новая Блокировка()")
+	col := runeCol(t, "    переменная м = новая Блокировка()", "Блокировка")
+	text, ok := d.hover(line, col)
+	if !ok {
+		t.Fatalf("ожидался hover на имени типа Блокировка")
+	}
+	if !strings.Contains(text, "мьютекс") {
+		t.Fatalf("описание типа Блокировка пропало из hover: %q", text)
+	}
+}
