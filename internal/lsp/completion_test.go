@@ -40,6 +40,63 @@ func TestCompletionAfterDotListsFieldsAndMethods(t *testing.T) {
 	}
 }
 
+// TestCompletionGeneralIncludesInterfaces - живой баг: generalCompletion
+// перечислял функции/сущности верхнего уровня, но никогда - интерфейсы
+// (d.astInterfaces вообще не участвовал в цикле) - импортированный или
+// объявленный в этом же файле интерфейс не показывался в автодополнении
+// вовсе, хотя его можно написать как тип параметра/поля/"реализует".
+func TestCompletionGeneralIncludesInterfaces(t *testing.T) {
+	src := `
+интерфейс Печатаемый
+{
+    напечатать()
+}
+
+функция главная
+{
+    переменная а = 1
+}
+`
+	d := newDoc("test://a.rech", src)
+	line := lineOf(t, src, "переменная а = 1")
+	items := d.completion(line, 5)
+	for _, it := range items {
+		if it.Label == "Печатаемый" {
+			if it.Kind != kindInterface {
+				t.Fatalf("ожидался Kind == kindInterface, получено %d", it.Kind)
+			}
+			return
+		}
+	}
+	t.Fatalf("ожидался интерфейс \"Печатаемый\" в общем автодополнении, получено %+v", items)
+}
+
+// TestCompletionGeneralIncludesImportedInterface - тот же баг, что
+// TestCompletionGeneralIncludesInterfaces, но через "использовать" из
+// ДРУГОГО файла (multifile.go, applyLink - свой отдельный цикл заполнения
+// localNames, независимый от document.go).
+func TestCompletionGeneralIncludesImportedInterface(t *testing.T) {
+	dir := t.TempDir()
+	writeMultiFileSource(t, dir, "логгер.rech", multiFileLoggerSrc)
+	src := `использовать Логгер, КонсольныйЛоггер из "логгер"
+
+функция главная
+{
+    переменная х = 1
+}
+`
+	mainPath := writeMultiFileSource(t, dir, "главный.rech", src)
+	d := newDoc(fileURI(mainPath), src)
+	line := lineOf(t, src, "переменная х = 1")
+	items := d.completion(line, 5)
+	for _, it := range items {
+		if it.Label == "Логгер" && it.Kind == kindInterface {
+			return
+		}
+	}
+	t.Fatalf("ожидался импортированный интерфейс \"Логгер\" в общем автодополнении, получено %+v", items)
+}
+
 func TestCompletionGeneralListsLocalsAndFunctions(t *testing.T) {
 	d := newDoc("test://a.rech", hoverTestSrc)
 	line := lineOf(t, hoverTestSrc, "вернуть итог")

@@ -229,6 +229,14 @@ func (d *doc) applyLink(res linkResult) {
 			d.localNames[f.Name] = true
 		}
 	}
+	// ast.InterfaceDecl не несёт File вовсе (в отличие от Entity/Function
+	// выше) - "своя" проверка идёт через d.astProg (ВСЕГДА разбор именно
+	// этого буфера, см. package doc document.go), не res.ast (объединённое
+	// дерево всего графа импортов) - тот же приём, что уже использует
+	// codelens.go для "собственных объявлений документа".
+	for _, iface := range d.astProg.Interfaces {
+		d.localNames[iface.Name] = true
+	}
 	for _, imp := range res.entryImports {
 		mangled := importedMergedName(imp)
 		d.localNames[imp.Alias] = true

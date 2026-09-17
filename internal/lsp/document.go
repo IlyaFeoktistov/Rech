@@ -233,6 +233,9 @@ func (d *doc) update(text string) {
 		for _, f := range astProg.Functions {
 			d.localNames[f.Name] = true
 		}
+		for _, iface := range astProg.Interfaces {
+			d.localNames[iface.Name] = true
+		}
 	}
 	d.scopes = buildScopes(astProg, d.irProg)
 }

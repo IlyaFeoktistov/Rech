@@ -9,8 +9,8 @@ import (
 
 // CompletionItem - один элемент списка автодополнения - Kind использует
 // числовые значения LSP CompletionItemKind напрямую (2 - Method, 3 -
-// Function, 5 - Field, 6 - Variable, 7 - Class, 14 - Keyword), не заводит
-// собственный enum поверх них.
+// Function, 5 - Field, 6 - Variable, 7 - Class, 8 - Interface, 14 -
+// Keyword, 17 - File), не заводит собственный enum поверх них.
 type CompletionItem struct {
 	Label         string `json:"label"`
 	Kind          int    `json:"kind"`
@@ -19,13 +19,14 @@ type CompletionItem struct {
 }
 
 const (
-	kindMethod   = 2
-	kindFunction = 3
-	kindField    = 5
-	kindVariable = 6
-	kindClass    = 7
-	kindKeyword  = 14
-	kindFile     = 17
+	kindMethod    = 2
+	kindFunction  = 3
+	kindField     = 5
+	kindVariable  = 6
+	kindClass     = 7
+	kindKeyword   = 14
+	kindFile      = 17
+	kindInterface = 8
 )
 
 // keywords - фиксированный список ключевых слов для общего автодополнения
@@ -136,6 +137,14 @@ func (d *doc) generalCompletion(line int) []CompletionItem {
 			continue
 		}
 		out = append(out, CompletionItem{Label: label, Kind: kindClass, Documentation: strings.TrimSpace(ent.Doc)})
+	}
+	for label := range d.astInterfaces {
+		if !d.localNames[label] {
+			continue
+		}
+		// ast.InterfaceDecl не несёт Doc вовсе (интерфейсы пока не
+		// поддерживают doc-комментарий) - только имя, без Documentation.
+		out = append(out, CompletionItem{Label: label, Kind: kindInterface})
 	}
 	for _, kw := range keywords {
 		out = append(out, CompletionItem{Label: kw, Kind: kindKeyword})
