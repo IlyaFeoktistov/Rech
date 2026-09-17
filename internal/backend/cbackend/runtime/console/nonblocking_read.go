@@ -1,6 +1,6 @@
-package cbackend
+package console
 
-// nonBlockingReadRuntimeCode - "можно_прочитать_байт(файл: Файл, миллисекунды:
+// NonBlockingReadRuntimeCode - "можно_прочитать_байт(файл: Файл, миллисекунды:
 // Целое): Логическое" (docs/SPEC.md) - истина, если из "файл" можно
 // прочитать хотя бы один байт без блокировки в течение "миллисекунды" мс
 // (poll на POSIX, WaitForSingleObject на Windows) - ложь, если истёк
@@ -15,7 +15,7 @@ package cbackend
 // к чтению" немедленно (POSIX не блокирует чтение обычных файлов), это
 // естественное (не специально обрабатываемое) поведение poll()/
 // WaitForSingleObject на таких дескрипторах.
-func nonBlockingReadRuntimeCode() string {
+func NonBlockingReadRuntimeCode() string {
 	return `static bool rech_can_read(rech_file_t f, long long timeout_ms) {
 #ifndef _WIN32
     struct pollfd pfd;

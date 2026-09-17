@@ -22,7 +22,7 @@ import (
 // (Rech "Строка" в cbackend - "const char *" без отдельно хранимой длины,
 // сырой дайджест мог бы содержать 0x00 внутри и потерять хвост при любой
 // операции, использующей strlen). Buffer выделяется через malloc, не
-// GC_MALLOC - тем же принципом, что и stringOpsHelpers/randomHelpers:
+// GC_MALLOC - тем же принципом, что и strutil.Helpers/randomHelpers:
 // программа, вызвавшая только эти функции, не должна тянуть за собой
 // Boehm GC (<gc.h>).
 var cryptoHelpers = fmt.Sprintf(`static const uint32_t rech_sha256_k[64] = {

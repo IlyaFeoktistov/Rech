@@ -1,6 +1,6 @@
-package cbackend
+package console
 
-// consoleRuntimeCode - "установить_сырой_режим(Логическое)"/
+// RuntimeCode - "установить_сырой_режим(Логическое)"/
 // "ширина_терминала()"/"высота_терминала()" (docs/SPEC.md) - минимум,
 // нужный полноэкранному консольному интерфейсу (TUI), которого не сделать
 // чистым Rech-кодом (в отличие от курсора/цвета - те просто печатают ANSI-
@@ -20,7 +20,7 @@ package cbackend
 // #ifdef _WIN32 - другой набор API (SetConsoleMode вместо termios,
 // GetConsoleScreenBufferInfo вместо ioctl) - тот же принцип, что и у
 // сетевого кода (winsock2 вместо BSD sockets).
-func consoleRuntimeCode() string {
+func RuntimeCode() string {
 	return `#ifndef _WIN32
 static struct termios rech_orig_termios;
 static bool rech_raw_mode_saved = false;

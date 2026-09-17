@@ -5,11 +5,12 @@
 // rech_cookie_value (cookies.go, см. её package doc - case-insensitive
 // потребовал бы непортируемой libc-функции вроде strncasecmp, которой в
 // рантайме до сих пор нигде нет).
-package cbackend
+package httpwire
 
 import "fmt"
 
-func headerValueHelper(nullableStrC string) string {
+// HeaderValueHelper - C-рантайм "значение_заголовка(заголовки, имя)".
+func HeaderValueHelper(nullableStrC string) string {
 	return fmt.Sprintf(`static %[1]s rech_header_value(const char *headers, const char *name) {
     size_t name_len = strlen(name);
     const char *line = headers;

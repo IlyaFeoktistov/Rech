@@ -39,9 +39,10 @@
 // КАЖДЫЙ раз - O(n²) в худшем случае (много мелких чанков), но это
 // минимальный справочный HTTP-сервер, не потоковый парсер под нагрузку
 // (см. package doc httpserver.go), простота важнее.
-package cbackend
+package httpwire
 
-const chunkedHelpers = `static int rech_http_is_chunked(const char *buf, const char *end) {
+// ChunkedHelpers - C-рантайм разбора chunked transfer encoding.
+const ChunkedHelpers = `static int rech_http_is_chunked(const char *buf, const char *end) {
     static const char want[] = "transfer-encoding";
     for (const char *p = buf; p + 17 <= end; p++) {
         int match = 1;

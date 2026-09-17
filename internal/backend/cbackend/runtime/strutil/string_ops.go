@@ -1,4 +1,4 @@
-package cbackend
+package strutil
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
-// stringOpsHelpers - "длина_строки"/"подстрока"/"позиция_в_строке"/"обрезать"
+// Helpers - "длина_строки"/"подстрока"/"позиция_в_строке"/"обрезать"
 // (internal/builtins.All) - индексация по КОДОВЫМ ТОЧКАМ Unicode, не
 // байтам (тем же принципом, что и "Символ" - см. package doc
 // rech_cast_str_to_char, cast.go): строка UTF-8 - переменной ширины на
@@ -16,7 +16,7 @@ import (
 // символы (' '/'\t'/'\n'/'\r') все однобайтовые в UTF-8 и никогда не
 // встречаются продолжающим байтом многобайтовой последовательности,
 // поэтому голое byte-сканирование границ безопасно, strlen здесь уместна.
-var stringOpsHelpers = fmt.Sprintf(`// rech_utf8_byte_offset - байтовое смещение начала code point'а с
+var Helpers = fmt.Sprintf(`// rech_utf8_byte_offset - байтовое смещение начала code point'а с
 // индексом codepointIndex (0-based) - NULL, если строка короче.
 static const char *rech_utf8_byte_offset(const char *s, long long codepointIndex) {
     long long n = 0;

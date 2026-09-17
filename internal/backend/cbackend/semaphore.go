@@ -27,6 +27,7 @@ package cbackend
 import (
 	"fmt"
 
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/timespec"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
@@ -73,11 +74,11 @@ func semaphoreRuntimeCode() string {
 	// свою подстановку, а не единый Sprintf на весь текст функции целиком
 	// (тем же приёмом и по той же причине, что dbCommonHelperFuncsCode,
 	// db.go) - оба уже несут настоящие "%" (rtmsg-сообщение может
-	// содержать его, timespecDeadlineCode - C-оператор деления по модулю),
+	// содержать его, timespec.DeadlineCode - C-оператор деления по модулю),
 	// которые сломались бы, пройдя ЕЩЁ раз через внешний Sprintf ниже
 	// (интерпретировались бы как чужие verb'ы).
 	timeoutPanic := fmt.Sprintf(`rech_panic("%s");`, escapeCString(rtmsg.SemaphoreAcquireTimeout))
-	deadlineCode := timespecDeadlineCode("rech_sem_deadline", "таймаут_мс")
+	deadlineCode := timespec.DeadlineCode("rech_sem_deadline", "таймаут_мс")
 	return fmt.Sprintf(`static %[1]s *%[2]s(long long начальное_значение) {
     %[1]s *p = GC_MALLOC(sizeof(%[1]s));
     p->count = начальное_значение;

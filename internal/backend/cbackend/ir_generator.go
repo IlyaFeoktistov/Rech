@@ -12,6 +12,11 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/console"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/datetime"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/httpwire"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/process"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/strutil"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
@@ -1648,7 +1653,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// (httpHelpers), и серверу
 	// (httpServerHelpers) - эмитится один раз перед обоими, тем же
 	// принципом, что и rechDupHelper выше.
-	appendCodeIf(&sb, ctx.usesHTTP || ctx.usesHTTPServer, chunkedHelpers)
+	appendCodeIf(&sb, ctx.usesHTTP || ctx.usesHTTPServer, httpwire.ChunkedHelpers)
 
 	// После typedefs - rech_http_request принимает/возвращает Запрос/
 	// Ответ по значению, их typedef должен быть уже виден.
@@ -1747,7 +1752,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// После typedefs (rech_T_n_data_vremya - "?ДатаВремя" - уже объявлен,
 	// если usesDateParse) - rech_parse_date не зависит от datetimeHelpers
 	// выше (чистый разбор строки, без календарной арифметики).
-	appendCodeIf(&sb, ctx.usesDateParse, dateParseHelpers(mangleType("ДатаВремя"),
+	appendCodeIf(&sb, ctx.usesDateParse, datetime.ParseHelpers(mangleType("ДатаВремя"),
 		mangleField("год"), mangleField("месяц"), mangleField("день"),
 		mangleField("час"), mangleField("минута"), mangleField("секунда"),
 		mangleType("?ДатаВремя")))
@@ -1759,11 +1764,11 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		mangleField("час"), mangleField("минута"), mangleField("секунда"),
 		mangleType("?ДатаВремя"), mangleType("?Целое")))
 	// После datetimeHelpers выше (rech_day_of_week зовёт rech_days_from_civil).
-	appendCodeIf(&sb, ctx.usesDayOfWeek, dayOfWeekHelper(mangleType("ДатаВремя"),
+	appendCodeIf(&sb, ctx.usesDayOfWeek, datetime.DayOfWeekHelper(mangleType("ДатаВремя"),
 		mangleField("год"), mangleField("месяц"), mangleField("день")))
 	// После datetimeHelpers выше (rech_date_to_human зовёт rech_date_to_time/
 	// rech_time_now).
-	appendCodeIf(&sb, ctx.usesHumanDate, humanDateHelper(mangleType("ДатаВремя")))
+	appendCodeIf(&sb, ctx.usesHumanDate, datetime.HumanDateHelper(mangleType("ДатаВремя")))
 	appendCodeIf(&sb, ctx.usesColor, colorHelpers)
 	// numbase.go - "целое_в_*"/"целое_из_*" - не зависит от typedefs, только
 	// примитивы (Целое/Строка) - "из_*" зовёт rech_panic (panicHelper выше).
@@ -1771,13 +1776,13 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	appendCodeIf(&sb, ctx.usesNumBase, numBaseFromStringHelpers())
 	// process.go - "спать_мс" - не зависит от typedefs, только примитив
 	// (Целое).
-	appendCodeIf(&sb, ctx.usesSleep, processHelpers)
+	appendCodeIf(&sb, ctx.usesSleep, process.Helpers)
 	// Не зависит от typedefs вообще (только примитивы) - здесь же просто
 	// для единообразия с остальными builtin-хелперами шага 8.
 	appendCodeIf(&sb, ctx.usesRandom, randomHelpers)
 	// Не зависит от typedefs - только примитивы (const char *) - после
 	// panicHelper выше (rech_substring зовёт rech_panic).
-	appendCodeIf(&sb, ctx.usesStringOps, stringOpsHelpers)
+	appendCodeIf(&sb, ctx.usesStringOps, strutil.Helpers)
 	// Не зависит от typedefs - только примитивы (const char *) - после
 	// panicHelper выше (rech_base64url_decode зовёт rech_panic).
 	appendCodeIf(&sb, ctx.usesCrypto, cryptoHelpers)
@@ -1797,21 +1802,21 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	appendCodeIf(&sb, ctx.usesCookies, cookieHelpers())
 	// После typedefs (rech_T_n_stroka - "?Строка" - уже объявлен, тем же
 	// принципом, что и usesCookies выше).
-	appendCodeIf(&sb, ctx.usesEnv, envHelpers(mangleType("?Строка")))
+	appendCodeIf(&sb, ctx.usesEnv, process.EnvHelpers(mangleType("?Строка")))
 	// После typedefs (rech_T_n_stroka уже объявлен) - тем же принципом,
 	// что и usesEnv/usesCookies выше.
-	appendCodeIf(&sb, ctx.usesHTTPHeaders, headerValueHelper(mangleType("?Строка")))
+	appendCodeIf(&sb, ctx.usesHTTPHeaders, httpwire.HeaderValueHelper(mangleType("?Строка")))
 	// Не зависит от typedefs (только sig_atomic_t/int) - можно эмитировать
 	// в любом месте после panicHelper, здесь - просто рядом с остальными
 	// небольшими самодостаточными хелперами.
-	appendCodeIf(&sb, ctx.usesShutdownFlag, shutdownFlagCode)
+	appendCodeIf(&sb, ctx.usesShutdownFlag, process.ShutdownFlagCode)
 	appendCodeIf(&sb, ctx.usesSignals, signalRuntimeCode())
 	appendCodeIf(&sb, ctx.usesSubprocess, subprocessRuntimeCode)
 	appendCodeIf(&sb, ctx.usesProcMem, procMemRuntimeCode)
 	appendCodeIf(&sb, ctx.usesProcMemFind, procMemFindHelper())
 	appendCodeIf(&sb, ctx.usesProcRegs, procRegsRuntimeCode())
-	appendCodeIf(&sb, ctx.usesConsole, consoleRuntimeCode())
-	appendCodeIf(&sb, ctx.usesNonBlockingRead, nonBlockingReadRuntimeCode())
+	appendCodeIf(&sb, ctx.usesConsole, console.RuntimeCode())
+	appendCodeIf(&sb, ctx.usesNonBlockingRead, console.NonBlockingReadRuntimeCode())
 	// "rech_db_t" сам уже виден (dbHandleTypedefCode, эмитирован раньше
 	// typedefs/genericsCode выше) - здесь только остальной рантайм БД
 	// (подключение/запросы/подстановка параметров), который ссылается на

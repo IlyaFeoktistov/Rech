@@ -33,6 +33,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/timespec"
 	"github.com/IlyaFeoktistov/Rech/internal/dbscheme"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
@@ -240,7 +241,7 @@ typedef struct rech_db {
 func dbCommonHelperFuncsCode() string {
 	// timeoutPanic - изолированный fmt.Sprintf ровно на одну подстановку
 	// (сообщение rtmsg), а не единый Sprintf на весь текст функции целиком -
-	// timespecDeadlineCode ниже сама уже возвращает готовый C-текст с
+	// timespec.DeadlineCode ниже сама уже возвращает готовый C-текст с
 	// настоящими "%" (деление по модулю), которые сломались бы, пройдя ЕЩЁ
 	// раз через внешний fmt.Sprintf (интерпретировались бы как чужие
 	// verb'ы) - конкатенация строк, не вложенные форматирования.
@@ -303,7 +304,7 @@ static void *rech_db_checkout(rech_db_t *db, int *out_idx) {
     pthread_mutex_lock(&db->mutex);
 #if RECH_DB_POOL_TIMEOUT_MS > 0
     struct timespec rech_db_deadline;
-` + timespecDeadlineCode("rech_db_deadline", "RECH_DB_POOL_TIMEOUT_MS") + `#endif
+` + timespec.DeadlineCode("rech_db_deadline", "RECH_DB_POOL_TIMEOUT_MS") + `#endif
     for (;;) {
         for (int i = 0; i < db->pool_size; i++) {
             if (!db->in_use[i]) {

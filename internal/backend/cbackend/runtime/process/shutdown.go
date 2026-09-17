@@ -1,6 +1,6 @@
-package cbackend
+package process
 
-// shutdownFlagCode - "запрошена_остановка(): Логическое" - взводится ОДИН
+// ShutdownFlagCode - "запрошена_остановка(): Логическое" - взводится ОДИН
 // раз, первым же SIGINT/SIGTERM. "volatile sig_atomic_t" - единственный тип
 // переменной, который стандарт C гарантирует безопасным для записи внутри
 // обработчика сигнала (не GC_MALLOC, не обычный int с гарантией атомарности
@@ -22,7 +22,7 @@ package cbackend
 // Никакого отдельного колбэка на остановку нет - см. package doc
 // internal/builtins, "запрошена_остановка": программа сама решает, что
 // делать, когда флаг взведён.
-const shutdownFlagCode = `static volatile sig_atomic_t rech_shutdown_flag = 0;
+const ShutdownFlagCode = `static volatile sig_atomic_t rech_shutdown_flag = 0;
 
 static void rech_shutdown_signal_handler(int sig) {
     (void)sig;

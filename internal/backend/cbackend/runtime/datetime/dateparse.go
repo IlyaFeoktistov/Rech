@@ -1,8 +1,8 @@
-package cbackend
+package datetime
 
 import "strings"
 
-// dateParseHelpers - "разобрать_дату(строка): ?ДатаВремя" (internal/semantic/
+// ParseHelpers - "разобрать_дату(строка): ?ДатаВремя" (internal/semantic/
 // datetime.go) - строгий разбор формата "ГГГГ-ММ-ДД ЧЧ:ММ:СС", обратного к
 // уже существующему rech_date_to_string (datetime.go). Не зависит от
 // календарной арифметики (rech_days_from_civil/rech_civil_from_days) -
@@ -12,7 +12,7 @@ import "strings"
 // Плейсхолдеры (@@...@@), а не "%[N]s" fmt.Sprintf - у самого шаблона C
 // достаточно настоящих '%' (нет ни одного здесь, но соседний tzdata.go уже
 // требует Replacer по этой причине - тот же приём для единообразия).
-func dateParseHelpers(dtType, fYear, fMonth, fDay, fHour, fMin, fSec, nullableDT string) string {
+func ParseHelpers(dtType, fYear, fMonth, fDay, fHour, fMin, fSec, nullableDT string) string {
 	const tmpl = `static int rech_parse_date_digits(const char *s, int n, long long *out) {
     long long v = 0;
     for (int i = 0; i < n; i++) {

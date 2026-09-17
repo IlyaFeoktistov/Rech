@@ -1,5 +1,7 @@
 package cbackend
 
+import "github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/timespec"
+
 // activeTasksCode - счётчик КОГДА-ЛИБО ЗАПУЩЕННЫХ, ЕЩЁ НЕ ЗАВЕРШИВШИХСЯ
 // задач ("запустить") - один общий на весь процесс, не по функции (в
 // отличие от per-функции обёртки в concurrency.go) - "дождаться_всех_задач"
@@ -74,7 +76,7 @@ static int rech_wait_all_tasks(long long ms) {
 #else
     if (rech_active_tasks_count > 0 && ms > 0) {
         struct timespec ts;
-` + timespecDeadlineCode("ts", "ms") + `
+` + timespec.DeadlineCode("ts", "ms") + `
         while (rech_active_tasks_count > 0) {
             if (pthread_cond_timedwait(&rech_active_tasks_cond, &rech_active_tasks_mutex, &ts) != 0) {
                 break;

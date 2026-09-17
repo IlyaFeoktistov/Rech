@@ -55,7 +55,11 @@
 // работать, а не завершится - ложного "потерянного" пробуждения нет.
 package cbackend
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/timespec"
+)
 
 // threadPoolCode - см. package doc выше.
 func threadPoolCode(shrinkEnabled bool, idleTimeoutMs int) string {
@@ -63,7 +67,7 @@ func threadPoolCode(shrinkEnabled bool, idleTimeoutMs int) string {
 	if shrinkEnabled {
 		shrinkFlag = 1
 	}
-	deadlineCode := timespecDeadlineCode("rech_pool_deadline", "RECH_POOL_IDLE_TIMEOUT_MS")
+	deadlineCode := timespec.DeadlineCode("rech_pool_deadline", "RECH_POOL_IDLE_TIMEOUT_MS")
 	return fmt.Sprintf(`typedef struct rech_pool_item {
 #ifdef _WIN32
     LPTHREAD_START_ROUTINE fn;

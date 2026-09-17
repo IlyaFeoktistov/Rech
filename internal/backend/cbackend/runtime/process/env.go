@@ -1,8 +1,8 @@
-package cbackend
+package process
 
 import "fmt"
 
-// envHelpers - "получить_переменную_окружения(имя): ?Строка" (internal/semantic/
+// EnvHelpers - "получить_переменную_окружения(имя): ?Строка" (internal/semantic/
 // env.go) - обёртка над стандартным `getenv` (<stdlib.h>, POSIX/Windows
 // CRT) - NULL (переменная не установлена) даёт "?Строка"-Ничто ("_empty"),
 // иначе - копия строки ("_wrap") - `getenv` возвращает указатель на
@@ -11,7 +11,7 @@ import "fmt"
 // `GC_MALLOC` - тем же принципом, что и у rech_cookie_value (cookies.go):
 // программа, читающая только переменную окружения, без единой ссылочной
 // сущности, не должна тянуть за собой Boehm GC (<gc.h>).
-func envHelpers(nullableStrC string) string {
+func EnvHelpers(nullableStrC string) string {
 	return fmt.Sprintf(`static %[1]s rech_getenv(const char *name) {
     const char *v = getenv(name);
     if (!v) {

@@ -231,7 +231,7 @@ type builtinFlags struct {
 	// usesSignals - нужен ли rech_got_signal (signals.go) - встроенная
 	// функция "получен_сигнал" (докстрока там же).
 	usesSignals bool
-	// usesConsole - нужен ли consoleRuntimeCode (console.go) - встроенные
+	// usesConsole - нужен ли console.RuntimeCode (runtime/console) - встроенные
 	// функции "установить_сырой_режим"/"ширина_терминала"/"высота_терминала".
 	usesConsole bool
 	// usesNonBlockingRead - нужен ли rech_can_read (nonblocking_read.go) -

@@ -1,14 +1,14 @@
-package cbackend
+package datetime
 
 import "strings"
 
-// dayOfWeekHelper - "день_недели(д): Целое" (0 = воскресенье .. 6 = суббота) -
+// DayOfWeekHelper - "день_недели(д): Целое" (0 = воскресенье .. 6 = суббота) -
 // и, косвенно, "д.является_выходным()" (internal/semantic/datetime_methods.go
 // разворачивает его в "день_недели(д) == 0 || день_недели(д) == 6"). Только
 // календарная дата важна, не время суток - использует уже существующий
 // rech_days_from_civil (datetime.go, тот же алгоритм Ховарда Хиннанта),
 // день недели 1970-01-01 (эпоха) - четверг (индекс 4).
-func dayOfWeekHelper(dtType, fYear, fMonth, fDay string) string {
+func DayOfWeekHelper(dtType, fYear, fMonth, fDay string) string {
 	const tmpl = `static long long rech_day_of_week(@@DT@@ d) {
     long long days = rech_days_from_civil(d.@@FY@@, d.@@FM@@, d.@@FD@@);
     long long w = (days + 4) % 7;
@@ -23,7 +23,7 @@ func dayOfWeekHelper(dtType, fYear, fMonth, fDay string) string {
 	return r.Replace(tmpl)
 }
 
-// humanDateHelper - "дату_в_читаемом_виде(д): Строка" (и "д.в_читаемом_виде()") -
+// HumanDateHelper - "дату_в_читаемом_виде(д): Строка" (и "д.в_читаемом_виде()") -
 // относительное время в стиле Carbon'овского diffForHumans(), сравнивает d с
 // ТЕКУЩИМ моментом (rech_time_now) - "5 минут назад"/"через 2 часа". Только
 // секунды/минуты/часы/дни (без месяцев/лет - тот же осознанно уменьшенный
@@ -31,7 +31,7 @@ func dayOfWeekHelper(dtType, fYear, fMonth, fDay string) string {
 // русское склонение числительных (1/2-4/5+, с исключением 11-14) через
 // rech_ru_plural, отдельную от dateToString'а функцию (там склонения нет
 // вовсе).
-func humanDateHelper(dtType string) string {
+func HumanDateHelper(dtType string) string {
 	const tmpl = `static const char *rech_ru_plural(long long n, const char *one, const char *few, const char *many) {
     long long n100 = n % 100;
     if (n100 >= 11 && n100 <= 14) {
