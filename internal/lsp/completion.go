@@ -25,6 +25,7 @@ const (
 	kindVariable = 6
 	kindClass    = 7
 	kindKeyword  = 14
+	kindFile     = 17
 )
 
 // keywords - фиксированный список ключевых слов для общего автодополнения
@@ -47,6 +48,13 @@ var keywords = []string{
 // перед col стоит токен DOT, иначе общее (локальные переменные + функции/
 // сущности верхнего уровня + ключевые слова).
 func (d *doc) completion(line, col int) []CompletionItem {
+	// Путь импорта - до/независимо от d.irProg: "использовать ... из
+	// "<курсор>"" по определению ещё не резолвится (путь не набран/не
+	// существует), пока пользователь печатает его - ждать успешного
+	// семантического анализа здесь было бы неверно (см. importcompletion.go).
+	if items, ok := d.importPathCompletion(line, col); ok {
+		return items
+	}
 	if d.irProg == nil {
 		return nil
 	}

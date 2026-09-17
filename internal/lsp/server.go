@@ -56,7 +56,10 @@ func (s *server) handleRequest(msg *Message) {
 				"codeActionProvider":        true,
 				"codeLensProvider":          map[string]any{},
 				"completionProvider": map[string]any{
-					"triggerCharacters": []string{"."},
+					"triggerCharacters": []string{".", "\""},
+				},
+				"signatureHelpProvider": map[string]any{
+					"triggerCharacters": []string{"(", ","},
 				},
 			},
 		}, nil)
@@ -78,6 +81,8 @@ func (s *server) handleRequest(msg *Message) {
 		s.handleCodeLens(msg)
 	case "textDocument/completion":
 		s.handleCompletion(msg)
+	case "textDocument/signatureHelp":
+		s.handleSignatureHelp(msg)
 	default:
 		_ = s.rpc.Reply(msg.ID, nil, fmt.Errorf("метод %q не поддерживается", msg.Method))
 	}
@@ -506,6 +511,41 @@ func (s *server) handleCodeLens(msg *Message) {
 		}
 	}
 	_ = s.rpc.Reply(msg.ID, out, nil)
+}
+
+// handleSignatureHelp отвечает на "textDocument/signatureHelp" -
+// signaturehelp.go делает всю настоящую работу, здесь только перевод в/из
+// формы LSP (SignatureInformation/ParameterInformation) - null, если под
+// курсором нет вызова (клиент сам скрывает виджет подсказки).
+func (s *server) handleSignatureHelp(msg *Message) {
+	var p docPosition
+	if err := json.Unmarshal(msg.Params, &p); err != nil {
+		_ = s.rpc.Reply(msg.ID, nil, err)
+		return
+	}
+	d := s.getDoc(p.TextDocument.URI)
+	if d == nil {
+		_ = s.rpc.Reply(msg.ID, nil, nil)
+		return
+	}
+	sig, ok := d.signatureHelp(p.Position.Line+1, p.Position.Character+1)
+	if !ok {
+		_ = s.rpc.Reply(msg.ID, nil, nil)
+		return
+	}
+	params := make([]any, len(sig.ParamLabels))
+	for i, label := range sig.ParamLabels {
+		params[i] = map[string]any{"label": label}
+	}
+	signature := map[string]any{"label": sig.Label, "parameters": params}
+	if sig.Documentation != "" {
+		signature["documentation"] = map[string]any{"kind": "markdown", "value": sig.Documentation}
+	}
+	_ = s.rpc.Reply(msg.ID, map[string]any{
+		"signatures":      []any{signature},
+		"activeSignature": 0,
+		"activeParameter": sig.ActiveParam,
+	}, nil)
 }
 
 func (s *server) handleCompletion(msg *Message) {

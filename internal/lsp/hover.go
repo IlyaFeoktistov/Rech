@@ -133,36 +133,48 @@ func (d *doc) hoverBareName(name string, line int) (string, bool) {
 // это, а не "проверить базовую"). "", false - абстрактная сущность (нельзя
 // создать напрямую, показывать нечего).
 func (d *doc) entityCtorSignature(ent *ir.Entity) (string, bool) {
-	if ent.IsAbstract {
+	params, ok := ctorParamList(ent)
+	if !ok {
 		return "", false
+	}
+	return d.functionSignature("новый "+d.disp(ent.Name), params, false, ir.Type{}), true
+}
+
+// ctorParamList - параметры конструктора ent, тем же путём, что и
+// entityCtorSignature (тут же выше) - вынесено отдельно, чтобы signature
+// help (signaturehelp.go) могла показать параметры ПО ОТДЕЛЬНОСТИ (с
+// подсветкой текущего), не готовой строкой целиком. "", false - у ent нет
+// способа его создать через "новый" вовсе (абстрактная сущность/
+// "Транзакция" - см. комментарии у соответствующих веток ниже).
+func ctorParamList(ent *ir.Entity) ([]ir.Param, bool) {
+	if ent.IsAbstract {
+		return nil, false
 	}
 	if ent.IsTransaction {
 		// "Транзакция" - нет "новый" вообще (см. package doc internal/
 		// semantic/dbtx.go, IsTransaction в analyzeNewExpr) - значение
 		// получить можно только параметром колбэка "начать_транзакцию".
-		return "", false
+		return nil, false
 	}
-	name := "новый " + d.disp(ent.Name)
 	if ent.IsSemaphore {
 		// "Семафор" - единственная системная сущность (наравне с
 		// "Блокировкой" чуть ниже) без ast.EntityDecl/ent.Ctor, но, в
 		// отличие от "Блокировки", с ОДНИМ обязательным параметром
 		// конструктора (internal/semantic/semaphore.go) - общий путь ниже
-		// (!ent.IsStruct -> "Тип()") дал бы неверную сигнатуру без
-		// аргумента.
-		return name + "(начальное_значение: Целое)", true
+		// (!ent.IsStruct -> "()") дал бы неверную сигнатуру без аргумента.
+		return []ir.Param{{Name: "начальное_значение", Type: ir.TypeInt}}, true
 	}
 	if ent.Ctor != nil {
-		return d.functionSignature(name, ent.Ctor.Params, false, ir.Type{}), true
+		return ent.Ctor.Params, true
 	}
 	if !ent.IsStruct {
-		return name + "()", true
+		return nil, true
 	}
 	params := make([]ir.Param, len(ent.Fields))
 	for i, f := range ent.Fields {
 		params[i] = ir.Param{Name: f.Name, Type: f.Type}
 	}
-	return d.functionSignature(name, params, false, ir.Type{}), true
+	return params, true
 }
 
 // hoverMember - name - поле/метод/константа ent (последний элемент цепочки
