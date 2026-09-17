@@ -481,7 +481,7 @@ func findSignificantIndentSectionEnd(significant []lexer.Token, lines []string, 
 // computeBracketWeights.
 type bracketFrame struct {
 	openIdx       int
-	ownLevelBreak bool // на ЭТОМ уровне вложенности была запятая, сразу за которой (следующий значимый токен) шла другая строка
+	ownLevelBreak bool // на ЭТОМ уровне вложенности была запятая, сразу за которой (следующий значимый токен) шла другая строка, ИЛИ первый токен содержимого уже стоит на строке ПОСЛЕ открывающей скобки (единственный элемент списка - там запятой в принципе взяться неоткуда)
 }
 
 // computeBracketWeights сопоставляет каждую открывающую/закрывающую скобку
@@ -496,15 +496,24 @@ type bracketFrame struct {
 // колбэка). Отличается от настоящего PSR-12 многострочного списка
 // (Шаг 88) именно этим: там хотя бы одна "своя" запятая скобки сама
 // сопровождается переносом строки (ownLevelBreak) - тогда скобка получает
-// вес 1 как обычно, каждый элемент - на свой уровень отступа. "{" сама -
-// всегда вес 1, исключение касается только "("/"[".
+// вес 1 как обычно, каждый элемент - на свой уровень отступа. Тот же признак
+// срабатывает и без единой запятой вовсе - у списка ровно из ОДНОГО элемента
+// (её взяться неоткуда) содержимое всё равно считается "своим", если оно уже
+// начинается на строке ПОСЛЕ открывающей скобки ("f(\n    x\n)"), а не сразу
+// за ней ("f(x\n)") - иначе такой вызов ошибочно получал бы вес 0 наравне со
+// случаем вложенного колбэка и печатался бы без собственного отступа. "{"
+// сама - всегда вес 1, исключение касается только "("/"[".
 func computeBracketWeights(significant []lexer.Token) []int {
 	weight := make([]int, len(significant))
 	var stack []bracketFrame
 	for i, tok := range significant {
 		switch {
 		case openers[tok.Type]:
-			stack = append(stack, bracketFrame{openIdx: i})
+			frame := bracketFrame{openIdx: i}
+			if i+1 < len(significant) && significant[i+1].Line != tok.Line {
+				frame.ownLevelBreak = true
+			}
+			stack = append(stack, frame)
 		case tok.Type == lexer.COMMA:
 			if len(stack) > 0 {
 				top := &stack[len(stack)-1]

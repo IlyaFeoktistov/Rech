@@ -674,6 +674,32 @@ func TestFormatAddsTrailingCommaToMultilineParamList(t *testing.T) {
 	}
 }
 
+// TestFormatSingleArgMultilineCallGetsOwnDepthAndComma - список ровно из
+// ОДНОГО элемента без запятой (взяться ей неоткуда) - если содержимое уже
+// начинается на строке после открывающей скобки, оно всё равно должно
+// получить свой отступ и висячую запятую, как и настоящий многострочный
+// список через запятую, а не остаться на уровне открывающей скобки (баг:
+// без запятой такой вызов ошибочно распознавался как "многострочный только
+// из-за вложенного содержимого", наравне с висящим колбэком).
+func TestFormatSingleArgMultilineCallGetsOwnDepthAndComma(t *testing.T) {
+	src := "функция главная\n{\n    переменная р3 = новый Запрос(\n    адрес: \"example.com\"\n    )\n}\n"
+	want := "функция главная\n{\n    переменная р3 = новый Запрос(\n        адрес: \"example.com\",\n    )\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != want {
+		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
+	}
+	got2, err := Format(got)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка при повторном форматировании: %v", err)
+	}
+	if got2 != got {
+		t.Fatalf("не идемпотентно:\nпервый проход:\n%q\nвторой проход:\n%q", got, got2)
+	}
+}
+
 // TestFormatDoesNotAddTrailingCommaOnSingleLine - однострочный список
 // (даже если он длинный) НЕ получает висячую запятую - грамматика
 // (internal/parser/parser.go, skipNewlinesAfterListComma) требует, чтобы
