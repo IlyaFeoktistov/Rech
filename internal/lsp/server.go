@@ -307,6 +307,9 @@ func (s *server) handleBuiltinSource(msg *Message) {
 	}
 	content, ok := builtinStubSource(name)
 	if !ok {
+		content, ok = builtinTypeStubSource(name)
+	}
+	if !ok {
 		_ = s.rpc.Reply(msg.ID, nil, nil)
 		return
 	}
@@ -547,36 +550,27 @@ func (s *server) handleCodeLens(msg *Message) {
 	out := make([]any, len(lenses))
 	for i, cl := range lenses {
 		lensPos := map[string]any{"line": cl.Line - 1, "character": 0}
-		var command map[string]any
-		if cl.Command != "" {
-			// "запустить тест" (codelens.go, runTestCodeLens) - готовая
-			// команда САМОГО расширения, не встроенная редактора - её
-			// аргументы (путь файла) уже готовы, ничего строить не нужно.
-			command = map[string]any{"title": cl.Title, "command": cl.Command, "arguments": cl.Args}
-		} else {
-			locations := make([]any, len(cl.Refs))
-			for j, ref := range cl.Refs {
-				uri := p.TextDocument.URI
-				if ref.File != "" {
-					uri = fileURI(ref.File)
-				}
-				locations[j] = map[string]any{
-					"uri": uri,
-					"range": map[string]any{
-						"start": map[string]any{"line": ref.Tok.Line - 1, "character": ref.Tok.Col - 1},
-						"end":   map[string]any{"line": ref.Tok.Line - 1, "character": ref.Tok.Col - 1 + len([]rune(ref.Tok.Value))},
-					},
-				}
+		locations := make([]any, len(cl.Refs))
+		for j, ref := range cl.Refs {
+			uri := p.TextDocument.URI
+			if ref.File != "" {
+				uri = fileURI(ref.File)
 			}
-			command = map[string]any{
-				"title":     cl.Title,
-				"command":   "editor.action.showReferences",
-				"arguments": []any{p.TextDocument.URI, lensPos, locations},
+			locations[j] = map[string]any{
+				"uri": uri,
+				"range": map[string]any{
+					"start": map[string]any{"line": ref.Tok.Line - 1, "character": ref.Tok.Col - 1},
+					"end":   map[string]any{"line": ref.Tok.Line - 1, "character": ref.Tok.Col - 1 + len([]rune(ref.Tok.Value))},
+				},
 			}
 		}
 		out[i] = map[string]any{
-			"range":   map[string]any{"start": lensPos, "end": lensPos},
-			"command": command,
+			"range": map[string]any{"start": lensPos, "end": lensPos},
+			"command": map[string]any{
+				"title":     cl.Title,
+				"command":   "editor.action.showReferences",
+				"arguments": []any{p.TextDocument.URI, lensPos, locations},
+			},
 		}
 	}
 	_ = s.rpc.Reply(msg.ID, out, nil)
