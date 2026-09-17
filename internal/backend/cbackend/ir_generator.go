@@ -12,16 +12,27 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/bytesio"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/concurrency"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/console"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/crypto"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/datetime"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/httpwire"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/image"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/process"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/strutil"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/syncprim"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
+	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
+
+// byteListType - см. internal/semantic/bytesio.go, тот же принцип
+// дублирования имени константой в обоих пакетах (не импорта internal/
+// semantic отсюда), что и у image.EntityName (runtime/image) -
+// runtime/bytesio получает мангленное имя параметром (см. её package doc),
+// а не читает эту константу сама, поэтому дублирования между ней и этим
+// файлом нет - только между этим файлом и internal/semantic.
+const byteListType = "Список<Байт>"
 
 // irGenCtx - состояние генерации из IR: флаги использованных
 // runtime-хелперов (как ctx.usesConcat/usesStrCmp),
@@ -1691,7 +1702,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// КАЖДОМ вызывающем месте (internal/backend/cbackend/builtins_
 	// shared.go) ненадёжно, легко забыть при следующей функции того же
 	// семейства - надёжнее здесь, в точке эмиссии самого rech_proc_read.
-	appendCodeIf(&sb, ctx.usesByteListWrap || ctx.usesProcMem, bytesWrapHelper())
+	appendCodeIf(&sb, ctx.usesByteListWrap || ctx.usesProcMem, bytesio.WrapHelper(mangleType(byteListType)))
 	// http2SessionOpsCode - после socketHelpers/socketHelpersTLS
 	// (rech_connect_tcp) И bytesWrapHelper выше (rech_http2_read_data зовёт
 	// rech_bytes_wrap) И typedefs (её typedef "HTTP2Поток" уже должен быть
@@ -1717,7 +1728,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	}
 	// После bytesWrapHelper выше - rech_bytes_from_string зовёт
 	// rech_bytes_wrap напрямую.
-	appendCodeIf(&sb, ctx.usesByteStringConv, byteStringConvHelpers())
+	appendCodeIf(&sb, ctx.usesByteStringConv, bytesio.StringConvHelpers(mangleType(byteListType)))
 	// После bytesWrapHelper (rech_bytes_wrap) И rechDupHelper (rech_dup)
 	// выше - rech_parse_multipart (multipart.go) использует обе.
 	appendCodeIf(&sb, ctx.usesMultipart, multipartHelpers())
@@ -1726,16 +1737,24 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// cbackend/bytesio.go) используют typedef/методы Список<Байт>
 	// (зарегистрирован в prog.Generics принудительно, internal/semantic/
 	// bytesio.go) и rech_file_t/rech_open_mode из fileHelpers.
-	appendCodeIf(&sb, ctx.usesBytesIO, bytesIOHelpers())
+	appendCodeIf(&sb, ctx.usesBytesIO, bytesio.IOHelpers(mangleType(byteListType)))
 	// После bytesWrapHelper выше (rech_bytes_wrap) - rech_png_decode_file
 	// (png.go)/rech_jpeg_decode_file (jpeg.go) строят через неё поле
 	// "пиксели"; typedef "ДекодированноеИзображение" эмитирован раньше
 	// вместе с остальными entity-typedef'ами (обычная сущность, тот же
 	// путь, что и у RGBЦвет). rech_decode_image_file/rech_encode_image_file
 	// (imagecodec.go) - диспетчер поверх обеих - должен идти ПОСЛЕ них.
-	appendCodeIf(&sb, ctx.usesImageCodec, pngHelpers)
-	appendCodeIf(&sb, ctx.usesImageCodec, jpegHelpers)
-	appendCodeIf(&sb, ctx.usesImageCodec, imageCodecDispatchHelpers)
+	if ctx.usesImageCodec {
+		imgType := mangleType(image.EntityName)
+		widthField, heightField, pixelsField := mangleField("ширина"), mangleField("высота"), mangleField("пиксели")
+		byteListC := mangleType(byteListType)
+		sb.WriteString(image.PNGHelpers(imgType, widthField, heightField, pixelsField, byteListC,
+			escapeCString(rtmsg.PNGDecodeFailed), escapeCString(rtmsg.PNGEncodeFailed)))
+		sb.WriteString(image.JPEGHelpers(imgType, widthField, heightField, pixelsField, byteListC,
+			escapeCString(rtmsg.JPEGOpenFailed), escapeCString(rtmsg.JPEGDecodeFailed),
+			escapeCString(rtmsg.JPEGEncodeOpenFailed), escapeCString(rtmsg.JPEGEncodeFailed)))
+		sb.WriteString(image.DispatchHelpers(imgType, escapeCString(rtmsg.ImageCodecUnknownFormat), byteListC))
+	}
 	// После genericsCode/bytesWrapHelper выше И после httpServerHelpersCode
 	// (usesHTTPServer, эмитирована раньше - rech_recv_http_request/
 	// rech_http_parse_head) - rech_http_accept_request_bytes/rech_http_

@@ -1,11 +1,3 @@
-package cbackend
-
-import (
-	"fmt"
-
-	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
-)
-
 // pngHelpers - "png_декодировать_файл(Строка): ДекодированноеИзображение"/
 // "png_кодировать_файл(Строка, Целое, Целое, Список<Байт>)" - биндинг к
 // libpng через её "упрощённый" API (<png.h>, png_image_* - часть
@@ -19,7 +11,24 @@ import (
 // (examples/изображения/растровое_изображение.rech) - конверсия между
 // ними на стороне Rech (examples/изображения/png_jpeg.rech) - чистое
 // копирование, без перестановки байт.
-var pngHelpers = fmt.Sprintf(`static %[1]s rech_png_decode_file(const char *path) {
+package image
+
+import "fmt"
+
+// EntityName - см. internal/semantic/imagecodec.go, тот же принцип
+// дублирования имени константой в обоих пакетах, что и у byteListType
+// (internal/backend/cbackend/ir_generator.go) - не импорта internal/
+// semantic отсюда. Общая для PNGHelpers/JPEGHelpers - обе возвращают одну
+// и ту же "ДекодированноеИзображение".
+const EntityName = "ДекодированноеИзображение"
+
+// PNGHelpers - см. package doc выше. mangledType/widthField/heightField/
+// pixelsField/mangledByteList - уже вычисленные вызывающей стороной
+// (mangleType/mangleField - внутренняя, неэкспортированная инфраструктура
+// cbackend, этот пакет от неё не зависит), decodeFailedMsg/encodeFailedMsg -
+// уже экранированные (escapeCString, та же причина) сообщения об ошибке.
+func PNGHelpers(mangledType, widthField, heightField, pixelsField, mangledByteList, decodeFailedMsg, encodeFailedMsg string) string {
+	return fmt.Sprintf(`static %[1]s rech_png_decode_file(const char *path) {
     png_image image;
     memset(&image, 0, sizeof(image));
     image.version = PNG_IMAGE_VERSION;
@@ -62,4 +71,5 @@ static void rech_png_encode_file(const char *path, long long width, long long he
     }
     png_image_free(&image);
 }
-`, mangleType(imageCodecEntityName), mangleField("ширина"), mangleField("высота"), mangleField("пиксели"), mangleType(byteListType), escapeCString(rtmsg.PNGDecodeFailed), escapeCString(rtmsg.PNGEncodeFailed))
+`, mangledType, widthField, heightField, pixelsField, mangledByteList, decodeFailedMsg, encodeFailedMsg)
+}

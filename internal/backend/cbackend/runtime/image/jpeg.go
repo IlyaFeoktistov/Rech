@@ -1,11 +1,3 @@
-package cbackend
-
-import (
-	"fmt"
-
-	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
-)
-
 // jpegHelpers - "jpeg_декодировать_файл(Строка): ДекодированноеИзображение"/
 // "jpeg_кодировать_файл(Строка, Целое, Целое, Список<Байт>, Целое)" -
 // биндинг к libjpeg (<jpeglib.h>) через её стандартный файловый API
@@ -25,7 +17,17 @@ import (
 // выхода всегда 255 (в JPEG её физически не бывает); тот же выбор при
 // кодировании - RGBA-вход теряет альфу (drop), тем же принципом, что и
 // сохранение BMP (examples/изображения/растровое_изображение.rech).
-var jpegHelpers = fmt.Sprintf(`struct rech_jpeg_error_mgr {
+package image
+
+import "fmt"
+
+// JPEGHelpers - см. package doc выше и PNGHelpers (png.go) про смысл
+// параметров mangledType/widthField/heightField/pixelsField/
+// mangledByteList - openFailedMsg/decodeFailedMsg/encodeOpenFailedMsg/
+// encodeFailedMsg уже экранированы (escapeCString) вызывающей стороной.
+func JPEGHelpers(mangledType, widthField, heightField, pixelsField, mangledByteList,
+	openFailedMsg, decodeFailedMsg, encodeOpenFailedMsg, encodeFailedMsg string) string {
+	return fmt.Sprintf(`struct rech_jpeg_error_mgr {
     struct jpeg_error_mgr pub;
     jmp_buf setjmp_buffer;
 };
@@ -135,5 +137,6 @@ static void rech_jpeg_encode_file(const char *path, long long width, long long h
     fclose(f);
     jpeg_destroy_compress(&cinfo);
 }
-`, mangleType(imageCodecEntityName), mangleField("ширина"), mangleField("высота"), mangleField("пиксели"), mangleType(byteListType),
-	escapeCString(rtmsg.JPEGOpenFailed), escapeCString(rtmsg.JPEGDecodeFailed), escapeCString(rtmsg.JPEGEncodeOpenFailed), escapeCString(rtmsg.JPEGEncodeFailed))
+`, mangledType, widthField, heightField, pixelsField, mangledByteList,
+		openFailedMsg, decodeFailedMsg, encodeOpenFailedMsg, encodeFailedMsg)
+}
