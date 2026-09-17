@@ -184,19 +184,30 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 // (каждый заголовок на своей строке, разделитель "\r\n"), не `Словарь<К,
 // В>` - заводить отдельный тип представления только для заголовков было бы
 // преждевременно, раз formatting/парсинг уже завязаны на одну строку.
+// Default здесь - тем же значением, что и httpRequestDefaults ниже, но в
+// ir.Expr, не ast.Expr - оба нужны РАЗНЫМ потребителям: httpRequestDefaults
+// подставляется в позиционный/именованный "новый Запрос(...)" ДО того, как
+// у поля появляется настоящий ir.Field (см. analyzer.go, coerceExpr),
+// Default здесь - готовое (уже ir.Expr) значение самого ir.Field, читаемое
+// напрямую БЕЗ анализа заново (rech reflect/значение.тип(), hover/
+// signatureHelp LSP - internal/lsp/signaturehelp.go, ctorParamDefaults) -
+// этот ir.Entity строится напрямую литералом (analyzer.go, вокруг "Запрос/
+// Ответ - структуры"), а не через analyzeEntity (та сама читает
+// FieldDefaultExprs и заполняет ir.Field.Default по ходу - здесь такого
+// шага нет, поэтому нужно явно).
 var httpRequestFields = []ir.Field{
-	{Name: "метод", Type: ir.TypeString},
+	{Name: "метод", Type: ir.TypeString, Default: &ir.StringLiteral{Value: "GET"}},
 	{Name: "адрес", Type: ir.TypeString},
-	{Name: "порт", Type: ir.TypeInt},
-	{Name: "путь", Type: ir.TypeString},
-	{Name: "заголовки", Type: ir.TypeString},
-	{Name: "тело", Type: ir.TypeString},
+	{Name: "порт", Type: ir.TypeInt, Default: &ir.IntLiteral{Value: 80}},
+	{Name: "путь", Type: ir.TypeString, Default: &ir.StringLiteral{Value: "/"}},
+	{Name: "заголовки", Type: ir.TypeString, Default: &ir.StringLiteral{Value: ""}},
+	{Name: "тело", Type: ir.TypeString, Default: &ir.StringLiteral{Value: ""}},
 }
 
 var httpResponseFields = []ir.Field{
 	{Name: "код", Type: ir.TypeInt},
-	{Name: "заголовки", Type: ir.TypeString},
-	{Name: "тело", Type: ir.TypeString},
+	{Name: "заголовки", Type: ir.TypeString, Default: &ir.StringLiteral{Value: ""}},
+	{Name: "тело", Type: ir.TypeString, Default: &ir.StringLiteral{Value: ""}},
 }
 
 // httpRequestDefaults/httpResponseDefaults - значения по умолчанию для

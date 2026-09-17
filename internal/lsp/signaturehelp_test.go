@@ -257,8 +257,8 @@ func TestSignatureHelpShowsParamDefaultValue(t *testing.T) {
 
 // TestSignatureHelpShowsConstructorParamDefaultValue - то же, что и
 // TestSignatureHelpShowsParamDefaultValue, но для НЕЯВНОГО конструктора
-// структуры (позиционные поля - ctorParamDefaultsAST, ветка "нет
-// ed.Ctor", не ast.ConstructorDecl.Params).
+// структуры (позиционные поля - ctorParamDefaults, ветка "нет ed.Ctor", не
+// ast.ConstructorDecl.Params).
 func TestSignatureHelpShowsConstructorParamDefaultValue(t *testing.T) {
 	src := `
 структура Точка
@@ -281,5 +281,42 @@ func TestSignatureHelpShowsConstructorParamDefaultValue(t *testing.T) {
 	}
 	if len(sig.ParamLabels) != 2 || sig.ParamLabels[1] != "y: Целое = 0" {
 		t.Fatalf("ожидался параметр \"y: Целое = 0\", получено %+v", sig.ParamLabels)
+	}
+}
+
+// TestSignatureHelpShowsBuiltinRequestEntityDefaults - "Запрос" (встроенная
+// синтетическая сущность, internal/semantic/types.go, httpRequestFields) -
+// та же проверка, но БЕЗ ast.EntityDecl вовсе (d.astEntities["Запрос"] не
+// существует) - ctorParamDefaults должен взять их прямо из ent.Fields[i].
+// Default (ir.Expr, уже разрешённое семантикой), а не из AST.
+func TestSignatureHelpShowsBuiltinRequestEntityDefaults(t *testing.T) {
+	src := `
+функция главная
+{
+    переменная о = запрос(новый Запрос(адрес: "example.com", путь: "/x"))
+}
+`
+	d := newDoc("test://a.rech", src)
+	line := lineOf(t, src, "новый Запрос(")
+	col := runeCol(t, `    переменная о = запрос(новый Запрос(адрес: "example.com", путь: "/x")`, "путь")
+	sig, ok := d.signatureHelp(line, col)
+	if !ok {
+		t.Fatalf("ожидалась signature help на \"новый Запрос(...)\"")
+	}
+	want := []string{
+		`метод: Строка = "GET"`,
+		"адрес: Строка",
+		"порт: Целое = 80",
+		`путь: Строка = "/"`,
+		`заголовки: Строка = ""`,
+		`тело: Строка = ""`,
+	}
+	if len(sig.ParamLabels) != len(want) {
+		t.Fatalf("ожидалось %d параметров, получено %+v", len(want), sig.ParamLabels)
+	}
+	for i := range want {
+		if sig.ParamLabels[i] != want[i] {
+			t.Fatalf("параметр %d: ожидалось %q, получено %q (весь список %+v)", i, want[i], sig.ParamLabels[i], sig.ParamLabels)
+		}
 	}
 }

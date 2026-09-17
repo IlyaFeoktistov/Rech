@@ -281,6 +281,18 @@ func buildScopes(astProg *ast.Program, irProg *ir.Program) []funcScope {
 		if !ok {
 			continue
 		}
+		// Явный конструктор (ed.Ctor/e.Ctor) - собственная область
+		// видимости, тем же принципом, что и у обычного метода ниже, но
+		// раньше не заводилась вовсе (только astProg.Functions/ed.Methods) -
+		// hover/definition/completion внутри тела конструктора и на его
+		// собственных именах параметров молча ничего не находили (нет
+		// funcScope - scopeAt(line) возвращала nil на всех его строках).
+		if ed.Ctor != nil && e.Ctor != nil {
+			out = append(out, funcScope{
+				declLine: ed.Ctor.Line, name: ed.Name + ".конструктор", entityName: ed.Name,
+				params: e.Ctor.Params, body: e.Ctor.Body, hasReturn: e.Ctor.HasReturn, returnType: e.Ctor.ReturnType, doc: e.Ctor.Doc,
+			})
+		}
 		for _, md := range ed.Methods {
 			var m *ir.Method
 			for _, mm := range e.Methods {

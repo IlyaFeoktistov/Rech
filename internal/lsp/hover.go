@@ -127,7 +127,45 @@ func (d *doc) hoverBareName(name string, line int) (string, bool) {
 	if block, ok := d.hoverModuleConst(name); ok {
 		return block, true
 	}
-	return d.hoverBareNameWordform(name, line)
+	if block, ok := d.hoverBareNameWordform(name, line); ok {
+		return block, true
+	}
+	return d.hoverOwnMemberDecl(name, line)
+}
+
+// hoverOwnMemberDecl - курсор на имени поля/константы/метода СУЩНОСТИ НА
+// ЕГО ЖЕ СТРОКЕ ОБЪЯВЛЕНИЯ ("имеет: имя: Тип", "константа ИМЯ = ...", сама
+// строка "имя(...)" объявления метода) - не после "receiver.", поэтому ни
+// одна ветка выше (те - про голое имя ВЕРХНЕГО уровня/локальное) его не
+// находит вовсе, hoverMember (который умеет форматировать член сущности)
+// ищется по РЕЦЕПИЕНТУ, а на самой строке объявления его нет. Запасной путь
+// В САМОМ КОНЦЕ (редкий случай - что-то ДРУГОЕ уже совпало бы раньше, если
+// бы могло) - перебирает сущности документа, ищет член с этим именем И
+// ЭТОЙ строкой, затем форматирует его тем же hoverMember, что и обычный
+// "receiver.член".
+func (d *doc) hoverOwnMemberDecl(name string, line int) (string, bool) {
+	for _, ed := range d.astEntities {
+		ent := d.entities[ed.Name]
+		if ent == nil {
+			continue
+		}
+		for _, f := range ed.Fields {
+			if f.Name == name && f.Line == line {
+				return d.hoverMember(ent, name)
+			}
+		}
+		for _, c := range ed.Constants {
+			if c.Name == name && c.Line == line {
+				return d.hoverMember(ent, name)
+			}
+		}
+		for _, m := range ed.Methods {
+			if m.Name == name && m.Line == line {
+				return d.hoverMember(ent, name)
+			}
+		}
+	}
+	return "", false
 }
 
 // hoverBareNameWordform - запасной путь hoverBareName для имени, чья лемма

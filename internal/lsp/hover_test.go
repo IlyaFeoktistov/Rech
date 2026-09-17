@@ -79,6 +79,52 @@ func TestHoverOnFieldAccessShowsFieldTypeAndDoc(t *testing.T) {
 	}
 }
 
+// TestHoverInsideConstructorBodyShowsParamAndField - конструктор раньше не
+// заводил СОБСТВЕННУЮ область видимости в buildScopes (document.go) вовсе -
+// hover на его параметре ("x" в "этот.x = x") и на "этот.x" внутри его же
+// тела молча возвращал "", false (scopeAt(line) была nil на всех строках
+// конструктора).
+func TestHoverInsideConstructorBodyShowsParamAndField(t *testing.T) {
+	d := newDoc("test://a.rech", hoverTestSrc)
+	line := lineOf(t, hoverTestSrc, "этот.x = x")
+
+	paramText, ok := d.hover(line, runeCol(t, "        этот.x = x", "= x")+2)
+	if !ok {
+		t.Fatalf("ожидался hover на параметре \"x\" внутри конструктора")
+	}
+	if !strings.Contains(paramText, "параметр x: Целое") {
+		t.Fatalf("неожиданный текст hover параметра: %q", paramText)
+	}
+
+	fieldText, ok := d.hover(line, runeCol(t, "        этот.x = x", "этот.x")+5)
+	if !ok {
+		t.Fatalf("ожидался hover на \"этот.x\" внутри конструктора")
+	}
+	if !strings.Contains(fieldText, "Точка.x: Целое") {
+		t.Fatalf("неожиданный текст hover поля: %q", fieldText)
+	}
+}
+
+// TestHoverOnFieldOwnDeclarationShowsTypeAndDoc - курсор прямо на имени
+// поля НА ЕГО ЖЕ СТРОКЕ ОБЪЯВЛЕНИЯ ("имеет: x: Целое"), не после
+// "receiver." - раньше не поддерживалось вовсе (hoverBareName не искал член
+// сущности по позиции, только по имени сущности/функции верхнего уровня).
+func TestHoverOnFieldOwnDeclarationShowsTypeAndDoc(t *testing.T) {
+	d := newDoc("test://a.rech", hoverTestSrc)
+	line := lineOf(t, hoverTestSrc, "x: Целое")
+	col := runeCol(t, "        x: Целое", "x")
+	text, ok := d.hover(line, col)
+	if !ok {
+		t.Fatalf("ожидался hover на собственном объявлении поля \"x\"")
+	}
+	if !strings.Contains(text, "Точка.x: Целое") {
+		t.Fatalf("неожиданный текст hover: %q", text)
+	}
+	if !strings.Contains(text, "Горизонтальная координата.") {
+		t.Fatalf("doc-комментарий поля не попал в hover: %q", text)
+	}
+}
+
 func TestHoverOnMethodAccessShowsSignature(t *testing.T) {
 	d := newDoc("test://a.rech", hoverTestSrc)
 	line := lineOf(t, hoverTestSrc, "т.длина()")

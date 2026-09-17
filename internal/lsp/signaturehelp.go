@@ -9,7 +9,6 @@ package lsp
 import (
 	"strings"
 
-	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/builtins"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
@@ -156,7 +155,7 @@ func (d *doc) callSignatureAt(openIdx, line int) (SignatureHelp, bool) {
 			return SignatureHelp{}, false
 		}
 		name := "новый " + d.disp(ent.Name)
-		labels := appendParamDefaults(d.paramLabels(params), d.ctorParamDefaultsAST(ent))
+		labels := appendParamDefaults(d.paramLabels(params), d.ctorParamDefaults(ent))
 		return SignatureHelp{Label: d.functionSignatureFromLabels(name, labels, false, ir.Type{}), ParamLabels: labels}, true
 	}
 	if len(chain) > 1 {
@@ -227,54 +226,69 @@ func (d *doc) paramLabels(params []ir.Param) []string {
 	return labels
 }
 
-// appendParamDefaults добавляет " = литерал" к каждому labels[i], для
-// которого defaults[i] - непустое AST-выражение, разрешающееся в простой
-// литерал (literalTextAST, тот же принцип/ограничение, что и у
-// hoverModuleConst - сложное выражение по умолчанию, например ссылку на
-// другую константу, заново не пересчитываем). labels мутируется на месте и
-// возвращается для удобства вызывающей стороны - у неё уже нет других
-// владельцев на этот момент (свежепостроенный d.paramLabels).
-func appendParamDefaults(labels []string, defaults []ast.Expr) []string {
+// appendParamDefaults добавляет " = <defaults[i]>" к каждому labels[i], для
+// которого defaults[i] - непустая строка (уже готовый текст литерала - см.
+// ctorParamDefaults/methodParamDefaultsAST/funcParamDefaultsAST, у каждого
+// свой источник). labels мутируется на месте и возвращается для удобства
+// вызывающей стороны - у неё уже нет других владельцев на этот момент
+// (свежепостроенный d.paramLabels).
+func appendParamDefaults(labels []string, defaults []string) []string {
 	for i := range labels {
-		if i >= len(defaults) || defaults[i] == nil {
+		if i >= len(defaults) || defaults[i] == "" {
 			continue
 		}
-		if lit, _, ok := literalTextAST(defaults[i]); ok {
-			labels[i] += " = " + lit
-		}
+		labels[i] += " = " + defaults[i]
 	}
 	return labels
 }
 
-// ctorParamDefaultsAST - default-выражения (AST, см. appendParamDefaults)
-// параметров конструктора ent, ПОЗИЦИОННО совпадающие с ctorParamList(ent) -
-// та же пара источников (явный ast.ConstructorDecl.Params либо позиционные
-// ast.EntityDecl.Fields для структуры без своего конструктора) - IR-параметры
-// (ctorParamList) не несут default-выражение вовсе, только AST. nil - ent не
-// найдена в d.astEntities (импортированная сущность другого файла) или
-// синтетическая системная сущность без AST (Семафор/Транзакция).
-func (d *doc) ctorParamDefaultsAST(ent *ir.Entity) []ast.Expr {
-	ed, ok := d.astEntities[ent.Name]
-	if !ok {
-		return nil
-	}
-	if ed.Ctor != nil {
-		out := make([]ast.Expr, len(ed.Ctor.Params))
+// ctorParamDefaults - текст default-значений параметров конструктора ent,
+// ПОЗИЦИОННО совпадающий с ctorParamList(ent) - та же пара источников: явный
+// конструктор пользователя несёт default ТОЛЬКО в AST
+// (ast.ConstructorDecl.Params[i].Default, ir.Param, в отличие от ir.Field,
+// вообще не несёт default-выражение) - оттуда, через literalTextAST;
+// неявный позиционный конструктор структуры - НАПРЯМУЮ из
+// ent.Fields[i].Default (ir.Expr, уже разрешённое семантикой, через
+// literalText) - этот путь работает одинаково для пользовательских структур
+// И для встроенных синтетических сущностей вроде "Запрос"/"Ответ"
+// (internal/semantic/types.go, httpRequestDefaults) - у тех вообще нет
+// ast.EntityDecl, только ir.Entity, поэтому AST-путь для них был бы всегда
+// пуст.
+func (d *doc) ctorParamDefaults(ent *ir.Entity) []string {
+	if ent.Ctor != nil {
+		ed, ok := d.astEntities[ent.Name]
+		if !ok || ed.Ctor == nil {
+			return nil
+		}
+		out := make([]string, len(ed.Ctor.Params))
 		for i, p := range ed.Ctor.Params {
-			out[i] = p.Default
+			if p.Default == nil {
+				continue
+			}
+			if lit, _, ok := literalTextAST(p.Default); ok {
+				out[i] = lit
+			}
 		}
 		return out
 	}
-	out := make([]ast.Expr, len(ed.Fields))
-	for i, f := range ed.Fields {
-		out[i] = f.Default
+	out := make([]string, len(ent.Fields))
+	for i, f := range ent.Fields {
+		if f.Default == nil {
+			continue
+		}
+		if lit, ok := literalText(f.Default); ok {
+			out[i] = lit
+		}
 	}
 	return out
 }
 
-// methodParamDefaultsAST - как ctorParamDefaultsAST, но для метода
-// methodName сущности entName.
-func (d *doc) methodParamDefaultsAST(entName, methodName string) []ast.Expr {
+// methodParamDefaultsAST - текст default-значений параметров метода
+// methodName сущности entName - только AST (ast.MethodDecl.Params[i].Default),
+// методы синтетических сущностей (Запрос/Ответ и т. п.) не существуют вовсе
+// (те - структуры данных без методов), поэтому, в отличие от
+// ctorParamDefaults, второй источник не нужен.
+func (d *doc) methodParamDefaultsAST(entName, methodName string) []string {
 	ed, ok := d.astEntities[entName]
 	if !ok {
 		return nil
@@ -283,25 +297,37 @@ func (d *doc) methodParamDefaultsAST(entName, methodName string) []ast.Expr {
 		if m.Name != methodName {
 			continue
 		}
-		out := make([]ast.Expr, len(m.Params))
+		out := make([]string, len(m.Params))
 		for i, p := range m.Params {
-			out[i] = p.Default
+			if p.Default == nil {
+				continue
+			}
+			if lit, _, ok := literalTextAST(p.Default); ok {
+				out[i] = lit
+			}
 		}
 		return out
 	}
 	return nil
 }
 
-// funcParamDefaultsAST - как ctorParamDefaultsAST, но для свободной функции
-// name.
-func (d *doc) funcParamDefaultsAST(name string) []ast.Expr {
+// funcParamDefaultsAST - как methodParamDefaultsAST, но для свободной
+// функции name (тоже только AST - встроенные свободные функции идут через
+// internal/builtins, у которых параметры вообще без имён/default, отдельная
+// ветка callSignatureAt, сюда не попадают).
+func (d *doc) funcParamDefaultsAST(name string) []string {
 	fd, ok := d.astFuncs[name]
 	if !ok {
 		return nil
 	}
-	out := make([]ast.Expr, len(fd.Params))
+	out := make([]string, len(fd.Params))
 	for i, p := range fd.Params {
-		out[i] = p.Default
+		if p.Default == nil {
+			continue
+		}
+		if lit, _, ok := literalTextAST(p.Default); ok {
+			out[i] = lit
+		}
 	}
 	return out
 }
