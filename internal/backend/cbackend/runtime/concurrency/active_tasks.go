@@ -1,8 +1,8 @@
-package cbackend
+package concurrency
 
 import "github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/timespec"
 
-// activeTasksCode - счётчик КОГДА-ЛИБО ЗАПУЩЕННЫХ, ЕЩЁ НЕ ЗАВЕРШИВШИХСЯ
+// ActiveTasksCode - счётчик КОГДА-ЛИБО ЗАПУЩЕННЫХ, ЕЩЁ НЕ ЗАВЕРШИВШИХСЯ
 // задач ("запустить") - один общий на весь процесс, не по функции (в
 // отличие от per-функции обёртки в concurrency.go) - "дождаться_всех_задач"
 // не знает заранее, какие именно функции были запущены за время работы
@@ -21,7 +21,7 @@ import "github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/timespe
 // busy-poll - "дождаться_всех_задач" просыпается СРАЗУ, как только счётчик
 // досчитывается до нуля, не по истечении таймаута впустую, если все задачи
 // управились раньше.
-var activeTasksCode = `static long long rech_active_tasks_count = 0;
+var ActiveTasksCode = `static long long rech_active_tasks_count = 0;
 #ifdef _WIN32
 static CRITICAL_SECTION rech_active_tasks_mutex;
 static volatile LONG rech_active_tasks_mutex_ready = 0;

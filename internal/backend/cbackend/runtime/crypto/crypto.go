@@ -1,4 +1,4 @@
-package cbackend
+package crypto
 
 import (
 	"fmt"
@@ -6,11 +6,11 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
-// cryptoHelpers - "хеш(алгоритм, данные)"/"подпись_hmac_sha256"/
+// Helpers - "хеш(алгоритм, данные)"/"подпись_hmac_sha256"/
 // "закодировать_base64url"/"декодировать_base64url" (internal/builtins.All,
 // "Нет крипто-хеш-функции"). Собственная реализация
 // SHA-256/SHA-1/MD5/SHA-512 (FIPS 180-4/RFC 1321), не биндинг к
-// OpenSSL/libcrypto - тот же принцип, что и у randomHelpers/датHelpers (не
+// OpenSSL/libcrypto - тот же принцип, что и у RandomHelpers/датHelpers (не
 // тянуть внешнюю библиотеку туда, где хватает ~100 строк стандартного
 // алгоритма, не привязанного к платформе). "rech_hash_hex" - runtime-
 // диспетчер по числу (член перечисления "АлгоритмХеша", уже развёрнутый
@@ -22,10 +22,10 @@ import (
 // (Rech "Строка" в cbackend - "const char *" без отдельно хранимой длины,
 // сырой дайджест мог бы содержать 0x00 внутри и потерять хвост при любой
 // операции, использующей strlen). Buffer выделяется через malloc, не
-// GC_MALLOC - тем же принципом, что и strutil.Helpers/randomHelpers:
+// GC_MALLOC - тем же принципом, что и strutil.Helpers/RandomHelpers:
 // программа, вызвавшая только эти функции, не должна тянуть за собой
 // Boehm GC (<gc.h>).
-var cryptoHelpers = fmt.Sprintf(`static const uint32_t rech_sha256_k[64] = {
+var Helpers = fmt.Sprintf(`static const uint32_t rech_sha256_k[64] = {
     0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
     0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
     0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,

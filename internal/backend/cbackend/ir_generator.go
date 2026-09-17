@@ -12,7 +12,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/concurrency"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/console"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/crypto"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/datetime"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/httpwire"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/process"
@@ -232,7 +234,8 @@ type irGenCtx struct {
 	// программы - это два независимых пути кодогенерации на одну и ту же
 	// Rech-функцию, не взаимоисключающие. usesCoroutines (ИЛИ usesSockets -
 	// Шаг 132, plainSocketOpsCode теперь тоже опирается на планировщик
-	// корутин) гейтит coroutineRuntimeCode (coroutine.go) целиком -
+	// корутин) гейтит concurrency.CoroutineRuntimeCode (runtime/concurrency/
+	// coroutine.go) целиком -
 	// программа без обоих вовсе не платит за ucontext/epoll/kqueue
 	// рантайм.
 	coroutineFuncs map[string]bool
@@ -1235,7 +1238,8 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	}
 	if ctx.usesRandom {
 		// _CRT_RAND_S должен быть определён ДО <stdlib.h> - объявляет
-		// rand_s (см. randomHelpers, random.go) в MSVCRT/UCRT.
+		// rand_s (см. crypto.RandomHelpers, runtime/crypto/random.go) в
+		// MSVCRT/UCRT.
 		sb.WriteString("#ifdef _WIN32\n#define _CRT_RAND_S\n#endif\n")
 	}
 	if ctx.includesStdlibH {
@@ -1438,7 +1442,8 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	} else {
 		appendCodeIf(&sb, panicGate, panicHelper)
 	}
-	// coroutineRuntimeCode (coroutine.go) - ЗДЕСЬ, не рядом с taskCode/
+	// concurrency.CoroutineRuntimeCode (runtime/concurrency/coroutine.go) -
+	// ЗДЕСЬ, не рядом с taskCode/
 	// coroTaskCode ниже (как было раньше, до Шага 132): rech_accept/
 	// rech_send_raw/rech_socket_read_raw (plainSocketOpsCode,
 	// builtins_shared.go, эмитируется дальше по файлу как часть
@@ -1455,7 +1460,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// корутино-осведомлены во время исполнения - см. package doc
 	// plainSocketOpsCode, Шаг 132) - программа без обоих вовсе не платит
 	// за ucontext/epoll/kqueue рантайм.
-	appendCodeIf(&sb, ctx.usesCoroutines || ctx.usesSockets, coroutineRuntimeCode)
+	appendCodeIf(&sb, ctx.usesCoroutines || ctx.usesSockets, concurrency.CoroutineRuntimeCode)
 	appendCodeIf(&sb, ctx.usesArgs, argFuncHelper)
 	appendCodeIf(&sb, ctx.usesCurrentOS, currentOSHelper)
 	appendCodeIf(&sb, ctx.usesCast, castHelpers)
@@ -1779,24 +1784,26 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	appendCodeIf(&sb, ctx.usesSleep, process.Helpers)
 	// Не зависит от typedefs вообще (только примитивы) - здесь же просто
 	// для единообразия с остальными builtin-хелперами шага 8.
-	appendCodeIf(&sb, ctx.usesRandom, randomHelpers)
+	appendCodeIf(&sb, ctx.usesRandom, crypto.RandomHelpers)
 	// Не зависит от typedefs - только примитивы (const char *) - после
 	// panicHelper выше (rech_substring зовёт rech_panic).
 	appendCodeIf(&sb, ctx.usesStringOps, strutil.Helpers)
 	// Не зависит от typedefs - только примитивы (const char *) - после
 	// panicHelper выше (rech_base64url_decode зовёт rech_panic).
-	appendCodeIf(&sb, ctx.usesCrypto, cryptoHelpers)
-	// aes.go - "зашифровать"/"расшифровать" - ПОСЛЕ cryptoHelpers выше
-	// (rech_aes_key_from_passphrase зовёт rech_sha256_*, rech_aes_encrypt_
-	// hex зовёт rech_bytes_to_hex) - usesAES всегда идёт вместе с
-	// usesCrypto=true (builtins_shared.go), так что порядок гарантирован.
-	appendCodeIf(&sb, ctx.usesAES, aesHelpers)
-	// signing.go - "сгенерировать_приватный_ключ"/"получить_публичный_
-	// ключ"/"подписать"/"проверить_подпись" - ПОСЛЕ cryptoHelpers (rech_
-	// sign_hex зовёт rech_bytes_to_hex, rech_verify_signature_hex зовёт
-	// rech_hex_decode) и ПОСЛЕ panicHelper (обе тянут rech_panic) - оба уже
-	// гарантированы: usesSigning всегда идёт вместе с usesCrypto=true.
-	appendCodeIf(&sb, ctx.usesSigning, signingHelpers)
+	appendCodeIf(&sb, ctx.usesCrypto, crypto.Helpers)
+	// runtime/crypto/aes.go - "зашифровать"/"расшифровать" - ПОСЛЕ
+	// crypto.Helpers выше (rech_aes_key_from_passphrase зовёт rech_sha256_*,
+	// rech_aes_encrypt_hex зовёт rech_bytes_to_hex) - usesAES всегда идёт
+	// вместе с usesCrypto=true (builtins_shared.go), так что порядок
+	// гарантирован.
+	appendCodeIf(&sb, ctx.usesAES, crypto.AESHelpers)
+	// runtime/crypto/signing.go - "сгенерировать_приватный_ключ"/
+	// "получить_публичный_ключ"/"подписать"/"проверить_подпись" - ПОСЛЕ
+	// crypto.Helpers (rech_sign_hex зовёт rech_bytes_to_hex, rech_verify_
+	// signature_hex зовёт rech_hex_decode) и ПОСЛЕ panicHelper (обе тянут
+	// rech_panic) - оба уже гарантированы: usesSigning всегда идёт вместе с
+	// usesCrypto=true.
+	appendCodeIf(&sb, ctx.usesSigning, crypto.SigningHelpers)
 	// После typedefs (rech_T_opcii_kuki/rech_T_n_stroka уже объявлены) и
 	// после strConcatHelper выше (rech_cookie_string зовёт rech_str_concat).
 	appendCodeIf(&sb, ctx.usesCookies, cookieHelpers())
@@ -1940,15 +1947,17 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		sb.WriteString(nullableReflectBoxHelpers(ctx, prog))
 	}
 
-	// threadPoolCode (threadpool.go) - ДО activeTasksCode/taskCode ниже:
-	// rech_launch_... (concurrency.go, ensureTaskWrapper) зовёт
-	// rech_pool_submit текстом, объявление должно предшествовать
-	// использованию - тот же принцип, что и у activeTasksCode ниже.
-	appendCodeIf(&sb, ctx.usesThreads, threadPoolCode(prog.PoolShrinkEnabled, prog.PoolIdleTimeoutMs))
-	// activeTasksCode (active_tasks.go) - ДО taskCode ниже: точка входа
-	// потока (concurrency.go, ensureTaskWrapper) зовёт rech_active_tasks_dec
-	// текстом, объявление должно предшествовать использованию.
-	appendCodeIf(&sb, ctx.usesThreads || ctx.usesActiveTaskWait, activeTasksCode)
+	// concurrency.ThreadPoolCode (runtime/concurrency/threadpool.go) - ДО
+	// concurrency.ActiveTasksCode/taskCode ниже: rech_launch_... (concurrency.go,
+	// ensureTaskWrapper) зовёт rech_pool_submit текстом, объявление должно
+	// предшествовать использованию - тот же принцип, что и у
+	// concurrency.ActiveTasksCode ниже.
+	appendCodeIf(&sb, ctx.usesThreads, concurrency.ThreadPoolCode(prog.PoolShrinkEnabled, prog.PoolIdleTimeoutMs))
+	// concurrency.ActiveTasksCode (runtime/concurrency/active_tasks.go) - ДО
+	// taskCode ниже: точка входа потока (concurrency.go, ensureTaskWrapper)
+	// зовёт rech_active_tasks_dec текстом, объявление должно предшествовать
+	// использованию.
+	appendCodeIf(&sb, ctx.usesThreads || ctx.usesActiveTaskWait, concurrency.ActiveTasksCode)
 	// taskCode - обёртки "запустить"/"дождаться" (internal/backend/cbackend/
 	// concurrency.go) - ссылаются на &rech_<имя> обёрнутых функций (нужны
 	// protos выше) и на rech_throw (нужен exceptionRuntimeCode выше), сама
@@ -1956,7 +1965,8 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// уже готов к этому моменту, хотя размещается в файле раньше него.
 	appendCodeIf(&sb, ctx.taskCode.Len() > 0, ctx.taskCode.String())
 
-	// coroutineRuntimeCode (coroutine.go) - эмитится СИЛЬНО РАНЬШЕ этого
+	// concurrency.CoroutineRuntimeCode (runtime/concurrency/coroutine.go) -
+	// эмитится СИЛЬНО РАНЬШЕ этого
 	// места (сразу после rech_panic, до socketHelpers - Шаг 132, см. её
 	// собственный appendCodeIf выше по файлу) - rech_accept/rech_send_raw/
 	// rech_socket_read_raw (plainSocketOpsCode) теперь тоже ссылаются на

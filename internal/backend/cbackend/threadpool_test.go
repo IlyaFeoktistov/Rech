@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/concurrency"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
@@ -12,7 +13,7 @@ import (
 // безусловному ожиданию (pthread_cond_wait/SleepConditionVariableCS с
 // INFINITE), без единой ссылки на таймаут.
 func TestThreadPoolCodeDisabledByDefault(t *testing.T) {
-	code := threadPoolCode(false, 30000)
+	code := concurrency.ThreadPoolCode(false, 30000)
 	if !strings.Contains(code, "#define RECH_POOL_SHRINK_ENABLED 0") {
 		t.Fatalf("ожидался RECH_POOL_SHRINK_ENABLED 0, получено:\n%s", code)
 	}
@@ -26,7 +27,7 @@ func TestThreadPoolCodeDisabledByDefault(t *testing.T) {
 // значение, плюс ветки pthread_cond_timedwait/SleepConditionVariableCS с
 // перепроверкой очереди перед завершением воркера.
 func TestThreadPoolCodeShrinkEnabled(t *testing.T) {
-	code := threadPoolCode(true, 12345)
+	code := concurrency.ThreadPoolCode(true, 12345)
 	if !strings.Contains(code, "#define RECH_POOL_SHRINK_ENABLED 1") {
 		t.Fatalf("ожидался RECH_POOL_SHRINK_ENABLED 1, получено:\n%s", code)
 	}

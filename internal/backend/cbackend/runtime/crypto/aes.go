@@ -1,4 +1,4 @@
-package cbackend
+package crypto
 
 import (
 	"fmt"
@@ -6,9 +6,9 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
-// aesHelpers - "зашифровать"/"расшифровать" (internal/builtins.All) -
+// AESHelpers - "зашифровать"/"расшифровать" (internal/builtins.All) -
 // AES-256-GCM через OpenSSL EVP (<openssl/evp.h>, RAND_bytes из
-// <openssl/rand.h> для nonce) - В ОТЛИЧИЕ от cryptoHelpers (crypto.go,
+// <openssl/rand.h> для nonce) - В ОТЛИЧИЕ от Helpers (crypto.go,
 // собственная реализация SHA-256/SHA-1/MD5/SHA-512): аутентифицированное
 // шифрование с нуля - риск для безопасности, тот же довод, что у tls.go
 // про собственный TLS-стек. OpenSSL уже слинкован ради TLS ("слушать_tcp_
@@ -16,7 +16,7 @@ import (
 // toolchain/cc.go, по маркеру "#include <openssl/evp.h>").
 //
 // Ключ AES - SHA-256 переданного пароля (rech_sha256_ctx/_init/_update/
-// _final из cryptoHelpers, crypto.go - ВСЕГДА эмитится вместе с этим
+// _final из Helpers, crypto.go - ВСЕГДА эмитится вместе с этим
 // файлом, см. builtins_shared.go: usesAES тянет usesCrypto=true), не сам
 // пароль напрямую - строка любой длины превращается в настоящий 256-битный
 // ключ, тем же приёмом, что и у HMAC-ключа длиннее блока.
@@ -27,7 +27,7 @@ import (
 // aes.go) - зашифрованное одним backend'ом должно расшифровываться
 // другим. "rech_hex_decode" (обратная к rech_bytes_to_hex) - в crypto.go,
 // не здесь - нужна и "расшифровать" тут, и "проверить_подпись" (signing.go).
-var aesHelpers = fmt.Sprintf(`static void rech_aes_key_from_passphrase(const char *passphrase, unsigned char key[32]) {
+var AESHelpers = fmt.Sprintf(`static void rech_aes_key_from_passphrase(const char *passphrase, unsigned char key[32]) {
     rech_sha256_ctx kctx;
     rech_sha256_init(&kctx);
     rech_sha256_update(&kctx, (const unsigned char *)passphrase, strlen(passphrase));

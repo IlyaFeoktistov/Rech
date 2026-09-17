@@ -1,4 +1,4 @@
-package cbackend
+package crypto
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
-// randomHelpers - "случайное"/"случайное_целое" (internal/builtins.All) -
+// RandomHelpers - "случайное"/"случайное_целое" (internal/builtins.All) -
 // криптографически стойкий источник (arc4random/arc4random_uniform из
 // <stdlib.h> на POSIX/BSD/macOS - glibc >= 2.36 и musl уже несут их сами,
 // без ручного srand(); rand_s из MSVCRT/UCRT на Windows, требует
@@ -20,7 +20,7 @@ import (
 // широких диапазонов (обычная плата за простоту взамен честного rejection
 // sampling), не проблема для типичного использования (токены, кости,
 // выбор индекса).
-var randomHelpers = fmt.Sprintf(`static double rech_random(void) {
+var RandomHelpers = fmt.Sprintf(`static double rech_random(void) {
 #ifdef _WIN32
     unsigned int r;
     rand_s(&r);

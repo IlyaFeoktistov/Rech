@@ -27,7 +27,7 @@ import (
 // httpServerHelpersCode - была константой, стала функцией параметром
 // maxRequestBytes (ir.Program.HTTPMaxRequestBytes, "http.
 // макс_размер_запроса_байт" файла проекта) - тот же приём, что и
-// threadPoolCode (threadpool.go): значение запекается препроцессорным
+// concurrency.ThreadPoolCode (runtime/concurrency/threadpool.go): значение запекается препроцессорным
 // макросом (RECH_HTTP_MAX_REQUEST_BYTES), а не читается как переменная
 // рантайма, потому что для одной программы оно ровно одно и известно уже
 // на этапе кодогенерации. rech_recv_http_request проверяет его дважды: как

@@ -53,7 +53,7 @@
 // обязан был встать под тем же мьютексом раньше, чем submit() принял
 // решение не создавать новый поток) - воркер увидит его и продолжит
 // работать, а не завершится - ложного "потерянного" пробуждения нет.
-package cbackend
+package concurrency
 
 import (
 	"fmt"
@@ -61,8 +61,8 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/timespec"
 )
 
-// threadPoolCode - см. package doc выше.
-func threadPoolCode(shrinkEnabled bool, idleTimeoutMs int) string {
+// ThreadPoolCode - см. package doc выше.
+func ThreadPoolCode(shrinkEnabled bool, idleTimeoutMs int) string {
 	shrinkFlag := 0
 	if shrinkEnabled {
 		shrinkFlag = 1

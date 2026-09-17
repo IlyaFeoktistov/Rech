@@ -11,7 +11,7 @@ import (
 // <асинхронная функция>(...)" (ir.LaunchExpr.Coroutine == true) должен
 // эмитить структуру задачи/точку входа/пару обёрток "rech_coro_launch_.../
 // rech_coro_join_..." и сам ucontext/epoll/kqueue-рантайм
-// (coroutineRuntimeCode), а не rech_launch_.../rech_await_... (поток ОС) -
+// (concurrency.CoroutineRuntimeCode), а не rech_launch_.../rech_await_... (поток ОС) -
 // см. package doc coroutine_task.go.
 func TestGenerateFromIRCoroAwaitEmitsCoroutineWrapper(t *testing.T) {
 	fn := &ir.Function{

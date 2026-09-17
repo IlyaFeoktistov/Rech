@@ -77,15 +77,15 @@
 // решены, epoll_wait/kevent ждут бесконечно (-1/NULL) - нет живого
 // сценария, который бы их потребовал уже сейчас (TCP-builtin'ы ещё не
 // переведены на эту модель - открытый пункт следующего инкремента).
-package cbackend
+package concurrency
 
-// coroutineRuntimeCode - см. package doc выше. RECH_CORO_STACK_SIZE -
+// CoroutineRuntimeCode - см. package doc выше. RECH_CORO_STACK_SIZE -
 // намеренно консервативный дефолт (256 КБ) - фиксированный, не растущий
 // стек (в отличие от горутин Go): ucontext не даёт дешёвого способа расти
 // постфактум, точный размер имеет смысл калибровать только когда на нём
 // реально начнёт исполняться тело Rech-функции (следующие шаги плана), не
 // сейчас.
-const coroutineRuntimeCode = `#ifndef _WIN32
+const CoroutineRuntimeCode = `#ifndef _WIN32
 #define _XOPEN_SOURCE 700
 #include <ucontext.h>
 #include <stdlib.h>
@@ -101,7 +101,7 @@ const coroutineRuntimeCode = `#ifndef _WIN32
 
 // RECH_THREAD_LOCAL - та же роль, что и в ir_generator.go (там определён
 // безусловно ОДИН раз для всей сгенерированной программы) - здесь
-// ПОДСТРАХОВОЧНО, guard'ом: coroutineRuntimeCode компилируется и САМ ПО
+// ПОДСТРАХОВОЧНО, guard'ом: CoroutineRuntimeCode компилируется и САМ ПО
 // СЕБЕ, изолированным C-driver'ом (coroutine_test.go, без остального
 // рантайма Rech вовсе) - без собственного определения макрос был бы не
 // объявлен вовсе в этом сценарии. В полном конвейере (ir_generator.go)

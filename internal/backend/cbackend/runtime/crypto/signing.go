@@ -1,4 +1,4 @@
-package cbackend
+package crypto
 
 import (
 	"fmt"
@@ -6,12 +6,12 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
-// signingHelpers - "сгенерировать_приватный_ключ"/"получить_публичный_
+// SigningHelpers - "сгенерировать_приватный_ключ"/"получить_публичный_
 // ключ"/"подписать"/"проверить_подпись" (internal/builtins.All) -
 // асимметричная криптография (RSA/Ed25519) через OpenSSL EVP (EVP_PKEY/
 // PEM_write_bio_*/EVP_DigestSign/EVP_DigestVerify) - ТОТ ЖЕ довод, что и у
-// aesHelpers: настоящая криптография с нуля - риск для безопасности, не
-// место для "хватает ~100 строк своего кода" (в отличие от cryptoHelpers -
+// AESHelpers: настоящая криптография с нуля - риск для безопасности, не
+// место для "хватает ~100 строк своего кода" (в отличие от Helpers -
 // голых хеш-функций). Использует те же OpenSSL-заголовки, что и AES
 // (<openssl/evp.h>) плюс <openssl/pem.h>/<openssl/bio.h> для PEM.
 //
@@ -27,7 +27,7 @@ import (
 // принцип минимализма, что и у единственного режима "зашифровать"
 // (AES-256-GCM): не заводить абстракцию под гипотетический выбор размера
 // ключа, которого никто не просил.
-var signingHelpers = fmt.Sprintf(`static char *rech_bio_to_string(BIO *bio) {
+var SigningHelpers = fmt.Sprintf(`static char *rech_bio_to_string(BIO *bio) {
     char *data;
     long len = BIO_get_mem_data(bio, &data);
     char *out = malloc((size_t)len + 1);

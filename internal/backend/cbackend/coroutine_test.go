@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/concurrency"
 )
 
 // coroutineDriverTimeout - предохранитель на запуск собранного driver'а: у
@@ -63,7 +65,7 @@ static void rech_panic(const char *msg) {
 }
 `
 
-// compileAndRunCoroutineDriver - компилирует coroutineRuntimeCode + driver
+// compileAndRunCoroutineDriver - компилирует concurrency.CoroutineRuntimeCode + driver
 // (произвольный C-код, использующий rech_coro_spawn/rech_coro_yield/
 // rech_coro_run_all/...) НАСТОЯЩИМ cc и возвращает stdout запущенного
 // бинарника - без остального рантайма Rech (ни IR, ни исключения) вообще,
@@ -72,16 +74,16 @@ static void rech_panic(const char *msg) {
 func compileAndRunCoroutineDriver(t *testing.T, driver string) string {
 	t.Helper()
 	if runtime.GOOS == "windows" {
-		t.Skip("coroutineRuntimeCode - POSIX-only (ucontext.h), на Windows не собирается")
+		t.Skip("concurrency.CoroutineRuntimeCode - POSIX-only (ucontext.h), на Windows не собирается")
 	}
 	ccPath := findTestCCompiler(t)
 	dir := t.TempDir()
 	cPath := filepath.Join(dir, "driver.c")
 	// "#define _XOPEN_SOURCE" - обязан идти ДО первого системного заголовка
 	// вообще (glibc feature-test macro), включая <gc.h> из прелюдии -
-	// coroutineRuntimeCode ниже определяет её же повторно (то же
+	// concurrency.CoroutineRuntimeCode ниже определяет её же повторно (то же
 	// значение - легальный повторный #define), но здесь нужно раньше.
-	src := "#define _XOPEN_SOURCE 700\n" + coroutineDriverPrelude + coroutineRuntimeCode + "\n" + driver
+	src := "#define _XOPEN_SOURCE 700\n" + coroutineDriverPrelude + concurrency.CoroutineRuntimeCode + "\n" + driver
 	if err := os.WriteFile(cPath, []byte(src), 0o644); err != nil {
 		t.Fatalf("запись driver.c: %v", err)
 	}
