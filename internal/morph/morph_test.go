@@ -128,6 +128,8 @@ func TestClassifyByEnding(t *testing.T) {
 		{"компания", ClassSecondSoft, true},
 		{"сообщение", ClassNeuterSoft, true},
 		{"окно", ClassNeuterHard, true},
+		{"промежуточная", ClassAdjHardFeminine, true},
+		{"синяя", ClassAdjSoftFeminine, true},
 		{"пользователь", 0, false}, // "-ь" неоднозначно - только через exceptions/Explicit
 		{"пароль", 0, false},
 		{"случай", 0, false},   // "-й" - вне Фазы A
@@ -142,6 +144,33 @@ func TestClassifyByEnding(t *testing.T) {
 		}
 		if ok && class != tc.wantClass {
 			t.Errorf("ClassifyByEnding(%q) class = %v, want %v", tc.word, class, tc.wantClass)
+		}
+	}
+}
+
+// TestBuildNounParadigmAdjectiveShapedAccusative - НАЙДЕННЫЙ БАГ
+// (репортнуто пользователем - "сущность Круг наследует Промежуточную" не
+// находила объявленную "Промежуточная"): до ClassAdjHardFeminine/
+// ClassAdjSoftFeminine слова на "-ая"/"-яя" попадали под
+// ClassSecondSoftPlain (голое "-я", "земля") и получали неверный
+// винительный падеж ("Промежуточн"+"ю" = "Промежуточню" вместо настоящего
+// прилагательного "Промежуточную").
+func TestBuildNounParadigmAdjectiveShapedAccusative(t *testing.T) {
+	cases := []struct {
+		word      string
+		class     DeclensionClass
+		wantAccSg string
+	}{
+		{"Промежуточная", ClassAdjHardFeminine, "Промежуточную"},
+		{"Синяя", ClassAdjSoftFeminine, "Синюю"},
+	}
+	for _, tc := range cases {
+		p, err := BuildNounParadigm(tc.word, tc.class, Inanimate)
+		if err != nil {
+			t.Fatalf("BuildNounParadigm(%q): %v", tc.word, err)
+		}
+		if got := p[Tag{Accusative, Singular}]; got != tc.wantAccSg {
+			t.Errorf("BuildNounParadigm(%q) винительный ед.ч. = %q, want %q", tc.word, got, tc.wantAccSg)
 		}
 	}
 }

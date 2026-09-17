@@ -82,6 +82,32 @@ func TestParseImplementsRequiresAccusativeCaseForEachInList(t *testing.T) {
 	}
 }
 
+// TestParseInheritsResolvesAdjectiveShapedEntityName - НАЙДЕННЫЙ БАГ
+// (репортнуто пользователем): сущность с именем, выглядящим как
+// прилагательное ("Промежуточная" - "-ая", склоняется "Промежуточную" в
+// винительном, а не "Промежуточню" как обычное существительное на голое
+// "-я" вроде "земля" - см. package doc ClassAdjHardFeminine/
+// ClassAdjSoftFeminine, internal/morph/noun.go) не резолвилась базовой
+// сущностью вовсе - до фикса классификатор путал "-ая"/"-яя" с этим
+// классом существительных и вычислял неверную винительную форму.
+func TestParseInheritsResolvesAdjectiveShapedEntityName(t *testing.T) {
+	prog, err := parseSource(t, `
+сущность Промежуточная
+{
+}
+сущность Круг наследует Промежуточную
+{
+}
+функция главная { вывести "ок" }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if prog.Entities[1].BaseName != "Промежуточная" {
+		t.Fatalf("ожидалось разрешение винительной формы прилагательного-подобного имени в %q, получено %q", "Промежуточная", prog.Entities[1].BaseName)
+	}
+}
+
 // TestParseInheritsPermissiveFallbackForUnclassifiableName - имя, склонение
 // которого неопределимо (не зарегистрировано или вне покрытия Фазы A) -
 // принимается как есть, без ошибки (permissive fallback, тот же принцип,

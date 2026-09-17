@@ -19,6 +19,8 @@ const (
 	ClassNeuterHard                             // окно (сред., твёрдая, "-о")
 	ClassNeuterSoft                             // сообщение (сред., мягкая, "-ие")
 	ClassSecondSoftPlain                        // земля (жен., мягкая, голое "-я", без предшествующей "и")
+	ClassAdjHardFeminine                        // прямая (субстантивированное прилагательное, жен., твёрдая, "-ая")
+	ClassAdjSoftFeminine                        // синяя (субстантивированное прилагательное, жен., мягкая, "-яя")
 
 	// ClassIrregular - слово зарегистрировано по готовой парадигме
 	// (nounFullExceptions в exceptions.go), не generic-классом склонения -
@@ -143,6 +145,45 @@ var classTable = map[DeclensionClass]classInfo{
 		},
 		accSg: "ю",
 	},
+	// ClassAdjHardFeminine/ClassAdjSoftFeminine - имена вроде сущности
+	// "Промежуточная" (наследует Исключение, например) выглядят как ИМЯ
+	// СУЩЕСТВИТЕЛЬНОЕ (RegisterNoun/ClassifyByEnding не различают части
+	// речи), но фактически склоняются как прилагательное - НАЙДЕННЫЙ БАГ
+	// (репортнуто пользователем): без этих двух классов "-ая"/"-яя"
+	// попадали под ClassSecondSoftPlain выше (голое "-я", "земля") -
+	// винительный падеж вычислялся как "Промежуточн" + "ю" = "Промежуточню"
+	// вместо настоящего прилагательного "Промежуточную", и "сущность Б
+	// наследует Промежуточную" не находил объявленную "Промежуточная" ни
+	// одним путём resolveDeclinedTypeRef (internal/parser/entity.go).
+	// Парадигма - обычное полное прилагательное женского рода (винительный
+	// неодушевлённого/одушевлённого не различается - оба "-ую"/"-юю", в
+	// отличие от существительных, поэтому accSg задан явно, как и у
+	// остальных классов женского рода выше). Множественное число - общая
+	// форма прилагательного для всех родов (не отдельный класс существительных).
+	ClassAdjHardFeminine: {
+		strip:  "ая",
+		gender: Feminine,
+		endings: endings{
+			nom:   [2]string{"ая", "ые"},
+			gen:   [2]string{"ой", "ых"},
+			dat:   [2]string{"ой", "ым"},
+			instr: [2]string{"ой", "ыми"},
+			prep:  [2]string{"ой", "ых"},
+		},
+		accSg: "ую",
+	},
+	ClassAdjSoftFeminine: {
+		strip:  "яя",
+		gender: Feminine,
+		endings: endings{
+			nom:   [2]string{"яя", "ие"},
+			gen:   [2]string{"ей", "их"},
+			dat:   [2]string{"ей", "им"},
+			instr: [2]string{"ей", "ими"},
+			prep:  [2]string{"ей", "их"},
+		},
+		accSg: "юю",
+	},
 }
 
 // GenderOf возвращает род, закреплённый за классом склонения.
@@ -170,6 +211,15 @@ func ClassifyByEnding(nomSg string) (DeclensionClass, bool) {
 	switch {
 	case strings.HasSuffix(nomSg, "ие"):
 		return ClassNeuterSoft, true
+	// "-ая"/"-яя" - субстантивированное прилагательное (см. package doc
+	// ClassAdjHardFeminine/ClassAdjSoftFeminine выше) - ДО общего голого
+	// "-я" ниже, иначе оно перехватило бы оба случая первым (оба тоже
+	// оканчиваются на "-я") и склонило бы их как обычное существительное
+	// класса "земля", а не как прилагательное.
+	case strings.HasSuffix(nomSg, "ая"):
+		return ClassAdjHardFeminine, true
+	case strings.HasSuffix(nomSg, "яя"):
+		return ClassAdjSoftFeminine, true
 	case strings.HasSuffix(nomSg, "ия"):
 		return ClassSecondSoft, true
 	case strings.HasSuffix(nomSg, "я"):
