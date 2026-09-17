@@ -206,12 +206,24 @@ func (d *doc) declPos(line int, name string) (definitionPos, bool) {
 // поиск, используемый и для текущего документа (declPos), и для чужого
 // файла (declPosInFile).
 func declPosIn(toks []lexer.Token, line int, name string) (definitionPos, bool) {
+	tok, ok := tokenAt(toks, line, name)
+	if !ok {
+		return definitionPos{}, false
+	}
+	return definitionPos{Line: line, Col: tok.Col, Len: len([]rune(name))}, true
+}
+
+// tokenAt - первый IDENT-токен строки line со значением name в toks - общий
+// поиск, используемый declPosIn выше и overrideRefs (overrides.go), у
+// которого позиция нужна не готовой definitionPos, а самим lexer.Token
+// (refLocation, того же вида, что и у "N ссылок").
+func tokenAt(toks []lexer.Token, line int, name string) (lexer.Token, bool) {
 	for _, tok := range toks {
 		if tok.Line == line && tok.Type == lexer.IDENT && tok.Value == name {
-			return definitionPos{Line: line, Col: tok.Col, Len: len([]rune(name))}, true
+			return tok, true
 		}
 	}
-	return definitionPos{}, false
+	return lexer.Token{}, false
 }
 
 // declPosInFile - как declPos, но объявление может лежать в ЛЮБОМ файле

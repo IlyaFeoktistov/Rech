@@ -234,16 +234,25 @@ func (d *doc) crossFileRefs(matcher func([]lexer.Token, string) []lexer.Token, n
 // ссылка, 2 ссылки, 5 ссылок, 11 ссылок, 21 ссылка, ...) - обычное правило
 // русских числительных (11-14 всегда "ссылок", иначе по последней цифре).
 func refCountLabel(n int) string {
+	return ruCountLabel(n, "ссылка", "ссылки", "ссылок")
+}
+
+// ruCountLabel - число n, согласованное с существительным (one - "1 файл",
+// few - "2/3/4 файла", many - "5.../11-14.../0 файлов") - то же правило
+// русских числительных, что и у refCountLabel, только не завязанное на
+// конкретное слово "ссылка" - используется им же и overrideCountLabel
+// (codelens.go), чтобы не копировать правило склонения дважды.
+func ruCountLabel(n int, one, few, many string) string {
 	mod100 := n % 100
 	if mod100 >= 11 && mod100 <= 14 {
-		return fmt.Sprintf("%d ссылок", n)
+		return fmt.Sprintf("%d %s", n, many)
 	}
 	switch n % 10 {
 	case 1:
-		return fmt.Sprintf("%d ссылка", n)
+		return fmt.Sprintf("%d %s", n, one)
 	case 2, 3, 4:
-		return fmt.Sprintf("%d ссылки", n)
+		return fmt.Sprintf("%d %s", n, few)
 	default:
-		return fmt.Sprintf("%d ссылок", n)
+		return fmt.Sprintf("%d %s", n, many)
 	}
 }
