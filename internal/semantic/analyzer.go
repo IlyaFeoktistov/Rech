@@ -523,8 +523,8 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 	// см. тот же приём в collectEntities.
 	enums := buildEnumTable(prog)
 	registerBuiltinFuncs(funcs)
-	registerHTTPEntity(a.entities, "Запрос", httpRequestFields)
-	registerHTTPEntity(a.entities, "Ответ", httpResponseFields)
+	registerHTTPEntityWithDefaults(a.entities, "Запрос", httpRequestFields, httpRequestDefaults)
+	registerHTTPEntityWithDefaults(a.entities, "Ответ", httpResponseFields, httpResponseDefaults)
 	funcs["запрос"] = funcSig{Params: []ir.Type{ir.EntityType("Запрос")}, ReturnType: ir.EntityType("Ответ"), HasReturn: true}
 	registerHTTPServerFuncs(funcs)
 	registerStringSplitFunc(funcs)

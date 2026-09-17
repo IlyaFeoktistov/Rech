@@ -89,13 +89,13 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 	}
 	switch name {
 	case "Запрос":
-		registerHTTPEntity(entities, "Запрос", httpRequestFields)
+		registerHTTPEntityWithDefaults(entities, "Запрос", httpRequestFields, httpRequestDefaults)
 		return ir.EntityType("Запрос"), nil
 	case "Ответ":
-		registerHTTPEntity(entities, "Ответ", httpResponseFields)
+		registerHTTPEntityWithDefaults(entities, "Ответ", httpResponseFields, httpResponseDefaults)
 		return ir.EntityType("Ответ"), nil
 	case "ДатаВремя":
-		registerHTTPEntity(entities, "ДатаВремя", dateTimeFields)
+		registerHTTPEntityWithDefaults(entities, "ДатаВремя", dateTimeFields, dateTimeDefaults)
 		return ir.EntityType("ДатаВремя"), nil
 	case mutexEntityName:
 		registerMutexEntity(entities, methods)
@@ -110,13 +110,13 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 		if _, err := resolveTypeName(entities, methods, aliases, interfaces, enums, byteListType); err != nil {
 			return ir.TypeUnknown, err
 		}
-		registerHTTPEntity(entities, httpBytesRequestType, httpBytesRequestFields)
+		registerHTTPEntityWithDefaults(entities, httpBytesRequestType, httpBytesRequestFields, httpBytesRequestDefaults)
 		return ir.EntityType(httpBytesRequestType), nil
 	case httpBytesResponseType:
 		if _, err := resolveTypeName(entities, methods, aliases, interfaces, enums, byteListType); err != nil {
 			return ir.TypeUnknown, err
 		}
-		registerHTTPEntity(entities, httpBytesResponseType, httpBytesResponseFields)
+		registerHTTPEntityWithDefaults(entities, httpBytesResponseType, httpBytesResponseFields, httpBytesResponseDefaults)
 		return ir.EntityType(httpBytesResponseType), nil
 	case formPartType:
 		if _, err := resolveTypeName(entities, methods, aliases, interfaces, enums, byteListType); err != nil {
@@ -199,6 +199,33 @@ var httpResponseFields = []ir.Field{
 	{Name: "тело", Type: ir.TypeString},
 }
 
+// httpRequestDefaults/httpResponseDefaults - значения по умолчанию для
+// httpRequestFields/httpResponseFields, тем же путём, что и обычные
+// "имеет: поле: Тип = значение" (см. registerCookieOptionsEntity, cookies.go) -
+// nil на позиции поля означает "без умолчания". Именованный конструктор
+// ("новый Запрос(адрес: ..., путь: ...)") может опустить любое поле со
+// значением по умолчанию; позиционный - только ХВОСТ полей (после
+// последнего переданного аргумента), т. к. позиция без имени не может
+// "перепрыгнуть" поле без значения по умолчанию. "метод" по умолчанию
+// "GET" (самый частый случай HTTP-клиента), "порт" - 80, "путь" - "/",
+// "заголовки"/"тело" - пустая строка (нет заголовков/тела). "адрес" у
+// Запрос и "код" у Ответ без умолчания - нет содержательного значения по
+// умолчанию ни у хоста, ни у статус-кода.
+var httpRequestDefaults = []ast.Expr{
+	&ast.StringLiteral{Value: "GET"}, // метод
+	nil,                              // адрес
+	&ast.IntLiteral{Value: 80},       // порт
+	&ast.StringLiteral{Value: "/"},   // путь
+	&ast.StringLiteral{Value: ""},    // заголовки
+	&ast.StringLiteral{Value: ""},    // тело
+}
+
+var httpResponseDefaults = []ast.Expr{
+	nil,                           // код
+	&ast.StringLiteral{Value: ""}, // заголовки
+	&ast.StringLiteral{Value: ""}, // тело
+}
+
 // registerHTTPEntity - лениво синтезирует entitySig встроенной сущности
 // (мемоизация, как resolveGenericTypeName у generic-коллекций) - вызывается
 // при первой встрече имени "Запрос"/"Ответ" где угодно (параметр, поле,
@@ -206,6 +233,14 @@ var httpResponseFields = []ir.Field{
 // "запрос" - пользователь может объявить свою функцию, принимающую/
 // возвращающую эти сущности, без единого вызова встроенной "запрос".
 func registerHTTPEntity(entities map[string]entitySig, name string, fields []ir.Field) {
+	registerHTTPEntityWithDefaults(entities, name, fields, nil)
+}
+
+// registerHTTPEntityWithDefaults - как registerHTTPEntity, но также
+// заполняет FieldDefaultExprs, если defaults непустой (см.
+// httpRequestDefaults/httpResponseDefaults) - defaults должен быть либо nil,
+// либо той же длины, что и fields.
+func registerHTTPEntityWithDefaults(entities map[string]entitySig, name string, fields []ir.Field, defaults []ast.Expr) {
 	if _, exists := entities[name]; exists {
 		return
 	}
@@ -215,6 +250,7 @@ func registerHTTPEntity(entities map[string]entitySig, name string, fields []ir.
 		sig.FieldTypes = append(sig.FieldTypes, f.Type)
 		sig.FieldVisibility = append(sig.FieldVisibility, ast.Public)
 	}
+	sig.FieldDefaultExprs = defaults
 	entities[name] = sig
 }
 

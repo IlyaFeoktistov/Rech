@@ -24,7 +24,10 @@
 // (registerHTTPBytesTypesOnCall, analyzeCallExpr).
 package semantic
 
-import "github.com/IlyaFeoktistov/Rech/internal/ir"
+import (
+	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/ir"
+)
 
 const (
 	httpBytesRequestType  = "ЗапросБайты"
@@ -46,6 +49,27 @@ var (
 		{Name: "код", Type: ir.TypeInt},
 		{Name: "заголовки", Type: ir.TypeString},
 		{Name: "тело", Type: ir.EntityType(byteListType)},
+	}
+)
+
+// httpBytesRequestDefaults/httpBytesResponseDefaults - те же умолчания, что
+// httpRequestDefaults/httpResponseDefaults (types.go), "тело" - пустой
+// Список<Байт> вместо пустой строки (coerceExpr типизирует пустой
+// ast.ListLiteral по целевому generic-типу, тем же путём, что и обычный
+// литерал списка внутри тела функции - см. nullable.go, ветка ListLiteral).
+var (
+	httpBytesRequestDefaults = []ast.Expr{
+		&ast.StringLiteral{Value: "GET"}, // метод
+		nil,                              // адрес
+		&ast.IntLiteral{Value: 80},       // порт
+		&ast.StringLiteral{Value: "/"},   // путь
+		&ast.StringLiteral{Value: ""},    // заголовки
+		&ast.ListLiteral{},               // тело
+	}
+	httpBytesResponseDefaults = []ast.Expr{
+		nil,                           // код
+		&ast.StringLiteral{Value: ""}, // заголовки
+		&ast.ListLiteral{},            // тело
 	}
 )
 

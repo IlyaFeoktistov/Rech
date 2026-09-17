@@ -81,7 +81,7 @@ func registerCookieOptionsEntity(entities map[string]entitySig) {
 // потребовала бы форматирования HTTP-даты (RFC 1123) - отдельная, не
 // обязательная здесь работа.
 func registerCookieFuncs(entities map[string]entitySig, funcs map[string]funcSig) {
-	registerHTTPEntity(entities, "Запрос", httpRequestFields)
+	registerHTTPEntityWithDefaults(entities, "Запрос", httpRequestFields, httpRequestDefaults)
 	registerCookieOptionsEntity(entities)
 	funcs["значение_куки"] = funcSig{
 		Params:     []ir.Type{ir.EntityType("Запрос"), ir.TypeString},

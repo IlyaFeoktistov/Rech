@@ -1,6 +1,9 @@
 package semantic
 
-import "github.com/IlyaFeoktistov/Rech/internal/ir"
+import (
+	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/ir"
+)
 
 // dateTimeFields - фиксированные поля встроенной сущности "ДатаВремя", в
 // этом порядке (позиционный конструктор "новый ДатаВремя(...)" следует
@@ -23,6 +26,19 @@ var dateTimeFields = []ir.Field{
 	{Name: "секунда", Type: ir.TypeInt},
 }
 
+// dateTimeDefaults - "час"/"минута"/"секунда" по умолчанию 0 (полночь) -
+// "новый ДатаВремя(год: 2026, месяц: 9, день: 17)" называет только дату,
+// без времени суток. "год"/"месяц"/"день" без умолчания - нет содержательного
+// значения по умолчанию у календарной даты.
+var dateTimeDefaults = []ast.Expr{
+	nil,                       // год
+	nil,                       // месяц
+	nil,                       // день
+	&ast.IntLiteral{Value: 0}, // час
+	&ast.IntLiteral{Value: 0}, // минута
+	&ast.IntLiteral{Value: 0}, // секунда
+}
+
 // registerDateTimeFuncs регистрирует сущность "ДатаВремя" и функции
 // "время_как_дата"/"дата_как_время"/"дату_в_строку" - тот же принцип, что
 // и у "запрос" (HTTP-клиент): они принимают/возвращают сущность, не
@@ -31,7 +47,7 @@ var dateTimeFields = []ir.Field{
 // (semantic/cbackend/interp). "время" (текущее время, без сущности в
 // сигнатуре) - в internal/builtins.All как обычно.
 func registerDateTimeFuncs(entities map[string]entitySig, funcs map[string]funcSig) {
-	registerHTTPEntity(entities, "ДатаВремя", dateTimeFields)
+	registerHTTPEntityWithDefaults(entities, "ДатаВремя", dateTimeFields, dateTimeDefaults)
 	funcs["время_как_дата"] = funcSig{Params: []ir.Type{ir.TypeInt}, ReturnType: ir.EntityType("ДатаВремя"), HasReturn: true}
 	funcs["дата_как_время"] = funcSig{Params: []ir.Type{ir.EntityType("ДатаВремя")}, ReturnType: ir.TypeInt, HasReturn: true}
 	funcs["дату_в_строку"] = funcSig{Params: []ir.Type{ir.EntityType("ДатаВремя")}, ReturnType: ir.TypeString, HasReturn: true}
