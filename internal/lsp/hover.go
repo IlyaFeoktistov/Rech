@@ -301,11 +301,20 @@ func literalText(v ir.Expr) (string, bool) {
 // принадлежит явно - только типы параметров/результата нуждаются в
 // dispType здесь).
 func (d *doc) functionSignature(name string, params []ir.Param, hasReturn bool, returnType ir.Type) string {
-	parts := make([]string, len(params))
-	for i, p := range params {
-		parts[i] = fmt.Sprintf("%s: %s", p.Name, d.dispType(p.Type))
-	}
-	sig := fmt.Sprintf("%s(%s)", name, strings.Join(parts, ", "))
+	return d.functionSignatureFromLabels(name, d.paramLabels(params), hasReturn, returnType)
+}
+
+// functionSignatureFromLabels - как functionSignature, но принимает уже
+// готовые строки параметров (paramLabels ниже, signaturehelp.go) вместо
+// []ir.Param - используется signatureHelp, которому нужны те же строки И
+// целиком в Label, И по отдельности в ParamLabels (с добавленным " =
+// значение" у параметров со значением по умолчанию, см.
+// appendParamDefaults) - построение из ОДНОГО и того же слайса гарантирует,
+// что каждый ParamLabels[i] останется буквальной подстрокой Label (нужно
+// клиенту, VS Code ищет подстроку в Label, чтобы подсветить активный
+// параметр).
+func (d *doc) functionSignatureFromLabels(name string, paramLabels []string, hasReturn bool, returnType ir.Type) string {
+	sig := fmt.Sprintf("%s(%s)", name, strings.Join(paramLabels, ", "))
 	if hasReturn {
 		sig += ": " + d.dispType(returnType)
 	}

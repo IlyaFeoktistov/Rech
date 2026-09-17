@@ -9,6 +9,7 @@ package lsp
 import (
 	"strings"
 
+	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/builtins"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
@@ -155,7 +156,8 @@ func (d *doc) callSignatureAt(openIdx, line int) (SignatureHelp, bool) {
 			return SignatureHelp{}, false
 		}
 		name := "новый " + d.disp(ent.Name)
-		return SignatureHelp{Label: d.functionSignature(name, params, false, ir.Type{}), ParamLabels: d.paramLabels(params)}, true
+		labels := appendParamDefaults(d.paramLabels(params), d.ctorParamDefaultsAST(ent))
+		return SignatureHelp{Label: d.functionSignatureFromLabels(name, labels, false, ir.Type{}), ParamLabels: labels}, true
 	}
 	if len(chain) > 1 {
 		container, ok := d.resolveChain(chain[:len(chain)-1], line)
@@ -183,9 +185,10 @@ func (d *doc) callSignatureAt(openIdx, line int) (SignatureHelp, bool) {
 				continue
 			}
 			name := d.disp(ent.Name) + "." + m.Name
+			labels := appendParamDefaults(d.paramLabels(m.Params), d.methodParamDefaultsAST(ent.Name, methodName))
 			return SignatureHelp{
-				Label:         d.functionSignature(name, m.Params, m.HasReturn, m.ReturnType),
-				ParamLabels:   d.paramLabels(m.Params),
+				Label:         d.functionSignatureFromLabels(name, labels, m.HasReturn, m.ReturnType),
+				ParamLabels:   labels,
 				Documentation: strings.TrimSpace(d.resolvedMethodDoc(ent, methodName, m.Doc)),
 			}, true
 		}
@@ -193,9 +196,10 @@ func (d *doc) callSignatureAt(openIdx, line int) (SignatureHelp, bool) {
 	}
 	name := chain[0]
 	if fn, ok := d.funcs[name]; ok {
+		labels := appendParamDefaults(d.paramLabels(fn.Params), d.funcParamDefaultsAST(fn.Name))
 		return SignatureHelp{
-			Label:         d.functionSignature(d.disp(fn.Name), fn.Params, fn.HasReturn, fn.ReturnType),
-			ParamLabels:   d.paramLabels(fn.Params),
+			Label:         d.functionSignatureFromLabels(d.disp(fn.Name), labels, fn.HasReturn, fn.ReturnType),
+			ParamLabels:   labels,
 			Documentation: strings.TrimSpace(fn.Doc),
 		}, true
 	}
@@ -221,4 +225,83 @@ func (d *doc) paramLabels(params []ir.Param) []string {
 		labels[i] = p.Name + ": " + d.dispType(p.Type)
 	}
 	return labels
+}
+
+// appendParamDefaults добавляет " = литерал" к каждому labels[i], для
+// которого defaults[i] - непустое AST-выражение, разрешающееся в простой
+// литерал (literalTextAST, тот же принцип/ограничение, что и у
+// hoverModuleConst - сложное выражение по умолчанию, например ссылку на
+// другую константу, заново не пересчитываем). labels мутируется на месте и
+// возвращается для удобства вызывающей стороны - у неё уже нет других
+// владельцев на этот момент (свежепостроенный d.paramLabels).
+func appendParamDefaults(labels []string, defaults []ast.Expr) []string {
+	for i := range labels {
+		if i >= len(defaults) || defaults[i] == nil {
+			continue
+		}
+		if lit, _, ok := literalTextAST(defaults[i]); ok {
+			labels[i] += " = " + lit
+		}
+	}
+	return labels
+}
+
+// ctorParamDefaultsAST - default-выражения (AST, см. appendParamDefaults)
+// параметров конструктора ent, ПОЗИЦИОННО совпадающие с ctorParamList(ent) -
+// та же пара источников (явный ast.ConstructorDecl.Params либо позиционные
+// ast.EntityDecl.Fields для структуры без своего конструктора) - IR-параметры
+// (ctorParamList) не несут default-выражение вовсе, только AST. nil - ent не
+// найдена в d.astEntities (импортированная сущность другого файла) или
+// синтетическая системная сущность без AST (Семафор/Транзакция).
+func (d *doc) ctorParamDefaultsAST(ent *ir.Entity) []ast.Expr {
+	ed, ok := d.astEntities[ent.Name]
+	if !ok {
+		return nil
+	}
+	if ed.Ctor != nil {
+		out := make([]ast.Expr, len(ed.Ctor.Params))
+		for i, p := range ed.Ctor.Params {
+			out[i] = p.Default
+		}
+		return out
+	}
+	out := make([]ast.Expr, len(ed.Fields))
+	for i, f := range ed.Fields {
+		out[i] = f.Default
+	}
+	return out
+}
+
+// methodParamDefaultsAST - как ctorParamDefaultsAST, но для метода
+// methodName сущности entName.
+func (d *doc) methodParamDefaultsAST(entName, methodName string) []ast.Expr {
+	ed, ok := d.astEntities[entName]
+	if !ok {
+		return nil
+	}
+	for _, m := range ed.Methods {
+		if m.Name != methodName {
+			continue
+		}
+		out := make([]ast.Expr, len(m.Params))
+		for i, p := range m.Params {
+			out[i] = p.Default
+		}
+		return out
+	}
+	return nil
+}
+
+// funcParamDefaultsAST - как ctorParamDefaultsAST, но для свободной функции
+// name.
+func (d *doc) funcParamDefaultsAST(name string) []ast.Expr {
+	fd, ok := d.astFuncs[name]
+	if !ok {
+		return nil
+	}
+	out := make([]ast.Expr, len(fd.Params))
+	for i, p := range fd.Params {
+		out[i] = p.Default
+	}
+	return out
 }

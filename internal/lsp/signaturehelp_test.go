@@ -220,3 +220,66 @@ func TestSignatureHelpIgnoresNestedListLiteralCommas(t *testing.T) {
 		t.Fatalf("запятые внутри [1, 2, 3] не должны считаться - ожидался активный параметр 1, получено %d", sig.ActiveParam)
 	}
 }
+
+// TestSignatureHelpShowsParamDefaultValue - параметр со значением по
+// умолчанию ("шаг: Целое = 1") должен нести его и в Label, и в
+// ParamLabels[i] - раньше ir.Param (единственный источник и того, и
+// другого) не несёт default-выражение вообще, оно только в AST
+// (funcParamDefaultsAST/appendParamDefaults). Оба должны совпадать буквально
+// (ParamLabels[i] - подстрока Label) - от этого зависит подсветка активного
+// параметра на стороне клиента (VS Code ищет подстроку).
+func TestSignatureHelpShowsParamDefaultValue(t *testing.T) {
+	src := `
+функция шагнуть(число: Целое, шаг: Целое = 1): Целое
+{
+    вернуть число + шаг
+}
+
+функция главная
+{
+    переменная итог = шагнуть(10, 2)
+}
+`
+	d := newDoc("test://a.rech", src)
+	line := lineOf(t, src, "шагнуть(10, 2)")
+	col := runeCol(t, "    переменная итог = шагнуть(10, 2)", "2)")
+	sig, ok := d.signatureHelp(line, col)
+	if !ok {
+		t.Fatalf("ожидалась signature help")
+	}
+	if len(sig.ParamLabels) != 2 || sig.ParamLabels[1] != "шаг: Целое = 1" {
+		t.Fatalf("ожидался параметр \"шаг: Целое = 1\", получено %+v", sig.ParamLabels)
+	}
+	if !strings.Contains(sig.Label, sig.ParamLabels[1]) {
+		t.Fatalf("ParamLabels[1] %q должен быть подстрокой Label %q", sig.ParamLabels[1], sig.Label)
+	}
+}
+
+// TestSignatureHelpShowsConstructorParamDefaultValue - то же, что и
+// TestSignatureHelpShowsParamDefaultValue, но для НЕЯВНОГО конструктора
+// структуры (позиционные поля - ctorParamDefaultsAST, ветка "нет
+// ed.Ctor", не ast.ConstructorDecl.Params).
+func TestSignatureHelpShowsConstructorParamDefaultValue(t *testing.T) {
+	src := `
+структура Точка
+{
+    имеет:
+        x: Целое
+        y: Целое = 0
+}
+функция главная
+{
+    переменная т = новая Точка(1, 2)
+}
+`
+	d := newDoc("test://a.rech", src)
+	line := lineOf(t, src, "новая Точка(1, 2)")
+	col := runeCol(t, "    переменная т = новая Точка(1, 2)", "2)")
+	sig, ok := d.signatureHelp(line, col)
+	if !ok {
+		t.Fatalf("ожидалась signature help")
+	}
+	if len(sig.ParamLabels) != 2 || sig.ParamLabels[1] != "y: Целое = 0" {
+		t.Fatalf("ожидался параметр \"y: Целое = 0\", получено %+v", sig.ParamLabels)
+	}
+}
