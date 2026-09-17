@@ -15,7 +15,7 @@ import (
 // закрывающей ">" без разделителя, пусто - без результата) на список
 // строк-параметров и строку результата - "" false, если name вообще не
 // начинается с "Вызываемый<" (не Callable-тип) или скобка не закрыта.
-// Собственный разбор, не parseGenericTypeNameMulti (types.go) - та функция
+// Собственный разбор, не ParseGenericTypeNameMulti (types.go) - та функция
 // требует, чтобы имя заканчивалось на ">" (обычный generic-механизм), а
 // здесь после закрывающей "<...>" может идти ещё тип результата.
 func splitCallableTypeString(name string) (params []string, result string, ok bool) {
@@ -44,7 +44,7 @@ func splitCallableTypeString(name string) (params []string, result string, ok bo
 		return nil, "", false
 	}
 	if paramsPart := rest[:closeAt]; paramsPart != "" {
-		params = splitTopLevelArgs(paramsPart)
+		params = SplitTopLevelArgs(paramsPart)
 	}
 	return params, rest[closeAt+1:], true
 }

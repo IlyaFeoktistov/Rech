@@ -18,12 +18,12 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
-// splitTopLevelArgs разбивает список аргументов типа на верхнем уровне по
+// SplitTopLevelArgs разбивает список аргументов типа на верхнем уровне по
 // запятой, не заходя внутрь вложенных "<...>" ("A, B<C, D>, E" -> ["A",
 // "B<C, D>", "E"]) - те же байтовые границы, что и у остальных разборов
 // generic-имени в пакете (только ASCII "<"/">"/"," значимы, кириллица
 // многобайтовая, но ни один её байт не совпадает с ASCII).
-func splitTopLevelArgs(s string) []string {
+func SplitTopLevelArgs(s string) []string {
 	var parts []string
 	depth := 0
 	start := 0
@@ -44,16 +44,16 @@ func splitTopLevelArgs(s string) []string {
 	return parts
 }
 
-// parseGenericTypeNameMulti разбирает "Шаблон<A, B>" на ("Шаблон", ["A",
+// ParseGenericTypeNameMulti разбирает "Шаблон<A, B>" на ("Шаблон", ["A",
 // "B"], true) - обобщение parseGenericTypeName (types.go) на несколько
 // аргументов (встроенные коллекции - всегда один, пользовательские
 // generic-типы, этот файл - могут быть любым числом).
-func parseGenericTypeNameMulti(name string) (template string, args []string, ok bool) {
+func ParseGenericTypeNameMulti(name string) (template string, args []string, ok bool) {
 	i := strings.IndexByte(name, '<')
 	if i < 0 || !strings.HasSuffix(name, ">") {
 		return "", nil, false
 	}
-	return name[:i], splitTopLevelArgs(name[i+1 : len(name)-1]), true
+	return name[:i], SplitTopLevelArgs(name[i+1 : len(name)-1]), true
 }
 
 // substituteTypeString заменяет имя параметра типа (целиком совпадающее с
@@ -65,7 +65,7 @@ func substituteTypeString(s string, subst map[string]string) string {
 	if repl, ok := subst[s]; ok {
 		return repl
 	}
-	// "Вызываемый<...>..." - отдельная форма (parseGenericTypeNameMulti
+	// "Вызываемый<...>..." - отдельная форма (ParseGenericTypeNameMulti
 	// требует, чтобы имя заканчивалось на ">", а тут после закрывающей
 	// "<...>" может идти ещё тип результата без разделителя) - разбирается
 	// собственным разбором (splitCallableTypeString, internal/semantic/
@@ -81,7 +81,7 @@ func substituteTypeString(s string, subst map[string]string) string {
 		}
 		return fmt.Sprintf("%s<%s>%s", ir.CallableTypeName, strings.Join(newParams, ", "), newResult)
 	}
-	tpl, args, ok := parseGenericTypeNameMulti(s)
+	tpl, args, ok := ParseGenericTypeNameMulti(s)
 	if !ok {
 		return s
 	}
@@ -409,7 +409,7 @@ func (inst *instantiator) ensureEntity(name string, line int) error {
 	if _, ok := inst.entities[name]; ok {
 		return nil
 	}
-	tplName, args, ok := parseGenericTypeNameMulti(name)
+	tplName, args, ok := ParseGenericTypeNameMulti(name)
 	if !ok {
 		return nil
 	}
@@ -457,7 +457,7 @@ func (inst *instantiator) ensureFunc(name string, line int) error {
 	if _, ok := inst.funcs[name]; ok {
 		return nil
 	}
-	tplName, args, ok := parseGenericTypeNameMulti(name)
+	tplName, args, ok := ParseGenericTypeNameMulti(name)
 	if !ok {
 		return nil
 	}

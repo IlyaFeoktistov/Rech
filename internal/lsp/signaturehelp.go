@@ -164,6 +164,17 @@ func (d *doc) callSignatureAt(openIdx, line int) (SignatureHelp, bool) {
 		}
 		ent := d.entities[container.Entity]
 		if ent == nil {
+			// Встроенная generic-коллекция (Список<T> и т. п.) - см. hover.go/
+			// genericcollection.go про то же самое ограничение.
+			methods, ok := collectionMethodsOf(container.Entity)
+			if !ok {
+				return SignatureHelp{}, false
+			}
+			for _, m := range methods {
+				if m.Name == chain[len(chain)-1] {
+					return SignatureHelp{Label: container.Entity + "." + collectionMethodSignature(m.Name, m), ParamLabels: m.Params}, true
+				}
+			}
 			return SignatureHelp{}, false
 		}
 		methodName := chain[len(chain)-1]

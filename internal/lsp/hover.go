@@ -55,7 +55,11 @@ func (d *doc) hover(line, col int) (string, bool) {
 	}
 	ent := d.entities[container.Entity]
 	if ent == nil {
-		return "", false
+		// Не пользовательская сущность (и не одна из системных, лениво
+		// зарегистрированных при семантическом анализе) - последний шанс,
+		// встроенная generic-коллекция (Список<T> и т. п., см. package doc
+		// genericcollection.go) - у неё нет собственного *ir.Entity вовсе.
+		return hoverGenericCollectionMember(container.Entity, name)
 	}
 	return d.hoverMember(ent, name)
 }

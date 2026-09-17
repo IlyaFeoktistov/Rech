@@ -88,7 +88,10 @@ func (d *doc) memberCompletion(dotIdx, line int) []CompletionItem {
 	}
 	ent := d.entities[typ.Entity]
 	if ent == nil {
-		return nil
+		// Встроенная generic-коллекция (Список<T> и т. п.) - см. hover.go/
+		// genericcollection.go про то же самое ограничение.
+		items, _ := genericCollectionCompletion(typ.Entity)
+		return items
 	}
 	var out []CompletionItem
 	for _, f := range ent.Fields {

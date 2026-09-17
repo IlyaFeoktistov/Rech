@@ -582,12 +582,12 @@ var dictKeyKinds = map[ir.TypeKind]bool{
 
 // resolveDictTypeName - resolveGenericTypeName для "Словарь<К, В>" -
 // отдельная функция, не ветка внутри resolveGenericTypeName, потому что
-// у "Словарь" два аргумента типа (parseGenericTypeNameMulti, не
+// у "Словарь" два аргумента типа (ParseGenericTypeNameMulti, не
 // parseGenericTypeName) и своя, более узкая проверка типа ключа
 // (dictKeyKinds) вдобавок к общей "значения - только примитивы", как у
 // Список/Стопка/Очередь.
 func resolveDictTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64, name string) (ir.Type, error) {
-	_, args, ok := parseGenericTypeNameMulti(name)
+	_, args, ok := ParseGenericTypeNameMulti(name)
 	if !ok || len(args) != 2 {
 		return ir.TypeUnknown, fmt.Errorf("%q: \"Словарь\" ожидает ровно два аргумента типа - ключ и значение (\"Словарь<Строка, Целое>\")", name)
 	}
