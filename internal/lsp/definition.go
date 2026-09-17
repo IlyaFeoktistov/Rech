@@ -58,16 +58,11 @@ func (d *doc) definition(line, col int) (definitionPos, bool) {
 			}
 			return definitionPos{}, false
 		}
-		if scope != nil {
-			if pos, ok := d.localDeclPos(scope, line, name); ok {
-				return pos, true
-			}
+		if pos, ok := d.bareNameDeclPos(name, line, scope); ok {
+			return pos, true
 		}
-		if fd, ok := d.astFuncs[name]; ok {
-			return d.declPosInFile(fd.File, fd.Line, name)
-		}
-		if ed, ok := d.astEntities[name]; ok {
-			return d.declPosInFile(ed.File, ed.Line, name)
+		if pos, ok := builtinDefinitionPos(name); ok {
+			return pos, true
 		}
 		return definitionPos{}, false
 	}
@@ -94,6 +89,39 @@ func (d *doc) definition(line, col int) (definitionPos, bool) {
 		if m.Name == name {
 			return d.declPosInFile(ed.File, m.Line, name)
 		}
+	}
+	return definitionPos{}, false
+}
+
+// bareNameDeclPos - "этот"-независимая часть definition() для chain длины
+// 1: локальная переменная/параметр -> функция -> сущность, буквальным
+// совпадением, а если оно не нашлось - падежной/деепричастной словоформой
+// (wordform_definition.go): написанное под курсором имя один раз резолвится
+// к лемме объявления и bareNameDeclPos вызывает себя же с ней - лемма
+// гарантированно совпадёт буквально на этом втором вызове (иначе она не
+// была бы объявленной леммой), дальше рекурсия не идёт.
+func (d *doc) bareNameDeclPos(name string, line int, scope *funcScope) (definitionPos, bool) {
+	if scope != nil {
+		if pos, ok := d.localDeclPos(scope, line, name); ok {
+			return pos, true
+		}
+	}
+	if fd, ok := d.astFuncs[name]; ok {
+		return d.declPosInFile(fd.File, fd.Line, name)
+	}
+	if ed, ok := d.astEntities[name]; ok {
+		return d.declPosInFile(ed.File, ed.Line, name)
+	}
+	if scope != nil {
+		if lemma, ok := d.localWordform(scope, line, name); ok {
+			return d.bareNameDeclPos(lemma, line, scope)
+		}
+	}
+	if lemma, ok := d.funcGerund(name); ok {
+		return d.bareNameDeclPos(lemma, line, scope)
+	}
+	if lemma, ok := d.entityWordform(name); ok {
+		return d.bareNameDeclPos(lemma, line, scope)
 	}
 	return definitionPos{}, false
 }

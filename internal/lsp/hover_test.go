@@ -226,6 +226,55 @@ func TestHoverOnAbstractEntityShowsNoCtor(t *testing.T) {
 	}
 }
 
+// TestHoverOnDeclinedEntityNameShowsNominativeDecl - "Пользователя"
+// (винительный падеж после "наследует") должно показывать hover сущности
+// "Пользователь" (её именительная лемма), не пустоту - тот же фикстур, что
+// и у definition_test.go, declinedEntityDefinitionSrc.
+func TestHoverOnDeclinedEntityNameShowsNominativeDecl(t *testing.T) {
+	d := newDoc("test://a.rech", declinedEntityDefinitionSrc)
+	line := lineOf(t, declinedEntityDefinitionSrc, "наследует Пользователя")
+	col := runeCol(t, "сущность Сотрудник наследует Пользователя", "Пользователя")
+	text, ok := d.hover(line, col)
+	if !ok {
+		t.Fatalf("ожидался hover на словоформе \"Пользователя\"")
+	}
+	if !strings.Contains(text, "Пользователь") {
+		t.Fatalf("ожидалось упоминание \"Пользователь\" в hover, получено %q", text)
+	}
+}
+
+// TestHoverOnGerundCallShowsFunctionSignature - "сложив" (деепричастная
+// форма) должно показывать hover функции "сложить", не пустоту - тот же
+// фикстур, что и у definition_test.go, gerundCallDefinitionSrc.
+func TestHoverOnGerundCallShowsFunctionSignature(t *testing.T) {
+	d := newDoc("test://a.rech", gerundCallDefinitionSrc)
+	line := lineOf(t, gerundCallDefinitionSrc, "сложив(2, 3)")
+	col := runeCol(t, "    сложив(2, 3)", "сложив")
+	text, ok := d.hover(line, col)
+	if !ok {
+		t.Fatalf("ожидался hover на деепричастии \"сложив\"")
+	}
+	if !strings.Contains(text, "сложить") {
+		t.Fatalf("ожидалось упоминание \"сложить\" в hover, получено %q", text)
+	}
+}
+
+// TestHoverOnLocalVariableWordformShowsVarType - "паролем" (творительный
+// падеж) должно показывать hover переменной "пароль", не пустоту -
+// occurrencesTestSrc, тот же фикстур, что и у occurrences_test.go.
+func TestHoverOnLocalVariableWordformShowsVarType(t *testing.T) {
+	d := newDoc("test://a.rech", occurrencesTestSrc)
+	line := lineOf(t, occurrencesTestSrc, "авторизовать паролем")
+	col := runeCol(t, "    пользователь авторизовать паролем", "паролем")
+	text, ok := d.hover(line, col)
+	if !ok {
+		t.Fatalf("ожидался hover на словоформе \"паролем\"")
+	}
+	if !strings.Contains(text, "пароль") {
+		t.Fatalf("ожидалось упоминание \"пароль\" в hover, получено %q", text)
+	}
+}
+
 // runeCol - позиция (1-индексная, как lexer.Token.Col - лексер считает
 // РУНЫ, не байты) needle внутри line - strings.Index сам по себе даёт
 // байтовое смещение, для кириллицы (2 байта на руну в UTF-8) это не то же

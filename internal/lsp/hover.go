@@ -127,6 +127,28 @@ func (d *doc) hoverBareName(name string, line int) (string, bool) {
 	if block, ok := d.hoverModuleConst(name); ok {
 		return block, true
 	}
+	return d.hoverBareNameWordform(name, line)
+}
+
+// hoverBareNameWordform - запасной путь hoverBareName для имени, чья лемма
+// объявления отличается от того, что написано под курсором (падежная форма
+// сущности после "наследует"/"реализует", деепричастная форма функции,
+// словоформа локальной переменной/параметра - см. wordform_definition.go):
+// находит лемму и делегирует ОБЫЧНОМУ hoverBareName на неё - лемма
+// буквально совпадёт с одной из веток выше, без повторения форматирования
+// здесь. "", false - name не оказалось ни одной из трёх словоформ.
+func (d *doc) hoverBareNameWordform(name string, line int) (string, bool) {
+	if scope := d.scopeAt(line); scope != nil {
+		if lemma, ok := d.localWordform(scope, line, name); ok {
+			return d.hoverBareName(lemma, line)
+		}
+	}
+	if lemma, ok := d.funcGerund(name); ok {
+		return d.hoverBareName(lemma, line)
+	}
+	if lemma, ok := d.entityWordform(name); ok {
+		return d.hoverBareName(lemma, line)
+	}
 	return "", false
 }
 

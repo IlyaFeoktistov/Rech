@@ -61,6 +61,13 @@ func (s *server) handleRequest(msg *Message) {
 				"signatureHelpProvider": map[string]any{
 					"triggerCharacters": []string{"(", ","},
 				},
+				"semanticTokensProvider": map[string]any{
+					"legend": map[string]any{
+						"tokenTypes":     semanticTokenTypes,
+						"tokenModifiers": semanticTokenModifiers,
+					},
+					"full": true,
+				},
 			},
 		}, nil)
 	case "shutdown":
@@ -83,6 +90,10 @@ func (s *server) handleRequest(msg *Message) {
 		s.handleCompletion(msg)
 	case "textDocument/signatureHelp":
 		s.handleSignatureHelp(msg)
+	case "rech/builtinSource":
+		s.handleBuiltinSource(msg)
+	case "textDocument/semanticTokens/full":
+		s.handleSemanticTokens(msg)
 	default:
 		_ = s.rpc.Reply(msg.ID, nil, fmt.Errorf("метод %q не поддерживается", msg.Method))
 	}
@@ -273,6 +284,55 @@ func posURI(pos definitionPos, requestURI string) string {
 		return pos.URI
 	}
 	return requestURI
+}
+
+// handleBuiltinSource - собственный запрос (не часть стандарта LSP), которым
+// клиент (rech-vscode/extension.js, TextDocumentContentProvider для схемы
+// "rech-builtin") получает содержимое синтетического документа встроенной
+// функции (см. builtindefinition.go) - обычный "textDocument/definition"
+// несёт только Location (uri+range), не текст файла, который эта Location
+// открывает, если файла не существует на диске.
+func (s *server) handleBuiltinSource(msg *Message) {
+	var p struct {
+		URI string `json:"uri"`
+	}
+	if err := json.Unmarshal(msg.Params, &p); err != nil {
+		_ = s.rpc.Reply(msg.ID, nil, err)
+		return
+	}
+	name, ok := builtinStubName(p.URI)
+	if !ok {
+		_ = s.rpc.Reply(msg.ID, nil, nil)
+		return
+	}
+	content, ok := builtinStubSource(name)
+	if !ok {
+		_ = s.rpc.Reply(msg.ID, nil, nil)
+		return
+	}
+	_ = s.rpc.Reply(msg.ID, map[string]any{"content": content}, nil)
+}
+
+// handleSemanticTokens - textDocument/semanticTokens/full (semantictokens.go) -
+// один запрос на весь документ (не диапазон - "range" из legend выше не
+// объявлен), клиент сам перезапрашивает на каждое существенное изменение
+// (rech-vscode/extension.js, provideDocumentSemanticTokens).
+func (s *server) handleSemanticTokens(msg *Message) {
+	var p struct {
+		TextDocument struct {
+			URI string `json:"uri"`
+		} `json:"textDocument"`
+	}
+	if err := json.Unmarshal(msg.Params, &p); err != nil {
+		_ = s.rpc.Reply(msg.ID, nil, err)
+		return
+	}
+	d := s.getDoc(p.TextDocument.URI)
+	if d == nil {
+		_ = s.rpc.Reply(msg.ID, nil, nil)
+		return
+	}
+	_ = s.rpc.Reply(msg.ID, map[string]any{"data": encodeSemanticTokens(d.semanticTokens())}, nil)
 }
 
 // handleImplementation отвечает на "textDocument/implementation" - в

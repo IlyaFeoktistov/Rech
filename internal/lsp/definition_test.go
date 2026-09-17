@@ -122,3 +122,108 @@ func TestDefinitionOnThisJumpsToOwningEntity(t *testing.T) {
 		t.Fatalf("ожидалась строка %d, получено %d", wantLine, pos.Line)
 	}
 }
+
+// TestDefinitionOnBuiltinFuncJumpsToSyntheticStub - "перейти к определению"
+// на встроенной функции ("корень" - internal/builtins.All) раньше не давал
+// вообще ничего (нет ast.FunctionDecl - она реализована в Go) - теперь ведёт
+// на синтетический URI-заглушку (builtindefinition.go), а не просто молчит.
+func TestDefinitionOnBuiltinFuncJumpsToSyntheticStub(t *testing.T) {
+	src := `
+функция главная
+{
+    вывести корень(4.0)
+}
+`
+	d := newDoc("test://a.rech", src)
+	line := lineOf(t, src, "корень(4.0)")
+	col := runeCol(t, "    вывести корень(4.0)", "корень")
+	pos, ok := d.definition(line, col)
+	if !ok {
+		t.Fatalf("ожидалось определение встроенной функции \"корень\"")
+	}
+	if pos.URI != builtinStubURI("корень") {
+		t.Fatalf("ожидался синтетический URI %q, получено %q", builtinStubURI("корень"), pos.URI)
+	}
+	content, ok := builtinStubSource("корень")
+	if !ok {
+		t.Fatalf("ожидался синтезированный текст-заглушка для \"корень\"")
+	}
+	if pos.Line != 1 || pos.Col != runeCol(t, content, "корень") {
+		t.Fatalf("позиция имени в заглушке не совпадает с самим текстом: %+v, текст %q", pos, content)
+	}
+}
+
+// declinedEntityDefinitionSrc - "Пользователя" (винительный падеж после
+// "наследует", как и в internal/parser/declension_test.go) написан ИНАЧЕ,
+// чем объявлена сама сущность ("Пользователь") - "перейти к определению" на
+// нём раньше промахивался мимо d.astEntities (ключ - именительная лемма).
+const declinedEntityDefinitionSrc = `
+сущность Пользователь
+{
+}
+сущность Сотрудник наследует Пользователя
+{
+}
+функция главная { вывести "ок" }
+`
+
+func TestDefinitionOnDeclinedEntityNameJumpsToNominativeDecl(t *testing.T) {
+	d := newDoc("test://a.rech", declinedEntityDefinitionSrc)
+	line := lineOf(t, declinedEntityDefinitionSrc, "наследует Пользователя")
+	col := runeCol(t, "сущность Сотрудник наследует Пользователя", "Пользователя")
+	pos, ok := d.definition(line, col)
+	if !ok {
+		t.Fatalf("ожидалось определение сущности через словоформу \"Пользователя\"")
+	}
+	wantLine := lineOf(t, declinedEntityDefinitionSrc, "сущность Пользователь")
+	if pos.Line != wantLine {
+		t.Fatalf("ожидалась строка %d, получено %d", wantLine, pos.Line)
+	}
+}
+
+// gerundCallDefinitionSrc - тот же фикстур, что и у internal/parser/
+// gerund_test.go: "сложив" (деепричастная форма "сложить") написана ИНАЧЕ,
+// чем объявлена сама функция.
+const gerundCallDefinitionSrc = `
+функция сложить(а: Целое, б: Целое): Целое
+{
+    вернуть а + б
+}
+функция главная
+{
+    сложив(2, 3)
+        вывести результат
+}
+`
+
+func TestDefinitionOnGerundCallJumpsToFunctionDecl(t *testing.T) {
+	d := newDoc("test://a.rech", gerundCallDefinitionSrc)
+	line := lineOf(t, gerundCallDefinitionSrc, "сложив(2, 3)")
+	col := runeCol(t, "    сложив(2, 3)", "сложив")
+	pos, ok := d.definition(line, col)
+	if !ok {
+		t.Fatalf("ожидалось определение функции через деепричастие \"сложив\"")
+	}
+	wantLine := lineOf(t, gerundCallDefinitionSrc, "функция сложить")
+	if pos.Line != wantLine {
+		t.Fatalf("ожидалась строка %d, получено %d", wantLine, pos.Line)
+	}
+}
+
+// TestDefinitionOnLocalVariableWordformJumpsToDecl - "паролем" (творительный
+// падеж "пароль", падежное сопоставление аргумента естественного вызова,
+// occurrencesTestSrc - тот же фикстур, что и у occurrences_test.go) написано
+// ИНАЧЕ, чем объявлена сама переменная ("пароль").
+func TestDefinitionOnLocalVariableWordformJumpsToDecl(t *testing.T) {
+	d := newDoc("test://a.rech", occurrencesTestSrc)
+	line := lineOf(t, occurrencesTestSrc, "авторизовать паролем")
+	col := runeCol(t, "    пользователь авторизовать паролем", "паролем")
+	pos, ok := d.definition(line, col)
+	if !ok {
+		t.Fatalf("ожидалось определение переменной через словоформу \"паролем\"")
+	}
+	wantLine := lineOf(t, occurrencesTestSrc, `переменная пароль = "секрет"`)
+	if pos.Line != wantLine {
+		t.Fatalf("ожидалась строка %d, получено %d", wantLine, pos.Line)
+	}
+}
