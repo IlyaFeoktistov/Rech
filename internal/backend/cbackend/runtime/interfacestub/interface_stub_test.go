@@ -1,4 +1,4 @@
-package cbackend
+package interfacestub
 
 import (
 	"strings"
@@ -31,7 +31,7 @@ func TestGenerateInterfaceStubMethodAndCtor(t *testing.T) {
 			},
 		},
 	}
-	stub, err := generateInterfaceStub(prog)
+	stub, err := Generate(prog)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestGenerateInterfaceStubSkipsNonExported(t *testing.T) {
 			{Name: "Внутренняя", Exported: false, Ctor: &ir.Method{}},
 		},
 	}
-	stub, err := generateInterfaceStub(prog)
+	stub, err := Generate(prog)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestGenerateInterfaceStubEntityWithoutExportedMembersOnlyDescriptor(t *test
 			{Name: "Точка", Exported: true, Ctor: &ir.Method{}},
 		},
 	}
-	stub, err := generateInterfaceStub(prog)
+	stub, err := Generate(prog)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}

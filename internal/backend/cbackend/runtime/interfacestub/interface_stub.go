@@ -1,4 +1,4 @@
-package cbackend
+package interfacestub
 
 import (
 	"fmt"
@@ -8,11 +8,29 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
+// exportedCtorCSymbol/exportedMethodCSymbol - настоящее C-имя (без
+// транслитерации) экспортированного конструктора/метода - та же формула,
+// что и internal/backend/cbackend/mangle.go (ctorCName/methodCName её
+// используют, когда сущность/метод помечены "экспортировать") -
+// продублирована здесь (не импортирована - неэкспортированная
+// инфраструктура cbackend), а не наоборот, тем же принципом, что и
+// byteListType/image.EntityName (см. память сессии про подпакеты
+// runtime/*): ЭТОТ пакет не зависит от cbackend, а формула настолько
+// тривиальна (простая конкатенация), что расхождение при будущей правке
+// физически невозможно не заметить - обе стороны совпадают по построению.
+func exportedCtorCSymbol(entity string) string {
+	return entity + "_новый"
+}
+
+func exportedMethodCSymbol(entity, method string) string {
+	return entity + "_" + method
+}
+
 // descriptorAlias - псевдоним непрозрачного дескриптора экспортированной
-// сущности внутри generateInterfaceStub ("ТочкаДескриптор") - освобождает
-// настоящее имя сущности ("Точка") для автоген обёрточной сущности ниже,
-// тем же приёмом, что и ручной пример examples/проекты/
-// экспорт_библиотеки_потребитель/главный.rech.
+// сущности внутри Generate ("ТочкаДескриптор") - освобождает настоящее имя
+// сущности ("Точка") для автоген обёрточной сущности ниже, тем же приёмом,
+// что и ручной пример examples/проекты/экспорт_библиотеки_потребитель/
+// главный.rech.
 func descriptorAlias(entity string) string {
 	return entity + "Дескриптор"
 }
@@ -48,28 +66,27 @@ func rechReturnSuffix(hasReturn bool, t ir.Type) string {
 }
 
 // receiverParamName - имя параметра-получателя во "внешняя функция" метода
-// (дескриптор сущности первым параметром - см. package doc
-// generateInterfaceStub) - "получатель", а не "этот" (зарезервировано,
-// ThisExpr валиден только внутри тела метода, не в списке параметров
-// внешней функции).
+// (дескриптор сущности первым параметром - см. package doc Generate) -
+// "получатель", а не "этот" (зарезервировано, ThisExpr валиден только
+// внутри тела метода, не в списке параметров внешней функции).
 const receiverParamName = "получатель"
 
-// generateInterfaceStub строит "<имя>.rechi" - публичный интерфейс
-// собранной библиотеки (`rech build --lib`) В СИНТАКСИСЕ САМОГО Rech,
-// рядом с C-заголовком (generateHeader) - без единой ручной строки FFI на
-// стороне потребителя (docs/SPEC.md, "Закрытые (бинарные) пакеты"):
-// непрозрачный дескриптор ("внешняя сущность ... как ...Дескриптор") +
-// "внешняя функция" на настоящие (не транслитерированные) C-символы
-// экспортированных функций/методов/конструктора + автоген обёрточная
-// сущность с ТЕМ ЖЕ именем и ТЕМИ ЖЕ методами, что у оригинала - каждый
-// метод/конструктор обёртки просто зовёт соответствующую "внешняя
-// функция", ровно тем кодом, который сегодня пишет вручную потребитель
-// (examples/проекты/экспорт_библиотеки_потребитель/главный.rech). Строится
-// из тех же данных ir.Program, что уже собирает generateHeader - разница
-// только в целевом синтаксисе (Rech, не C) - оба обязаны видеть один и тот
-// же набор экспортированных объявлений, поэтому берут его из ОДНОГО
-// прохода по prog.Functions/prog.Entities, без отдельной сверки.
-func generateInterfaceStub(prog *ir.Program) (string, error) {
+// Generate строит "<имя>.rechi" - публичный интерфейс собранной библиотеки
+// (`rech build --lib`) В СИНТАКСИСЕ САМОГО Rech, рядом с C-заголовком
+// (generateHeader) - без единой ручной строки FFI на стороне потребителя
+// (docs/SPEC.md, "Закрытые (бинарные) пакеты"): непрозрачный дескриптор
+// ("внешняя сущность ... как ...Дескриптор") + "внешняя функция" на
+// настоящие (не транслитерированные) C-символы экспортированных функций/
+// методов/конструктора + автоген обёрточная сущность с ТЕМ ЖЕ именем и
+// ТЕМИ ЖЕ методами, что у оригинала - каждый метод/конструктор обёртки
+// просто зовёт соответствующую "внешняя функция", ровно тем кодом,
+// который сегодня пишет вручную потребитель (examples/проекты/
+// экспорт_библиотеки_потребитель/главный.rech). Строится из тех же
+// данных ir.Program, что уже собирает generateHeader - разница только в
+// целевом синтаксисе (Rech, не C) - оба обязаны видеть один и тот же
+// набор экспортированных объявлений, поэтому берут его из ОДНОГО прохода
+// по prog.Functions/prog.Entities, без отдельной сверки.
+func Generate(prog *ir.Program) (string, error) {
 	var fns []*ir.Function
 	for _, fn := range prog.Functions {
 		if fn.Exported {
@@ -82,25 +99,24 @@ func generateInterfaceStub(prog *ir.Program) (string, error) {
 			ents = append(ents, ent)
 		}
 	}
-	return renderInterfaceStub(fns, ents), nil
+	return render(fns, ents), nil
 }
 
-// generateInterfaceStubsByFile - как generateInterfaceStub, но результат
-// разбит по ИСХОДНЫМ файлам библиотеки: ключ - путь файла-источника
-// (относительно libRoot, без расширения, "/" даже на Windows - тот же вид,
-// что и у пути импорта "использовать ... из"), значение - публичный
-// интерфейс ТОЛЬКО объявлений ИЗ ЭТОГО файла. Библиотека с исходниками
-// "утилиты/http/коды_ответов.rech" отдаёт потребителю ТОТ ЖЕ путь
-// ("имя_пакета/утилиты/http/коды_ответов") - структура каталогов публичного
-// интерфейса не схлопывается в один плоский файл (docs/SPEC.md, "Закрытые
-// (бинарные) пакеты"). libRoot == "" - вырожденный случай без файла проекта
-// (BuildLibSource, `rech build -c ... --lib`) - разбивать по файлам
-// исходников нечему (Frontend.Parse не проходит через ast.StampFile), один
-// плоский результат под пустым ключом "", тем же содержимым, что
-// generateInterfaceStub.
-func generateInterfaceStubsByFile(prog *ir.Program, libRoot string) (map[string]string, error) {
+// GenerateByFile - как Generate, но результат разбит по ИСХОДНЫМ файлам
+// библиотеки: ключ - путь файла-источника (относительно libRoot, без
+// расширения, "/" даже на Windows - тот же вид, что и у пути импорта
+// "использовать ... из"), значение - публичный интерфейс ТОЛЬКО объявлений
+// ИЗ ЭТОГО файла. Библиотека с исходниками "утилиты/http/коды_ответов.rech"
+// отдаёт потребителю ТОТ ЖЕ путь ("имя_пакета/утилиты/http/коды_ответов") -
+// структура каталогов публичного интерфейса не схлопывается в один плоский
+// файл (docs/SPEC.md, "Закрытые (бинарные) пакеты"). libRoot == "" -
+// вырожденный случай без файла проекта (BuildLibSource, `rech build -c
+// ... --lib`) - разбивать по файлам исходников нечему (Frontend.Parse не
+// проходит через ast.StampFile), один плоский результат под пустым ключом
+// "", тем же содержимым, что Generate.
+func GenerateByFile(prog *ir.Program, libRoot string) (map[string]string, error) {
 	if libRoot == "" {
-		stub, err := generateInterfaceStub(prog)
+		stub, err := Generate(prog)
 		if err != nil {
 			return nil, err
 		}
@@ -158,16 +174,16 @@ func generateInterfaceStubsByFile(prog *ir.Program, libRoot string) (map[string]
 
 	out := make(map[string]string, len(order))
 	for _, rp := range order {
-		out[rp] = renderInterfaceStub(fnsByFile[rp], entsByFile[rp])
+		out[rp] = render(fnsByFile[rp], entsByFile[rp])
 	}
 	return out, nil
 }
 
-// renderInterfaceStub - общее тело generateInterfaceStub/
-// generateInterfaceStubsByFile: fns/ents уже отфильтрованы по Exported (и,
-// у второй, по исходному файлу) - сама генерация синтаксиса не знает и не
-// обязана знать, как именно вызывающая сторона их сгруппировала.
-func renderInterfaceStub(fns []*ir.Function, ents []*ir.Entity) string {
+// render - общее тело Generate/GenerateByFile: fns/ents уже отфильтрованы
+// по Exported (и, у второй, по исходному файлу) - сама генерация синтаксиса
+// не знает и не обязана знать, как именно вызывающая сторона их
+// сгруппировала.
+func render(fns []*ir.Function, ents []*ir.Entity) string {
 	var sb strings.Builder
 	sb.WriteString("// Автоматически сгенерировано компилятором rech (rech build --lib). Не редактировать руками.\n")
 	sb.WriteString("// Публичный интерфейс библиотеки в синтаксисе Rech - \"использовать\" подключает его вместо ручного FFI.\n\n")

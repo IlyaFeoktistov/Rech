@@ -1,4 +1,4 @@
-package cbackend
+package tzdata
 
 import (
 	"os"
@@ -7,9 +7,9 @@ import (
 	"strings"
 )
 
-// tzdataDir - каталог с файлами IANA tzdata (формат TZif, RFC 8536),
-// который скомпилированная Rech-программа будет искать ПЕРВЫМ, ПОСЛЕ
-// getenv("TZDIR") (см. package doc tzHelpers) - вычисляется здесь, в Go, в
+// Dir - каталог с файлами IANA tzdata (формат TZif, RFC 8536), который
+// скомпилированная Rech-программа будет искать ПЕРВЫМ, ПОСЛЕ
+// getenv("TZDIR") (см. package doc Helpers) - вычисляется здесь, в Go, в
 // момент "rech build"/"rech run" ЭТОГО экземпляра компилятора (не при
 // компиляции самого rech) - конкретный путь зависит от того, где именно он
 // установлен: installer/unix/install.sh кладёт вендоренную копию
@@ -30,7 +30,7 @@ import (
 // Пусто, если не нашлось ни одной, ни другой - скомпилированная программа
 // тогда полагается только на getenv("TZDIR") в СВОЁМ рантайме (см.
 // rech_tz_dir).
-func tzdataDir() string {
+func Dir() string {
 	if exe, err := os.Executable(); err == nil {
 		if real, err := filepath.EvalSymlinks(exe); err == nil {
 			exe = real
@@ -47,7 +47,15 @@ func tzdataDir() string {
 		}
 	}
 	if _, thisFile, _, ok := runtime.Caller(0); ok {
-		devPath := filepath.Join(filepath.Dir(thisFile), "..", "..", "runtime", "zoneinfo")
+		// Пять ".." до корня репозитория - этот файл живёт в
+		// internal/backend/cbackend/runtime/tzdata/tzdata.go (глубина 5 от
+		// корня); "runtime/zoneinfo" - каталог рядом с ним же, но
+		// репозиторный (см. package doc выше), не runtime/tzdata (этот
+		// подпакет). Раньше (internal/backend/cbackend/tzdata.go, глубина 3)
+		// здесь стояло только два ".." - фактически не срабатывавший
+		// off-by-one (landed at internal/runtime/zoneinfo, которого не
+		// существует) - см. попутный найденный баг ниже.
+		devPath := filepath.Join(filepath.Dir(thisFile), "..", "..", "..", "..", "..", "runtime", "zoneinfo")
 		if info, err := os.Stat(devPath); err == nil && info.IsDir() {
 			return devPath
 		}
@@ -55,7 +63,7 @@ func tzdataDir() string {
 	return ""
 }
 
-// tzHelpers - "время_как_дата_в_поясе(метка, пояс): ?ДатаВремя"/
+// Helpers - "время_как_дата_в_поясе(метка, пояс): ?ДатаВремя"/
 // "дата_в_поясе_как_время(дата, пояс): ?Целое" (internal/semantic/
 // datetime.go) - собственный читатель формата TZif (RFC 8536) + компактный
 // вычислитель POSIX TZ-хвоста (для дат за пределами последнего явного
@@ -63,7 +71,7 @@ func tzdataDir() string {
 // не обновляется сама по себе) - НЕ системный tzset/localtime_r (те
 // по-разному доступны на POSIX/MinGW, тот же класс проблемы, что у
 // gmtime_r/timegm, см. package doc internal/interp/datetime.go), читает
-// СОБСТВЕННУЮ вендоренную копию (tzdataDir).
+// СОБСТВЕННУЮ вендоренную копию (Dir).
 //
 // Известное упрощение (документировано, не случайный пробел): секунды
 // координации (leap seconds) полностью игнорируются (как и почти во всём
@@ -75,12 +83,15 @@ func tzdataDir() string {
 // дат (не в течение часа перехода) разницы нет вообще.
 //
 // Плейсхолдеры (@@...@@) через strings.Replacer, а не "%[N]s" fmt.Sprintf,
-// как у соседних datetime.go/env.go - этот блок C неизбежно содержит МНОГО
-// настоящих '%' (оператор "остаток от деления", "%s"/"%02d" в printf-
-// вызовах) - экранировать каждый как "%%" в шаблоне такого объёма было бы
-// источником трудноуловимой опечатки, Replacer не требует экранирования
-// вовсе.
-func tzHelpers(zoneinfoDir, dtType, fYear, fMonth, fDay, fHour, fMin, fSec, nullableDT, nullableInt string) string {
+// как у соседних runtime/datetime/core.go - этот блок C неизбежно содержит
+// МНОГО настоящих '%' (оператор "остаток от деления", "%s"/"%02d" в
+// printf-вызовах) - экранировать каждый как "%%" в шаблоне такого объёма
+// было бы источником трудноуловимой опечатки, Replacer не требует
+// экранирования вовсе. escapedZoneinfoDir/mangledType/*Field/nullableDT/
+// nullableInt - уже вычисленные вызывающей стороной (escapeCString/
+// mangleType/mangleField - внутренняя, неэкспортированная инфраструктура
+// cbackend, этот пакет от неё не зависит).
+func Helpers(escapedZoneinfoDir, dtType, fYear, fMonth, fDay, fHour, fMin, fSec, nullableDT, nullableInt string) string {
 	const tmpl = `typedef struct {
     long long offset;
     int isdst;
@@ -142,7 +153,7 @@ static int rech_tz_header(FILE *f, char *version, long long *isutcnt, long long 
 /* rech_tz_data - один блок данных TZif (время_width - 4 у V1, 8 у V2+) -
    раскладка по RFC 8536 section 3.1: времена перехода, индексы типов,
    ttinfo-записи, строки обозначений (не нужны - пропускаются), leap-
-   секунды (игнорируются - см. package doc tzHelpers), std/wall и ut/local
+   секунды (игнорируются - см. package doc Helpers), std/wall и ut/local
    индикаторы (не нужны для одного смещения). */
 static int rech_tz_data(FILE *f, int time_width, long long timecnt, long long typecnt, long long charcnt,
                          long long leapcnt, long long isstdcnt, long long isutcnt, rech_tz_t *out) {
@@ -523,7 +534,7 @@ static long long rech_tz_offset_at(const rech_tz_t *tz, long long ts) {
 /* rech_tz_dir - каталог zoneinfo для ЭТОЙ скомпилированной программы:
    TZDIR (стандартное имя переменной окружения, которым и glibc/musl решают
    тот же вопрос - позволяет переопределить путь без пересборки) сначала,
-   иначе вендоренная копия, вшитая при "rech build" (tzdataDir выше), иначе
+   иначе вендоренная копия, вшитая при "rech build" (Dir выше), иначе
    (только POSIX - на Windows такого каталога не бывает) системный
    "/usr/share/zoneinfo" как последний резерв. */
 static const char *rech_tz_dir(void) {
@@ -555,9 +566,9 @@ static @@NDT@@ rech_time_to_date_tz(long long ts, const char *zone) {
 
 /* rech_date_to_time_tz - обратное: гражданские поля d ИНТЕРПРЕТИРУЮТСЯ как
    настенное время в поясе zone. Одна итерация уточнения смещения (см.
-   package doc tzHelpers выше про переход летнее/зимнее) - первая догадка
+   package doc Helpers выше про переход летнее/зимнее) - первая догадка
    (поля как если бы UTC) почти всегда совпадает со смещением В МОМЕНТ уже
-   уточнённого результата, кроме samого часа перехода. */
+   уточнённого результата, кроме самого часа перехода. */
 static @@NI@@ rech_date_to_time_tz(@@DT@@ d, const char *zone) {
     rech_tz_t tz;
     if (!rech_tz_load(rech_tz_dir(), zone, &tz)) {
@@ -573,7 +584,7 @@ static @@NI@@ rech_date_to_time_tz(@@DT@@ d, const char *zone) {
 
 `
 	r := strings.NewReplacer(
-		"@@DIR@@", escapeCString(zoneinfoDir),
+		"@@DIR@@", escapedZoneinfoDir,
 		"@@DT@@", dtType,
 		"@@FY@@", fYear,
 		"@@FM@@", fMonth,

@@ -25,13 +25,16 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/httpserver"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/httpwire"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/image"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/interfacestub"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/multipart"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/numbase"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/process"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/regex"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/signals"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/stringsplit"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/strutil"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/syncprim"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/tzdata"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/udp"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
@@ -552,7 +555,7 @@ func GenerateFromIR(prog *ir.Program) (string, error) {
 // C-заголовка (.h) с прототипами объявлений, помеченных "экспортировать" -
 // см. header.go. Третий результат - публичный интерфейс в синтаксисе Rech
 // (.rechi), РАЗБИТЫЙ по исходным файлам библиотеки (см. package doc
-// generateInterfaceStubsByFile) - ключ карты - путь файла-источника
+// interfacestub.GenerateByFile) - ключ карты - путь файла-источника
 // относительно libRoot без расширения, "" у libRoot == "" (без файла
 // проекта - один плоский результат, как раньше).
 func GenerateLibFromIR(prog *ir.Program, libRoot string) (cSource, header string, interfaceStubs map[string]string, err error) {
@@ -564,7 +567,7 @@ func GenerateLibFromIR(prog *ir.Program, libRoot string) (cSource, header string
 	if err != nil {
 		return "", "", nil, err
 	}
-	interfaceStubs, err = generateInterfaceStubsByFile(prog, libRoot)
+	interfaceStubs, err = interfacestub.GenerateByFile(prog, libRoot)
 	if err != nil {
 		return "", "", nil, err
 	}
@@ -1820,7 +1823,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// После datetimeHelpers выше (rech_time_to_date_tz/rech_date_to_time_tz
 	// зовут rech_time_to_date/rech_date_to_time/rech_days_from_civil/
 	// rech_civil_from_days) и после typedefs ("?ДатаВремя"/"?Целое").
-	appendCodeIf(&sb, ctx.usesTZ, tzHelpers(tzdataDir(), mangleType("ДатаВремя"),
+	appendCodeIf(&sb, ctx.usesTZ, tzdata.Helpers(escapeCString(tzdata.Dir()), mangleType("ДатаВремя"),
 		mangleField("год"), mangleField("месяц"), mangleField("день"),
 		mangleField("час"), mangleField("минута"), mangleField("секунда"),
 		mangleType("?ДатаВремя"), mangleType("?Целое")))
@@ -1879,7 +1882,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// в любом месте после panicHelper, здесь - просто рядом с остальными
 	// небольшими самодостаточными хелперами.
 	appendCodeIf(&sb, ctx.usesShutdownFlag, process.ShutdownFlagCode)
-	appendCodeIf(&sb, ctx.usesSignals, signalRuntimeCode())
+	appendCodeIf(&sb, ctx.usesSignals, signals.RuntimeCode(escapeCString(rtmsg.SignalUncatchable), escapeCString(rtmsg.SignalSendFailed)))
 	appendCodeIf(&sb, ctx.usesSubprocess, subprocessRuntimeCode)
 	appendCodeIf(&sb, ctx.usesProcMem, procMemRuntimeCode)
 	appendCodeIf(&sb, ctx.usesProcMemFind, procMemFindHelper())

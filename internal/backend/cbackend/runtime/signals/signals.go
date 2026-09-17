@@ -1,9 +1,7 @@
-package cbackend
+package signals
 
-import "github.com/IlyaFeoktistov/Rech/internal/rtmsg"
-
-// signalRuntimeCode - "получен_сигнал(сигнал: СигналОС): Логическое"
-// (docs/SPEC.md) - обобщение rech_shutdown_requested (shutdown.go) на ЛЮБОЙ
+// RuntimeCode - "получен_сигнал(сигнал: СигналОС): Логическое" (docs/
+// SPEC.md) - обобщение rech_shutdown_requested (shutdown.go) на ЛЮБОЙ
 // именованный POSIX-сигнал, тем же принципом (volatile sig_atomic_t на
 // сигнал, взводится один раз, не сбрасывается). Регистрация - через
 // sigaction (не signal() - современный POSIX-интерфейс, sa_mask/sa_flags
@@ -41,8 +39,11 @@ import "github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 // SIGUSR2/SIGPIPE/SIGALRM/SIGCHLD/SIGCONT/SIGSTOP/SIGTSTP/SIGWINCH на
 // Windows не существуют) - урезанная ветка на старом signal() для трёх
 // портируемых сигналов, для остальных ordinal - флаг всегда ложь (сигнал
-// на этой платформе физически не может прийти).
-func signalRuntimeCode() string {
+// на этой платформе физически не может прийти). uncatchableMsg/
+// sendFailedMsg - уже экранированные (escapeCString - внутренняя,
+// неэкспортированная инфраструктура cbackend, этот пакет от неё не
+// зависит) сообщения об ошибке.
+func RuntimeCode(uncatchableMsg, sendFailedMsg string) string {
 	return `static volatile sig_atomic_t rech_sig_flags[31];
 
 static void rech_sig_handler(int sig) {
@@ -95,7 +96,7 @@ static void rech_sig_handler(int sig) {
 
 static bool rech_got_signal(long long ordinal) {
     if (ordinal == 4 || ordinal == 12) {
-        rech_panic("` + escapeCString(rtmsg.SignalUncatchable) + `");
+        rech_panic("` + uncatchableMsg + `");
     }
     if (ordinal < 0 || ordinal >= 31) {
         return false;
@@ -190,10 +191,10 @@ static void rech_send_signal(long long pid, long long ordinal) {
     case 29: sig = SIGPWR; break;
 #endif
     case 30: sig = SIGSYS; break;
-    default: rech_panic("` + escapeCString(rtmsg.SignalSendFailed) + `");
+    default: rech_panic("` + sendFailedMsg + `");
     }
     if (kill((pid_t)pid, sig) != 0) {
-        rech_panic("` + escapeCString(rtmsg.SignalSendFailed) + `");
+        rech_panic("` + sendFailedMsg + `");
     }
 #else
     /* Windows не знает POSIX-сигналов между процессами - лучшее доступное
@@ -205,7 +206,7 @@ static void rech_send_signal(long long pid, long long ordinal) {
        сигнал без аналога послать некому. */
     if (ordinal == 1) {
         if (!GenerateConsoleCtrlEvent(CTRL_C_EVENT, (DWORD)pid)) {
-            rech_panic("` + escapeCString(rtmsg.SignalSendFailed) + `");
+            rech_panic("` + sendFailedMsg + `");
         }
         return;
     }
@@ -213,12 +214,12 @@ static void rech_send_signal(long long pid, long long ordinal) {
         HANDLE h = OpenProcess(PROCESS_TERMINATE, FALSE, (DWORD)pid);
         if (h == NULL || !TerminateProcess(h, 1)) {
             if (h != NULL) CloseHandle(h);
-            rech_panic("` + escapeCString(rtmsg.SignalSendFailed) + `");
+            rech_panic("` + sendFailedMsg + `");
         }
         CloseHandle(h);
         return;
     }
-    rech_panic("` + escapeCString(rtmsg.SignalSendFailed) + `");
+    rech_panic("` + sendFailedMsg + `");
 #endif
 }
 
