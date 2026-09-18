@@ -209,6 +209,80 @@ func TestLinkManglesNonEntryDeclarations(t *testing.T) {
 	}
 }
 
+// TestLinkResolvesVarDeclTypeAnnotation - НАЙДЕННЫЙ БАГ (исправлен в
+// rewriteStmt, walk.go): "Тип имя = выражение" (сахарная форма объявления
+// переменной, ast.VarDecl.Type) и "переменная имя: Тип = выражение" (та же
+// структура, явная аннотация) - Type раньше НЕ переписывался при линковке
+// вовсе, в отличие от того же имени типа справа, в "новый Тип(...)"
+// (ast.NewExpr.Type - уже резолвился верно). Импортированная из НЕ-entry
+// модуля сущность оставалась под bare-именем в этой позиции - cbackend
+// падал "неизвестный тип", хотя тот же тип теми же двумя строками ниже
+// прекрасно резолвился в конструкторе.
+func TestLinkResolvesVarDeclTypeAnnotation(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "точка.rech", "публичная сущность Точка\n{\n    имеет:\n        x: Целое\n}\n")
+	entry := writeFile(t, dir, "главный.rech",
+		"использовать Точка из \"точка\"\n\n"+
+			"функция главная\n{\n"+
+			"    Точка а = новая Точка()\n"+
+			"    переменная б: Точка = новая Точка()\n"+
+			"    вывести а.x\n"+
+			"    вывести б.x\n"+
+			"}\n")
+
+	prog, err := Load(entry, testFrontend{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	merged, err := prog.Link()
+	if err != nil {
+		t.Fatalf("Link: %v", err)
+	}
+	var main *ast.FunctionDecl
+	for _, fn := range merged.Functions {
+		if fn.Name == "главная" {
+			main = fn
+		}
+	}
+	if main == nil {
+		t.Fatalf("не нашлось \"главная\"")
+	}
+	a := main.Body[0].(*ast.VarDecl)
+	b := main.Body[1].(*ast.VarDecl)
+	if a.Type != "Точка_Точка" {
+		t.Errorf("сахарная форма: ожидался переименованный тип %q, получено %q", "Точка_Точка", a.Type)
+	}
+	if b.Type != "Точка_Точка" {
+		t.Errorf("явная аннотация: ожидался переименованный тип %q, получено %q", "Точка_Точка", b.Type)
+	}
+}
+
+// TestLinkResolvesBuiltinEntityTypeAnnotationWithoutImport - НАЙДЕННЫЙ БАГ
+// (исправлен в builtinTypeBases, walk.go): "Процесс"/"РезультатКоманды"/
+// "Регистры"/"Дейтаграмма"/"СостояниеБД" - встроенные сущности
+// (internal/builtins.ReservedEntityNames), не требующие ни объявления, ни
+// "использовать" - но пропущенные при добавлении этих сущностей в
+// builtinTypeBases. Обнаружился только когда rewriteStmt(*ast.VarDecl)
+// начал резолвить Type (см. TestLinkResolvesVarDeclTypeAnnotation выше) -
+// "переменная р: Процесс = ..." (см. examples/основы/сторонний_процесс.rech)
+// падал "не объявлено и не импортировано", хотя тот же файл без единого
+// "использовать" и не должен объявлять "Процесс" вовсе.
+func TestLinkResolvesBuiltinEntityTypeAnnotationWithoutImport(t *testing.T) {
+	dir := t.TempDir()
+	entry := writeFile(t, dir, "главный.rech",
+		"функция главная\n{\n"+
+			"    переменная р: Процесс = запустить_процесс(\"echo\", новый Список<Строка>())\n"+
+			"}\n")
+
+	prog, err := Load(entry, testFrontend{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, err := prog.Link(); err != nil {
+		t.Fatalf("Link: %v", err)
+	}
+}
+
 func contains(ss []string, s string) bool {
 	return slices.Contains(ss, s)
 }
