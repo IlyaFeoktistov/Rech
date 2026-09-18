@@ -159,3 +159,34 @@ func TestParseSwitchValuesStopsAtBitOr(t *testing.T) {
 		}
 	}
 }
+
+// TestParseSwitchValuesAllowsLineBreakBeforeBitOr - длинный список значений
+// одной ветки "когда" можно разбить по одному на строку, перенос строки
+// перед "|" не завершает ветку раньше времени.
+func TestParseSwitchValuesAllowsLineBreakBeforeBitOr(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная
+{
+    переменная число = 1
+    выбрать число
+    {
+        когда 1
+            | 2
+            | 3:
+            вывести "a"
+        иначе:
+            вывести "b"
+    }
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	sw := prog.Functions[0].Body[1].(*ast.SwitchStmt)
+	if len(sw.Cases[0].Values) != 3 {
+		t.Fatalf("ожидалось 3 отдельных значения, получено %d: %+v", len(sw.Cases[0].Values), sw.Cases[0].Values)
+	}
+	if sw.Default == nil {
+		t.Fatalf("ожидалась ветка \"иначе\" после многострочной \"когда\"")
+	}
+}

@@ -1,6 +1,9 @@
 package morph
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // gomorphyAnalyzer - минимальный интерфейс, который нам нужен от gomorphy -
 // не импортируем сам пакет здесь напрямую, чтобы файл легко подменить
@@ -42,7 +45,21 @@ func lookupGenderViaGomorphy(nomSg string) (Gender, bool) {
 	if tag == "" || !strings.HasPrefix(tag, "NOUN") {
 		return 0, false
 	}
-	for _, tok := range tagFields(tag) {
+	tokens := tagFields(tag)
+	if !slices.Contains(tokens, "nomn") && !slices.Contains(tokens, "plur") {
+		// nomSg по определению вызывающей стороны - именительный падеж
+		// (см. package doc выше и RegisterNoun/NounAgreement, которые сюда
+		// зовут). Если "лучший" разбор gomorphy - НЕ именительный падеж
+		// (и не форма множественного числа, у которой тоже свой "nomn" -
+		// "маршруты" тегируется "NOUN,...,plur,nomn" - см. lookupGenderNumberViaGomorphy),
+		// значит совпадение по строке нашлось у СЛОВОФОРМЫ ДРУГОЙ леммы/
+		// падежа ("поле" - предложный падеж имени "Поль", тег "NOUN,anim,
+		// masc,Name sing,loct" - живой найденный случай), не у именительного
+		// самого запрошенного слова - доверять роду из такого разбора
+		// нельзя.
+		return 0, false
+	}
+	for _, tok := range tokens {
 		switch tok {
 		case "masc":
 			return Masculine, true
@@ -73,10 +90,17 @@ func lookupGenderNumberViaGomorphy(nomSg string) (Gender, Number, bool) {
 	if tag == "" || !strings.HasPrefix(tag, "NOUN") {
 		return 0, 0, false
 	}
+	tokens := tagFields(tag)
+	if !slices.Contains(tokens, "nomn") {
+		// Тот же принцип, что и в lookupGenderViaGomorphy - разбор, у
+		// которого "лучший" тег НЕ именительный падеж, относится к
+		// словоформе другой леммы/падежа, не к запрошенному слову.
+		return 0, 0, false
+	}
 	var gender Gender
 	foundGender := false
 	plural := false
-	for _, tok := range tagFields(tag) {
+	for _, tok := range tokens {
 		switch tok {
 		case "masc":
 			gender, foundGender = Masculine, true

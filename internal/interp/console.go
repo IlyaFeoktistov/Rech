@@ -26,6 +26,7 @@ func setRawMode(enable bool) {
 		state, err := term.MakeRaw(fd)
 		if err == nil {
 			consoleRawState = state
+			suppressConsoleInputNoise(fd)
 		}
 		return
 	}

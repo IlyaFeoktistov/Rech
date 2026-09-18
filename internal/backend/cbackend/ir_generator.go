@@ -1237,6 +1237,20 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// Requirements").
 		sb.WriteString("#ifdef __linux__\n#define _GNU_SOURCE\n#endif\n")
 	}
+	if ctx.usesRandom {
+		// _CRT_RAND_S должен быть определён ДО ЛЮБОГО системного заголовка,
+		// не только до собственного "#include <stdlib.h>" ниже - на
+		// MinGW-w64 "#include <windows.h>" (эмитится безусловно на Windows,
+		// см. ниже) транзитивно тянет <stdlib.h> сам, раньше, чем эта
+		// программа успела бы дойти до своего явного include - объявление
+		// rand_s (crypto.RandomHelpers) тогда пропадает молча (заголовочный
+		// guard <stdlib.h> уже сработал БЕЗ макроса), и gcc падает с
+		// "implicit declaration of function 'rand_s'" - найдено живым
+		// прогоном на настоящем MinGW-w64 (не воспроизводится на MSVC,
+		// который либо не имеет такого транзитивного пути, либо переживает
+		// повторное включение иначе).
+		sb.WriteString("#ifdef _WIN32\n#define _CRT_RAND_S\n#endif\n")
+	}
 	sb.WriteString("#include <stdio.h>\n")
 	sb.WriteString("#include <stdbool.h>\n")
 	sb.WriteString("#include <stdint.h>\n")
@@ -1280,12 +1294,6 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	}
 	if ctx.includesStringH {
 		sb.WriteString("#include <string.h>\n")
-	}
-	if ctx.usesRandom {
-		// _CRT_RAND_S должен быть определён ДО <stdlib.h> - объявляет
-		// rand_s (см. crypto.RandomHelpers, runtime/crypto/random.go) в
-		// MSVCRT/UCRT.
-		sb.WriteString("#ifdef _WIN32\n#define _CRT_RAND_S\n#endif\n")
 	}
 	if ctx.includesStdlibH {
 		sb.WriteString("#include <stdlib.h>\n")
@@ -1939,12 +1947,8 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	}
 	appendCodeIf(&sb, protos.Len() > 0, protos.String())
 
-	// vtables (ссылается на &rech_M_... - нужны protos выше) и ctors
-	// (ссылается на &rech_VT_... у участвующих в диспетчеризации сущностей
-	// - нужны vtables) - строго в этом порядке, оба перед body (который их
-	// использует).
+	// vtables - ссылается на &rech_M_... (нужны protos выше).
 	appendCodeIf(&sb, vtables.Len() > 0, vtables.String())
-	appendCodeIf(&sb, ctors.Len() > 0, ctors.String())
 	appendCodeIf(&sb, staticInit != "", staticInit)
 	// После ctors - функции извлечения ("разобрать JSON"/"разобрать
 	// XML") конструируют целевые сущности через уже сгенерированный
@@ -2080,6 +2084,14 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// побочный эффект генерации body, размещается в файле раньше него
 	// (ссылается на &rech_<имя> обёрнутых функций - нужны protos выше).
 	appendCodeIf(&sb, ctx.callableCode.Len() > 0, ctx.callableCode.String())
+
+	// ctors - ПОСЛЕ reflectRuntimeCode: тело конструктора может ссылаться на
+	// дескриптор рефлексии (&rech_type_meta_X, "тип X"/"значение как X"
+	// внутри "конструктор(...)"), а reflectRuntimeCode форвард-объявляет
+	// его только здесь, не раньше. rech_new_<Тип> (сам конструктор)
+	// прототипирован уже в protos выше - другой код зовёт его независимо
+	// от того, где эмитировано ЕГО ТЕЛО.
+	appendCodeIf(&sb, ctors.Len() > 0, ctors.String())
 
 	sb.WriteString(body.String())
 	return sb.String(), nil

@@ -109,8 +109,21 @@ func (p *Parser) parseSwitchValues() ([]ast.Expr, error) {
 		return nil, fmt.Errorf("после \"когда\" ожидалось значение: %w", err)
 	}
 	values := []ast.Expr{first}
-	for p.cur().Type == lexer.BITOR {
-		p.advance()
+	for {
+		// Перенос строки перед "|" допустим (длинный список значений одной
+		// ветки "когда" удобно разбивать по одному на строку) - только
+		// если СЛЕДУЮЩИЙ значимый токен действительно "|", иначе перенос
+		// принадлежит завершению самой ветки (после значения сразу должно
+		// идти ":") и съедать его нельзя - иначе настоящая ошибка
+		// (пропущенное ":") превратилась бы в непонятную из другого места.
+		if p.cur().Type != lexer.BITOR {
+			if p.cur().Type != lexer.NEWLINE || p.peekPastNewlines().Type != lexer.BITOR {
+				break
+			}
+			p.skipNewlines()
+		}
+		p.advance() // "|"
+		p.skipNewlines()
 		v, err := p.parseBitXor()
 		if err != nil {
 			return nil, fmt.Errorf("после \"|\" в \"когда\" ожидалось ещё одно значение: %w", err)

@@ -10,8 +10,9 @@ import (
 // криптографически стойкий источник (arc4random/arc4random_uniform из
 // <stdlib.h> на POSIX/BSD/macOS - glibc >= 2.36 и musl уже несут их сами,
 // без ручного srand(); rand_s из MSVCRT/UCRT на Windows, требует
-// "#define _CRT_RAND_S" ДО "#include <stdlib.h>" - см. ir_generator.go,
-// generateSource), не rand()/math.rand-аналог - нужен в первую очередь для
+// "#define _CRT_RAND_S" ДО ЛЮБОГО системного заголовка, не только
+// "#include <stdlib.h>" - см. ir_generator.go, generateSource), не
+// rand()/math.rand-аналог - нужен в первую очередь для
 // непредсказуемых токенов сессий (см. examples/проекты/http_сервер).
 //
 // rech_random_int для диапазона шире 32 бит (Целое - 64-битный) объединяет

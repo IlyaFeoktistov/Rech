@@ -101,24 +101,36 @@ func (p *Parser) ParseExpr() (ast.Expr, error) {
 // (или/и/побитовые/аддитивный/мультипликативный) - отличаются только
 // следующим уровнем (next) и таблицей операторов (ops). parseComparison -
 // отдельная функция (сравнения в Rech не ассоциативны - "a < b < c" не
-// разбирается, значит это не цикл, а одиночная проверка).
+// разбирается, значит это не цикл, а одиночная проверка), но использует тот
+// же приём переноса строки перед оператором ниже.
 func (p *Parser) parseLeftAssoc(next func() (ast.Expr, error), ops map[lexer.TokenType]string) (ast.Expr, error) {
 	left, err := next()
 	if err != nil {
 		return nil, err
 	}
 	for {
+		// Перенос строки ПЕРЕД оператором ("а\nи б") допустим, только если
+		// СЛЕДУЮЩИЙ значимый токен - действительно один из ops: иначе перенос
+		// принадлежит завершению самой инструкции, трогать его нельзя (левый
+		// операнд просто оказался концом выражения). Симметрично уже
+		// поддержанному переносу СРАЗУ ПОСЛЕ оператора ниже. Исключение -
+		// "*" (multiplicativeOps): в начале строки это ВСЕГДА самостоятельная
+		// инструкция через указатель ("*p = значение"/"*Тип p = значение",
+		// см. parseStatement/tryParseTypedVarDecl), не продолжение умножения
+		// - перенос перед ним нарочно не поддержан, чтобы не сделать эти
+		// инструкции неотличимыми от продолжения предыдущего выражения.
+		if p.cur().Type == lexer.NEWLINE {
+			candidate := p.peekPastNewlines().Type
+			if _, ok := ops[candidate]; !ok || candidate == lexer.STAR {
+				return left, nil
+			}
+			p.skipNewlines()
+		}
 		opStr, ok := ops[p.cur().Type]
 		if !ok {
 			return left, nil
 		}
 		op := p.advance()
-		// Перенос строки сразу ПОСЛЕ бинарного оператора - незначим (тот же
-		// принцип, что и в большинстве языков со значимым переносом строки:
-		// оператор в конце строки однозначно сигнализирует продолжение
-		// выражения на следующей, парсер уже внутри разбора выражения -
-		// границе инструкции взяться неоткуда). Перенос ПЕРЕД оператором
-		// (`а\nи б`) по-прежнему не поддержан.
 		p.skipNewlines()
 		right, err := next()
 		if err != nil {
@@ -165,6 +177,14 @@ func (p *Parser) parseComparison() (ast.Expr, error) {
 	left, err := p.parseBitOr()
 	if err != nil {
 		return nil, err
+	}
+	// Тот же приём, что и в parseLeftAssoc - перенос строки перед оператором
+	// сравнения допустим, только если за ним действительно следует один из
+	// comparisonOps.
+	if p.cur().Type == lexer.NEWLINE {
+		if _, ok := comparisonOps[p.peekPastNewlines().Type]; ok {
+			p.skipNewlines()
+		}
 	}
 	if opStr, ok := comparisonOps[p.cur().Type]; ok {
 		op := p.advance()

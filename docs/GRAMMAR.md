@@ -137,7 +137,8 @@ print_stmt     := "вывести" expr
 show_stmt      := "показать" expr
 assert_stmt    := "утверждать" expr [ "," expr ]  (* второй expr - необязательное сообщение,
                                         типа Строка, дописывается к стандартному тексту при провале *)
-if_stmt        := "если" expr block [ "иначе" block ]
+if_stmt        := "если" expr block { "иначе" "если" expr block } [ "иначе" block ]
+                  (* "иначе если" - сахар: разворачивается в "если" внутри block блока "иначе" *)
 while_stmt     := "пока" expr block
 switch_stmt    := "выбрать" expr { sep } "{" { sep } case_clause { sep case_clause }
                    [ sep "иначе" ":" { sep } statement { sep statement } ] { sep } "}"

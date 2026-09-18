@@ -1205,6 +1205,177 @@ func TestParseReturnWithoutValueStillWorks(t *testing.T) {
 	}
 }
 
+// TestParseElseIfChainSugar - "иначе если" в цепочке из трёх звеньев должна
+// разворачиваться в тот же вложенный "если" внутри "иначе" (Else - список из
+// ОДНОГО элемента, самого вложенного IfStmt), что и ручная вложенность, без
+// отдельного узла AST.
+func TestParseElseIfChainSugar(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная {
+    если условие1 {
+        вывести "а"
+    } иначе если условие2 {
+        вывести "б"
+    } иначе если условие3 {
+        вывести "в"
+    } иначе {
+        вывести "г"
+    }
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	first := prog.Functions[0].Body[0].(*ast.IfStmt)
+	if len(first.Else) != 1 {
+		t.Fatalf("ожидался ровно один элемент в Else (вложенный если), получено %d", len(first.Else))
+	}
+	second, ok := first.Else[0].(*ast.IfStmt)
+	if !ok {
+		t.Fatalf("ожидался вложенный *ast.IfStmt, получено %T", first.Else[0])
+	}
+	if len(second.Else) != 1 {
+		t.Fatalf("ожидался ровно один элемент во втором Else (вложенный если), получено %d", len(second.Else))
+	}
+	third, ok := second.Else[0].(*ast.IfStmt)
+	if !ok {
+		t.Fatalf("ожидался вложенный *ast.IfStmt, получено %T", second.Else[0])
+	}
+	if len(third.Else) != 1 {
+		t.Fatalf("ожидался обычный блок \"иначе\" (одна инструкция вывести), получено %d", len(third.Else))
+	}
+	if _, ok := third.Else[0].(*ast.IfStmt); ok {
+		t.Fatalf("последнее \"иначе\" не должно разворачиваться в IfStmt")
+	}
+}
+
+// TestParseBinaryOperatorAllowsLineBreakBeforeOperator - перенос строки
+// перед бинарным оператором ("а\nи б") допустим симметрично уже
+// поддержанному переносу СРАЗУ ПОСЛЕ оператора (parseLeftAssoc) - по одному
+// представителю на нескольких уровнях приоритета ("и"/"+"/">"). "*"
+// намеренно не входит - см. TestParseLineBreakBeforeStarStaysSeparateStatement
+// ниже.
+func TestParseBinaryOperatorAllowsLineBreakBeforeOperator(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная {
+    переменная а = истина
+        и ложь
+    переменная б = 1
+        + 2
+    переменная третье = 5
+        > 3
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	а := prog.Functions[0].Body[0].(*ast.VarDecl)
+	if _, ok := а.Value.(*ast.BinaryExpr); !ok {
+		t.Fatalf("\"а\": ожидался BinaryExpr, получено %T", а.Value)
+	}
+	б := prog.Functions[0].Body[1].(*ast.VarDecl)
+	if _, ok := б.Value.(*ast.BinaryExpr); !ok {
+		t.Fatalf("\"б\": ожидался BinaryExpr, получено %T", б.Value)
+	}
+	третье := prog.Functions[0].Body[2].(*ast.VarDecl)
+	if _, ok := третье.Value.(*ast.BinaryExpr); !ok {
+		t.Fatalf("\"третье\": ожидался BinaryExpr, получено %T", третье.Value)
+	}
+}
+
+// TestParseLineBreakBeforeStarStaysSeparateStatement - "*" НЕ участвует в
+// переносе строки перед оператором (в отличие от остальных бинарных
+// операторов выше): в начале строки "*" всегда самостоятельная инструкция
+// через указатель ("*p = значение"), не продолжение умножения предыдущего
+// выражения - реальная неоднозначность, найденная этой же правкой
+// (examples/основы/внешняя_структура_указатель_поле.rech ломался без этого
+// исключения).
+func TestParseLineBreakBeforeStarStaysSeparateStatement(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная {
+    переменная значение = 1
+    *указатель = 99
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if len(prog.Functions[0].Body) != 2 {
+		t.Fatalf("ожидалось 2 отдельные инструкции, получено %d: %+v", len(prog.Functions[0].Body), prog.Functions[0].Body)
+	}
+	if _, ok := prog.Functions[0].Body[1].(*ast.DerefAssignStmt); !ok {
+		t.Fatalf("ожидался отдельный DerefAssignStmt, получено %T", prog.Functions[0].Body[1])
+	}
+}
+
+// TestParseAssignAllowsLineBreakAroundEquals - перенос строки допустим по
+// обе стороны "=" - и у "переменная X = значение"/"константа X = значение"
+// (parseVarDecl/parseConstDecl), и у обычного переприсваивания уже
+// объявленной переменной (parseAssign) - в любом сочетании.
+func TestParseAssignAllowsLineBreakAroundEquals(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная {
+    переменная а
+        = 1
+    переменная б =
+        2
+    константа В
+        = 3
+    б
+        = 4
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if len(prog.Functions[0].Body) != 4 {
+		t.Fatalf("ожидалось 4 инструкции, получено %d: %+v", len(prog.Functions[0].Body), prog.Functions[0].Body)
+	}
+	if _, ok := prog.Functions[0].Body[0].(*ast.VarDecl); !ok {
+		t.Fatalf("инструкция 0: ожидался VarDecl, получено %T", prog.Functions[0].Body[0])
+	}
+	if _, ok := prog.Functions[0].Body[1].(*ast.VarDecl); !ok {
+		t.Fatalf("инструкция 1: ожидался VarDecl, получено %T", prog.Functions[0].Body[1])
+	}
+	if _, ok := prog.Functions[0].Body[2].(*ast.ConstDecl); !ok {
+		t.Fatalf("инструкция 2: ожидался ConstDecl, получено %T", prog.Functions[0].Body[2])
+	}
+	assign, ok := prog.Functions[0].Body[3].(*ast.Assign)
+	if !ok {
+		t.Fatalf("инструкция 3: ожидался Assign, получено %T", prog.Functions[0].Body[3])
+	}
+	if assign.Name != "б" {
+		t.Fatalf("ожидалось переприсваивание \"б\", получено %q", assign.Name)
+	}
+}
+
+// TestParsePendingVarDeclStillWorksAcrossNewline - отложенное объявление
+// ("переменная X" без "=", pendingvar.go) не должно ошибочно слиться со
+// СЛЕДУЮЩЕЙ инструкцией через перенос строки, если та не начинается с "=" -
+// регресс для TestParseAssignAllowsLineBreakAroundEquals выше (диспетчер
+// заглядывает вперёд через переносы в поиске "=", но не должен находить его
+// там, где инструкция вообще про другое).
+func TestParsePendingVarDeclStillWorksAcrossNewline(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная {
+    переменная х
+
+    вывести "до"
+    х = 1
+    вывести х
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if len(prog.Functions[0].Body) != 3 {
+		t.Fatalf("ожидалось 3 инструкции (вывести, X = 1 как VarDecl, вывести) - объявление X должно остаться отложенным, получено %d: %+v", len(prog.Functions[0].Body), prog.Functions[0].Body)
+	}
+	if _, ok := prog.Functions[0].Body[1].(*ast.VarDecl); !ok {
+		t.Fatalf("инструкция 1: ожидался VarDecl (разрешённое отложенное объявление), получено %T", prog.Functions[0].Body[1])
+	}
+}
+
 func TestParseNewExprGenderAgreement(t *testing.T) {
 	// "Сова" (женский род, окончание "-а"), "Окно" (средний род, окончание
 	// "-о"), "Пользователь" (мужской род, курируемое исключение) - по одному

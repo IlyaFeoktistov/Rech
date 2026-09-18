@@ -254,6 +254,32 @@ var nounFullExceptions = map[string]struct {
 			{Prepositional, Plural}:   "слагаемых",
 		},
 	},
+
+	// "поле" - голое "-е" (ClassifyByEnding сознательно отказывается от
+	// этого окончания вообще, см. её package doc: "кофе" мужского рода -
+	// того же окончания без общей закономерности), а класса склонения для
+	// этого паттерна ("окно"-подобная парадигма с мягкой, не твёрдой,
+	// основой) в classTable ещё нет - полная парадигма проще нового класса
+	// ради одного слова. lookupGenderNumberViaGomorphy (gomorphy_source.go)
+	// сама по себе даёт для "поле" НЕВЕРНЫЙ род (masc) - её "лучший" разбор
+	// трактует "поле" как предложный падеж имени "Поль", не именительный
+	// самого слова (найдено на examples/проекты/змейка, где поле игры
+	// называлось "поле").
+	"поле": {
+		Gender: Neuter,
+		Paradigm: Paradigm{
+			{Nominative, Singular}:    "поле",
+			{Genitive, Singular}:      "поля",
+			{Dative, Singular}:        "полю",
+			{Instrumental, Singular}:  "полем",
+			{Prepositional, Singular}: "поле",
+			{Nominative, Plural}:      "поля",
+			{Genitive, Plural}:        "полей",
+			{Dative, Plural}:          "полям",
+			{Instrumental, Plural}:    "полями",
+			{Prepositional, Plural}:   "полях",
+		},
+	},
 }
 
 // nounAnimacy - курируемый словарь одушевлённости для идентификаторов

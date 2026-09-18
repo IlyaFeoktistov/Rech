@@ -598,7 +598,14 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			if err != nil {
 				return nil, err
 			}
-			return &ir.ExprStmt{MethodCall: call, Line: s.Line}, nil
+			switch call := call.(type) {
+			case *ir.MethodCallExpr:
+				return &ir.ExprStmt{MethodCall: call, Line: s.Line}, nil
+			case *ir.CallValueExpr:
+				return &ir.ExprStmt{CallValue: call, Line: s.Line}, nil
+			default:
+				return nil, fmt.Errorf("внутренняя ошибка: неизвестный вид вызова %T", call)
+			}
 		}
 		if s.IncDec != nil {
 			incDec, err := analyzeIncDecExpr(sc, s.IncDec)

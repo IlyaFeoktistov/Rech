@@ -206,7 +206,7 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		if !call.HasReturn {
+		if !callHasReturn(call) {
 			return nil, fmt.Errorf("строка %d: метод %q не имеет объявленного типа результата - его нельзя использовать как выражение", e.Line, e.Method)
 		}
 		return call, nil
@@ -410,9 +410,16 @@ func analyzeNewExprCtorNamed(sc *ctx, e *ast.NewExpr, sig entitySig) (ir.Expr, e
 
 // analyzeMethodCallExpr - общий разбор вызова метода для ExprStmt
 // (результат отбрасывается) и для MethodCallExpr-выражения (требует
-// HasReturn - проверяется вызывающей стороной, analyzeExpr) - тот же
-// принцип, что и analyzeCallExpr для функций.
-func analyzeMethodCallExpr(sc *ctx, e *ast.MethodCallExpr) (*ir.MethodCallExpr, error) {
+// callHasReturn - проверяется вызывающей стороной, analyzeExpr) - тот же
+// принцип, что и analyzeCallExpr для функций. Возвращает ir.Expr, не
+// *ir.MethodCallExpr - "получатель.имя(...)" сущности, у которой нет
+// метода "имя", но есть ПОЛЕ "имя" типа "Вызываемый(...)" разворачивается в
+// *ir.CallValueExpr (см. ветку ir.KindEntity ниже) - тот же приём, что и у
+// maybeDesugarHandleMethod/maybeDesugarDateTimeMethod, только не отдельной
+// функцией "maybeDesugar...", а прямо здесь: решение "это метод или поле"
+// зависит от той же сигнатуры сущности (sc.methods/sc.entities), что и
+// сам обычный путь метода, второй раз резолвить её незачем.
+func analyzeMethodCallExpr(sc *ctx, e *ast.MethodCallExpr) (ir.Expr, error) {
 	receiver, err := analyzeExpr(sc, e.Receiver)
 	if err != nil {
 		return nil, err
@@ -458,6 +465,24 @@ func analyzeMethodCallExpr(sc *ctx, e *ast.MethodCallExpr) (*ir.MethodCallExpr, 
 			var ok bool
 			sig, ok = sc.methods[typ.Entity][e.Method]
 			if !ok {
+				// Нет метода с таким именем - последняя попытка ПЕРЕД
+				// ошибкой: поле "имя" типа "Вызываемый(...)" - постфиксный
+				// вызов ".имя(...)" тогда читает поле и зовёт получившееся
+				// значение (analyzeCallValueExpr, тот же путь, что и у
+				// вызова обычной переменной-Вызываемого), а не пытается
+				// найти метод "имя" - иначе "этот.колбэк(...)" (ленивая
+				// DI-фабрика полем, docs/SPEC.md) требовал бы обхода вида
+				// "переменная ф = этот.колбэк; ф(...)". Метод с тем же
+				// именем, если он есть, побеждает - эта ветка достижима
+				// только когда его точно нет.
+				entSig := sc.entities[typ.Entity]
+				if idx := entSig.fieldIndex(e.Method); idx != -1 && entSig.FieldTypes[idx].Kind == ir.KindCallable {
+					if err := checkFieldVisibility(sc, typ.Entity, e.Method, entSig.FieldVisibility[idx], e.Line); err != nil {
+						return nil, err
+					}
+					field := &ir.FieldAccess{Receiver: receiver, Field: e.Method, Type: entSig.FieldTypes[idx]}
+					return analyzeCallValueExpr(sc, field, &ast.CallExpr{Args: e.Args, Line: e.Line})
+				}
 				return nil, fmt.Errorf("строка %d: у сущности %q нет метода %q", e.Line, typ.Entity, e.Method)
 			}
 		}
@@ -748,6 +773,8 @@ func callHasReturn(e ir.Expr) bool {
 	case *ir.CallExpr:
 		return e.HasReturn
 	case *ir.CallValueExpr:
+		return e.HasReturn
+	case *ir.MethodCallExpr:
 		return e.HasReturn
 	default:
 		return false

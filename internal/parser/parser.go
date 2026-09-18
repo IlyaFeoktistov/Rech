@@ -354,7 +354,16 @@ func normalizeDoc(raw string) string {
 // "если") без риска съесть разделитель инструкций, который окажется нужен,
 // если искомая конструкция не найдётся.
 func (p *Parser) peekPastNewlines() lexer.Token {
-	offset := 0
+	return p.peekPastNewlinesFrom(0)
+}
+
+// peekPastNewlinesFrom - как peekPastNewlines, но начинает поиск с
+// произвольного смещения от текущей позиции, а не сразу от неё - нужен,
+// когда решение "продолжается ли инструкция на следующей строке" зависит от
+// токена ПОСЛЕ уже известного текущего (например, IDENT в начале
+// инструкции - смотрим на смещение 1, ожидая "=" присваивания).
+func (p *Parser) peekPastNewlinesFrom(start int) lexer.Token {
+	offset := start
 	for p.peekAt(offset).Type == lexer.NEWLINE {
 		offset++
 	}

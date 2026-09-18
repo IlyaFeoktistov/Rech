@@ -145,7 +145,15 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 		} else if ok {
 			return decl, nil
 		}
-		if p.peekAt(1).Type == lexer.ASSIGN || isCompoundAssignTok(p.peekAt(1).Type) {
+		if next := p.peekPastNewlinesFrom(1); next.Type == lexer.ASSIGN || isCompoundAssignTok(next.Type) {
+			// Перенос строки перед "=" ("X\n= значение") допустим - см.
+			// комментарий в parseAssign. Неоднозначности с обычным
+			// использованием X как значения на следующей строке нет: "X"
+			// сам по себе (без "=" сразу за ним, хоть бы и через перенос)
+			// не разбирается вообще ни как одна из инструкций в этом
+			// switch, ни как отдельная - если следующий значимый токен НЕ
+			// "=", этот if просто не совпадёт, и разбор продолжится ниже
+			// как раньше.
 			return p.parseAssign()
 		}
 		if p.peekAt(1).Type == lexer.NULL_ASSIGN {
@@ -412,6 +420,14 @@ func (p *Parser) parseVarDecl() (ast.Stmt, error) {
 			return nil, fmt.Errorf("в аннотации типа переменной %q: %w", name.Value, err)
 		}
 	}
+	// Перенос строки перед "=" ("переменная X\n= значение") допустим, только
+	// если за ним ДЕЙСТВИТЕЛЬНО следует "=" - неоднозначности с отложенным
+	// объявлением (ветка ниже) нет: последующее самостоятельное
+	// использование X всегда повторяет имя ("X = значение"), голое "="
+	// без имени переменной не бывает отдельной инструкцией.
+	if p.cur().Type == lexer.NEWLINE && p.peekPastNewlines().Type == lexer.ASSIGN {
+		p.skipNewlines()
+	}
 	if p.cur().Type != lexer.ASSIGN && typeName == "" {
 		if isStatic {
 			return nil, fmt.Errorf("строка %d, столбец %d: \"статическая переменная\" должна содержать инициализацию (\"=\") - без неё непонятно, каким значением она заполнится ровно один раз", p.cur().Line, p.cur().Col)
@@ -428,6 +444,7 @@ func (p *Parser) parseVarDecl() (ast.Stmt, error) {
 	if _, err := p.expect(lexer.ASSIGN); err != nil {
 		return nil, fmt.Errorf("объявление переменной %q должно содержать инициализацию (\"=\"): %w", name.Value, err)
 	}
+	p.skipNewlines() // "=\nзначение" - перенос сразу после "=" тоже незначим.
 	value, err := p.parseExpr()
 	if err != nil {
 		return nil, fmt.Errorf("в инициализации переменной %q: %w", name.Value, err)
@@ -454,9 +471,13 @@ func (p *Parser) parseConstDecl() (*ast.ConstDecl, error) {
 	if err != nil {
 		return nil, fmt.Errorf("после \"константа\" ожидалось имя константы: %w", err)
 	}
+	if p.cur().Type == lexer.NEWLINE && p.peekPastNewlines().Type == lexer.ASSIGN {
+		p.skipNewlines()
+	}
 	if _, err := p.expect(lexer.ASSIGN); err != nil {
 		return nil, fmt.Errorf("объявление константы %q должно содержать инициализацию (\"=\"): %w", name.Value, err)
 	}
+	p.skipNewlines()
 	value, err := p.parseExpr()
 	if err != nil {
 		return nil, fmt.Errorf("в инициализации константы %q: %w", name.Value, err)
@@ -508,11 +529,18 @@ func (p *Parser) parseDerefAssignStmt() (ast.Stmt, error) {
 
 func (p *Parser) parseAssign() (ast.Stmt, error) {
 	name := p.advance()
+	// Перенос строки перед "="/составным оператором ("X\n= значение") -
+	// дошли сюда только потому, что вызывающая сторона (диспетчер
+	// parseStatement) уже подтвердила через peekPastNewlinesFrom, что за
+	// переносом действительно следует "=" - здесь его остаётся только
+	// пропустить.
+	p.skipNewlines()
 	opTok := p.cur()
 	if opTok.Type != lexer.ASSIGN && !isCompoundAssignTok(opTok.Type) {
 		return nil, fmt.Errorf("строка %d, столбец %d: ожидался \"=\" в присваивании %q, получено %q", opTok.Line, opTok.Col, name.Value, opTok.Value)
 	}
 	p.advance()
+	p.skipNewlines() // "=\nзначение" - перенос сразу после "=" тоже незначим.
 	value, err := p.parseExpr()
 	if err != nil {
 		return nil, fmt.Errorf("в присваивании %q: %w", name.Value, err)
@@ -687,6 +715,19 @@ func (p *Parser) parseIfStmt() (ast.Stmt, error) {
 		p.skipNewlines()
 		p.advance() // "иначе"
 		p.skipNewlines()
+		if p.cur().Type == lexer.KwIf {
+			// "иначе если" - чистый синтаксический сахар: разворачивается
+			// в тот же вложенный "если" внутри "иначе" ("Else" - список из
+			// ОДНОЙ инструкции, самого вложенного IfStmt), без отдельного
+			// узла AST и без изменений semantic/backend - обе формы дают
+			// идентичное дерево.
+			nested, err := p.parseIfStmt()
+			if err != nil {
+				return nil, err
+			}
+			stmt.Else = []ast.Stmt{nested}
+			return stmt, nil
+		}
 		elseBlock, err := p.parseBlock()
 		if err != nil {
 			return nil, err
