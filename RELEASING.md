@@ -34,7 +34,10 @@ make hooks-install   # один раз на клон - git config core.hooksPath
 ```
 
 - **pre-commit** (`.githooks/pre-commit`) - `gofmt` на застейдженные
-  `.go`-файлы + `go build`/`go vet`. Быстро (секунды), на каждый `commit`.
+  `.go`-файлы + `go build`/`go vet` + `rech fmt --write examples` (только
+  если коммит трогает хотя бы один `.rech`-файл; переформатированные
+  файлы, что уже были застейджены, застейдживаются заново автоматически).
+  Быстро (секунды), на каждый `commit`.
 - **pre-push** (`.githooks/pre-push`) - `make verify` целиком (`go vet`/
   `go test`/`check_examples.sh`). Медленнее, но только на `push`, не на
   каждый `commit`.

@@ -138,7 +138,12 @@ func Format(src string) (string, error) {
 }
 
 // computeLineDepths возвращает: depth[номер строки] - глубина вложенности
-// (число уровней "()"/"[]"/"{}"), применяемая как отступ для этой строки;
+// (число уровней "()"/"[]"/"{}", ПЛЮС один дополнительный уровень для
+// строки-продолжения инструкции, разбитой переносом строки вокруг
+// бинарного оператора/"=" без единой скобки - "если а > 5\nи б < 5 {" -
+// у "и б < 5" на уровень глубже, чем у "если", "{" же возвращается на
+// исходный уровень, см. applyContinuationIndent ниже), применяемая как
+// отступ для этой строки;
 // verbatim[номер строки] - true для строк, лежащих ВНУТРИ многострочного
 // TAG (обратные кавычки)/DOC_COMMENT токена - кроме самой ПЕРВОЙ его строки,
 // которая индексируется как обычно (отступ перед открывающей "`"/"/**" всё
@@ -189,12 +194,13 @@ func computeLineDepths(toks []lexer.Token, lines []string, prog *ast.Program) (d
 			// открытия), сама - на глубину меньше, чем СОДЕРЖИМОЕ внутри
 			// неё - комментарий сразу после "{" обязан получить уже
 			// увеличенную "cur", не "depth" строки с "{".
+			bonus := continuationBonus(significant, i)
 			for l := lastSeenLine + 1; l < tok.Line; l++ {
-				depth[l] = cur
+				depth[l] = cur + bonus
 			}
-			d := cur
+			d := cur + bonus
 			if closers[tok.Type] {
-				d = cur - weight[i]
+				d = cur - weight[i] + bonus
 			}
 			depth[tok.Line] = d
 			lastSeenLine = tok.Line
@@ -246,6 +252,55 @@ func computeLineDepths(toks []lexer.Token, lines []string, prog *ast.Program) (d
 	applyWhenCaseIndent(significant, depth, totalLines)
 	applyGerundIndent(prog, significant, lines, depth, totalLines)
 	return depth, verbatim, docIndent
+}
+
+// continuationBonus - 1, если significant[i] (первый токен строки, на
+// которую только сейчас перешёл основной цикл computeLineDepths выше)
+// продолжает ИНСТРУКЦИЮ, начатую на предыдущей строке, БЕЗ единой скобки
+// (перенос строки вокруг бинарного оператора/"=", docs/SPEC.md, раздел 2)
+// - иначе 0. Скобочная вложенность ("cur") уже даёт свой отступ сама по
+// себе - этот бонус ТОЛЬКО для случая, когда её нет вовсе (простое
+// сравнение/присваивание, разбитое на несколько строк). Два признака
+// (см. parser.ContinuationOperators/ContinuationLeadExcluded) -
+// significant[i] сам - оператор (кроме "*", который в начале строки
+// всегда самостоятельная инструкция через указатель), ИЛИ предыдущий
+// токен (последний токен предыдущей строки) - оператор (там исключения
+// для "*" нет - трейлинг "*" на конце строки продолжает умножение, как
+// и раньше). GT/SHR ИСКЛЮЧЕНЫ из проверки предыдущей строки (не из
+// ContinuationLeadExcluded самого parser - это отдельное, чисто
+// форматтерное сужение) - те же токены закрывают generic-список
+// ("Список<Точка>", "Список<Список<Целое>>") - "приватное тело:
+// Список<Точка>", затем следующая строка "приватное направление: Целое" -
+// без исключения GT ошибочно читался бы как "предыдущая строка кончилась
+// оператором сравнения", тот же риск неоднозначности, что уже описан у
+// openers/closers выше (нет контекста парсера, чтобы отличить один случай
+// от другого). Как ПЕРВЫЙ токен строки (значит настоящее сравнение/сдвиг,
+// не закрытие generic - тот при форматтере всегда прилипает к концу
+// предыдущей строки, не начинает свою) - GT/SHR не исключены.
+//
+// Отдельная защита - COMMA прямо перед significant[i]: запятая
+// однозначно завершает предыдущий элемент списка (аргумент вызова, поле
+// многострочного литерала и т. п.) - ЛЮБОЙ токен сразу после неё всегда
+// начинает НОВЫЙ элемент, никогда не продолжает выражение. Без неё "&" -
+// адрес-от (унарный, "&обработать_окно," - обычный аргумент-указатель на
+// функцию) ошибочно читался бы как побитовое "&" (BITAND входит в
+// ContinuationOperators для настоящего "a\n& b") - тот же класс
+// неоднозначности unary/binary, что у "*"/ContinuationLeadExcluded, но
+// COMMA-проверка закрывает его для ЛЮБОГО такого оператора разом, не
+// только для "&".
+func continuationBonus(significant []lexer.Token, i int) int {
+	tok := significant[i]
+	afterComma := i > 0 && significant[i-1].Type == lexer.COMMA
+	if parser.ContinuationOperators[tok.Type] && !parser.ContinuationLeadExcluded[tok.Type] && !afterComma {
+		return 1
+	}
+	if i > 0 {
+		prev := significant[i-1].Type
+		if parser.ContinuationOperators[prev] && prev != lexer.GT && prev != lexer.SHR {
+			return 1
+		}
+	}
+	return 0
 }
 
 // collectGerundStmtLines возвращает Line всех ast.GerundStmt, достижимых из
@@ -370,6 +425,21 @@ func applyWhenCaseIndent(significant []lexer.Token, depth map[int]int, totalLine
 			continue
 		}
 		labelLine := significant[i].Line
+		// headerEndLine - последняя строка самой МЕТКИ (не тела ветки) -
+		// как правило, та же labelLine, но список значений "когда X | Y | Z:"
+		// может занимать несколько строк (перенос строки перед "|", тем же
+		// принципом, что и у бинарных операторов, docs/SPEC.md, раздел 2) -
+		// без этого поиска continuationBonus уже даёт этим лишним строкам
+		// метки +1 (продолжение инструкции), а цикл ниже добавил бы ЕЩЁ +1
+		// (тело ветки начинается "сразу после метки"), суммарно +2 вместо
+		// +1.
+		headerEndLine := labelLine
+		for k := i + 1; k < len(significant); k++ {
+			headerEndLine = significant[k].Line
+			if significant[k].Type == lexer.COLON {
+				break
+			}
+		}
 		relDepth := 0
 		endLine := totalLines + 1
 	scan:
@@ -389,7 +459,7 @@ func applyWhenCaseIndent(significant []lexer.Token, depth map[int]int, totalLine
 				break scan
 			}
 		}
-		for l := labelLine + 1; l < endLine && l <= totalLines; l++ {
+		for l := headerEndLine + 1; l < endLine && l <= totalLines; l++ {
 			depth[l]++
 		}
 	}

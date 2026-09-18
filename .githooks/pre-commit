@@ -2,7 +2,9 @@
 # pre-commit - быстрые проверки на КАЖДЫЙ commit: gofmt (только на
 # застейдженные .go-файлы, не весь репозиторий - не блокировать commit
 # из-за форматирования В ДРУГИХ местах) + go build/vet (секунды, не
-# минуты). Полный набор (go test/check_examples.sh - тяжелее) - в
+# минуты) + "rech fmt --write" на examples/ (только если коммит реально
+# трогает хотя бы один .rech-файл - тот же принцип, что и у gofmt-блока
+# выше). Полный набор (go test/check_examples.sh - тяжелее) - в
 # pre-push, не здесь. Ставится "make hooks-install" - см. RELEASING.md,
 # "Локальные git-хуки".
 set -eu
@@ -23,3 +25,22 @@ fi
 
 go build ./...
 go vet ./...
+
+# "rech fmt --write" переписывает файлы НА ДИСКЕ (не только застейдженные)
+# - "rech fmt" принимает один файл/каталог, не список файлов, поэтому весь
+# "examples" разом, а не по одному застейдженному файлу. Обратно
+# застейдживаются ТОЛЬКО те .rech-файлы, что уже были застейджены ДО этого
+# запуска - переформатированный, но НЕзастейдженный файл (например, чужие
+# несохранённые правки в другом примере) останется обычным необязательным
+# изменением в рабочем дереве, не проскочит в коммит незаметно.
+STAGED_RECH_FILES="$(git diff --cached --name-only --diff-filter=ACM -- '*.rech')"
+if [ -n "$STAGED_RECH_FILES" ]; then
+    if command -v rech >/dev/null 2>&1; then
+        rech fmt --write examples
+        for f in $STAGED_RECH_FILES; do
+            [ -f "$f" ] && git add "$f"
+        done
+    else
+        echo "pre-commit: команда \"rech\" не найдена в PATH - пропускаю \"rech fmt --write\"" >&2
+    fi
+fi
