@@ -476,6 +476,33 @@ func TestFormatMultilineParamsExceptionAttachesBrace(t *testing.T) {
 	}
 }
 
+// TestFormatMultilineConditionForcesBraceOnOwnLine - у "если" (или другой
+// управляющей конструкции) с условием, перенесённым автором на несколько
+// строк ("если x\n или y"), "{" переносится на СВОЮ строку (вровень с
+// "если" после отступов) - K&R этой ветки не применяется, симметрично
+// TestFormatMultilineParamsExceptionAttachesBrace выше (та же идея разрыва
+// умолчания, только в обратную сторону: K&R -> Allman, а не Allman -> K&R).
+func TestFormatMultilineConditionForcesBraceOnOwnLine(t *testing.T) {
+	src := "функция главная\n{\n    если x < 0\n    или x >= 10 {\n        вывести 1\n    }\n}\n"
+	want := "функция главная\n{\n    если x < 0\n        или x >= 10\n    {\n        вывести 1\n    }\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != want {
+		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
+	}
+	// Идемпотентность - автор, уже написавший "{" на своей строке, не
+	// должен получить её обратно схлопнутой со строкой условия.
+	got2, err := Format(got)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка при повторном форматировании: %v", err)
+	}
+	if got2 != got {
+		t.Fatalf("не идемпотентно:\nпервый проход:\n%q\nвторой проход:\n%q", got, got2)
+	}
+}
+
 // TestFormatAlignsFieldsLikeATable - "имеет:" секция без пустой строки
 // между полями выравнивается в таблицу: по ":"/Тип - всегда, по "=" и
 // тегу - только у тех полей, у которых они вообще есть (рваные строки,

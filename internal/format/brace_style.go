@@ -79,14 +79,34 @@ func normalizeBraceStyle(src string) (string, error) {
 			continue
 		}
 		headerLine := significant[i-1].Line
-		class, isLambda, multilineParams := classifyBrace(significant, match, i)
+		class, isLambda, multilineParams, keywordLine := classifyBrace(significant, match, i)
 		switch {
-		case class == braceControl || isLambda:
+		case class == braceControl && keywordLine != headerLine:
+			// Условие/заголовок управляющей конструкции сам перенесён
+			// автором на несколько строк ("если x\n    или y {") - "{"
+			// переносится на собственную строку (той же табуляции, что и
+			// ведущее ключевое слово, после отдельного прохода
+			// computeLineDepths) вместо обычного K&R этой ветки ниже:
+			// иначе она рисовалась бы на одной плоскости с последней
+			// строкой уже перенесённого условия, а не с самим "если" -
+			// тот же принцип, что и у multilineParams ниже, только в
+			// обратную сторону (K&R -> Allman, а не Allman -> K&R,
+			// потому что у управляющих конструкций умолчание - K&R).
+			if headerLine == t.Line {
+				splitBefore[t.Line] = true
+			}
+		case isLambda:
 			// Лямбда (анонимная "функция(...)", без имени - колбэк) - K&R,
 			// как управляющая конструкция, а не Allman как у ИМЕНОВАННОГО
 			// объявления - пользователь попросил явно (иначе колбэк с
 			// однострочным телом занимал бы неоправданно много вертикального
-			// места посреди списка аргументов вызова).
+			// места посреди списка аргументов вызова). Без исключения на
+			// многострочный список параметров (в отличие от case выше) -
+			// пользователь не просил его для лямбд.
+			if headerLine != t.Line {
+				lu.union(headerLine, t.Line)
+			}
+		case class == braceControl:
 			if headerLine != t.Line {
 				lu.union(headerLine, t.Line)
 			}
@@ -147,8 +167,11 @@ var continuationBraceKeywords = map[lexer.TokenType]bool{
 // true, если найденное ключевое слово - KwFunction БЕЗ имени сразу за ним
 // (анонимная "функция(...)", колбэк) - единственное исключение внутри
 // declBraceKeywords, которое всё равно K&R, не Allman (см. вызывающую
-// сторону, normalizeBraceStyle).
-func classifyBrace(sig []lexer.Token, match []int, lbraceIdx int) (class braceClass, isLambda bool, multilineParams bool) {
+// сторону, normalizeBraceStyle). keywordLine - строка найденного ведущего
+// ключевого слова (значима только при class == braceControl - сравнивается
+// с headerLine вызывающей стороной, чтобы отличить однострочное условие/
+// заголовок от перенесённого автором на несколько строк).
+func classifyBrace(sig []lexer.Token, match []int, lbraceIdx int) (class braceClass, isLambda bool, multilineParams bool, keywordLine int) {
 	class = braceDecl // по умолчанию - метод без ведущего ключевого слова
 	firstRParen := -1
 	k := lbraceIdx - 1
@@ -169,6 +192,7 @@ func classifyBrace(sig []lexer.Token, match []int, lbraceIdx int) (class braceCl
 		}
 		if controlBraceKeywords[t.Type] {
 			class = braceControl
+			keywordLine = t.Line
 			break
 		}
 		if declBraceKeywords[t.Type] {
@@ -183,7 +207,7 @@ func classifyBrace(sig []lexer.Token, match []int, lbraceIdx int) (class braceCl
 	if firstRParen != -1 && match[firstRParen] >= 0 {
 		multilineParams = sig[match[firstRParen]].Line != sig[firstRParen].Line
 	}
-	return class, isLambda, multilineParams
+	return class, isLambda, multilineParams, keywordLine
 }
 
 // matchAllBrackets сопоставляет КАЖДУЮ "()"/"[]"/"{}" её парой одним
