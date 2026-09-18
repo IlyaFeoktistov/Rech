@@ -87,62 +87,73 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 	if _, ok := enums[name]; ok {
 		return ir.TypeInt, nil
 	}
-	switch name {
-	case "Запрос":
-		registerHTTPEntityWithDefaults(entities, "Запрос", httpRequestFields, httpRequestDefaults)
-		return ir.EntityType("Запрос"), nil
-	case "Ответ":
-		registerHTTPEntityWithDefaults(entities, "Ответ", httpResponseFields, httpResponseDefaults)
-		return ir.EntityType("Ответ"), nil
-	case "ДатаВремя":
-		registerHTTPEntityWithDefaults(entities, "ДатаВремя", dateTimeFields, dateTimeDefaults)
-		return ir.EntityType("ДатаВремя"), nil
-	case mutexEntityName:
-		registerMutexEntity(entities, methods)
-		return ir.EntityType(mutexEntityName), nil
-	case semaphoreEntityName:
-		registerSemaphoreEntity(entities, methods)
-		return ir.EntityType(semaphoreEntityName), nil
-	case transactionEntityName:
-		registerTransactionEntity(entities, methods)
-		return ir.EntityType(transactionEntityName), nil
-	case httpBytesRequestType:
-		if _, err := resolveTypeName(entities, methods, aliases, interfaces, enums, byteListType); err != nil {
-			return ir.TypeUnknown, err
+	// Затенение (internal/builtins.ShadowableEntityNames): пользователь уже
+	// объявил СВОЮ сущность с этим именем (entities заполняется раньше -
+	// collectEntities проходит prog.Entities целиком до первого вызова
+	// resolveTypeName для тела любой функции/метода) - её и резолвим,
+	// вместо лениво регистрируемой builtin-версии ниже. Для остальных
+	// зарезервированных имён (не входящих в ShadowableEntityNames) entities
+	// никогда не содержит такую запись - collectEntities отклоняет их
+	// раньше, до этой точки, так что для них switch продолжает работать как
+	// раньше безусловно.
+	if _, ok := entities[name]; !ok {
+		switch name {
+		case "Запрос":
+			registerHTTPEntityWithDefaults(entities, "Запрос", httpRequestFields, httpRequestDefaults)
+			return ir.EntityType("Запрос"), nil
+		case "Ответ":
+			registerHTTPEntityWithDefaults(entities, "Ответ", httpResponseFields, httpResponseDefaults)
+			return ir.EntityType("Ответ"), nil
+		case "ДатаВремя":
+			registerHTTPEntityWithDefaults(entities, "ДатаВремя", dateTimeFields, dateTimeDefaults)
+			return ir.EntityType("ДатаВремя"), nil
+		case mutexEntityName:
+			registerMutexEntity(entities, methods)
+			return ir.EntityType(mutexEntityName), nil
+		case semaphoreEntityName:
+			registerSemaphoreEntity(entities, methods)
+			return ir.EntityType(semaphoreEntityName), nil
+		case transactionEntityName:
+			registerTransactionEntity(entities, methods)
+			return ir.EntityType(transactionEntityName), nil
+		case httpBytesRequestType:
+			if _, err := resolveTypeName(entities, methods, aliases, interfaces, enums, byteListType); err != nil {
+				return ir.TypeUnknown, err
+			}
+			registerHTTPEntityWithDefaults(entities, httpBytesRequestType, httpBytesRequestFields, httpBytesRequestDefaults)
+			return ir.EntityType(httpBytesRequestType), nil
+		case httpBytesResponseType:
+			if _, err := resolveTypeName(entities, methods, aliases, interfaces, enums, byteListType); err != nil {
+				return ir.TypeUnknown, err
+			}
+			registerHTTPEntityWithDefaults(entities, httpBytesResponseType, httpBytesResponseFields, httpBytesResponseDefaults)
+			return ir.EntityType(httpBytesResponseType), nil
+		case formPartType:
+			if _, err := resolveTypeName(entities, methods, aliases, interfaces, enums, byteListType); err != nil {
+				return ir.TypeUnknown, err
+			}
+			registerHTTPEntity(entities, formPartType, formPartFields)
+			return ir.EntityType(formPartType), nil
+		case http2StreamType:
+			registerHTTPEntity(entities, http2StreamType, HTTP2StreamFields)
+			return ir.EntityType(http2StreamType), nil
+		case imageCodecEntityName:
+			if _, err := resolveTypeName(entities, methods, aliases, interfaces, enums, byteListType); err != nil {
+				return ir.TypeUnknown, err
+			}
+			registerHTTPEntity(entities, imageCodecEntityName, ImageCodecFields)
+			return ir.EntityType(imageCodecEntityName), nil
+		case "Совпадение":
+			// "группы" (Список<Строка>) - зарегистрировать ДО самой "Совпадение",
+			// иначе метод вроде "м.группы.длина()" не найдёт methods["Список<
+			// Строка>"], если ничто в программе больше не заставило её
+			// зарегистрироваться (например, "разбить" ни разу не вызвана).
+			if _, err := resolveTypeName(entities, methods, aliases, interfaces, enums, regexGroupsType); err != nil {
+				return ir.TypeUnknown, err
+			}
+			registerHTTPEntity(entities, "Совпадение", MatchFields)
+			return ir.EntityType("Совпадение"), nil
 		}
-		registerHTTPEntityWithDefaults(entities, httpBytesRequestType, httpBytesRequestFields, httpBytesRequestDefaults)
-		return ir.EntityType(httpBytesRequestType), nil
-	case httpBytesResponseType:
-		if _, err := resolveTypeName(entities, methods, aliases, interfaces, enums, byteListType); err != nil {
-			return ir.TypeUnknown, err
-		}
-		registerHTTPEntityWithDefaults(entities, httpBytesResponseType, httpBytesResponseFields, httpBytesResponseDefaults)
-		return ir.EntityType(httpBytesResponseType), nil
-	case formPartType:
-		if _, err := resolveTypeName(entities, methods, aliases, interfaces, enums, byteListType); err != nil {
-			return ir.TypeUnknown, err
-		}
-		registerHTTPEntity(entities, formPartType, formPartFields)
-		return ir.EntityType(formPartType), nil
-	case http2StreamType:
-		registerHTTPEntity(entities, http2StreamType, HTTP2StreamFields)
-		return ir.EntityType(http2StreamType), nil
-	case imageCodecEntityName:
-		if _, err := resolveTypeName(entities, methods, aliases, interfaces, enums, byteListType); err != nil {
-			return ir.TypeUnknown, err
-		}
-		registerHTTPEntity(entities, imageCodecEntityName, ImageCodecFields)
-		return ir.EntityType(imageCodecEntityName), nil
-	case "Совпадение":
-		// "группы" (Список<Строка>) - зарегистрировать ДО самой "Совпадение",
-		// иначе метод вроде "м.группы.длина()" не найдёт methods["Список<
-		// Строка>"], если ничто в программе больше не заставило её
-		// зарегистрироваться (например, "разбить" ни разу не вызвана).
-		if _, err := resolveTypeName(entities, methods, aliases, interfaces, enums, regexGroupsType); err != nil {
-			return ir.TypeUnknown, err
-		}
-		registerHTTPEntity(entities, "Совпадение", MatchFields)
-		return ir.EntityType("Совпадение"), nil
 	}
 	if _, ok := interfaces[name]; ok {
 		return ir.InterfaceType(name), nil

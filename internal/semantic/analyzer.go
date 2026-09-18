@@ -317,7 +317,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 		entities[extEnt.Alias] = entitySig{IsExternOpaque: true}
 	}
 	for _, ent := range prog.Entities {
-		if builtins.ReservedEntityNames[ent.Name] {
+		if builtins.ReservedEntityNames[ent.Name] && !builtins.ShadowableEntityNames[ent.Name] {
 			return fmt.Errorf("сущность %q - зарезервированное имя встроенной сущности, нельзя объявить свою сущность с этим именем", ent.Name)
 		}
 		if _, exists := entities[ent.Name]; exists {
@@ -1086,18 +1086,34 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	// Запрос/Ответ - структуры (по значению): простые поля-контейнеры без
 	// методов и без сценария разделяемой мутации, копирование - естественное
 	// и более предсказуемое поведение, чем ссылка на общий буфер.
-	out.Entities = append(out.Entities,
-		&ir.Entity{Name: "Запрос", IsStruct: true, Fields: httpRequestFields},
-		&ir.Entity{Name: "Ответ", IsStruct: true, Fields: httpResponseFields},
-		&ir.Entity{Name: "ДатаВремя", IsStruct: true, Fields: dateTimeFields},
-		&ir.Entity{Name: "ОпцииКуки", IsStruct: true, Fields: CookieOptionsFields},
-		&ir.Entity{Name: "Дейтаграмма", IsStruct: true, Fields: DatagramFields},
-		&ir.Entity{Name: "RGBЦвет", IsStruct: true, Fields: ColorFields},
-		&ir.Entity{Name: "Процесс", IsStruct: true, Fields: ProcessFields},
-		&ir.Entity{Name: "РезультатКоманды", IsStruct: true, Fields: CommandResultFields},
-		&ir.Entity{Name: "Регистры", IsStruct: true, Fields: RegistersFields},
-		&ir.Entity{Name: dbStateEntityName, IsStruct: true, Fields: DBStateFields},
-	)
+	//
+	// Все десять здесь эмитируются безусловно (в отличие от "Совпадение"/
+	// "ЧастьФормы"/... ниже - лениво, только при реальном использовании) -
+	// историческая асимметрия, не связанная с затенением. Шесть из них -
+	// internal/builtins.ShadowableEntityNames - пропускаются, если
+	// declaredEntityNames уже содержит это имя (пользователь объявил свою
+	// сущность с этим именем, цикл по prog.Entities выше уже добавил ЕЁ
+	// ir.Entity в out.Entities) - без этой проверки получилась бы вторая,
+	// "официальная" ir.Entity с тем же именем и коллизия транслитерации в
+	// cbackend ("сущности X и X транслитерируются в одно и то же имя").
+	standardEntities := []*ir.Entity{
+		{Name: "Запрос", IsStruct: true, Fields: httpRequestFields},
+		{Name: "Ответ", IsStruct: true, Fields: httpResponseFields},
+		{Name: "ДатаВремя", IsStruct: true, Fields: dateTimeFields},
+		{Name: "ОпцииКуки", IsStruct: true, Fields: CookieOptionsFields},
+		{Name: "Дейтаграмма", IsStruct: true, Fields: DatagramFields},
+		{Name: "RGBЦвет", IsStruct: true, Fields: ColorFields},
+		{Name: "Процесс", IsStruct: true, Fields: ProcessFields},
+		{Name: "РезультатКоманды", IsStruct: true, Fields: CommandResultFields},
+		{Name: "Регистры", IsStruct: true, Fields: RegistersFields},
+		{Name: dbStateEntityName, IsStruct: true, Fields: DBStateFields},
+	}
+	for _, ent := range standardEntities {
+		if declaredEntityNames[ent.Name] {
+			continue
+		}
+		out.Entities = append(out.Entities, ent)
+	}
 	// "Исключение" - ссылочная сущность (не структура): "выбросить"
 	// передаёт указатель на неё дальше по стеку вызовов без копирования,
 	// как и любую другую сущность/класс. Порядок в out.Entities (после
@@ -1225,11 +1241,11 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	// generic-коллекция примитива (не сущности) эмитится в отдельный блок
 	// ДО всех typedef сущностей (genericsCode, cbackend/ir_generator.go),
 	// независимо от места regex.go в этом списке.
-	if _, ok := a.entities["Совпадение"]; ok {
+	if _, ok := a.entities["Совпадение"]; ok && !declaredEntityNames["Совпадение"] {
 		out.Entities = append(out.Entities, &ir.Entity{Name: "Совпадение", IsStruct: true, Fields: MatchFields})
 	}
 	// "ЧастьФормы" - тот же принцип, что "Совпадение" выше.
-	if _, ok := a.entities[formPartType]; ok {
+	if _, ok := a.entities[formPartType]; ok && !declaredEntityNames[formPartType] {
 		out.Entities = append(out.Entities, &ir.Entity{Name: formPartType, IsStruct: true, Fields: formPartFields})
 	}
 	// "ЗапросБайты"/"ОтветБайты" - тот же принцип, что "Совпадение" выше -
@@ -1249,7 +1265,7 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	// "ОтветБайты"/"HTTP2Поток" выше - зарегистрирована в a.entities только
 	// при реальном вызове "декодировать_изображение"/"закодировать_
 	// изображение" (registerImageCodecEntityOnCall, imagecodec.go).
-	if _, ok := a.entities[imageCodecEntityName]; ok {
+	if _, ok := a.entities[imageCodecEntityName]; ok && !declaredEntityNames[imageCodecEntityName] {
 		out.Entities = append(out.Entities, &ir.Entity{Name: imageCodecEntityName, IsStruct: true, Fields: ImageCodecFields})
 	}
 	// "Блокировка" - проверка ЗДЕСЬ (не раньше цикла по prog.Entities/

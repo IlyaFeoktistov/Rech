@@ -58,8 +58,10 @@ func TestAnalyzeCookieValueReturnsNullableString(t *testing.T) {
 	}
 }
 
-func TestAnalyzeUserEntityCannotBeNamedOpciiKuki(t *testing.T) {
-	_, err := AnalyzeSource(t, `
+// "ОпцииКуки" - internal/builtins.ShadowableEntityNames: пользователь может
+// объявить свою сущность с этим именем (затенение, [[project_entity_shadowing]]).
+func TestAnalyzeUserEntityCanShadowOpciiKuki(t *testing.T) {
+	prog, err := AnalyzeSource(t, `
 сущность ОпцииКуки
 {
     имеет:
@@ -67,7 +69,17 @@ func TestAnalyzeUserEntityCannotBeNamedOpciiKuki(t *testing.T) {
 }
 функция главная { вывести 1 }
 `)
-	if err == nil || !strings.Contains(err.Error(), "зарезервированное имя") {
-		t.Fatalf("ожидалась ошибка - \"ОпцииКуки\" зарезервированное имя, получено: %v", err)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
 	}
+	for _, ent := range prog.Entities {
+		if ent.Name != "ОпцииКуки" {
+			continue
+		}
+		if len(ent.Fields) != 1 || ent.Fields[0].Name != "х" {
+			t.Fatalf("ожидалась пользовательская сущность ОпцииКуки с единственным полем х, получено: %+v", ent.Fields)
+		}
+		return
+	}
+	t.Fatalf("сущность ОпцииКуки не найдена в ir.Program.Entities")
 }

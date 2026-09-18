@@ -102,18 +102,28 @@ var builtinTypeBases = map[string]bool{
 // математика) возвращаются как есть: они не объявлены ни в одном файле
 // Rech-программы и потому не участвуют в переименовании при линковке.
 // Не найденное имя - ошибка ("не объявлено и не импортировано").
+//
+// names проверяется ПЕРВЫМ, до builtinTypeBases/IsReservedName - затенение
+// (internal/builtins.ShadowableEntityNames, "давай группу А" - ДатаВремя и
+// т. п.): если файл сам объявил (или явно импортировал) сущность с именем,
+// совпадающим со встроенным, names уже содержит запись на неё (см.
+// buildNames), и эта своя сущность должна победить. Для любого имени, для
+// которого names НЕ содержит записи (обычный случай - имя ничем не
+// затенено, а также ЛЮБОЕ реально зарезервированное имя вроде "Блокировка"/
+// "Файл" - собственную сущность с таким именем в принципе нельзя объявить,
+// internal/semantic.ReservedEntityNames без ShadowableEntityNames), порядок
+// проверки не меняет результат - до names долетать нечему.
 func resolveBareName(name string, names map[string]string) (string, error) {
+	if resolved, ok := names[name]; ok {
+		return resolved, nil
+	}
 	if builtinTypeBases[name] {
 		return name, nil
 	}
 	if builtins.IsReservedName(name) {
 		return name, nil
 	}
-	resolved, ok := names[name]
-	if !ok {
-		return "", fmt.Errorf("%q не объявлено в этом файле и не импортировано", name)
-	}
-	return resolved, nil
+	return "", fmt.Errorf("%q не объявлено в этом файле и не импортировано", name)
 }
 
 // resolveTypeRef - то же самое для имени типа, включая generic-инстанциации

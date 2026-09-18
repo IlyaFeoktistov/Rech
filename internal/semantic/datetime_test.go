@@ -36,8 +36,11 @@ func TestAnalyzeDateTimeRejectsUserFunctionNamedTime(t *testing.T) {
 	}
 }
 
-func TestAnalyzeDateTimeRejectsUserEntityNamedDateTime(t *testing.T) {
-	_, err := AnalyzeSource(t, `
+// "ДатаВремя" - internal/builtins.ShadowableEntityNames: пользователь может
+// объявить свою сущность с этим именем (затенение, [[project_entity_shadowing]]) -
+// резолвится в СВОЮ сущность (одно поле "x"), не в builtin (год/месяц/...).
+func TestAnalyzeDateTimeUserEntityShadowsBuiltin(t *testing.T) {
+	prog, err := AnalyzeSource(t, `
 сущность ДатаВремя
 {
     имеет:
@@ -45,7 +48,20 @@ func TestAnalyzeDateTimeRejectsUserEntityNamedDateTime(t *testing.T) {
 }
 функция главная { вывести 1 }
 `)
-	if err == nil || !strings.Contains(err.Error(), "зарезервированное имя") {
-		t.Fatalf("ожидалась ошибка про зарезервированное имя, получено: %v", err)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	found := false
+	for _, ent := range prog.Entities {
+		if ent.Name != "ДатаВремя" {
+			continue
+		}
+		found = true
+		if len(ent.Fields) != 1 || ent.Fields[0].Name != "x" {
+			t.Fatalf("ожидалась пользовательская сущность ДатаВремя с единственным полем x, получено: %+v", ent.Fields)
+		}
+	}
+	if !found {
+		t.Fatalf("сущность ДатаВремя не найдена в ir.Program.Entities")
 	}
 }
