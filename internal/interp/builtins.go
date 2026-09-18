@@ -209,6 +209,8 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return intValue(terminalHeight()), true
 	case "можно_прочитать_байт":
 		return boolValue(canRead(args[0].File, args[1].I)), true
+	case "прочитать_код_клавиши":
+		return intValue(readKeyCode(args[0].I)), true
 	case "дождаться_всех_задач":
 		return boolValue(waitAllTasks(args[0].I)), true
 	case "слушать_tcp_защищённо":

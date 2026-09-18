@@ -26,6 +26,7 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/httpwire"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/image"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/interfacestub"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/keyboard"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/multipart"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/numbase"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/process"
@@ -1345,6 +1346,18 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// безусловно выше, WaitForSingleObject - оттуда же).
 		sb.WriteString("#ifndef _WIN32\n#include <poll.h>\n#else\n#include <io.h>\n#endif\n")
 	}
+	if ctx.usesKeyboard {
+		// <linux/input.h> - struct input_event/EV_KEY/KEY_*/EVIOCGBIT
+		// (runtime/keyboard, "прочитать_код_клавиши"). <dirent.h>/<fcntl.h> -
+		// перебор /dev/input/event* (opendir/readdir) и open() устройства.
+		// <poll.h>/<time.h> - тот же неблокирующий опрос с дедлайном, что и
+		// у usesNonBlockingRead выше, плюс clock_gettime(CLOCK_MONOTONIC)
+		// для многошагового таймаута (несколько событий подряд могут не
+		// быть клавишей). <string.h> - memset/strncmp/snprintf. На Windows
+		// ничего из этого не нужно - ReadConsoleInputW уже объявлен через
+		// windows.h, подключённый безусловно выше.
+		sb.WriteString("#ifndef _WIN32\n#include <linux/input.h>\n#include <dirent.h>\n#include <fcntl.h>\n#include <poll.h>\n#include <time.h>\n#include <string.h>\n#include <unistd.h>\n#endif\n")
+	}
 	if ctx.usesSubprocess {
 		// <unistd.h> - fork/execvp/pipe/dup2/chdir/_exit. <sys/wait.h> -
 		// waitpid/WIFEXITED/WEXITSTATUS/WIFSIGNALED/WTERMSIG. <fcntl.h> -
@@ -1927,6 +1940,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 			escapeCString(rtmsg.ProcResumeFailed)))
 	}
 	appendCodeIf(&sb, ctx.usesConsole, console.RuntimeCode())
+	appendCodeIf(&sb, ctx.usesKeyboard, keyboard.RuntimeCode())
 	appendCodeIf(&sb, ctx.usesNonBlockingRead, console.NonBlockingReadRuntimeCode())
 	// "rech_db_t" сам уже виден (dbHandleTypedefCode, эмитирован раньше
 	// typedefs/genericsCode выше) - здесь только остальной рантайм БД

@@ -286,6 +286,13 @@ type builtinFlags struct {
 	// "возобновить_процесс" (мини-отладчик, tier3) - гейтит "#include
 	// <sys/user.h>" (struct user_regs_struct) на Linux.
 	usesProcRegs bool
+	// usesKeyboard - нужен ли keyboard.RuntimeCode (runtime/keyboard) -
+	// встроенная функция "прочитать_код_клавиши" - раскладко-независимый
+	// физический код клавиши (evdev на Linux, ReadConsoleInput на
+	// Windows), отдельный от usesConsole/usesNonBlockingRead - другой
+	// источник данных (устройство evdev/консольные события ввода, не
+	// stdin), не использует rech_can_read/rech_set_raw_mode.
+	usesKeyboard bool
 }
 
 // builtinCallCode генерирует C-вызов встроенной функции (internal/builtins,
@@ -548,6 +555,9 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 	case "можно_прочитать_байт":
 		flags.usesNonBlockingRead = true
 		return fmt.Sprintf("rech_can_read(%s, %s)", args[0], args[1]), true
+	case "прочитать_код_клавиши":
+		flags.usesKeyboard = true
+		return fmt.Sprintf("rech_read_key_code(%s)", args[0]), true
 	case "дождаться_всех_задач":
 		flags.usesActiveTaskWait = true
 		return fmt.Sprintf("rech_wait_all_tasks(%s)", args[0]), true

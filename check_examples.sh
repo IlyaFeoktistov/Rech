@@ -15,6 +15,11 @@
 # (файлы _linux/_windows выбираются САМИ, никогда не попадают в чужую
 # сборку), examples/проекты/windows_окна безусловно зовёт WinAPI - собрать
 # на Linux/macOS нечем (нет user32.dll/gdi32.dll), это не баг компилятора.
+# Тот же принцип у missing_lib_header_projects - examples/проекты/
+# x11_клавиши зовёт libX11 (сборка.библиотеки_linux: X11), которого нет на
+# машине без пакета "libx11-dev" (не гарантирован на голом CI-образе, в
+# отличие от libssl-dev - нет смысла требовать его только ради одного
+# демонстрационного примера).
 set -uo pipefail
 
 windows_only_projects=("examples/проекты/windows_окна")
@@ -24,6 +29,20 @@ is_windows_only_skipped() {
     local p
     for p in "${windows_only_projects[@]}"; do
         [ "$pd" = "$p" ] && return 0
+    done
+    return 1
+}
+
+missing_lib_header_projects=("examples/проекты/x11_клавиши:/usr/include/X11/Xlib.h")
+is_missing_lib_header_skipped() {
+    local pd="$1"
+    local entry header
+    for entry in "${missing_lib_header_projects[@]}"; do
+        if [ "$pd" = "${entry%%:*}" ]; then
+            header="${entry#*:}"
+            [ -f "$header" ] && return 1
+            return 0
+        fi
     done
     return 1
 }
@@ -91,6 +110,11 @@ while IFS= read -r proj; do
     pd="$(dirname "$proj")"
     if is_windows_only_skipped "$pd"; then
         echo "ПРОПУЩЕНО $proj (только Windows, $(go env GOOS) - не она)"
+        project_dirs+=("$pd")
+        continue
+    fi
+    if is_missing_lib_header_skipped "$pd"; then
+        echo "ПРОПУЩЕНО $proj (нет заголовка сторонней библиотеки на этой машине)"
         project_dirs+=("$pd")
         continue
     fi
