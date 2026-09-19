@@ -136,12 +136,12 @@ is_in_project_dir() {
 }
 
 echo
-echo "== Отдельные файлы (.rech) =="
+echo "== Отдельные файлы (.rech, .речь, .р) =="
 while IFS= read -r f; do
     is_in_project_dir "$f" && continue
     grep -qF 'функция главная' "$f" || continue
     check "$f"
-done < <(find examples -iname '*.rech' | LC_ALL=C sort)
+done < <(find examples \( -iname '*.rech' -o -iname '*.речь' -o -iname '*.р' \) | LC_ALL=C sort)
 
 echo
 echo "Итого: $total, ошибок: $failed"

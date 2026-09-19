@@ -24,18 +24,19 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/semantic"
 )
 
-// validateSourceFileName проверяет имя .rech-файла: расширение и алфавит
-// имени (module.ValidSegmentName - строчные буквы/цифры/"_", форма Unicode
-// NFC; то же правило, которым разрешаются сегменты пути импорта, потому что
-// имя файла - это уже сейчас единица импорта в системе модулей
+// validateSourceFileName проверяет имя .rech-файла: расширение (".rech" или
+// один из кириллических синонимов module.SourceExtensions - ".речь"/".р") и
+// алфавит имени (module.ValidSegmentName - строчные буквы/цифры/"_", форма
+// Unicode NFC; то же правило, которым разрешаются сегменты пути импорта,
+// потому что имя файла - это уже сейчас единица импорта в системе модулей
 // ("использовать X из "имя_файла""), а сегмент пути импорта - либо имя
 // файла, либо имя каталога с тем же ограничением по той же причине; см.
 // docs/GRAMMAR_DRAFT.md, раздел "Имена файлов и кодировка").
 func validateSourceFileName(path string) error {
 	base := filepath.Base(path)
 	ext := filepath.Ext(base)
-	if ext != ".rech" {
-		return fmt.Errorf("файл должен иметь расширение .rech, получено %q", base)
+	if !module.HasSourceExtension(base) {
+		return fmt.Errorf("файл должен иметь расширение .rech (или синоним %s), получено %q", strings.Join(module.SourceExtensions[1:], "/"), base)
 	}
 	name := strings.TrimSuffix(base, ext)
 	if err := module.ValidSegmentName(name); err != nil {
@@ -612,13 +613,16 @@ func (c *Compiler) parseDir(dirPath string) (*ast.Program, error) {
 	}
 	var names []string
 	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".rech" {
+		if e.IsDir() || !module.HasSourceExtension(e.Name()) {
 			continue
 		}
 		names = append(names, e.Name())
 	}
 	if len(names) == 0 {
 		return nil, fmt.Errorf("в каталоге %q не найдено ни одного файла .rech", dirPath)
+	}
+	if err := module.CheckNoAmbiguousExtensions(names); err != nil {
+		return nil, fmt.Errorf("в каталоге %q: %w", dirPath, err)
 	}
 	sort.Strings(names)
 

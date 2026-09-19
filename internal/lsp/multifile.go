@@ -109,16 +109,17 @@ func osPathToURIPath(path string) string {
 
 // tryLink пытается разрешить path (и весь граф "использовать" от него) тем
 // же путём, что internal/compiler.parseFile - см. package doc про то, с
-// какого именно содержимого файлов. ok==false, path пуст/не .rech - линковка
-// вообще не пыталась ничего (attemptErr тоже nil в этом случае - вызывающая
-// сторона остаётся с однофайловым результатом молча, как и раньше). ok==
+// какого именно содержимого файлов. ok==false, path пуст/без расширения
+// исходника (module.HasSourceExtension) - линковка вообще не пыталась
+// ничего (attemptErr тоже nil в этом случае - вызывающая сторона остаётся с
+// однофайловым результатом молча, как и раньше). ok==
 // false, attemptErr != nil - линковка ПЫТАЛАСЬ (файл не читается, ошибка
 // импорта/цикла или семантики где-то в графе) - doc.update использует
 // attemptErr как диагностику (см. diagnostics.go), она обычно куда
 // информативнее однофайлового semErr (тот часто просто каскад "неизвестный
 // тип" от самого факта отсутствия разрешения импорта).
 func tryLink(path string) (res linkResult, ok bool, attemptErr error) {
-	if path == "" || !strings.HasSuffix(path, ".rech") {
+	if path == "" || !module.HasSourceExtension(path) {
 		return linkResult{}, false, nil
 	}
 	// root - каталог главного файла проекта, если path лежит под каким-то

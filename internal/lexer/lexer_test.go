@@ -153,16 +153,36 @@ func TestLexerCharLiteral(t *testing.T) {
 	}
 }
 
+// TestLexerCarriageReturnEscape - "\r" внутри "..." остаётся буквальным
+// (обычная строка не интерпретирует экранирования, кроме \" и \\, см.
+// TestLexerStringIsRawExceptQuoteAndBackslash), а внутри '...' - настоящий
+// символ возврата каретки (символьные литералы экранирование сохраняют).
 func TestLexerCarriageReturnEscape(t *testing.T) {
 	toks, err := New(`"a\rb" '\r'`).Tokenize()
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if toks[0].Type != STRING || toks[0].Value != "a\rb" {
-		t.Fatalf("ожидался STRING %q, получено %s %q", "a\rb", toks[0].Type, toks[0].Value)
+	if toks[0].Type != STRING || toks[0].Value != `a\rb` {
+		t.Fatalf("ожидался STRING %q, получено %s %q", `a\rb`, toks[0].Type, toks[0].Value)
 	}
 	if toks[1].Type != CHAR || toks[1].Value != "\r" {
 		t.Fatalf("ожидался CHAR %q, получено %s %q", "\r", toks[1].Type, toks[1].Value)
+	}
+}
+
+// TestLexerStringIsFullyRaw - обычная строка "..." печатается ровно так,
+// как написана, без единого исключения: "\" - всегда буквальный символ,
+// даже перед "\" или (была бы) перед закрывающей кавычкой. Полное
+// экранирование (\n -> перенос строки, \" -> кавычка и т.п.) доступно
+// только в backtick-литерале.
+func TestLexerStringIsFullyRaw(t *testing.T) {
+	toks, err := New(`"путь: C:\rech\новый файл и https:\\site.ru"`).Tokenize()
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	want := `путь: C:\rech\новый файл и https:\\site.ru`
+	if toks[0].Type != STRING || toks[0].Value != want {
+		t.Fatalf("ожидался STRING %q, получено %s %q", want, toks[0].Type, toks[0].Value)
 	}
 }
 

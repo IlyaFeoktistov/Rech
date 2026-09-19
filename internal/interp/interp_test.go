@@ -397,11 +397,10 @@ func TestRunFileReadPastEOFReturnsEmptyString(t *testing.T) {
 	if err := f.Close(); err != nil {
 		t.Fatalf("закрыть временный файл: %v", err)
 	}
-	path := strings.ReplaceAll(f.Name(), `\`, `\\`)
 	got := runSrc(t, `
 функция главная
 {
-    переменная ф = открыть("`+path+`")
+    переменная ф = открыть("`+f.Name()+`")
     вывести `+"`${"+`прочитать(ф, 1)}\n`+"`"+`
     вывести `+"`${"+`прочитать(ф, 10)}\n`+"`"+`
     вывести `+"`${"+`прочитать(ф, 10)}\n`+"`"+`
@@ -418,19 +417,18 @@ func TestRunFileReadPastEOFReturnsEmptyString(t *testing.T) {
 // (потоковое построчное чтение, шаг 8) через один и тот же временный файл.
 func TestRunFileWriteAppendAndForEachLine(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "out.txt")
-	pathLit := strings.ReplaceAll(path, `\`, `\\`)
 	got := runSrc(t, `
 функция главная
 {
-    переменная запись = открыть_для_записи("`+pathLit+`")
-    записать(запись, "первая\n")
+    переменная запись = открыть_для_записи("`+path+`")
+    записать(запись, `+"`"+`первая\n`+"`"+`)
     закрыть(запись)
 
-    переменная дозапись = открыть_для_дозаписи("`+pathLit+`")
-    записать(дозапись, "вторая\n")
+    переменная дозапись = открыть_для_дозаписи("`+path+`")
+    записать(дозапись, `+"`"+`вторая\n`+"`"+`)
     закрыть(дозапись)
 
-    переменная файл = открыть("`+pathLit+`")
+    переменная файл = открыть("`+path+`")
     для строка в файле
     {
         вывести `+"`${"+`строка}\n`+"`"+`
@@ -445,13 +443,12 @@ func TestRunFileWriteAppendAndForEachLine(t *testing.T) {
 
 func TestRunWholeFileBuiltins(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "out.txt")
-	pathLit := strings.ReplaceAll(path, `\`, `\\`)
 	got := runSrc(t, `
 функция главная
 {
-    записать_в_файл("`+pathLit+`", "первая")
-    дописать_в_файл("`+pathLit+`", "\nвторая")
-    вывести `+"`${"+`прочитать_файл("`+pathLit+`")}\n`+"`"+`
+    записать_в_файл("`+path+`", "первая")
+    дописать_в_файл("`+path+`", `+"`"+`\nвторая`+"`"+`)
+    вывести `+"`${"+`прочитать_файл("`+path+`")}\n`+"`"+`
 }
 `)
 	if got != "первая\nвторая\n" {
@@ -886,7 +883,7 @@ func TestRunIntDivisionByZeroReturnsErrorNotCrash(t *testing.T) {
 	toks, err := lexer.New(`
 функция главная
 {
-    вывести "до\n"
+    вывести ` + "`" + `до\n` + "`" + `
     переменная а = 1 / 0
     вывести ` + "`${" + `а}\n` + "`" + `
 }
@@ -942,7 +939,7 @@ func TestRunIntModuloByZeroReturnsErrorNotCrash(t *testing.T) {
 	toks, err := lexer.New(`
 функция главная
 {
-    вывести "до\n"
+    вывести ` + "`" + `до\n` + "`" + `
     переменная а = 1 % 0
     вывести ` + "`${" + `а}\n` + "`" + `
 }
@@ -972,7 +969,7 @@ func TestRunNullableCastOnNichtoPanics(t *testing.T) {
 	toks, err := lexer.New(`
 функция главная
 {
-    вывести "до\n"
+    вывести ` + "`" + `до\n` + "`" + `
     переменная а: ?Целое = Ничто
     вывести ` + "`${" + `(Целое) а}\n` + "`" + `
 }
@@ -1172,7 +1169,7 @@ func TestRunAssertPasses(t *testing.T) {
 {
     переменная а = 2
     утверждать а + 3 == 5
-    вывести "ок\n"
+    вывести `+"`"+`ок\n`+"`"+`
 }
 `)
 	if got != "ок\n" {
@@ -1184,9 +1181,9 @@ func TestRunAssertFailsWithLineNumber(t *testing.T) {
 	toks, err := lexer.New(`
 функция главная
 {
-    вывести "до\n"
+    вывести ` + "`" + `до\n` + "`" + `
     утверждать 1 == 2
-    вывести "после\n"
+    вывести ` + "`" + `после\n` + "`" + `
 }
 `).Tokenize()
 	if err != nil {
@@ -1258,7 +1255,7 @@ func TestRunAssertMessageAcrossNewline(t *testing.T) {
     переменная а = 2
     утверждать а + 3 == 5,
         "а должно быть равно 2"
-    вывести "ок\n"
+    вывести `+"`"+`ок\n`+"`"+`
 }
 `)
 	if got != "ок\n" {
@@ -1509,7 +1506,7 @@ func TestRunCallsExternFuncCallbackArg(t *testing.T) {
 		вернуть 0
 	})
 	освободить(буфер)
-	вывести "готово\n"
+	вывести `+"`"+`готово\n`+"`"+`
 }
 `)
 	if !strings.HasSuffix(got, "готово\n") {
@@ -1548,7 +1545,7 @@ func TestRunPlatformBlock(t *testing.T) {
 	функция сообщение(): Строка { вернуть "macos-ветка" }
 }
 
-функция главная { вывести (Строка) (сообщение()) + "\n" }
+функция главная { вывести (Строка) (сообщение()) + `+"`"+`\n`+"`"+` }
 `)
 	want := "linux-ветка\n"
 	switch runtime.GOOS {

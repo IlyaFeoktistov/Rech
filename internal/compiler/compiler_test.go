@@ -269,6 +269,21 @@ func TestBuildDirNoRechFilesFails(t *testing.T) {
 	}
 }
 
+// TestBuildDirAmbiguousExtensionSynonymsFails - "главный.rech" и
+// "главный.речь" одновременно в одном каталоге - явная ошибка
+// неоднозначности (module.CheckNoAmbiguousExtensions), а не молчаливое
+// объединение обоих файлов (которое дало бы куда менее понятную ошибку
+// "дубль функции главная").
+func TestBuildDirAmbiguousExtensionSynonymsFails(t *testing.T) {
+	dir := t.TempDir()
+	writeSource(t, dir, "главный.rech", "функция главная\n{\n    вывести 1\n}\n")
+	writeSource(t, dir, "главный.речь", "функция главная\n{\n    вывести 1\n}\n")
+
+	if _, err := newTestCompiler().Build(dir, false, nil, nil); err == nil {
+		t.Fatal("ожидалась ошибка неоднозначности расширений")
+	}
+}
+
 // TestBuildFileWithUseImportsFunction - сквозная проверка Шага 11
 // ("использовать") через тот же Build, которым пользуется `rech build
 // <файл>`: файл helper объявлен отдельно, entry импортирует из него ровно

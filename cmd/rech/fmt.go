@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/format"
+	"github.com/IlyaFeoktistov/Rech/internal/module"
 )
 
 // runFmt - "rech fmt [--write|-w] <файл.rech>|<каталог>" - тем же принципом,
@@ -95,8 +96,9 @@ func formatOneFile(path string, write bool) bool {
 }
 
 // discoverRechFiles - тот же принцип, что internal/testrunner.Discover, но
-// без фильтра по суффиксу имени - ЛЮБОЙ ".rech" файл каталога, рекурсивно,
-// пропускает скрытые каталоги (".git" и т. п.).
+// без фильтра по суффиксу имени - ЛЮБОЙ файл каталога с одним из
+// module.SourceExtensions, рекурсивно, пропускает скрытые каталоги
+// (".git" и т. п.).
 func discoverRechFiles(root string) ([]string, error) {
 	var files []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -109,7 +111,7 @@ func discoverRechFiles(root string) ([]string, error) {
 			}
 			return nil
 		}
-		if strings.HasSuffix(d.Name(), ".rech") {
+		if module.HasSourceExtension(d.Name()) {
 			files = append(files, path)
 		}
 		return nil

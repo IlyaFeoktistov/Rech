@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
+	"github.com/IlyaFeoktistov/Rech/internal/module"
 	"github.com/IlyaFeoktistov/Rech/internal/parser"
 	"github.com/IlyaFeoktistov/Rech/internal/project"
 )
@@ -86,7 +87,7 @@ func listRechFiles(root, skip string) []string {
 			}
 			return nil
 		}
-		if filepath.Ext(path) != ".rech" || path == skip {
+		if !module.HasSourceExtension(path) || path == skip {
 			return nil
 		}
 		out = append(out, path)
@@ -143,7 +144,7 @@ func relativeImportPath(fromDir, target string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	rel = strings.TrimSuffix(rel, ".rech")
+	rel = module.TrimSourceExtension(rel)
 	rel = filepath.ToSlash(rel)
 	return rel, true
 }

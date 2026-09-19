@@ -22,7 +22,7 @@ func TestRunBreakStopsWhileLoop(t *testing.T) {
         вывести `+"`${"+`i}\n`+"`"+`
         i = i + 1
     }
-    вывести "конец\n"
+    вывести `+"`"+`конец\n`+"`"+`
 }
 `)
 	want := "0\n1\n2\nконец\n"
@@ -190,7 +190,7 @@ func TestRunBreakInsideTryRunsFinally(t *testing.T) {
         }
         i = i + 1
     }
-    вывести "конец\n"
+    вывести `+"`"+`конец\n`+"`"+`
 }
 `)
 	want := "окончательно 0\nокончательно 1\nокончательно 2\nконец\n"
@@ -216,7 +216,7 @@ func TestRunBreakDepthStopsOuterLoop(t *testing.T) {
         }
         вывести `+"`${"+`900}\n`+"`"+`
     }
-    вывести "конец\n"
+    вывести `+"`"+`конец\n`+"`"+`
 }
 `)
 	want := "1\n1\nконец\n"
@@ -271,7 +271,7 @@ func TestRunBreakDepthThreeLevels(t *testing.T) {
             }
         }
     }
-    вывести "конец\n"
+    вывести `+"`"+`конец\n`+"`"+`
 }
 `)
 	want := "1\n1\n1\n1\n1\n2\n1\n2\n1\n1\n2\n2\nконец\n"
@@ -300,7 +300,7 @@ func TestRunBreakDepthInsideTryRunsFinally(t *testing.T) {
             }
         }
     }
-    вывести "конец\n"
+    вывести `+"`"+`конец\n`+"`"+`
 }
 `)
 	want := "ок 1 1\nок 1 2\nконец\n"

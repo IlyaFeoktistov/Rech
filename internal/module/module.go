@@ -410,7 +410,11 @@ func resolveImportPath(baseDir, projectRoot, importPath string, deps map[string]
 			}
 		}
 		parts := append([]string{projectRoot}, segments...)
-		return platformSpecificPath(filepath.Join(parts...) + ".rech"), "", nil
+		resolved, err := ResolveSourceExtension(filepath.Join(parts...))
+		if err != nil {
+			return "", "", err
+		}
+		return platformSpecificPath(resolved), "", nil
 	}
 
 	segments := strings.Split(importPath, "/")
@@ -441,7 +445,11 @@ func resolveImportPath(baseDir, projectRoot, importPath string, deps map[string]
 		}
 	}
 	parts := append([]string{root}, rest...)
-	return platformSpecificPath(filepath.Join(parts...) + ".rech"), crossedInto, nil
+	resolved, err := ResolveSourceExtension(filepath.Join(parts...))
+	if err != nil {
+		return "", "", err
+	}
+	return platformSpecificPath(resolved), crossedInto, nil
 }
 
 // platformSpecificPath - если рядом с path (уже посчитанный обычный

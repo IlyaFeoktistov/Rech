@@ -140,7 +140,7 @@ func TestRunSemaphoreAcquireWithTimeoutSucceedsWhenAvailable(t *testing.T) {
 {
     переменная сем = новый Семафор(1)
     сем.захватить(500)
-    вывести "получено\n"
+    вывести `+"`"+`получено\n`+"`"+`
     сем.освободить()
 }
 `)

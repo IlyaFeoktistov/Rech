@@ -32,6 +32,23 @@ func TestDiscoverFindsSuffixedFilesRecursively(t *testing.T) {
 	}
 }
 
+// TestDiscoverFindsCyrillicExtensionSynonyms - "_тест.речь"/"_тест.р"
+// узнаются наравне с "_тест.rech" (module.SourceExtensions).
+func TestDiscoverFindsCyrillicExtensionSynonyms(t *testing.T) {
+	dir := t.TempDir()
+	write(t, filepath.Join(dir, "а_тест.речь"), "функция главная { утверждать истина }")
+	write(t, filepath.Join(dir, "б_тест.р"), "функция главная { утверждать истина }")
+	write(t, filepath.Join(dir, "обычный.речь"), "функция главная { вывести \"не тест\" }")
+
+	files, err := Discover(dir)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("ожидалось 2 файла, получено %d: %v", len(files), files)
+	}
+}
+
 func TestDiscoverSingleFileIgnoresNamingConvention(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "любое_имя.rech")

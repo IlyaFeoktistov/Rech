@@ -73,7 +73,7 @@ func TestRunLambdaExplicitCaptureByValueAndByRef(t *testing.T) {
 
     ф()
     ф()
-    вывести "снаружи\n"
+    вывести `+"`"+`снаружи\n`+"`"+`
     вывести `+"`${"+`x}\n`+"`"+`
     вывести `+"`${"+`y}\n`+"`"+`
 }

@@ -6,7 +6,7 @@ func TestRunHeaderValueFindsAndMissesName(t *testing.T) {
 	out := runSrc(t, `
 функция главная
 {
-    переменная заголовки = "Host: example.com\r\nConnection: keep-alive\r\nX-Custom:   с пробелами  "
+    переменная заголовки = `+"`"+`Host: example.com\r\nConnection: keep-alive\r\nX-Custom:   с пробелами  `+"`"+`
     вывести `+"`${"+`значение_заголовка(заголовки, "Connection") ?? "?"}\n`+"`"+`
     вывести `+"`${"+`значение_заголовка(заголовки, "Host") ?? "?"}\n`+"`"+`
     вывести `+"`${"+`значение_заголовка(заголовки, "X-Custom") ?? "?"}\n`+"`"+`

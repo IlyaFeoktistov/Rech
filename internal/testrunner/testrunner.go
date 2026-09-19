@@ -29,8 +29,27 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/semantic"
 )
 
-// TestFileSuffix - суффикс имени тестового файла (см. package doc).
+// TestFileSuffix - каноническое (латиница) значение суффикса имени
+// тестового файла, для сообщений/документации (см. package doc). Сама
+// проверка имени - IsTestFile - принимает тот же суффикс с ЛЮБЫМ из
+// module.SourceExtensions (".rech"/".речь"/".р"), не только ".rech".
 const TestFileSuffix = "_тест.rech"
+
+// testFileBase - суффикс имени тестового файла БЕЗ расширения - основа
+// для перебора всех module.SourceExtensions в IsTestFile.
+const testFileBase = "_тест"
+
+// IsTestFile - true, если name оканчивается на testFileBase с одним из
+// module.SourceExtensions - тот же тестовый файл, что и раньше
+// ("_тест.rech"), но узнаётся и через кириллические синонимы расширения.
+func IsTestFile(name string) bool {
+	for _, ext := range module.SourceExtensions {
+		if strings.HasSuffix(name, testFileBase+ext) {
+			return true
+		}
+	}
+	return false
+}
 
 // Result - исход одного тестового файла.
 type Result struct {
@@ -43,9 +62,9 @@ type Result struct {
 // Discover находит тестовые файлы в root: если root - файл, это ровно один
 // "тест" (независимо от имени - если пользователь явно указал файл, ему не
 // нужно повторно проверять соглашение об имени); если root - каталог,
-// рекурсивно находит все файлы с суффиксом TestFileSuffix, пропуская
-// скрытые каталоги (например, ".git"). Результат отсортирован по пути -
-// детерминированный порядок вывода "rech test".
+// рекурсивно находит все файлы, для которых IsTestFile(имя) верно,
+// пропуская скрытые каталоги (например, ".git"). Результат отсортирован по
+// пути - детерминированный порядок вывода "rech test".
 func Discover(root string) ([]string, error) {
 	info, err := os.Stat(root)
 	if err != nil {
@@ -65,7 +84,7 @@ func Discover(root string) ([]string, error) {
 			}
 			return nil
 		}
-		if strings.HasSuffix(d.Name(), TestFileSuffix) {
+		if IsTestFile(d.Name()) {
 			files = append(files, path)
 		}
 		return nil

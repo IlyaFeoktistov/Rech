@@ -439,6 +439,12 @@ func (l *Lexer) readNumber(line, col int) Token {
 	return Token{Type: INT, Value: value, Line: line, Col: col}
 }
 
+// readString разбирает строковый литерал "..." - полностью "как написано",
+// без единого исключения: "\" - всегда буквальный символ, даже перед "
+// или перед другим "\" ("C:\rech" и "https:\\site.ru" печатаются ровно
+// так, как набраны). Прямое следствие - вставить символ " внутрь "..."
+// невозможно ни в каком виде; для этого нужен backtick-литерал (см.
+// readTag), который единственный поддерживает экранирование.
 func (l *Lexer) readString(line, col int) (Token, error) {
 	l.advance() // открывающая "
 	var sb []rune
@@ -453,26 +459,6 @@ func (l *Lexer) readString(line, col int) (Token, error) {
 		}
 		if r == '\n' {
 			return Token{}, fmt.Errorf("строка %d, столбец %d: перенос строки внутри строкового литерала не поддерживается в v0.1", line, col)
-		}
-		if r == '\\' {
-			l.advance()
-			esc := l.peek()
-			switch esc {
-			case 'n':
-				sb = append(sb, '\n')
-			case 't':
-				sb = append(sb, '\t')
-			case 'r':
-				sb = append(sb, '\r')
-			case '"':
-				sb = append(sb, '"')
-			case '\\':
-				sb = append(sb, '\\')
-			default:
-				return Token{}, fmt.Errorf("строка %d, столбец %d: неизвестная последовательность экранирования \\%c", l.line, l.col, esc)
-			}
-			l.advance()
-			continue
 		}
 		sb = append(sb, r)
 		l.advance()
