@@ -9,4 +9,6 @@
 
 сборка:
   режим: отладка
-  платформа: текущая
+  # /proc/loadavg, /proc/meminfo, /proc/<pid>/comm (исходники/монитор.rech) -
+  # специфично для Linux, не для Unix вообще (/proc нет на macOS).
+  платформа: linux

@@ -3,6 +3,7 @@ package project
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
@@ -704,5 +705,147 @@ func TestHTTPMaxRequestBytesRejectsNonPositive(t *testing.T) {
 		if _, err := pf.HTTPMaxRequestBytes(); err == nil {
 			t.Fatalf("ожидалась ошибка на значение %q", raw)
 		}
+	}
+}
+
+func TestLoadPlatformRejectsUnknownValue(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := `проект:
+  имя: тест
+
+файлы:
+  главный: главный.rech
+
+сборка:
+  платформа: android
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("ожидалась ошибка при неизвестном сборка.платформа")
+	}
+}
+
+// TestUnixPlatformMeansLinuxOrMacOSNotWindows - "unix" в сборка.платформа -
+// класс из двух конкретных платформ (не отдельный член перечисления "ОС"),
+// проверяется напрямую по таблице (platformOSNames), не зависит от хоста,
+// на котором реально выполняется тест.
+func TestUnixPlatformMeansLinuxOrMacOSNotWindows(t *testing.T) {
+	names := platformOSNames["unix"]
+	if !slices.Contains(names, "Linux") || !slices.Contains(names, "MacOS") || slices.Contains(names, "Windows") || len(names) != 2 {
+		t.Fatalf("платформа \"unix\" должна допускать ровно Linux и MacOS, получено %v", names)
+	}
+}
+
+// TestMatchesHostPlatformForEveryKnownValue - для каждого допустимого
+// значения "сборка.платформа" (ключи platformOSNames) MatchesHostPlatform/
+// CheckHostPlatform согласуются с самой таблицей - host-независимый тест
+// (ожидание считается из platformOSNames + ast.CurrentPlatform() текущего
+// прогона, тем же принципом, что и TestLoadPlatformLibraries).
+func TestMatchesHostPlatformForEveryKnownValue(t *testing.T) {
+	host := ast.CurrentPlatform()
+	dir := t.TempDir()
+	for value, names := range platformOSNames {
+		path := filepath.Join(dir, value+".rechproj")
+		content := "проект:\n  имя: тест\n\nфайлы:\n  главный: главный.rech\n\nсборка:\n  платформа: " + value + "\n"
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("запись файла проекта: %v", err)
+		}
+		pf, err := Load(path)
+		if err != nil {
+			t.Fatalf("Load(платформа=%q): %v", value, err)
+		}
+		want := names == nil || slices.Contains(names, host)
+		if got := pf.MatchesHostPlatform(); got != want {
+			t.Fatalf("платформа %q: MatchesHostPlatform() = %v, ожидалось %v (хост %s)", value, got, want, host)
+		}
+		if gotErr := pf.CheckHostPlatform(); (gotErr == nil) != want {
+			t.Fatalf("платформа %q: CheckHostPlatform() = %v, ожидалось nil == %v", value, gotErr, want)
+		}
+	}
+}
+
+// TestSourcesRootWithoutFieldDefaultsToMainFileDir - без "файлы.исходники"
+// SourcesRoot ведёт себя как раньше (каталог главного файла) - обратная
+// совместимость для проектов, которые это поле не указывают.
+func TestSourcesRootWithoutFieldDefaultsToMainFileDir(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := "проект:\n  имя: тест\n\nфайлы:\n  главный: исходники/главный.rech\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	pf, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got, want := pf.SourcesRoot(), filepath.Join(dir, "исходники"); got != want {
+		t.Fatalf("SourcesRoot() = %q, ожидалось %q", got, want)
+	}
+}
+
+// TestSourcesRootFromGlobIgnoresMainFileDepth - "файлы.исходники" -
+// настоящий источник корня "@путь", даже когда главный файл лежит ГЛУБЖЕ
+// объявленного корня (раньше "@" резолвился бы от каталога главного файла
+// - на пример, до этой фичи, ошибочно "исходники/подпапка").
+func TestSourcesRootFromGlobIgnoresMainFileDepth(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := "проект:\n  имя: тест\n\nфайлы:\n  исходники: исходники/**/*.rech\n  главный: исходники/подпапка/главный.rech\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	pf, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got, want := pf.SourcesRoot(), filepath.Join(dir, "исходники"); got != want {
+		t.Fatalf("SourcesRoot() = %q, ожидалось %q", got, want)
+	}
+}
+
+// TestSourcesRootFromBareWildcardGlobIsProjectDir - "*.rech" (без
+// подкаталога) - корень исходников совпадает с каталогом .rechproj.
+func TestSourcesRootFromBareWildcardGlobIsProjectDir(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := "проект:\n  имя: тест\n\nфайлы:\n  исходники: *.rech\n  главный: главный.rech\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	pf, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got, want := pf.SourcesRoot(), dir; got != want {
+		t.Fatalf("SourcesRoot() = %q, ожидалось %q", got, want)
+	}
+}
+
+// TestRootForUsesSourcesRootNotMainFileDir - project.RootFor (точка отсчёта
+// "@путь" для "rech build"/"rech run"/LSP/"rech test", package doc RootFor)
+// реально использует SourcesRoot, не просто каталог главного файла.
+func TestRootForUsesSourcesRootNotMainFileDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "исходники", "подпапка"), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	mainPath := filepath.Join(dir, "исходники", "подпапка", "главный.rech")
+	if err := os.WriteFile(mainPath, []byte("функция главная() {}\n"), 0o644); err != nil {
+		t.Fatalf("запись главного файла: %v", err)
+	}
+	projPath := filepath.Join(dir, "тест.rechproj")
+	content := "проект:\n  имя: тест\n\nфайлы:\n  исходники: исходники/**/*.rech\n  главный: исходники/подпапка/главный.rech\n"
+	if err := os.WriteFile(projPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	root, err := RootFor(mainPath)
+	if err != nil {
+		t.Fatalf("RootFor: %v", err)
+	}
+	if want := filepath.Join(dir, "исходники"); root != want {
+		t.Fatalf("RootFor() = %q, ожидалось %q", root, want)
 	}
 }

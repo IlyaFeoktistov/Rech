@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -60,7 +61,15 @@ type File struct {
 	// каждым запуском.
 	Окружение map[string]string
 
-	Исходники string // пока не используется сборкой - главный файл тянет остальные через "использовать" (см. module.Load); поле для будущей сборки каталога без единого входа и для инструментов вроде rech-vscode.
+	// Исходники - "файлы.исходники", glob-путь до .rech-файлов проекта
+	// ("исходники/**/*.rech", "*.rech" - без кавычек, формат-минимум
+	// пакета их не поддерживает, package doc File). Сама сборка по нему
+	// не собирает файлы (главный файл тянет остальные через
+	// "использовать", см. module.Load) - поле остаётся для инструментов
+	// вроде rech-vscode. Часть БЕЗ подстановочных символов ("*"/"?"/"[") -
+	// корень дерева исходников проекта, см. SourcesRoot - точка отсчёта
+	// "использовать ... из "@путь"".
+	Исходники string
 	Главный   string
 	Выход     string
 
@@ -203,10 +212,10 @@ func FindUp(dir string) (string, error) {
 }
 
 // RootFor находит .rechproj над srcPath (FindUp от его каталога) и
-// возвращает каталог ЕЁ главного файла - то, что internal/module.
-// LoadWithRoot называет projectRoot: точка отсчёта "использовать ... из
-// "@путь"" (package doc module/resolveImportPath) для srcPath, который сам
-// не обязательно и есть главный файл проекта ("rech build"/"rech run" без
+// возвращает её SourcesRoot() - то, что internal/module.LoadWithRoot
+// называет projectRoot: точка отсчёта "использовать ... из "@путь""
+// (package doc module/resolveImportPath) для srcPath, который сам не
+// обязательно и есть главный файл проекта ("rech build"/"rech run" без
 // аргумента этой проблемы не знают - они всегда резолвят srcPath =
 // pf.MainPath(), см. cmd/rech/main.go). "", nil - .rechproj не найден
 // (вызывающая сторона использует прежнее поведение module.LoadWithGraph -
@@ -219,7 +228,7 @@ func RootFor(srcPath string) (string, error) {
 	if pf == nil {
 		return "", nil
 	}
-	return filepath.Dir(pf.MainPath()), nil
+	return pf.SourcesRoot(), nil
 }
 
 // LoadFor находит и разбирает .rechproj над srcPath тем же способом, что
@@ -323,8 +332,8 @@ func Load(path string) (*File, error) {
 	if pf.Режим != "отладка" && pf.Режим != "релиз" {
 		return nil, fmt.Errorf("%s: сборка.режим %q не распознан - допустимо \"отладка\" или \"релиз\"", path, pf.Режим)
 	}
-	if pf.Платформа != "текущая" {
-		return nil, fmt.Errorf("%s: сборка.платформа %q не поддержана - кросс-компиляция пока не реализована, допустимо только \"текущая\"", path, pf.Платформа)
+	if _, known := platformOSNames[pf.Платформа]; !known {
+		return nil, fmt.Errorf("%s: сборка.платформа %q не распознана - допустимо \"текущая\", \"linux\", \"windows\", \"macos\" или \"unix\"", path, pf.Платформа)
 	}
 	if pf.Тип == "" {
 		pf.Тип = "программа"
@@ -347,6 +356,46 @@ func (pf *File) OutputDir() string {
 	return filepath.Join(pf.Dir, pf.Выход)
 }
 
+// sourcesRootFromGlob - каталог-префикс glob-пути raw ДО первого сегмента
+// с подстановочным символом ("*"/"?"/"[") - "." (сам каталог .rechproj),
+// если такого префикса нет вовсе (например, raw == "*.rech" или "") - см.
+// package doc File.Исходники/SourcesRoot ниже.
+func sourcesRootFromGlob(raw string) string {
+	if raw == "" {
+		return "."
+	}
+	segments := strings.Split(filepath.ToSlash(raw), "/")
+	prefix := 0
+	for _, seg := range segments {
+		if strings.ContainsAny(seg, "*?[") {
+			break
+		}
+		prefix++
+	}
+	if prefix == 0 {
+		return "."
+	}
+	return filepath.Join(segments[:prefix]...)
+}
+
+// SourcesRoot - корень дерева исходников проекта, разрешённый относительно
+// каталога .rechproj - точка отсчёта "использовать ... из "@путь""
+// (internal/module, resolveImportPath/LoadWithRoot; project.RootFor
+// передаёт результат этой функции дальше). Источник - "файлы.исходники"
+// (sourcesRootFromGlob выше); если поле не указано вовсе - каталог
+// главного файла (filepath.Dir(pf.MainPath())), прежнее поведение для
+// проектов без явного "файлы.исходники" (обратная совместимость -
+// раньше "@" ВСЕГДА отталкивался от каталога главного файла, что путало
+// декларацию корня с тем, где именно внутри него лежит точка входа -
+// главный файл в принципе может лежать глубже настоящего корня дерева
+// исходников).
+func (pf *File) SourcesRoot() string {
+	if pf.Исходники == "" {
+		return filepath.Dir(pf.MainPath())
+	}
+	return filepath.Join(pf.Dir, sourcesRootFromGlob(pf.Исходники))
+}
+
 // IsLibrary отражает "сборка.тип": "библиотека" - собирать разделяемую
 // библиотеку (`rech build --lib`), не исполняемый файл.
 func (pf *File) IsLibrary() bool {
@@ -357,6 +406,49 @@ func (pf *File) IsLibrary() bool {
 // рядом с бинарником (как --keep-c), "релиз" - убирает его.
 func (pf *File) KeepC() bool {
 	return pf.Режим == "отладка"
+}
+
+// platformOSNames - "сборка.платформа" -> список ast.PlatformNames,
+// которым должен соответствовать хост компилятора (ast.CurrentPlatform()),
+// чтобы сборка была разрешена. "текущая" -> nil (любой хост, без
+// ограничения - значение по умолчанию, ведёт себя как раньше). "unix" -
+// класс из двух конкретных платформ (Linux ИЛИ MacOS, не Windows), а не
+// отдельный член перечисления "ОС" - "#если ОС.<Член>"/`текущая_ос()`
+// по-прежнему знают только три конкретные платформы (internal/ast,
+// PlatformNames). Ключи этой таблицы - одновременно единственный источник
+// допустимых значений поля (Load проверяет через неё же).
+var platformOSNames = map[string][]string{
+	"текущая": nil,
+	"linux":   {"Linux"},
+	"windows": {"Windows"},
+	"macos":   {"MacOS"},
+	"unix":    {"Linux", "MacOS"},
+}
+
+// MatchesHostPlatform - true, если объявленная "сборка.платформа"
+// допускает хост, на котором сейчас реально работает компилятор
+// (ast.CurrentPlatform()) - всегда true для "текущая" (нет ограничения).
+func (pf *File) MatchesHostPlatform() bool {
+	names := platformOSNames[pf.Платформа]
+	return names == nil || slices.Contains(names, ast.CurrentPlatform())
+}
+
+// CheckHostPlatform - понятная ошибка, если объявленная "сборка.платформа"
+// не допускает текущий хост - "rech build"/"rech run" вызывают её сразу
+// после Load, до компиляции: явная остановка вместо молчаливой сборки под
+// чужую ОС (например, WinAPI-программы на Linux). Настоящей
+// кросс-компиляции пока нет - C-компилятор ищется на PATH ЭТОГО ЖЕ хоста
+// (internal/toolchain, findCCompiler), поэтому единственный работающий
+// вариант сегодня - собирать на подходящей ОС самому. Формулировка "пока"
+// - осознанный задел: когда появится настоящий кросс-toolchain (например,
+// mingw-w64 для цели Windows с хоста Linux), эта же точка (единственное
+// место проверки хоста) заменится на вызов кросс-сборки вместо ошибки, а
+// не потребует менять формат/значения самого поля "сборка.платформа".
+func (pf *File) CheckHostPlatform() error {
+	if pf.MatchesHostPlatform() {
+		return nil
+	}
+	return fmt.Errorf("сборка.платформа %q не допускает текущий хост (%s) - кросс-компиляция пока не реализована, соберите проект на подходящей ОС", pf.Платформа, ast.CurrentPlatform())
 }
 
 // splitCommaList разбирает raw через запятую, обрезая пробелы и

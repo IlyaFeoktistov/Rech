@@ -10,27 +10,51 @@
 # собирает только сам .rechproj целиком) и .rech-файлы без "функция
 # главная" (библиотечные модули для "использовать ... из", не собираются
 # отдельно - см. examples/импорты/утилиты.rech, импортируется из
-# examples/импорты/главный.rech). Также пропускает windows_only_projects
-# ниже вне настоящей Windows - в отличие от условная_компиляция/
-# (файлы _linux/_windows выбираются САМИ, никогда не попадают в чужую
-# сборку), examples/проекты/windows_окна безусловно зовёт WinAPI - собрать
-# на Linux/macOS нечем (нет user32.dll/gdi32.dll), это не баг компилятора.
-# Тот же принцип у missing_lib_header_projects - examples/проекты/
+# examples/импорты/главный.rech). Также пропускает проекты, чья
+# "сборка.платформа" (docs/MANUAL.md, "Полный справочник полей .rechproj")
+# не допускает хост этого прогона - "rech build" сам вернул бы ту же
+# ошибку (internal/project.File.CheckHostPlatform), здесь это read-only
+# проверка ДО вызова, чтобы вывести "ПРОПУЩЕНО", а не "ОШИБКА" - в отличие
+# от условная_компиляция/ (файлы _linux/_windows выбираются САМИ, никогда
+# не попадают в чужую сборку), examples/проекты/windows_окна безусловно
+# зовёт WinAPI - собрать на Linux/macOS нечем (нет user32.dll/gdi32.dll),
+# это не баг компилятора, а объявленное ограничение примера. Тот же
+# принцип у missing_lib_header_projects ниже - examples/проекты/
 # x11_клавиши зовёт libX11 (сборка.библиотеки_linux: X11), которого нет на
 # машине без пакета "libx11-dev" (не гарантирован на голом CI-образе, в
 # отличие от libssl-dev - нет смысла требовать его только ради одного
 # демонстрационного примера).
 set -uo pipefail
 
-windows_only_projects=("examples/проекты/windows_окна")
-is_windows_only_skipped() {
-    local pd="$1"
-    [ "$(go env GOOS)" = "windows" ] && return 1
-    local p
-    for p in "${windows_only_projects[@]}"; do
-        [ "$pd" = "$p" ] && return 0
-    done
-    return 1
+# platform_of - "сборка.платформа" из .rechproj $1, "текущая" если поле не
+# указано (тот же дефолт, что и internal/project.File.Load).
+platform_of() {
+    local value
+    value="$(awk -F: '/^[[:space:]]*платформа:/{gsub(/^[ \t]+|[ \t]+$/,"",$2); print $2; exit}' "$1")"
+    echo "${value:-текущая}"
+}
+
+# is_platform_mismatched - true (0), если значение "сборка.платформа" $1
+# не допускает хост этого прогона (go env GOOS) - та же таблица значений,
+# что и internal/project.File (platformOSNames, package doc
+# CheckHostPlatform): "текущая" - любой хост; "unix" - Linux ИЛИ macOS (не
+# Windows); "linux"/"windows"/"macos" - ровно одна ОС. Неизвестное
+# значение (опечатка и т. п.) сюда не попадает - return 1, пусть "rech
+# build" сам выдаст настоящую ошибку валидации вместо тихого пропуска.
+is_platform_mismatched() {
+    local value="$1" goos
+    goos="$(go env GOOS)"
+    case "$value" in
+    "текущая") return 1 ;;
+    linux) [ "$goos" = "linux" ] && return 1 || return 0 ;;
+    windows) [ "$goos" = "windows" ] && return 1 || return 0 ;;
+    macos) [ "$goos" = "darwin" ] && return 1 || return 0 ;;
+    unix)
+        { [ "$goos" = "linux" ] || [ "$goos" = "darwin" ]; } && return 1
+        return 0
+        ;;
+    *) return 1 ;;
+    esac
 }
 
 missing_lib_header_projects=("examples/проекты/x11_клавиши:/usr/include/X11/Xlib.h")
@@ -108,8 +132,9 @@ echo
 echo "== Проекты (.rechproj) =="
 while IFS= read -r proj; do
     pd="$(dirname "$proj")"
-    if is_windows_only_skipped "$pd"; then
-        echo "ПРОПУЩЕНО $proj (только Windows, $(go env GOOS) - не она)"
+    plat="$(platform_of "$proj")"
+    if is_platform_mismatched "$plat"; then
+        echo "ПРОПУЩЕНО $proj (сборка.платформа: $plat, хост $(go env GOOS) - не подходит)"
         project_dirs+=("$pd")
         continue
     fi

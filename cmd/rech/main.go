@@ -177,6 +177,10 @@ func main() {
 				fmt.Fprintln(os.Stderr, "ошибка:", perr)
 				os.Exit(1)
 			}
+			if perr = pf.CheckHostPlatform(); perr != nil {
+				fmt.Fprintln(os.Stderr, "ошибка:", perr)
+				os.Exit(1)
+			}
 			srcPath = pf.MainPath()
 			if !keepC {
 				// --keep-c из командной строки не переопределяется "режимом"
