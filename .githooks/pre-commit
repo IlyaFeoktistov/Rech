@@ -12,15 +12,15 @@ set -eu
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
+# gofmt -w переписывает файлы НА ДИСКЕ, тем же принципом, что и
+# "rech fmt --write" ниже - переформатированный файл обратно застейдживается
+# автоматически, коммит не прерывается ради ручного "gofmt -w".
 STAGED_GO_FILES="$(git diff --cached --name-only --diff-filter=ACM -- '*.go')"
 if [ -n "$STAGED_GO_FILES" ]; then
-    UNFORMATTED="$(gofmt -l $STAGED_GO_FILES)"
-    if [ -n "$UNFORMATTED" ]; then
-        echo "pre-commit: не отформатировано gofmt'ом:" >&2
-        echo "$UNFORMATTED" >&2
-        echo "исправить: gofmt -w $UNFORMATTED" >&2
-        exit 1
-    fi
+    gofmt -w $STAGED_GO_FILES
+    for f in $STAGED_GO_FILES; do
+        [ -f "$f" ] && git add "$f"
+    done
 fi
 
 go build ./...
