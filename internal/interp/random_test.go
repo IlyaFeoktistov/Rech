@@ -15,7 +15,7 @@ func TestRunRandomIntFixedRangeAndBothEndsReachable(t *testing.T) {
 	got := runSrc(t, `
 функция главная
 {
-    вывести случайное_целое(5, 5)
+    вывести `+"`${"+`случайное_целое(5, 5)}\n`+"`"+`
     переменная видел_ноль = ложь
     переменная видел_один = ложь
     переменная i = 0
@@ -26,8 +26,8 @@ func TestRunRandomIntFixedRangeAndBothEndsReachable(t *testing.T) {
         если х == 1 { видел_один = истина }
         i = i + 1
     }
-    вывести видел_ноль
-    вывести видел_один
+    вывести `+"`${"+`видел_ноль}\n`+"`"+`
+    вывести `+"`${"+`видел_один}\n`+"`"+`
 }
 `)
 	want := "5\nистина\nистина\n"
@@ -41,7 +41,7 @@ func TestRunRandomFloatInUnitRange(t *testing.T) {
 функция главная
 {
     переменная а = случайное()
-    вывести а >= 0.0 и а < 1.0
+    вывести `+"`${"+`а >= 0.0 и а < 1.0}\n`+"`"+`
 }
 `)
 	if got != "истина\n" {
@@ -53,7 +53,7 @@ func TestRunRandomIntInvalidRangePanics(t *testing.T) {
 	toks, err := lexer.New(`
 функция главная
 {
-    вывести случайное_целое(10, 1)
+    вывести ` + "`${" + `случайное_целое(10, 1)}\n` + "`" + `
 }
 `).Tokenize()
 	if err != nil {

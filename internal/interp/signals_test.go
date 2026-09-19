@@ -13,7 +13,7 @@ import (
 func TestSignalReceivedSIGKILLPanics(t *testing.T) {
 	err := runSrcExpectRuntimeError(t, `функция главная
 {
-    вывести получен_сигнал(СигналОС.SIGKILL)
+    вывести `+"`${"+`получен_сигнал(СигналОС.SIGKILL)}\n`+"`"+`
 }
 `)
 	if err == nil {
@@ -40,7 +40,7 @@ func TestSignalSendDeliversToOwnProcess(t *testing.T) {
         i = i + 1
         получил = получен_сигнал(СигналОС.SIGUSR2)
     }
-    вывести получил
+    вывести `+"`${"+`получил}\n`+"`"+`
 }
 `, os.Getpid())
 	out := runSrc(t, src)

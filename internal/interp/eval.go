@@ -873,51 +873,54 @@ func formatFloatForPrint(f float64) string {
 // printValue - "вывести <выражение>": один формат на примитив, дружелюбный
 // плейсхолдер на сущность/файл/сокет - вместо ошибки или печати внутреннего
 // Go-представления; подробности значения - через "показать" (showValue).
+// Без переноса строки после значения - управляет им сам вызывающий Rech-код
+// через "\n" в строке (в отличие от "показать", отладочного инструмента,
+// который его сохраняет).
 func (in *Interp) printValue(v Value) {
 	switch v.Type.Kind {
 	case ir.KindString:
-		fmt.Fprintln(in.out, v.S)
+		fmt.Fprint(in.out, v.S)
 	case ir.KindInt, ir.KindByte:
-		fmt.Fprintln(in.out, strconv.FormatInt(v.I, 10))
+		fmt.Fprint(in.out, strconv.FormatInt(v.I, 10))
 	case ir.KindInt8, ir.KindInt16, ir.KindInt32, ir.KindInt64:
-		fmt.Fprintln(in.out, strconv.FormatInt(v.I, 10))
+		fmt.Fprint(in.out, strconv.FormatInt(v.I, 10))
 	case ir.KindUint, ir.KindUint8, ir.KindUint16, ir.KindUint32, ir.KindUint64:
 		// FormatUint(uint64(v.I)), не FormatInt - Натуральное64 может
 		// нести значение выше INT64_MAX, отображаемое как отрицательное,
 		// если печатать v.I напрямую как знаковое (см. wrapFixedWidth).
-		fmt.Fprintln(in.out, strconv.FormatUint(uint64(v.I), 10))
+		fmt.Fprint(in.out, strconv.FormatUint(uint64(v.I), 10))
 	case ir.KindFloat, ir.KindFloat32:
-		fmt.Fprintln(in.out, formatFloatForPrint(v.F))
+		fmt.Fprint(in.out, formatFloatForPrint(v.F))
 	case ir.KindChar:
-		fmt.Fprintln(in.out, string(rune(v.I)))
+		fmt.Fprint(in.out, string(rune(v.I)))
 	case ir.KindBool:
 		if v.B {
-			fmt.Fprintln(in.out, "истина")
+			fmt.Fprint(in.out, "истина")
 		} else {
-			fmt.Fprintln(in.out, "ложь")
+			fmt.Fprint(in.out, "ложь")
 		}
 	case ir.KindFile:
-		fmt.Fprintln(in.out, "[файл]")
+		fmt.Fprint(in.out, "[файл]")
 	case ir.KindSocket:
-		fmt.Fprintln(in.out, "[сокет]")
+		fmt.Fprint(in.out, "[сокет]")
 	case ir.KindDB:
-		fmt.Fprintln(in.out, "[бд]")
+		fmt.Fprint(in.out, "[бд]")
 	case ir.KindHTTP2Session:
-		fmt.Fprintln(in.out, "[http2-сессия]")
+		fmt.Fprint(in.out, "[http2-сессия]")
 	case ir.KindPointer:
 		// В отличие от cbackend (настоящий C-указатель, "%p") -
 		// pointerTarget интерпретатора не настоящий адрес памяти
 		// (package doc pointer.go), печатать нечего, кроме факта "это
 		// указатель" - тем же принципом, что и у файла/сокета/БД выше.
-		fmt.Fprintln(in.out, "[указатель]")
+		fmt.Fprint(in.out, "[указатель]")
 	case ir.KindEntity:
 		kind := "сущность"
 		if ent, ok := in.entities[v.Obj.typeName]; ok && ent.IsStruct {
 			kind = "структура"
 		}
-		fmt.Fprintf(in.out, "[%s]<%s>\n", kind, v.Obj.typeName)
+		fmt.Fprintf(in.out, "[%s]<%s>", kind, v.Obj.typeName)
 	default:
-		fmt.Fprintln(in.out, v.S)
+		fmt.Fprint(in.out, v.S)
 	}
 }
 

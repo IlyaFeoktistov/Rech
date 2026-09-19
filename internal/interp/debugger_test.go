@@ -78,7 +78,7 @@ func TestDebuggerBreakpointStopsAndReportsStack(t *testing.T) {
 функция главная
 {
     переменная х = вложенная(21)
-    вывести х
+    вывести `+"`${"+`х}\n`+"`"+`
 }
 `)
 	d, err := NewDebugger(prog, &bytes.Buffer{}, strings.NewReader(""))
@@ -126,14 +126,14 @@ func TestDebuggerStepOverDoesNotEnterCall(t *testing.T) {
 	prog := irProgForDebug(t, `
 функция вспомогательная()
 {
-    вывести "внутри"
+    вывести "внутри\n"
 }
 
 функция главная
 {
-    вывести "перед"
+    вывести "перед\n"
     вспомогательная()
-    вывести "после"
+    вывести "после\n"
 }
 `)
 	d, err := NewDebugger(prog, &bytes.Buffer{}, strings.NewReader(""))
@@ -172,13 +172,13 @@ func TestDebuggerStepIntoEntersCall(t *testing.T) {
 	prog := irProgForDebug(t, `
 функция вспомогательная()
 {
-    вывести "внутри"
+    вывести "внутри\n"
 }
 
 функция главная
 {
     вспомогательная()
-    вывести "после"
+    вывести "после\n"
 }
 `)
 	d, err := NewDebugger(prog, &bytes.Buffer{}, strings.NewReader(""))
@@ -222,7 +222,7 @@ func TestDebuggerLaunchedTaskGetsOwnThread(t *testing.T) {
 функция главная
 {
     переменная т = запустить задача()
-    вывести дождаться т
+    вывести `+"`${"+`дождаться т}\n`+"`"+`
 }
 `)
 	d, err := NewDebugger(prog, &bytes.Buffer{}, strings.NewReader(""))

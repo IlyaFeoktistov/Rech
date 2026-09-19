@@ -126,7 +126,7 @@ func TestGenerateFromIRPrintUnsignedFixedWidthUsesUnsignedFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, `printf("%llu\n", (unsigned long long)(`) {
+	if !strings.Contains(out, `printf("%llu", (unsigned long long)(`) {
 		t.Fatalf("ожидался printf с %%llu, получено:\n%s", out)
 	}
 }
@@ -141,7 +141,7 @@ func TestGenerateFromIRPrintSignedFixedWidthUsesSignedFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, `printf("%lld\n", (long long)(`) {
+	if !strings.Contains(out, `printf("%lld", (long long)(`) {
 		t.Fatalf("ожидался printf с %%lld, получено:\n%s", out)
 	}
 }

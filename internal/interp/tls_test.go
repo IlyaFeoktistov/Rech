@@ -127,7 +127,7 @@ func TestRunTLSListenerAcceptsHandshakeAndServesHTTP(t *testing.T) {
     если соединение != Ничто
     {
         переменная запрос = принять_http(соединение)
-        вывести запрос.путь
+        вывести `+"`${"+`запрос.путь}\n`+"`"+`
 
         переменная ответ = новый Ответ(200, "Content-Type: text/plain", "по TLS")
         отправить_http_ответ(соединение, ответ)

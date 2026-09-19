@@ -20,7 +20,7 @@ func TestGenerateFromIRPrintString(t *testing.T) {
 	if !strings.Contains(out, `int main(int argc, char **argv) {`) {
 		t.Fatalf("ожидалась сигнатура main, получено:\n%s", out)
 	}
-	if !strings.Contains(out, `printf("%s\n", "Привет, мир!");`) {
+	if !strings.Contains(out, `printf("%s", "Привет, мир!");`) {
 		t.Fatalf("ожидался вызов printf, получено:\n%s", out)
 	}
 }
@@ -408,7 +408,7 @@ func TestGenerateFromIRFloat32ArithmeticTracksFloat32Type(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, `printf("%g\n",`) {
+	if !strings.Contains(out, `printf("%g",`) {
 		t.Fatalf("ожидался printf с %%g (Дробное), получено:\n%s", out)
 	}
 	if strings.Contains(out, "(long long)") {
@@ -1172,7 +1172,7 @@ func TestGenerateFromIRPrintOnEntityShowsFriendlyPlaceholder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, `printf("[сущность]<Точка>\n");`) {
+	if !strings.Contains(out, `printf("[сущность]<Точка>");`) {
 		t.Fatalf("ожидался дружелюбный плейсхолдер, получено:\n%s", out)
 	}
 }

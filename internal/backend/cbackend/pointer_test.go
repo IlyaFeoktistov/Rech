@@ -67,8 +67,8 @@ func TestGenerateFromIRPrintPointerUsesPercentP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, `printf("%p\n", (void *)((&v_a)));`) {
-		t.Fatalf("ожидался printf(\"%%p\\n\", ...) для указателя, получено:\n%s", out)
+	if !strings.Contains(out, `printf("%p", (void *)((&v_a)));`) {
+		t.Fatalf("ожидался printf(\"%%p\", ...) для указателя, получено:\n%s", out)
 	}
 }
 

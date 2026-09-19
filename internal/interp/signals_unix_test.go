@@ -27,7 +27,7 @@ func TestSignalReceivedDetectsRealSignal(t *testing.T) {
         i = i + 1
         получил = получен_сигнал(СигналОС.SIGUSR1)
     }
-    вывести получил
+    вывести ` + "`${" + `получил}\n` + "`" + `
 }
 `
 	go func() {
@@ -56,7 +56,7 @@ func TestSignalReceivedDetectsNewlyAddedSignalName(t *testing.T) {
         i = i + 1
         получил = получен_сигнал(СигналОС.SIGXFSZ)
     }
-    вывести получил
+    вывести ` + "`${" + `получил}\n` + "`" + `
 }
 `
 	go func() {

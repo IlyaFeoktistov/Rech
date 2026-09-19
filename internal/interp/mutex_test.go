@@ -45,7 +45,7 @@ func TestRunMutexSerializesConcurrentFieldUpdates(t *testing.T) {
     дождаться задача1
     дождаться задача2
     дождаться задача3
-    вывести счёт.баланс
+    вывести `+"`${"+`счёт.баланс}\n`+"`"+`
 }
 `)
 	if out != "6000\n" {
@@ -99,7 +99,7 @@ func TestRunConcurrentFieldAccessOnSharedEntityDoesNotCrashInterpreter(t *testin
     переменная задача2 = запустить обработать(счёт)
     дождаться задача1
     дождаться задача2
-    вывести счёт.баланс
+    вывести `+"`${"+`счёт.баланс}\n`+"`"+`
 }
 `)
 	if out != "0\n" {

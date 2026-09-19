@@ -23,7 +23,7 @@ func TestRunPanicIncludesCallChain(t *testing.T) {
 функция главная
 {
     переменная х = средняя(0)
-    вывести х
+    вывести `+"`${"+`х}\n`+"`"+`
 }
 `)
 	if err == nil {
@@ -59,7 +59,7 @@ func TestRunPanicIncludesMethodFrame(t *testing.T) {
 функция главная
 {
     переменная счёт = новый Счёт(100)
-    вывести счёт.снять(0)
+    вывести `+"`${"+`счёт.снять(0)}\n`+"`"+`
 }
 `)
 	if err == nil {
@@ -85,7 +85,7 @@ func TestRunTryStmtRestoresTraceAfterCatch(t *testing.T) {
     }
     поймать(иск: Исключение)
     {
-        вывести "поймано"
+        вывести "поймано\n"
     }
     выбросить новое Исключение("вторая")
 }

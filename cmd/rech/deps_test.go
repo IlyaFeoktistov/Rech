@@ -51,7 +51,7 @@ func TestInstallAndRunResolveExternalDependency(t *testing.T) {
 
 	projDir := t.TempDir()
 	writeTestFile(t, filepath.Join(projDir, "тест.rechproj"), "проект:\n  имя: тест\nфайлы:\n  главный: главный.rech\nзависимости:\n  внешняя: "+depRepo+" v1.0.0\n")
-	writeTestFile(t, filepath.Join(projDir, "главный.rech"), "использовать удвоить из \"внешняя/математика\"\n\nфункция главная\n{\n    вывести удвоить(21)\n}\n")
+	writeTestFile(t, filepath.Join(projDir, "главный.rech"), "использовать удвоить из \"внешняя/математика\"\n\nфункция главная\n{\n    вывести `${удвоить(21)}\n`\n}\n")
 
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)

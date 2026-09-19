@@ -42,7 +42,7 @@ func TestRunHTTPRequestHTTPSAttemptsRealTLSHandshake(t *testing.T) {
 {
     переменная р = новый Запрос("GET", "https://127.0.0.1", %d, "/", "", "")
     переменная о = запрос(р)
-    вывести о.код
+    вывести `+"`${"+`о.код}\n`+"`"+`
 }
 `, port))
 	if err == nil || !strings.Contains(err.Error(), rtmsg.TLSClientHandshakeFailed) {

@@ -26,7 +26,7 @@ func TestDebuggerEvaluateLocalsAndFields(t *testing.T) {
 {
     переменная а = 10
     переменная точка = новая Точка(3, 4)
-    вывести а
+    вывести `+"`${"+`а}\n`+"`"+`
 }
 `)
 	d, err := NewDebugger(prog, &bytes.Buffer{}, strings.NewReader(""))
@@ -91,7 +91,7 @@ func TestDebuggerEvaluateMethodCall(t *testing.T) {
 функция главная
 {
     переменная счётчик = новый Счётчик(21)
-    вывести счётчик.значение
+    вывести `+"`${"+`счётчик.значение}\n`+"`"+`
 }
 `)
 	d, err := NewDebugger(prog, &bytes.Buffer{}, strings.NewReader(""))

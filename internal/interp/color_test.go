@@ -11,10 +11,10 @@ func TestColorHexRoundTrip(t *testing.T) {
 	src := `функция главная
 {
     переменная c = rgbцвет_из_hex("#FFD700")
-    вывести (Целое) c.красный
-    вывести (Целое) c.зелёный
-    вывести (Целое) c.синий
-    вывести rgbцвет_в_hex(c)
+    вывести ` + "`${" + `(Целое) c.красный}\n` + "`" + `
+    вывести ` + "`${" + `(Целое) c.зелёный}\n` + "`" + `
+    вывести ` + "`${" + `(Целое) c.синий}\n` + "`" + `
+    вывести ` + "`${" + `rgbцвет_в_hex(c)}\n` + "`" + `
 }
 `
 	out := runSrc(t, src)
@@ -29,7 +29,7 @@ func TestColorHexRoundTrip(t *testing.T) {
 func TestColorHexInvalidFormatPanics(t *testing.T) {
 	err := runSrcExpectRuntimeError(t, `функция главная
 {
-    вывести rgbцвет_в_hex(rgbцвет_из_hex("не цвет"))
+    вывести `+"`${"+`rgbцвет_в_hex(rgbцвет_из_hex("не цвет"))}\n`+"`"+`
 }
 `)
 	if err == nil {

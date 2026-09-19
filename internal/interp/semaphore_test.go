@@ -74,7 +74,7 @@ func TestRunSemaphoreBoundsConcurrentTasks(t *testing.T) {
     дождаться задача3
     дождаться задача4
     дождаться задача5
-    вывести счётчики.максимум
+    вывести `+"`${"+`счётчики.максимум}\n`+"`"+`
 }
 `)
 	if out != "2\n" {
@@ -123,7 +123,7 @@ func TestRunSemaphoreSerializesWithInitialValueOne(t *testing.T) {
     дождаться задача1
     дождаться задача2
     дождаться задача3
-    вывести счёт.баланс
+    вывести `+"`${"+`счёт.баланс}\n`+"`"+`
 }
 `)
 	if out != "6000\n" {
@@ -140,7 +140,7 @@ func TestRunSemaphoreAcquireWithTimeoutSucceedsWhenAvailable(t *testing.T) {
 {
     переменная сем = новый Семафор(1)
     сем.захватить(500)
-    вывести "получено"
+    вывести "получено\n"
     сем.освободить()
 }
 `)
