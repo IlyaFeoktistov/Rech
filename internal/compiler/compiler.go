@@ -17,10 +17,9 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend"
 	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
+	"github.com/IlyaFeoktistov/Rech/internal/frontend"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
-	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 	"github.com/IlyaFeoktistov/Rech/internal/module"
-	"github.com/IlyaFeoktistov/Rech/internal/parser"
 	"github.com/IlyaFeoktistov/Rech/internal/project"
 	"github.com/IlyaFeoktistov/Rech/internal/semantic"
 )
@@ -46,10 +45,14 @@ func validateSourceFileName(path string) error {
 	return nil
 }
 
-// Frontend превращает исходный текст на Rech в AST (лексер + парсер).
-type Frontend interface {
-	Parse(src string) (*ast.Program, error)
-}
+// Frontend/NewFrontend - переэкспорт internal/frontend (см. package doc
+// там - вынесены в отдельный пакет, чтобы потребителям, которым нужен
+// только разбор, не приходилось тянуть internal/backend/cbackend
+// транзитивно через этот пакет).
+type Frontend = frontend.Frontend
+
+// NewFrontend создаёт стандартный Frontend v0.1 (lexer.New + parser.New).
+func NewFrontend() Frontend { return frontend.NewFrontend() }
 
 // Backend превращает AST в исходник на целевом языке (сейчас - C).
 type Backend interface {
@@ -114,42 +117,6 @@ type Toolchain interface {
 	// платформе (".so"/".dylib"/".dll") - Compiler называет им итоговый
 	// файл, сам не завися от runtime.GOOS.
 	LibExtension() string
-}
-
-type defaultFrontend struct{}
-
-// NewFrontend создаёт стандартный Frontend v0.1 (lexer.New + parser.New).
-func NewFrontend() Frontend { return defaultFrontend{} }
-
-// Parse разбирает src в AST. Синтаксическая ошибка внутри ОДНОГО
-// верхнеуровневого объявления не обрывает весь разбор (parser.
-// ParseProgramLenient, тот же механизм восстановления, что раньше
-// использовался только LSP - см. internal/parser/recovery.go): все
-// независимые ошибки собираются в internal/diagnostics.Bag за один
-// прогон, а не только первая. Частичный *ast.Program при ЛЮБОЙ ошибке
-// (одной или нескольких) намеренно отбрасывается (возвращается nil) -
-// сборка/кодогенерация не должны увидеть программу со сломанными
-// объявлениями внутри.
-func (defaultFrontend) Parse(src string) (*ast.Program, error) {
-	if err := lexer.ValidateUTF8(src); err != nil {
-		return nil, err
-	}
-	if err := lexer.ValidateNFC(src); err != nil {
-		return nil, err
-	}
-	tokens, err := lexer.New(src).Tokenize()
-	if err != nil {
-		return nil, fmt.Errorf("лексер: %w", err)
-	}
-	prog, errs := parser.New(tokens).ParseProgramLenient()
-	if len(errs) > 0 {
-		bag := diagnostics.NewBag()
-		for _, e := range errs {
-			bag.AddErr(e)
-		}
-		return nil, bag.AsError()
-	}
-	return prog, nil
 }
 
 type defaultBackend struct{}

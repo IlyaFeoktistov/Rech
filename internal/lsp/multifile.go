@@ -33,7 +33,7 @@ import (
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
-	"github.com/IlyaFeoktistov/Rech/internal/compiler"
+	"github.com/IlyaFeoktistov/Rech/internal/frontend"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 	"github.com/IlyaFeoktistov/Rech/internal/module"
@@ -134,7 +134,7 @@ func tryLink(path string) (res linkResult, ok bool, attemptErr error) {
 	if err != nil {
 		return linkResult{}, false, err
 	}
-	prog, err := module.LoadWithRoot(path, compiler.NewFrontend(), nil, nil, root)
+	prog, err := module.LoadWithRoot(path, frontend.NewFrontend(), nil, nil, root)
 	if err != nil {
 		return linkResult{}, false, err
 	}
@@ -294,7 +294,7 @@ func fileImportsTarget(candidate, target string) bool {
 	if err != nil {
 		return false
 	}
-	prog, err := module.LoadWithRoot(candidate, compiler.NewFrontend(), nil, nil, root)
+	prog, err := module.LoadWithRoot(candidate, frontend.NewFrontend(), nil, nil, root)
 	if err != nil {
 		return false
 	}
