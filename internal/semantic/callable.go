@@ -257,8 +257,12 @@ func analyzeLambdaExpr(sc *ctx, e *ast.LambdaExpr) (*ir.LambdaExpr, error) {
 	if err != nil {
 		return nil, err
 	}
-	if hasReturn && !endsWithReturnValue(body) {
-		return nil, fmt.Errorf("строка %d: лямбда с объявленным типом результата %s должна заканчиваться \"вернуть <значение>\"", e.Line, result)
+	unreachable, fallsThrough := analyzeFlow(body)
+	if unreachable != nil {
+		return nil, unreachable
+	}
+	if hasReturn && fallsThrough {
+		return nil, fmt.Errorf("строка %d: лямбда с объявленным типом результата %s должна заканчиваться \"вернуть <значение>\" на каждом пути выполнения", e.Line, result)
 	}
 
 	var resultPtr *ir.Type

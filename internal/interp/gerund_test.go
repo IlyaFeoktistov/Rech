@@ -67,7 +67,11 @@ func TestRunNestedGerundStmtShadowsResult(t *testing.T) {
 }
 
 // TestRunGerundStmtReturnPropagatesOutOfEnclosingFunction - "вернуть"
-// внутри блока деепричастия завершает саму функцию, не только блок.
+// внутри блока деепричастия завершает саму функцию, не только блок - тело
+// деепричастия исполняется безусловно (не в ветке "если"/цикле), поэтому
+// одного "вернуть" внутри него достаточно, чтобы удовлетворить "должна
+// заканчиваться вернуть <значение>" - дальше него в "проверить" ничего
+// нет (internal/ir/cfg видит это как заведомо расходящийся путь).
 func TestRunGerundStmtReturnPropagatesOutOfEnclosingFunction(t *testing.T) {
 	out := runSrc(t, `
 функция сложить(а: Целое, б: Целое): Целое
@@ -78,7 +82,6 @@ func TestRunGerundStmtReturnPropagatesOutOfEnclosingFunction(t *testing.T) {
 {
     сложив(а, 100)
         вернуть результат
-    вернуть -1
 }
 функция главная
 {

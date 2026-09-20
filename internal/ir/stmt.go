@@ -57,6 +57,8 @@ func LineOf(s Stmt) int {
 		return s.Line
 	case *ThrowStmt:
 		return s.Line
+	case *TryStmt:
+		return s.Line
 	default:
 		return 0
 	}

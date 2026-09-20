@@ -160,7 +160,7 @@ func analyzeTryStmt(sc *ctx, s *ast.TryStmt) (ir.Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &ir.TryStmt{Body: body, NoCatch: true, Finally: finally}, nil
+		return &ir.TryStmt{Body: body, NoCatch: true, Finally: finally, Line: s.Line}, nil
 	}
 
 	// CatchPanic - "Паника" была в списке типов (изоляция
@@ -192,7 +192,7 @@ func analyzeTryStmt(sc *ctx, s *ast.TryStmt) (ir.Stmt, error) {
 			return nil, err
 		}
 		return &ir.TryStmt{
-			Body: body, CatchVar: s.CatchVar, CatchPanic: true, CatchTypes: s.CatchTypes, CatchVarType: ir.TypeString, CatchBody: catchBody, Finally: finally,
+			Body: body, CatchVar: s.CatchVar, CatchPanic: true, CatchTypes: s.CatchTypes, CatchVarType: ir.TypeString, CatchBody: catchBody, Finally: finally, Line: s.Line,
 		}, nil
 	}
 
@@ -231,7 +231,7 @@ func analyzeTryStmt(sc *ctx, s *ast.TryStmt) (ir.Stmt, error) {
 	}
 
 	return &ir.TryStmt{
-		Body: body, CatchVar: s.CatchVar, CatchTypes: s.CatchTypes, CatchVarType: catchVarType, CatchBody: catchBody, Finally: finally,
+		Body: body, CatchVar: s.CatchVar, CatchTypes: s.CatchTypes, CatchVarType: catchVarType, CatchBody: catchBody, Finally: finally, Line: s.Line,
 	}, nil
 }
 

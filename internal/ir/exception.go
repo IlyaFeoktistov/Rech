@@ -42,6 +42,12 @@ type TryStmt struct {
 	// generateIRTryWithFinallyStmt; internal/interp/exception.go,
 	// execTryWithFinally).
 	Finally []Stmt
+	// Line - строка "попытаться" (у вложенных узлов цепочки "поймать" - та
+	// же строка узла ast.TryStmt, из которого этот собран, см. package doc
+	// ast.TryStmt) - нужна internal/ir/cfg для диагностики "недостижимый
+	// код", когда недостижима сама конструкция целиком, а не что-то внутри
+	// её тела/обработчика/"окончательно" (там своя Line у каждой инструкции).
+	Line int
 }
 
 func (*TryStmt) stmt() {}

@@ -1004,8 +1004,14 @@ func (a *Analyzer) analyzeMethod(ent *ast.EntityDecl, m *ast.MethodDecl) (*ir.Me
 	if err != nil {
 		return nil, err
 	}
-	if !m.IsAbstract && sig.HasReturn && !endsWithReturnValue(body) {
-		return nil, fmt.Errorf("с объявленным типом результата %s должен заканчиваться \"вернуть <значение>\"", sig.ReturnType)
+	if !m.IsAbstract {
+		unreachable, fallsThrough := analyzeFlow(body)
+		if unreachable != nil {
+			return nil, unreachable
+		}
+		if sig.HasReturn && fallsThrough {
+			return nil, fmt.Errorf("строка %d: с объявленным типом результата %s должен заканчиваться \"вернуть <значение>\" на каждом пути выполнения", m.Line, sig.ReturnType)
+		}
 	}
 	sig.GuaranteedThisStates = sc.thisEstablished
 	a.methods[ent.Name][name] = sig
@@ -1037,8 +1043,12 @@ func (a *Analyzer) analyzeFunction(fn *ast.FunctionDecl) (*ir.Function, error) {
 	if err != nil {
 		return nil, err
 	}
-	if sig.HasReturn && !endsWithReturnValue(body) {
-		return nil, fmt.Errorf("с объявленным типом результата %s должна заканчиваться \"вернуть <значение>\"", sig.ReturnType)
+	unreachable, fallsThrough := analyzeFlow(body)
+	if unreachable != nil {
+		return nil, unreachable
+	}
+	if sig.HasReturn && fallsThrough {
+		return nil, fmt.Errorf("строка %d: с объявленным типом результата %s должна заканчиваться \"вернуть <значение>\" на каждом пути выполнения", fn.Line, sig.ReturnType)
 	}
 	return &ir.Function{
 		Name:       name,
