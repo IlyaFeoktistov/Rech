@@ -22,7 +22,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/IlyaFeoktistov/Rech/internal/compiler"
+	"github.com/IlyaFeoktistov/Rech/internal/frontend"
 	"github.com/IlyaFeoktistov/Rech/internal/interp"
 	"github.com/IlyaFeoktistov/Rech/internal/module"
 	"github.com/IlyaFeoktistov/Rech/internal/project"
@@ -114,7 +114,7 @@ func RunFile(path string) Result {
 	if err != nil {
 		return Result{Path: path, Err: err}
 	}
-	loaded, err := module.LoadWithRoot(path, compiler.NewFrontend(), nil, nil, root)
+	loaded, err := module.LoadWithRoot(path, frontend.NewFrontend(), nil, nil, root)
 	if err != nil {
 		return Result{Path: path, Err: err}
 	}
