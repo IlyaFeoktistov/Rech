@@ -700,12 +700,21 @@ func resolveDictTypeName(entities map[string]entitySig, methods map[string]map[s
 // (double), Дробное (float), Строка (const char *), Логическое (bool),
 // Байт (unsigned char), Символ (int32_t, тот же C-тип, что и обычный C
 // "int"/"int32_t" - подходит и для 4-байтного целочисленного поля реальной
-// C-структуры, не только для кодовых точек Unicode). Сущность (кроме уже
-// экспортированной/внешней) и generic-коллекция не имеют стабильного
-// C-представления, на которое мог бы полагаться сторонний C-код.
+// C-структуры, не только для кодовых точек Unicode), плюс все девять
+// fixed-width целых (Целое8/16/32/64, Натуральное8/16/32/64 - C stdint.h-
+// типы напрямую, cbackend/valuetype.go) - изначально не пускались вовсе,
+// та же "появилась ПОЗЖЕ раздела FFI, границу не пересмотрели" недоделка,
+// что и у Указатель<T> (см. isFFIType ниже) - реальные C-структуры сплошь
+// и рядом используют "short"/"unsigned int"/подобные поля не 4/8 байт,
+// без этих Kind внешняя структура/функция не могла их представить вовсе.
+// Сущность (кроме уже экспортированной/внешней) и generic-коллекция не
+// имеют стабильного C-представления, на которое мог бы полагаться
+// сторонний C-код.
 func isFFIScalar(t ir.Type) bool {
 	switch t.Kind {
-	case ir.KindInt, ir.KindFloat, ir.KindFloat32, ir.KindString, ir.KindBool, ir.KindByte, ir.KindChar:
+	case ir.KindInt, ir.KindFloat, ir.KindFloat32, ir.KindString, ir.KindBool, ir.KindByte, ir.KindChar,
+		ir.KindInt8, ir.KindInt16, ir.KindInt32, ir.KindInt64,
+		ir.KindUint8, ir.KindUint16, ir.KindUint32, ir.KindUint64:
 		return true
 	default:
 		return false

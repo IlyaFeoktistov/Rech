@@ -43,6 +43,26 @@ func TestAnalyzeExternStructPassedByValue(t *testing.T) {
 	}
 }
 
+// TestAnalyzeExternStructAcceptsFixedWidthField - Целое8/16/32/64 и
+// Натуральное8/16/32/64 допустимы полем "внешняя структура" - реальные
+// C-структуры сплошь и рядом используют "short"/"unsigned int"/подобные
+// поля не 4/8 байт (isFFIScalar, internal/semantic/types.go) - изначально
+// не пускались вовсе, та же недоделка, что уже была у "Указатель<T>".
+func TestAnalyzeExternStructAcceptsFixedWidthField(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+внешняя структура winsize как Размер
+{
+    имеет:
+        ряды: Натуральное16
+        колонки: Натуральное16
+}
+функция главная { переменная р = новый Размер(ряды: (Натуральное16)24, колонки: (Натуральное16)80) }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
 func TestAnalyzeExternStructRejectsUnsafeFieldType(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 внешняя структура p как Точка

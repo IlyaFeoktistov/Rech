@@ -100,6 +100,14 @@ var ffiScalarGoTypes = map[ir.TypeKind]reflect.Type{
 	ir.KindByte:    reflect.TypeFor[uint8](),
 	ir.KindChar:    reflect.TypeFor[int32](),
 	ir.KindString:  reflect.TypeFor[string](),
+	ir.KindInt8:    reflect.TypeFor[int8](),
+	ir.KindInt16:   reflect.TypeFor[int16](),
+	ir.KindInt32:   reflect.TypeFor[int32](),
+	ir.KindInt64:   reflect.TypeFor[int64](),
+	ir.KindUint8:   reflect.TypeFor[uint8](),
+	ir.KindUint16:  reflect.TypeFor[uint16](),
+	ir.KindUint32:  reflect.TypeFor[uint32](),
+	ir.KindUint64:  reflect.TypeFor[uint64](),
 }
 
 // ffiGoType - Go-тип, которым будет маршалиться значение типа t на границе
@@ -137,7 +145,7 @@ func (in *Interp) ffiGoType(t ir.Type) (reflect.Type, error) {
 			return in.ffiStructGoType(ent)
 		}
 	}
-	return nil, fmt.Errorf("тип %s пока не поддержан FFI интерпретатора (реализованы только примитивы: Целое/Действительное/Дробное/Логическое/Байт/Символ/Строка, \"внешняя сущность\", \"внешняя структура\", \"Указатель<T>\" параметром и \"Вызываемый(...)\" параметром) - соберите и запустите программу через `rech build`/`rech run`", t.String())
+	return nil, fmt.Errorf("тип %s пока не поддержан FFI интерпретатора (реализованы только примитивы: Целое/Целое8/16/32/64/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка, \"внешняя сущность\", \"внешняя структура\", \"Указатель<T>\" параметром и \"Вызываемый(...)\" параметром) - соберите и запустите программу через `rech build`/`rech run`", t.String())
 }
 
 // ffiStructGoType - Go-структура (reflect.StructOf), которой маршалится
@@ -214,9 +222,9 @@ func (in *Interp) setFFIValue(rv reflect.Value, v Value) {
 		rv.SetBool(v.B)
 	case reflect.Float32, reflect.Float64:
 		rv.SetFloat(v.F)
-	case reflect.Uint8, reflect.Uintptr:
+	case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		rv.SetUint(uint64(v.I))
-	default: // int32 (Символ)/int64 (Целое)
+	default: // int8/16/32 (Символ)/64 (Целое)
 		rv.SetInt(v.I)
 	}
 }
@@ -255,7 +263,7 @@ func (in *Interp) readFFIValue(rv reflect.Value, irType ir.Type) Value {
 		return Value{Type: irType, B: rv.Bool()}
 	case reflect.Float32, reflect.Float64:
 		return Value{Type: irType, F: rv.Float()}
-	case reflect.Uint8, reflect.Uintptr:
+	case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		// "Вызываемый(...)", прочитанный из C (поле структуры/результат) -
 		// попадает сюда тоже (Go-тип uintptr, package doc файла) - несёт
 		// адрес в Value.I, но Callable остаётся nil (значение НЕ вызываемое -
