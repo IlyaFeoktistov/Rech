@@ -28,6 +28,23 @@ type builtinFlags struct {
 	// usesMath - нужен ли <math.h> (встроенные функции шага 8: корень,
 	// степень, округлить, потолок, пол, модуль).
 	usesMath bool
+	// usesIntSign - нужен ли rech_sign (встроенная функция "знак") -
+	// отдельный от usesMath флаг: сама функция - три сравнения, не вызов
+	// <math.h> (copysign даёт только знак БЕЗ различения нуля от
+	// положительного, здесь нужны все три исхода -1/0/1).
+	usesIntSign bool
+	// usesIntMinMax - нужен ли rech_min_int/rech_max_int (встроенные функции
+	// "наименьшее"/"наибольшее") - отдельные от "минимум"/"максимум" (те -
+	// fmin/fmax из <math.h> над Действительное) целочисленные версии: у
+	// Действительное 53-битная mantissa, "наименьшее"/"наибольшее" не теряют
+	// точность у Целое за её пределами.
+	usesIntMinMax bool
+	// usesClamp - нужен ли rech_clamp (встроенная функция "ограничить").
+	usesClamp bool
+	// usesIntPow - нужен ли rech_int_pow (встроенная функция
+	// "степень_целого") - см. package doc intPow (internal/interp/
+	// builtins.go) той же семантики (exp < 0 - 0).
+	usesIntPow bool
 	// usesRandom - нужны ли rech_random/rech_random_int (встроенные функции
 	// "случайное"/"случайное_целое", random.go) - arc4random/
 	// arc4random_uniform из <stdlib.h> (glibc >= 2.36, BSD/macOS - без
@@ -373,6 +390,54 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 	case "пи":
 		flags.usesMath = true
 		return "3.14159265358979323846", true
+	case "абсолютное_значение_целого":
+		return fmt.Sprintf("llabs(%s)", args[0]), true
+	case "знак":
+		flags.usesMath = true
+		flags.usesIntSign = true
+		return fmt.Sprintf("rech_sign(%s)", args[0]), true
+	case "наименьшее":
+		flags.usesIntMinMax = true
+		return fmt.Sprintf("rech_min_int(%s, %s)", args[0], args[1]), true
+	case "наибольшее":
+		flags.usesIntMinMax = true
+		return fmt.Sprintf("rech_max_int(%s, %s)", args[0], args[1]), true
+	case "ограничить":
+		flags.usesClamp = true
+		return fmt.Sprintf("rech_clamp(%s, %s, %s)", args[0], args[1], args[2]), true
+	case "остаток":
+		flags.usesMath = true
+		return fmt.Sprintf("fmod(%s, %s)", args[0], args[1]), true
+	case "степень_целого":
+		flags.usesIntPow = true
+		return fmt.Sprintf("rech_int_pow(%s, %s)", args[0], args[1]), true
+	case "синус_гиперболический":
+		flags.usesMath = true
+		return fmt.Sprintf("sinh(%s)", args[0]), true
+	case "косинус_гиперболический":
+		flags.usesMath = true
+		return fmt.Sprintf("cosh(%s)", args[0]), true
+	case "тангенс_гиперболический":
+		flags.usesMath = true
+		return fmt.Sprintf("tanh(%s)", args[0]), true
+	case "арксинус_гиперболический":
+		flags.usesMath = true
+		return fmt.Sprintf("asinh(%s)", args[0]), true
+	case "арккосинус_гиперболический":
+		flags.usesMath = true
+		return fmt.Sprintf("acosh(%s)", args[0]), true
+	case "арктангенс_гиперболический":
+		flags.usesMath = true
+		return fmt.Sprintf("atanh(%s)", args[0]), true
+	case "экспонента_минус_один":
+		flags.usesMath = true
+		return fmt.Sprintf("expm1(%s)", args[0]), true
+	case "логарифм_плюс_один":
+		flags.usesMath = true
+		return fmt.Sprintf("log1p(%s)", args[0]), true
+	case "гипотенуза":
+		flags.usesMath = true
+		return fmt.Sprintf("hypot(%s, %s)", args[0], args[1]), true
 	case "прочитать_строку":
 		flags.usesConsoleInput = true
 		flags.usesPanic = true
@@ -709,7 +774,8 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 		flags.usesHTTP2 = true
 		flags.usesGRPC = true
 		flags.usesByteListWrap = true
-		return fmt.Sprintf("rech_grpc_send_message(%s, %s)", args[0], args[1]), true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_grpc_send_message(%s, %s, %s)", args[0], args[1], args[2]), true
 	case "grpc_завершить":
 		flags.usesHTTP2 = true
 		flags.usesGRPC = true
@@ -1037,6 +1103,64 @@ static const long long rech_current_os = 2;
 #else
 static const long long rech_current_os = 0;
 #endif
+`
+
+// rechSignHelper - "знак" - три исхода (-1/0/1), не copysign (<math.h> -
+// только знак БИТА, не различает +0.0 от положительного числа и не даёт
+// отдельного 0 вовсе).
+const rechSignHelper = `static long long rech_sign(double v) {
+    if (v > 0) {
+        return 1;
+    }
+    if (v < 0) {
+        return -1;
+    }
+    return 0;
+}
+`
+
+// rechIntMinMaxHelper - "наименьшее"/"наибольшее" - целочисленные версии
+// "минимум"/"максимум" (fmin/fmax из <math.h> над Действительное, 53-битная
+// mantissa - теряют точность у Целое за её пределами).
+const rechIntMinMaxHelper = `static long long rech_min_int(long long a, long long b) {
+    return a < b ? a : b;
+}
+
+static long long rech_max_int(long long a, long long b) {
+    return a > b ? a : b;
+}
+`
+
+// rechClampHelper - "ограничить(значение, минимум, максимум)".
+const rechClampHelper = `static double rech_clamp(double v, double lo, double hi) {
+    if (v < lo) {
+        return lo;
+    }
+    if (v > hi) {
+        return hi;
+    }
+    return v;
+}
+`
+
+// rechIntPowHelper - "степень_целого" - быстрое возведение в степень, не
+// pow() из <math.h> (та работает над Действительное, теряя точность у
+// больших Целое) - та же реализация/семантика (exp < 0 - 0), что и intPow
+// (internal/interp/builtins.go).
+const rechIntPowHelper = `static long long rech_int_pow(long long base, long long exp) {
+    if (exp < 0) {
+        return 0;
+    }
+    long long result = 1;
+    while (exp > 0) {
+        if (exp & 1) {
+            result *= base;
+        }
+        base *= base;
+        exp >>= 1;
+    }
+    return result;
+}
 `
 
 // panicHelper - аварийное завершение процесса с понятным сообщением:

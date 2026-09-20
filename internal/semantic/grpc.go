@@ -16,7 +16,10 @@
 // идёт ТОЛЬКО через трейлер "grpc-status" (grpc_завершить/grpc_статус).
 package semantic
 
-import "github.com/IlyaFeoktistov/Rech/internal/ir"
+import (
+	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/ir"
+)
 
 // registerGRPCFuncs - см. package doc.
 func registerGRPCFuncs(funcs map[string]funcSig) {
@@ -32,7 +35,19 @@ func registerGRPCFuncs(funcs map[string]funcSig) {
 	// данные (package doc http2.go) - обрыв ПОСЕРЕДИНЕ префикса/тела это
 	// rtmsg.GRPCFramingError, не Ничто.
 	funcs["grpc_прочитать_сообщение"] = funcSig{Params: []ir.Type{streamType}, ReturnType: ir.NullableType(byteList), HasReturn: true}
-	funcs["grpc_отправить_сообщение"] = funcSig{Params: []ir.Type{streamType, byteList}}
+	// "сжато" (Логическое, по умолчанию ложь) - истина шлёт тело gzip'ом
+	// (RFC 1952 - единственный поддержанный компилятором grpc-encoding) с
+	// флагом сжатия 1, вместо обычного identity-флага 0 - опт-ин третьим
+	// параметром со значением по умолчанию, не отдельная функция:
+	// существующие вызовы "grpc_отправить_сообщение(поток, тело)"
+	// продолжают работать как раньше. "grpc_прочитать_сообщение"
+	// распаковывает входящие сжатые сообщения автоматически (декодирование
+	// не требует отдельного параметра/вызова) - см. package doc
+	// rtmsg.GRPCCompressedUnsupported.
+	funcs["grpc_отправить_сообщение"] = funcSig{
+		Params:        []ir.Type{streamType, byteList, ir.TypeBool},
+		ParamDefaults: []ast.Expr{nil, nil, &ast.BoolLiteral{Value: false}},
+	}
 
 	funcs["grpc_завершить"] = funcSig{Params: []ir.Type{streamType, ir.TypeInt, ir.TypeString}}
 	funcs["grpc_статус"] = funcSig{Params: []ir.Type{streamType}, ReturnType: ir.TypeInt, HasReturn: true}

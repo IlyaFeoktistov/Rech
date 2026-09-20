@@ -281,17 +281,37 @@ var tlsListenSecureCode = fmt.Sprintf(`static rech_socket_t rech_listen_tcp_secu
 // пока жив сам слушатель, и хранится в реестре явно, tlsListenSecureCode
 // выше). TLS_client_method() - тот же современный минимум OpenSSL >=
 // 1.1.0, что и TLS_server_method() там же.
+//
+// SSL_set_tlsext_host_name(SNI) + SSL_CTX_set_verify/SSL_set1_host - НАЙДЕННЫЙ
+// и исправленный баг (аудит перед вынесением HTTP-клиента в библиотеку,
+// docs/ROADMAP.md): без SNI рукопожатие безусловно падает против любого
+// сервера за виртуальным хостингом по имени (Cloudflare и подобные CDN
+// отвечают generic "handshake failure" без него - воспроизведено на
+// example.com), а без проверки сертификата клиент принимал ЛЮБОЙ, даже
+// поддельный, сертификат (MITM). interp (internal/interp/builtins.go,
+// httpRequest) уже делал оба правильно через tls.Config{ServerName: host} -
+// это расхождение между backend'ами, не сознательное решение "TLS проще
+// без проверки". SSL_CTX_set_default_verify_paths - системное хранилище
+// доверенных корневых сертификатов ОС (тот же источник доверия, что и у
+// большинства HTTP-клиентов ОС), не собственный bundle. SSL_set1_host
+// сверяет имя хоста из сертификата с фактическим "host" (RFC 6125) -
+// SSL_VERIFY_PEER один недостаточен, он проверяет только цепочку до
+// доверенного корня, не совпадение имени.
 var tlsConnectCode = fmt.Sprintf(`static rech_socket_t rech_connect_tcp_tls(const char *host, long long port) {
     rech_socket_t s = rech_connect_tcp(host, port);
     SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());
     if (ctx == NULL) {
         rech_panic("%[1]s");
     }
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
+    SSL_CTX_set_default_verify_paths(ctx);
     SSL *ssl = SSL_new(ctx);
     SSL_CTX_free(ctx);
     if (ssl == NULL) {
         rech_panic("%[1]s");
     }
+    SSL_set_tlsext_host_name(ssl, host);
+    SSL_set1_host(ssl, host);
     SSL_set_fd(ssl, (int)s);
     if (SSL_connect(ssl) <= 0) {
         SSL_free(ssl);

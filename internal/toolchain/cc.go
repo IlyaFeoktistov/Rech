@@ -166,6 +166,14 @@ func commonLinkFlags(src []byte) []string {
 	if bytes.Contains(src, []byte("#include <nghttp2/nghttp2.h>")) {
 		flags = append(flags, "-lnghttp2")
 	}
+	// -lz - gzip-(де)компрессия gRPC-сообщений (internal/backend/cbackend/
+	// runtime/http2/grpc.go, rech_gzip_compress/rech_gzip_decompress) - тот
+	// же принцип, что и nghttp2/OpenSSL выше, по маркеру "#include
+	// <zlib.h>" (ctx.usesGRPC - эмитится безусловно вместе с gRPC, не
+	// отдельным флагом).
+	if bytes.Contains(src, []byte("#include <zlib.h>")) {
+		flags = append(flags, "-lz")
+	}
 	// -lpng - PNG-кодек ("png_декодировать_файл"/"png_кодировать_файл",
 	// internal/backend/cbackend/png.go) - тот же принцип, что и OpenSSL/
 	// nghttp2 выше, по маркеру "#include <png.h>" (ctx.usesPNG).
@@ -287,6 +295,14 @@ func missingLibHint(linkerOutput string) string {
 	if mentionsNghttp2 && (mentionsMissing || strings.Contains(lower, "no such file")) {
 		fmt.Fprintf(&hint, "похоже, не хватает nghttp2 (HTTP/2/gRPC-транспорт): %s\n", installHintFor("nghttp2"))
 	}
+	// -lz (gzip для gRPC-сообщений, grpc.go) - тот же класс подсказки, что
+	// nghttp2 выше - идёт вместе с ним (оба нужны, как только программа
+	// использует gRPC вообще), но отдельным маркером/сообщением - разные
+	// пакеты на всех трёх платформах.
+	mentionsZlib := strings.Contains(lower, "-lz") || strings.Contains(lower, "zlib.lib") || strings.Contains(lower, "zlib.h")
+	if mentionsZlib && (mentionsMissing || strings.Contains(lower, "no such file")) {
+		fmt.Fprintf(&hint, "похоже, не хватает zlib (gzip для gRPC-сообщений): %s\n", installHintFor("zlib"))
+	}
 	return strings.TrimRight(hint.String(), "\n")
 }
 
@@ -331,6 +347,11 @@ func installHintFor(lib string) string {
 			"linux":   "sudo apt install libnghttp2-dev (Debian/Ubuntu) или sudo dnf install libnghttp2-devel (Fedora)",
 			"darwin":  "brew install nghttp2",
 			"windows": "vcpkg install nghttp2 (или MSYS2: pacman -S mingw-w64-x86_64-libnghttp2)",
+		},
+		"zlib": {
+			"linux":   "sudo apt install zlib1g-dev (Debian/Ubuntu) или sudo dnf install zlib-devel (Fedora)",
+			"darwin":  "brew install zlib (обычно уже есть в системе)",
+			"windows": "vcpkg install zlib (или MSYS2: pacman -S mingw-w64-x86_64-zlib)",
 		},
 	}
 	if perOS, ok := hints[lib]; ok {

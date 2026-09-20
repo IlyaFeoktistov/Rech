@@ -1441,6 +1441,16 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	if ctx.usesHTTP2 {
 		sb.WriteString("#include <nghttp2/nghttp2.h>\n#include <sys/time.h>\n")
 	}
+	// <zlib.h> - gzip-(де)компрессия gRPC-сообщений (grpc.go,
+	// rech_gzip_compress/rech_gzip_decompress) - безусловно вместе с gRPC
+	// (ctx.usesGRPC), не отдельным опт-ином: "grpc_прочитать_сообщение"
+	// обязана уметь распаковать входящее сжатое сообщение от НАСТОЯЩЕГО
+	// gRPC-собеседника независимо от того, использует ли САМА программа
+	// "grpc_отправить_сообщение_сжато" (-lz, internal/toolchain/cc.go, по
+	// маркеру этого #include).
+	if ctx.usesGRPC {
+		sb.WriteString("#include <zlib.h>\n")
+	}
 	// <png.h>/<jpeglib.h>/<setjmp.h> - PNG/JPEG-кодек (png.go/jpeg.go/
 	// imagecodec.go, "декодировать_изображение"/"закодировать_изображение")
 	// - libpng+libjpeg, обе разом (-lpng -ljpeg - internal/toolchain/cc.go,
@@ -1531,6 +1541,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	appendCodeIf(&sb, ctx.usesArgs, argFuncHelper)
 	appendCodeIf(&sb, ctx.usesCurrentOS, currentOSHelper)
 	appendCodeIf(&sb, ctx.usesCast, castHelpers)
+	appendCodeIf(&sb, ctx.usesIntSign, rechSignHelper)
+	appendCodeIf(&sb, ctx.usesIntMinMax, rechIntMinMaxHelper)
+	appendCodeIf(&sb, ctx.usesClamp, rechClampHelper)
+	appendCodeIf(&sb, ctx.usesIntPow, rechIntPowHelper)
 
 	if ctx.intDivMod.any() || ctx.uintDivMod.any() {
 		// Прототип - ДО текста хелперов ниже (они уже вызывают
@@ -1790,7 +1804,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		sb.WriteString(http2.GRPCSessionOpsCode(mangleType(http2.StreamTypeC), mangleType(byteListType), mangleType("?"+byteListType), mangleType("?Строка"),
 			mangleField(http2.StreamSessionFieldName), mangleField(http2.StreamIDFieldName),
 			escapeCString(rtmsg.HTTP2OpenStreamFailed), escapeCString(rtmsg.GRPCFramingError), escapeCString(rtmsg.GRPCCompressedUnsupported),
-			escapeCString(rtmsg.GRPCStatusMissing), escapeCString(rtmsg.GRPCStatusInvalid)))
+			escapeCString(rtmsg.GRPCStatusMissing), escapeCString(rtmsg.GRPCStatusInvalid), escapeCString(rtmsg.GRPCCompressFailed)))
 	}
 	// http2.GRPCSListenAndConnectCode - ПОСЛЕ http2.SessionOpsCode выше
 	// (зовёт rech_http2_new_callbacks/rech_http2_start_thread по имени) И

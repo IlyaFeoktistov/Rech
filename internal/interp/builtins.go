@@ -65,6 +65,63 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return floatValue(math.Max(args[0].F, args[1].F)), true
 	case "пи":
 		return floatValue(math.Pi), true
+	case "абсолютное_значение_целого":
+		v := args[0].I
+		if v < 0 {
+			v = -v
+		}
+		return intValue(v), true
+	case "знак":
+		v := args[0].F
+		switch {
+		case v > 0:
+			return intValue(1), true
+		case v < 0:
+			return intValue(-1), true
+		default:
+			return intValue(0), true
+		}
+	case "наименьшее":
+		if args[0].I < args[1].I {
+			return intValue(args[0].I), true
+		}
+		return intValue(args[1].I), true
+	case "наибольшее":
+		if args[0].I > args[1].I {
+			return intValue(args[0].I), true
+		}
+		return intValue(args[1].I), true
+	case "ограничить":
+		v, lo, hi := args[0].F, args[1].F, args[2].F
+		if v < lo {
+			return floatValue(lo), true
+		}
+		if v > hi {
+			return floatValue(hi), true
+		}
+		return floatValue(v), true
+	case "остаток":
+		return floatValue(math.Mod(args[0].F, args[1].F)), true
+	case "степень_целого":
+		return intValue(intPow(args[0].I, args[1].I)), true
+	case "синус_гиперболический":
+		return floatValue(math.Sinh(args[0].F)), true
+	case "косинус_гиперболический":
+		return floatValue(math.Cosh(args[0].F)), true
+	case "тангенс_гиперболический":
+		return floatValue(math.Tanh(args[0].F)), true
+	case "арксинус_гиперболический":
+		return floatValue(math.Asinh(args[0].F)), true
+	case "арккосинус_гиперболический":
+		return floatValue(math.Acosh(args[0].F)), true
+	case "арктангенс_гиперболический":
+		return floatValue(math.Atanh(args[0].F)), true
+	case "экспонента_минус_один":
+		return floatValue(math.Expm1(args[0].F)), true
+	case "логарифм_плюс_один":
+		return floatValue(math.Log1p(args[0].F)), true
+	case "гипотенуза":
+		return floatValue(math.Hypot(args[0].F, args[1].F)), true
 	case "прочитать_строку":
 		return stringValue(in.readLine()), true
 	case "прочитать_целое":
@@ -486,7 +543,7 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 	case "grpc_прочитать_сообщение":
 		return in.grpcReadMessage(args[0]), true
 	case "grpc_отправить_сообщение":
-		in.grpcSendMessage(args[0], bytesFromValue(args[1]))
+		in.grpcSendMessage(args[0], bytesFromValue(args[1]), args[2].B)
 		return Value{}, true
 	case "grpc_завершить":
 		in.grpcFinish(args[0], args[1].I, args[2].S)
@@ -634,4 +691,23 @@ func parseLeadingInt(s string) int64 {
 	}
 	v, _ := strconv.ParseInt(s[:end], 10, 64)
 	return v
+}
+
+// intPow - "степень_целого" - целочисленное возведение в степень
+// (быстрое возведение в степень, не math.Pow - та работает над
+// Действительное, теряя точность у больших Целое). exp < 0 - 0 (см.
+// package doc "степень_целого", internal/builtins/builtins.go).
+func intPow(base, exp int64) int64 {
+	if exp < 0 {
+		return 0
+	}
+	var result int64 = 1
+	for exp > 0 {
+		if exp&1 == 1 {
+			result *= base
+		}
+		base *= base
+		exp >>= 1
+	}
+	return result
 }

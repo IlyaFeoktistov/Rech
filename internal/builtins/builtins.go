@@ -69,6 +69,37 @@ var All = []Func{
 	{Name: "максимум", Params: []Kind{KindFloat, KindFloat}, ReturnKind: KindFloat, HasReturn: true},
 	{Name: "пи", Params: nil, ReturnKind: KindFloat, HasReturn: true},
 
+	// Целочисленная арифметика/гиперболические функции/два инженерных
+	// дополнения ("экспонента_минус_один"/"логарифм_плюс_один" - устойчивы
+	// к потере точности при x, близком к нулю, в отличие от "экспонента(x)
+	// - 1"/"логарифм(1 + x)" отдельными вызовами) - НАЙДЕННЫЙ по итогам
+	// аудита математики против типового engineering-набора (docs/ROADMAP.md,
+	// ROADMAP_0.1_PLAN.md) пробел: были только float-функции над <math.h>,
+	// не было ни одной целочисленной ("минимум"/"максимум" не годятся -
+	// теряют точность у Целое за пределами 2^53, mantissa Действительное).
+	{Name: "абсолютное_значение_целого", Params: []Kind{KindInt}, ReturnKind: KindInt, HasReturn: true},
+	{Name: "знак", Params: []Kind{KindFloat}, ReturnKind: KindInt, HasReturn: true},
+	{Name: "наименьшее", Params: []Kind{KindInt, KindInt}, ReturnKind: KindInt, HasReturn: true},
+	{Name: "наибольшее", Params: []Kind{KindInt, KindInt}, ReturnKind: KindInt, HasReturn: true},
+	{Name: "ограничить", Params: []Kind{KindFloat, KindFloat, KindFloat}, ReturnKind: KindFloat, HasReturn: true},
+	{Name: "остаток", Params: []Kind{KindFloat, KindFloat}, ReturnKind: KindFloat, HasReturn: true},
+	// "степень_целого" - отдельная от "степень" (Действительное): целая
+	// степень 2^62 и т. п. точна ровно там, где float-версия (Действительное
+	// - 53-битная mantissa) уже теряла бы младшие биты. Отрицательный
+	// показатель - 0 (нет содержательного целого результата, тем же
+	// принципом непаникующей математики, что и у "корень" от отрицательного
+	// числа - NaN, не исключение).
+	{Name: "степень_целого", Params: []Kind{KindInt, KindInt}, ReturnKind: KindInt, HasReturn: true},
+	{Name: "синус_гиперболический", Params: []Kind{KindFloat}, ReturnKind: KindFloat, HasReturn: true},
+	{Name: "косинус_гиперболический", Params: []Kind{KindFloat}, ReturnKind: KindFloat, HasReturn: true},
+	{Name: "тангенс_гиперболический", Params: []Kind{KindFloat}, ReturnKind: KindFloat, HasReturn: true},
+	{Name: "арксинус_гиперболический", Params: []Kind{KindFloat}, ReturnKind: KindFloat, HasReturn: true},
+	{Name: "арккосинус_гиперболический", Params: []Kind{KindFloat}, ReturnKind: KindFloat, HasReturn: true},
+	{Name: "арктангенс_гиперболический", Params: []Kind{KindFloat}, ReturnKind: KindFloat, HasReturn: true},
+	{Name: "экспонента_минус_один", Params: []Kind{KindFloat}, ReturnKind: KindFloat, HasReturn: true},
+	{Name: "логарифм_плюс_один", Params: []Kind{KindFloat}, ReturnKind: KindFloat, HasReturn: true},
+	{Name: "гипотенуза", Params: []Kind{KindFloat, KindFloat}, ReturnKind: KindFloat, HasReturn: true},
+
 	// Случайные числа (криптографически стойкий источник - arc4random* в
 	// cbackend, crypto/rand в интерпретаторе - НЕ math/rand/rand(), см.
 	// package doc random.go в обоих backend'ах).

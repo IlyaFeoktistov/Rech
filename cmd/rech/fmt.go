@@ -12,20 +12,27 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/module"
 )
 
-// runFmt - "rech fmt [--write|-w] <файл.rech>|<каталог>" - тем же принципом,
-// что "gofmt": без --write печатает
-// отформатированный текст в stdout (для файла), с --write переписывает на
-// месте. Каталог обходится рекурсивно (все ".rech", пропускает скрытые
-// каталоги, тем же принципом, что testrunner.Discover) - без --write
-// печатать содержимое сразу нескольких файлов подряд в stdout бессмысленно,
-// поэтому для каталога --write обязателен.
+// runFmt - "rech fmt [--write|-w | --check] <файл.rech>|<каталог>" - тем же
+// принципом, что "gofmt": без флагов печатает отформатированный текст в
+// stdout (для файла), с --write переписывает на месте, с --check ничего не
+// пишет и не переписывает - только проверяет (тем же принципом, что
+// "gofmt -l"): печатает путь КАЖДОГО файла, который "rech fmt --write"
+// изменил бы, и возвращает false, если такой файл нашёлся хоть один - для
+// CI ("проект отформатирован?"), без побочного эффекта записи. Каталог
+// обходится рекурсивно (все ".rech", пропускает скрытые каталоги, тем же
+// принципом, что testrunner.Discover) - без --write/--check печатать
+// содержимое сразу нескольких файлов подряд в stdout бессмысленно, поэтому
+// для каталога один из двух обязателен.
 func runFmt(args []string) bool {
 	write := false
+	check := false
 	var target string
 	for _, a := range args {
 		switch a {
 		case "--write", "-w":
 			write = true
+		case "--check":
+			check = true
 		default:
 			if target != "" {
 				fmt.Fprintf(os.Stderr, "ошибка: лишний аргумент %q\n", a)
@@ -34,8 +41,12 @@ func runFmt(args []string) bool {
 			target = a
 		}
 	}
+	if write && check {
+		fmt.Fprintln(os.Stderr, "ошибка: --write и --check несовместимы")
+		return false
+	}
 	if target == "" {
-		fmt.Fprintln(os.Stderr, "использование: rech fmt [--write|-w] <файл.rech>|<каталог>")
+		fmt.Fprintln(os.Stderr, "использование: rech fmt [--write|-w | --check] <файл.rech>|<каталог>")
 		return false
 	}
 
@@ -46,8 +57,8 @@ func runFmt(args []string) bool {
 	}
 
 	if info.IsDir() {
-		if !write {
-			fmt.Fprintln(os.Stderr, "ошибка: форматирование целого каталога требует --write (иначе некуда печатать сразу несколько файлов)")
+		if !write && !check {
+			fmt.Fprintln(os.Stderr, "ошибка: форматирование целого каталога требует --write или --check (иначе некуда печатать сразу несколько файлов)")
 			return false
 		}
 		files, err := discoverRechFiles(target)
@@ -57,6 +68,12 @@ func runFmt(args []string) bool {
 		}
 		ok := true
 		for _, f := range files {
+			if check {
+				if !checkOneFile(f) {
+					ok = false
+				}
+				continue
+			}
 			if !formatOneFile(f, true) {
 				ok = false
 			}
@@ -64,6 +81,9 @@ func runFmt(args []string) bool {
 		return ok
 	}
 
+	if check {
+		return checkOneFile(target)
+	}
 	return formatOneFile(target, write)
 }
 
@@ -93,6 +113,29 @@ func formatOneFile(path string, write bool) bool {
 		return false
 	}
 	return true
+}
+
+// checkOneFile - "--check" для одного файла (см. package doc runFmt выше) -
+// НЕ пишет ничего на диск ни при каком исходе, в отличие от formatOneFile.
+// Печатает путь в stdout и возвращает false, только если файл ещё не
+// отформатирован ("gofmt -l") - ошибка разбора/чтения, как и у
+// formatOneFile, идёт в stderr.
+func checkOneFile(path string) bool {
+	src, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ошибка:", err)
+		return false
+	}
+	out, err := format.Format(string(src))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ошибка: %s: %v\n", path, err)
+		return false
+	}
+	if out == string(src) {
+		return true
+	}
+	fmt.Println(path)
+	return false
 }
 
 // discoverRechFiles - тот же принцип, что internal/testrunner.Discover, но
