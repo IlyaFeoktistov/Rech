@@ -169,6 +169,10 @@ type builtinFlags struct {
 	// usesOptions - нужны ли rech_options/rech_set_options (runtime/
 	// options) - встроенные функции "опции_проекта"/"установить_опции_проекта".
 	usesOptions bool
+	// usesCwd - нужен ли rech_cwd (runtime/process/cwd.go) - встроенная
+	// функция "текущий_каталог". Подразумевает usesPanic (не удалось
+	// определить рабочий каталог - тот же rech_panic, что и везде).
+	usesCwd bool
 	// usesCrypto - нужны ли rech_hash_hex/rech_hmac_sha256_hex/
 	// rech_base64url_encode/rech_base64url_decode (crypto.go) - встроенные
 	// функции "хеш"/"подпись_hmac_sha256"/"закодировать_base64url"/
@@ -943,6 +947,10 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 	case "текущая_ос":
 		flags.usesCurrentOS = true
 		return "rech_current_os", true
+	case "текущий_каталог":
+		flags.usesCwd = true
+		flags.usesPanic = true
+		return "rech_cwd()", true
 	case "содержит":
 		// usesStrCmp - тот же флаг, что и у "==" между Строка - оба нужны
 		// исключительно за <string.h>, здесь - за strstr.

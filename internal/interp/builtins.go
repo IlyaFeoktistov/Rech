@@ -241,6 +241,12 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		// для "#если ОС.<Член>"/"_windows.rech"-суффиксов - не копия одного
 		// и того же switch в двух местах.
 		return intValue(ast.PlatformIndex(ast.CurrentPlatform())), true
+	case "текущий_каталог":
+		wd, err := os.Getwd()
+		if err != nil {
+			panicRuntime("%s", rtmsg.CwdFailed)
+		}
+		return stringValue(wd), true
 	case "содержит":
 		return boolValue(strings.Contains(args[0].S, args[1].S)), true
 	case "сетевой_узел":

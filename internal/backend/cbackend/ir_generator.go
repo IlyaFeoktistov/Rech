@@ -1143,7 +1143,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// объявленного заголовком (найдено живьём - examples/основы/
 	// внешние_функции.rech, strlen + <string.h>, включённый совсем по
 	// другой причине - memcpy захваченной лямбды).
-	ctx.includesStringH = ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesPanicCatch || ctx.usesStringSplit || ctx.usesRegex || ctx.usesHTTPHeaders || ctx.usesHTTPHeaderValues || ctx.usesColor || ctx.usesSubprocess || hasStructTargets || prog.UsesReflection || ctx.usesTZ || ctx.usesDateParse
+	ctx.includesStringH = ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesPanicCatch || ctx.usesStringSplit || ctx.usesRegex || ctx.usesHTTPHeaders || ctx.usesHTTPHeaderValues || ctx.usesColor || ctx.usesSubprocess || ctx.usesCwd || hasStructTargets || prog.UsesReflection || ctx.usesTZ || ctx.usesDateParse
 	// usesNullables/prog.UsesReflection - те же два условия, что у panicGate
 	// (ниже) сверх её собственных: panicGate решает, эмитить ли panicHelper
 	// (безусловный exit(1)), includesStdlibH - подключать ли <stdlib.h>, где
@@ -1358,6 +1358,12 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// ничего из этого не нужно - ReadConsoleInputW уже объявлен через
 		// windows.h, подключённый безусловно выше.
 		sb.WriteString("#ifndef _WIN32\n#include <linux/input.h>\n#include <dirent.h>\n#include <fcntl.h>\n#include <poll.h>\n#include <time.h>\n#include <string.h>\n#include <unistd.h>\n#endif\n")
+	}
+	if ctx.usesCwd {
+		// <unistd.h> - POSIX getcwd() (runtime/process/cwd.go, "текущий_
+		// каталог"). На Windows не нужен - GetCurrentDirectoryW уже
+		// объявлена через windows.h, подключённый безусловно выше.
+		sb.WriteString("#ifndef _WIN32\n#include <unistd.h>\n#endif\n")
 	}
 	if ctx.usesSubprocess {
 		// <unistd.h> - fork/execvp/pipe/dup2/chdir/_exit. <sys/wait.h> -
@@ -1947,6 +1953,11 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// эмитировать в любом месте после panicHelper, тем же принципом, что и
 	// usesHTTPHeaders ниже.
 	appendCodeIf(&sb, ctx.usesOptions, options.Helpers(escapeCString(prog.OptionsYAML)))
+	// Не зависит от typedefs (обычная "Строка", не nullable) - тем же
+	// принципом, что и usesEnv/usesOptions выше; требует panicHelper (уже
+	// эмитирован - usesCwd подразумевает usesPanic, см. package doc
+	// builtinFlags.usesCwd).
+	appendCodeIf(&sb, ctx.usesCwd, process.CwdHelper(escapeCString(rtmsg.CwdFailed)))
 	// После typedefs (rech_T_n_stroka уже объявлен) - тем же принципом,
 	// что и usesEnv/usesCookies выше.
 	appendCodeIf(&sb, ctx.usesHTTPHeaders, httpwire.HeaderValueHelper(mangleType("?Строка")))
