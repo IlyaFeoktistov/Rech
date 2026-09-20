@@ -608,7 +608,11 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			if sig.staticFieldIndex(s.Field) != -1 {
 				return nil, errAtLine(s.Line, CodeStmtCheck, "%q - статическое поле сущности %q, присваивать только через \"%s::%s\", не через экземпляр", s.Field, typ.Entity, typ.Entity, s.Field)
 			}
-			return nil, errAtLine(s.Line, CodeNameResolution, "у сущности %q нет поля %q", typ.Entity, s.Field)
+			d := errAtLine(s.Line, CodeNameResolution, "у сущности %q нет поля %q", typ.Entity, s.Field)
+			if hint := suggestNameHint(s.Field, sig.FieldNames); hint != "" {
+				d.WithHint("%s", hint)
+			}
+			return nil, d
 		}
 		if err := checkFieldVisibility(sc, typ.Entity, s.Field, sig.FieldVisibility[idx], s.Line); err != nil {
 			return nil, err

@@ -23,12 +23,17 @@ var (
 )
 
 // errAt строит диагностику парсера с позицией (в рунах - см. package doc
-// internal/lexer.Lexer про Line/Col).
-func errAt(line, col int, code, format string, args ...any) error {
+// internal/lexer.Lexer про Line/Col). Возвращает *diagnostics.Diagnostic, не
+// error - удовлетворяет error в обычном "return nil, errAt(...)"
+// (интерфейс реализован указателем) и одновременно позволяет вызывающей
+// стороне дописать подсказку цепочкой errAt(...).WithHint(...) там, где она
+// есть (например, модификаторы согласования рода - см. entity.go/
+// modvisibility.go).
+func errAt(line, col int, code, format string, args ...any) *diagnostics.Diagnostic {
 	return diagnostics.New(code, diagnostics.Position{Line: line, Col: col}, format, args...)
 }
 
 // errAtLine - errAt без известной колонки.
-func errAtLine(line int, code, format string, args ...any) error {
+func errAtLine(line int, code, format string, args ...any) *diagnostics.Diagnostic {
 	return diagnostics.New(code, diagnostics.Position{Line: line}, format, args...)
 }

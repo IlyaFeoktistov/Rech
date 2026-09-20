@@ -75,7 +75,8 @@ func (p *Parser) parseAsyncModifier() (bool, error) {
 	}
 	tok := p.advance()
 	if tok.Value != "асинхронная" {
-		return false, errAt(tok.Line, tok.Col, CodeModifierAgree, "модификатор согласуется со словом \"функция\" (женский род) - ожидалось \"асинхронная\", получено %q", tok.Value)
+		return false, errAt(tok.Line, tok.Col, CodeModifierAgree, "модификатор согласуется со словом \"функция\" (женский род)").
+			WithHint("ожидалось \"асинхронная\", получено %q", tok.Value)
 	}
 	if p.cur().Type != lexer.KwFunction {
 		return false, errAt(p.cur().Line, p.cur().Col, CodeUnexpectedToken, "после \"асинхронная\" ожидалось \"функция\" (модификатор пока поддерживается только для обычных функций - не методов, не сущностей, не \"экспортировать\"), получено %q", p.cur().Value)

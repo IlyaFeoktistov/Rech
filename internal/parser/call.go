@@ -149,7 +149,8 @@ func (p *Parser) checkNewKeywordAgreement(kw lexer.Token, typeName string) error
 	}
 	want := morph.NewKeywordFor(gender, number)
 	if kw.Value != want {
-		return errAt(kw.Line, kw.Col, CodeModifierAgree, "сущность %q требует форму %q, получено %q", typeName, want, kw.Value)
+		return errAt(kw.Line, kw.Col, CodeModifierAgree, "модификатор \"новый\" не согласован по роду с сущностью %q", typeName).
+			WithHint("требует форму %q, получено %q", want, kw.Value)
 	}
 	return nil
 }

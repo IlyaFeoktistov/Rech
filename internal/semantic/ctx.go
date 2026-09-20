@@ -355,6 +355,26 @@ func (c *ctx) lookup(name string) (ir.Type, bool) {
 	return typ, true
 }
 
+// visibleNames возвращает имена всех переменных, видимых в текущей точке
+// (собственные scopes, от внешних к внутренним - порядок не важен для
+// единственного вызывающего места, suggestNameHint) плюс, если есть,
+// видимые из объемлющего ctx (тело лямбды - см. package doc ctx.parent) -
+// используется только для подсказки "возможно, имелось в виду %q" у
+// необъявленного имени (см. internal/semantic/suggest.go), не для
+// разрешения имён.
+func (c *ctx) visibleNames() []string {
+	var out []string
+	for _, sc := range c.scopes {
+		for name := range sc {
+			out = append(out, name)
+		}
+	}
+	if c.parent != nil {
+		out = append(out, c.parent.visibleNames()...)
+	}
+	return out
+}
+
 // markConst помечает уже объявленную (declare уже вызван) переменную name
 // в самой внутренней области видимости как константу - вызывается сразу
 // после declare в analyzeStmt (*ast.ConstDecl), никогда отдельно.

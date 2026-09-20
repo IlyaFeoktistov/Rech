@@ -81,8 +81,8 @@ func (p *Parser) parseModuleVisibility() (ast.Visibility, error) {
 		return ast.Public, diagnostics.WithPos(err, diagnostics.Position{Line: tok.Line, Col: tok.Col})
 	}
 	if tok.Value != want {
-		return ast.Public, errAt(tok.Line, tok.Col, CodeModifierAgree, "модификатор видимости согласуется со словом %q - ожидалось %q, получено %q",
-			governing.String(), want, tok.Value)
+		return ast.Public, errAt(tok.Line, tok.Col, CodeModifierAgree, "модификатор видимости согласуется со словом %q", governing.String()).
+			WithHint("ожидалось %q, получено %q", want, tok.Value)
 	}
 	return vis, nil
 }

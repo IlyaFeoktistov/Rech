@@ -163,7 +163,8 @@ func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
 	if p.cur().Type == lexer.KwStatic {
 		tok := p.advance()
 		if tok.Value != "статический" {
-			return nil, errAt(tok.Line, tok.Col, CodeModifierAgree, "у метода модификатор \"статический\" не согласуется по роду (метод - не существительное) - нужна форма \"статический\", получено %q", tok.Value)
+			return nil, errAt(tok.Line, tok.Col, CodeModifierAgree, "у метода модификатор \"статический\" не согласуется по роду (метод - не существительное)").
+				WithHint("нужна форма \"статический\", получено %q", tok.Value)
 		}
 		isStatic = true
 	}
@@ -173,7 +174,8 @@ func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
 		vis = visibilityFromToken(tok)
 		want := methodVisibilityWord(vis)
 		if tok.Value != want {
-			return nil, errAt(tok.Line, tok.Col, CodeModifierAgree, "у метода модификатор видимости не согласуется по роду (метод - не существительное) - нужна форма %q, получено %q", want, tok.Value)
+			return nil, errAt(tok.Line, tok.Col, CodeModifierAgree, "у метода модификатор видимости не согласуется по роду (метод - не существительное)").
+				WithHint("нужна форма %q, получено %q", want, tok.Value)
 		}
 	}
 	var isOperator bool
@@ -482,7 +484,8 @@ func checkStaticAgreement(kw lexer.Token, fieldName string) error {
 	}
 	want := staticKeywordFor(gender, number)
 	if kw.Value != want {
-		return errAt(kw.Line, kw.Col, CodeModifierAgree, "модификатор \"статический\" не согласован по роду с именем поля - требует форму %q, получено %q", want, kw.Value)
+		return errAt(kw.Line, kw.Col, CodeModifierAgree, "модификатор \"статический\" не согласован по роду с именем поля").
+			WithHint("требует форму %q, получено %q", want, kw.Value)
 	}
 	return nil
 }
@@ -572,7 +575,8 @@ func checkVisibilityAgreement(kw lexer.Token, vis ast.Visibility, fieldName stri
 	}
 	want := visibilityKeywordFor(vis, gender, number)
 	if kw.Value != want {
-		return errAt(kw.Line, kw.Col, CodeModifierAgree, "требует форму модификатора видимости %q, получено %q", want, kw.Value)
+		return errAt(kw.Line, kw.Col, CodeModifierAgree, "модификатор видимости поля не согласован по роду/числу с его именем").
+			WithHint("требует форму %q, получено %q", want, kw.Value)
 	}
 	return nil
 }
@@ -587,7 +591,8 @@ func checkVisibilityAgreement(kw lexer.Token, vis ast.Visibility, fieldName stri
 func checkConstVisibilityAgreement(kw lexer.Token) error {
 	want := visibilityKeywordFor(visibilityFromToken(kw), morph.Feminine, morph.Singular)
 	if kw.Value != want {
-		return errAt(kw.Line, kw.Col, CodeModifierAgree, "перед \"константа\" модификатор видимости согласуется со словом \"константа\" (женский род, единственное число) - ожидалось %q, получено %q", want, kw.Value)
+		return errAt(kw.Line, kw.Col, CodeModifierAgree, "перед \"константа\" модификатор видимости согласуется со словом \"константа\" (женский род, единственное число)").
+			WithHint("ожидалось %q, получено %q", want, kw.Value)
 	}
 	return nil
 }

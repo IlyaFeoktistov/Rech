@@ -60,8 +60,14 @@ var currentFile string
 
 // errAtLine строит диагностику семантики с позицией (только строка -
 // семантика не сохраняет столбец у большинства узлов AST/IR, в отличие от
-// лексера/парсера) и currentFile (см. package doc выше).
-func errAtLine(line int, code, format string, args ...any) error {
+// лексера/парсера) и currentFile (см. package doc выше). Возвращает
+// *diagnostics.Diagnostic, не error - удовлетворяет error в обычном
+// "return nil, errAtLine(...)" (интерфейс реализован указателем) и
+// одновременно позволяет вызывающей стороне дописать подсказку цепочкой
+// errAtLine(...).WithHint(...) там, где она есть (см. package doc
+// internal/semantic/suggest.go) - без этого пришлось бы заводить отдельную
+// errAtLineHint-функцию только ради двух-трёх мест с подсказкой.
+func errAtLine(line int, code, format string, args ...any) *diagnostics.Diagnostic {
 	return diagnostics.New(code, diagnostics.Position{File: currentFile, Line: line}, format, args...)
 }
 
@@ -69,6 +75,6 @@ func errAtLine(line int, code, format string, args ...any) error {
 // package doc internal/diagnostics.Position.Line, Render просто не
 // печатает сниппет), но с тем же currentFile - позволяет хотя бы назвать
 // файл в заголовке диагностики.
-func errNoPos(code, format string, args ...any) error {
+func errNoPos(code, format string, args ...any) *diagnostics.Diagnostic {
 	return diagnostics.New(code, diagnostics.Position{File: currentFile}, format, args...)
 }

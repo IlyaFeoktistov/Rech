@@ -185,7 +185,11 @@ func (defaultBackend) Generate(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, d
 	irProg.ExternHeaders = externHeaders
 	irProg.OptionsYAML = optionsYAML
 
-	return cbackend.GenerateFromIR(irProg)
+	src, err := cbackend.GenerateFromIR(irProg)
+	if err != nil {
+		return "", diagnostics.Internal(err)
+	}
+	return src, nil
 }
 
 func (defaultBackend) GenerateLib(prog *ast.Program, libRoot string, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int, externHeaders []string, optionsYAML string) (string, string, map[string]string, error) {
@@ -210,7 +214,11 @@ func (defaultBackend) GenerateLib(prog *ast.Program, libRoot string, dbPoolSize,
 	irProg.ExternHeaders = externHeaders
 	irProg.OptionsYAML = optionsYAML
 
-	return cbackend.GenerateLibFromIR(irProg, libRoot)
+	cSource, header, stubs, err := cbackend.GenerateLibFromIR(irProg, libRoot)
+	if err != nil {
+		return "", "", nil, diagnostics.Internal(err)
+	}
+	return cSource, header, stubs, nil
 }
 
 // Compiler связывает Frontend, Backend и Toolchain в единый пайплайн
@@ -387,7 +395,7 @@ func (c *Compiler) compileLibProgram(prog *ast.Program, base, libRoot, stubDir s
 	libExt := c.Toolchain.LibExtension()
 	tmpLibPath := tmpBase + libExt
 	if err := c.Toolchain.CompileLib(tmpCPath, tmpLibPath, extraLibs, extraLibPaths); err != nil {
-		return "", "", nil, err
+		return "", "", nil, diagnostics.Internal(err)
 	}
 
 	libPath = base + libExt
@@ -505,7 +513,7 @@ func (c *Compiler) compileProgram(prog *ast.Program, base string, keepC bool, ex
 		return "", fmt.Errorf("не удалось записать %s: %w", tmpCPath, err)
 	}
 	if err := c.Toolchain.CompileC(tmpCPath, tmpBase, extraLibs, extraLibPaths); err != nil {
-		return "", err
+		return "", diagnostics.Internal(err)
 	}
 
 	// Некоторые тулчейны (mingw gcc на Windows) сами добавляют ".exe" к

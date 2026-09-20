@@ -69,7 +69,11 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 			if _, isModuleConst := sc.a.moduleConstExprs[e.Name]; isModuleConst {
 				return resolveModuleConstant(sc, e.Name, e.Line)
 			}
-			return nil, errAtLine(e.Line, CodeNameResolution, "переменная %q не объявлена", e.Name)
+			d := errAtLine(e.Line, CodeNameResolution, "переменная %q не объявлена", e.Name)
+			if hint := suggestNameHint(e.Name, sc.visibleNames()); hint != "" {
+				d.WithHint("%s", hint)
+			}
+			return nil, d
 		}
 		// Захвачено лямбдой по ссылке ("&имя" в явном списке захвата,
 		// package doc ir.CaptureVar) - чтение прозрачно идёт через
@@ -174,7 +178,11 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 			if sig.staticFieldIndex(e.Field) != -1 {
 				return nil, errAtLine(e.Line, CodeExprCheck, "%q - статическое поле сущности %q, доступ только через \"%s::%s\", не через экземпляр", e.Field, typ.Entity, typ.Entity, e.Field)
 			}
-			return nil, errAtLine(e.Line, CodeNameResolution, "у сущности %q нет поля %q", typ.Entity, e.Field)
+			d := errAtLine(e.Line, CodeNameResolution, "у сущности %q нет поля %q", typ.Entity, e.Field)
+			if hint := suggestNameHint(e.Field, sig.FieldNames); hint != "" {
+				d.WithHint("%s", hint)
+			}
+			return nil, d
 		}
 		if err := checkFieldVisibility(sc, typ.Entity, e.Field, sig.FieldVisibility[idx], e.Line); err != nil {
 			return nil, err
@@ -928,7 +936,11 @@ func analyzeUnaryExpr(sc *ctx, e *ast.UnaryExpr) (ir.Expr, error) {
 func analyzeIncDecExpr(sc *ctx, e *ast.IncDecExpr) (ir.Expr, error) {
 	typ, ok := sc.lookup(e.Name)
 	if !ok {
-		return nil, errAtLine(e.Line, CodeNameResolution, "переменная %q не объявлена", e.Name)
+		d := errAtLine(e.Line, CodeNameResolution, "переменная %q не объявлена", e.Name)
+		if hint := suggestNameHint(e.Name, sc.visibleNames()); hint != "" {
+			d.WithHint("%s", hint)
+		}
+		return nil, d
 	}
 	if _, isByRef := sc.byRefPointerType(e.Name); isByRef {
 		baseOp := "+"
@@ -997,6 +1009,20 @@ func analyzeBinaryExpr(sc *ctx, e *ast.BinaryExpr) (ir.Expr, error) {
 	case "+":
 		if lt == ir.TypeString && rt == ir.TypeString {
 			return &ir.BinaryExpr{Op: "+", Left: left, Right: right, Type: ir.TypeString}, nil
+		}
+		if (lt == ir.TypeString) != (rt == ir.TypeString) {
+			// Ровно один операнд - Строка, другой - нет: похоже на попытку
+			// конкатенации без явного приведения ("+" не приводит операнды
+			// автоматически, docs/SPEC.md) - частая грабля новичка, у неё
+			// есть единственное, безошибочное исправление, поэтому - подсказка,
+			// а не просто generic "оператор не поддерживается" из
+			// analyzeArithmetic ниже.
+			other := rt
+			if lt != ir.TypeString {
+				other = lt
+			}
+			return nil, errAtLine(e.Line, CodeExprCheck, "\"+\" не приводит операнды автоматически - Строка и %s нельзя сложить напрямую", other).
+				WithHint("оберните операнд в явное приведение: ... + (Строка) ...")
 		}
 		return analyzeArithmetic(e, left, lt, right, rt)
 

@@ -23,6 +23,28 @@ func AsDiagnostic(err error) *Diagnostic {
 	return &Diagnostic{Message: err.Error()}
 }
 
+// Internal оборачивает err в Diagnostic с кодом CodeInternal, если он ещё
+// не диагностика (errors.As находит *Diagnostic/*Bag глубже в цепочке -
+// тогда err возвращается как есть, ничего не оборачивая) - единая точка
+// для ошибок cbackend/toolchain (internal/compiler.defaultBackend): это
+// нарушенные инварианты самого компилятора ("не реализовано в IR"), не
+// ошибка пользователя в исходнике - см. package doc CodeInternal в
+// codes.go, там же единственное место, ГДЕ используется этот код.
+func Internal(err error) error {
+	if err == nil {
+		return nil
+	}
+	var d *Diagnostic
+	if errors.As(err, &d) {
+		return err
+	}
+	var b *Bag
+	if errors.As(err, &b) {
+		return err
+	}
+	return &Diagnostic{Code: CodeInternal, Message: err.Error()}
+}
+
 // WithFile проставляет Pos.File у диагностики внутри err, если она ещё не
 // установлена - лексер/парсер сами не знают путь разбираемого файла (их
 // вход - голый текст, см. Frontend.Parse(src string)), только вызывающая

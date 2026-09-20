@@ -806,7 +806,8 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 			want = "абстрактный"
 		}
 		if abstractTok.Value != want {
-			return nil, errAt(abstractTok.Line, abstractTok.Col, CodeModifierAgree, "перед %q модификатор согласуется по роду - ожидалось %q, получено %q", kw.Value, want, abstractTok.Value)
+			return nil, errAt(abstractTok.Line, abstractTok.Col, CodeModifierAgree, "перед %q модификатор согласуется по роду", kw.Value).
+				WithHint("ожидалось %q, получено %q", want, abstractTok.Value)
 		}
 	}
 

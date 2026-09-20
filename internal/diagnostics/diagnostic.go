@@ -63,13 +63,22 @@ type Diagnostic struct {
 
 // Error - текстовое summary без сниппета (для %w/логов/тестов, которые
 // матчат текст ошибки подстрокой - см. Message, а не Error(), если нужен
-// сам текст без кода/позиции).
+// сам текст без кода/позиции/подсказки). Hint, если есть, дописывается в
+// скобках в конце - без этого текст диагностики с подсказкой (например,
+// рассогласование рода модификатора - ожидалась форма/фактическая форма
+// теперь в Hint, не в Message, см. package doc Diagnostic.Hint) терял бы
+// при печати через plain error ровно ту часть, ради которой он раньше был
+// в основном сообщении.
 func (d *Diagnostic) Error() string {
+	msg := d.Message
+	if d.Hint != "" {
+		msg = fmt.Sprintf("%s (подсказка: %s)", msg, d.Hint)
+	}
 	if d.Pos.File == "" && d.Pos.Line == 0 {
 		if d.Code == "" {
-			return d.Message
+			return msg
 		}
-		return fmt.Sprintf("[%s] %s", d.Code, d.Message)
+		return fmt.Sprintf("[%s] %s", d.Code, msg)
 	}
 	loc := fmt.Sprintf("строка %d", d.Pos.Line)
 	if d.Pos.Col > 0 {
@@ -79,9 +88,9 @@ func (d *Diagnostic) Error() string {
 		loc = fmt.Sprintf("%s:%s", d.Pos.File, loc)
 	}
 	if d.Code == "" {
-		return fmt.Sprintf("%s: %s", loc, d.Message)
+		return fmt.Sprintf("%s: %s", loc, msg)
 	}
-	return fmt.Sprintf("[%s] %s: %s", d.Code, loc, d.Message)
+	return fmt.Sprintf("[%s] %s: %s", d.Code, loc, msg)
 }
 
 // New строит диагностику с позицией. code - "" допустим (см. package doc
