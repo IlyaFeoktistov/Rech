@@ -246,6 +246,20 @@ func (a *Analyzer) markDBConnString(lit *ast.StringLiteral) {
 // на сущность (или производный тип), уже занесённую к этому моменту
 // (объявленную раньше в файле, включая саму N) - та же граница, что и в
 // cbackend.
+//
+// Ошибка ОДНОЙ сущности (collectOneEntity) не останавливает весь проход:
+// собирается в bag, а сама сущность получает entitySig.Poisoned-заглушку
+// вместо настоящей сигнатуры, и цикл переходит к следующей - тем же
+// принципом, что и buildIR (см. её package doc), НО с дополнительной
+// заглушкой вместо простого "не попадает в out": здесь, в отличие от
+// buildIR, последующие сущности программы ЗАВИСят от того, что имя уже
+// зарегистрировано (поле/параметр может ссылаться на сломанную сущность
+// как на тип) - без заглушки такая ссылка дала бы вторую, вводящую в
+// заблуждение диагностику "необъявленное имя" вдобавок к настоящей
+// причине. Если bag непуст к концу прохода, дальнейшие фазы Analyze
+// (collectFuncSigs и т.д.) не запускаются вовсе - заглушки существуют
+// только чтобы не портить диагностику ЭТОГО прохода, не как основа для
+// продолжения компиляции.
 func (a *Analyzer) collectEntities(prog *ast.Program) error {
 	entities := map[string]entitySig{}
 	methods := map[string]map[string]funcSig{}
@@ -297,219 +311,276 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 		CtorParamNames: []string{"сообщение"},
 	}
 	methods["Исключение"] = map[string]funcSig{}
+	// bag - собирает диагностики НЕЗАВИСИМЫХ объявлений (и "внешняя
+	// сущность" ниже, и обычных сущностей дальше) за один прогон, вместо
+	// остановки на первой - тем же принципом, что и buildIR (см. её package
+	// doc). "Независимых" - в смысле их СОБСТВЕННЫХ ошибок объявления
+	// (дублирующееся имя, недопустимый тип поля и т.п.): сигнатура ОДНОЙ
+	// сущности по-прежнему может быть НУЖНА для проверки другой
+	// (наследование, поле-тип) - именно поэтому упавшее объявление не
+	// просто пропускается, а получает entitySig.Poisoned-заглушку в
+	// entities/methods (см. collectOneEntity ниже) - ссылка на неё из
+	// корректного объявления резолвится как обычно, не порождая вторую,
+	// вводящую в заблуждение ошибку "необъявленное имя" вдобавок к
+	// настоящей причине.
+	bag := diagnostics.NewBag()
 	// "внешняя сущность" - непрозрачные внешние типы (FFI) - регистрируются
 	// раньше пользовательских сущностей ниже той же коллизией имён
 	// (entities/aliases/interfaces): у них нет полей/методов, resolveTypeName
 	// узнаёт их по entitySig.IsExternOpaque и резолвит в ir.ExternEntityType,
 	// не ir.EntityType.
 	for _, extEnt := range prog.ExternEntities {
-		if builtins.ReservedEntityNames[extEnt.Alias] {
-			return errNoPos(CodeEntityDecl, "внешняя сущность %q - зарезервированное имя встроенной сущности, нельзя объявить с этим именем", extEnt.Alias)
+		var err error
+		switch {
+		case builtins.ReservedEntityNames[extEnt.Alias]:
+			err = errNoPos(CodeEntityDecl, "внешняя сущность %q - зарезервированное имя встроенной сущности, нельзя объявить с этим именем", extEnt.Alias)
+		default:
+			if _, exists := entities[extEnt.Alias]; exists {
+				err = errNoPos(CodeDuplicateDecl, "внешняя сущность %q: имя уже занято", extEnt.Alias)
+			} else if other, exists := aliases[extEnt.Alias]; exists {
+				err = errNoPos(CodeDuplicateDecl, "внешняя сущность %q: имя совпадает с производным типом состояния, уже занятым сущностью %q", extEnt.Alias, other)
+			} else if _, exists := a.interfaces[extEnt.Alias]; exists {
+				err = errNoPos(CodeDuplicateDecl, "внешняя сущность %q: имя совпадает с уже объявленным интерфейсом", extEnt.Alias)
+			}
 		}
-		if _, exists := entities[extEnt.Alias]; exists {
-			return errNoPos(CodeDuplicateDecl, "внешняя сущность %q: имя уже занято", extEnt.Alias)
-		}
-		if other, exists := aliases[extEnt.Alias]; exists {
-			return errNoPos(CodeDuplicateDecl, "внешняя сущность %q: имя совпадает с производным типом состояния, уже занятым сущностью %q", extEnt.Alias, other)
-		}
-		if _, exists := a.interfaces[extEnt.Alias]; exists {
-			return errNoPos(CodeDuplicateDecl, "внешняя сущность %q: имя совпадает с уже объявленным интерфейсом", extEnt.Alias)
+		if err != nil {
+			bag.AddErr(err)
+			if _, exists := entities[extEnt.Alias]; !exists {
+				entities[extEnt.Alias] = entitySig{IsExternOpaque: true, Poisoned: true}
+			}
+			continue
 		}
 		entities[extEnt.Alias] = entitySig{IsExternOpaque: true}
 	}
 	for _, ent := range prog.Entities {
 		currentFile = ent.File
-		if builtins.ReservedEntityNames[ent.Name] && !builtins.ShadowableEntityNames[ent.Name] {
-			return errNoPos(CodeEntityDecl, "сущность %q - зарезервированное имя встроенной сущности, нельзя объявить свою сущность с этим именем", ent.Name)
-		}
-		if _, exists := entities[ent.Name]; exists {
-			return errNoPos(CodeDuplicateDecl, "сущность %q объявлена более одного раза", ent.Name)
-		}
-		if other, exists := aliases[ent.Name]; exists {
-			return errNoPos(CodeDuplicateDecl, "сущность %q: имя совпадает с производным типом состояния, уже занятым сущностью %q", ent.Name, other)
-		}
-		if _, exists := a.interfaces[ent.Name]; exists {
-			return errNoPos(CodeDuplicateDecl, "сущность %q: имя совпадает с уже объявленным интерфейсом", ent.Name)
-		}
-		if err := a.checkGenericConstraints(entities, methods, aliases, enums, ent.Name); err != nil {
-			return err
-		}
-		var sig entitySig
-
-		// Собираем константы, если есть
-		for _, c := range ent.Constants {
-			if sig.fieldIndex(c.Name) != -1 {
-				return errNoPos(CodeDuplicateDecl, "сущность %q: константа %q конфликтует с полем с тем же именем", ent.Name, c.Name)
+		if err := a.collectOneEntity(entities, methods, aliases, aliasState, enums, ent); err != nil {
+			// err уже несёт "сущность %q: ..." (каждый errNoPos/diagnostics.Wrap
+			// внутри collectOneEntity формирует его сам) - здесь оборачивать
+			// повторно не нужно, в отличие от buildIR (см. её package doc),
+			// чьи вызовы analyzeEntity - универсальные, без такого префикса.
+			bag.AddErr(err)
+			// Заглушка - см. package doc bag выше и entitySig.Poisoned.
+			// "Только если ещё не зарегистрирована" - для ошибки "уже
+			// объявлена" запись под этим именем принадлежит РАНЕЕ
+			// обработанной, настоящей сущности - затирать её нельзя.
+			if _, exists := entities[ent.Name]; !exists {
+				entities[ent.Name] = entitySig{Poisoned: true}
 			}
-			if sig.constIndex(c.Name) != -1 {
-				return errNoPos(CodeDuplicateDecl, "сущность %q: константа %q объявлена более одного раза", ent.Name, c.Name)
+			if _, exists := methods[ent.Name]; !exists {
+				methods[ent.Name] = map[string]funcSig{}
 			}
-			sig.ConstNames = append(sig.ConstNames, c.Name)
-			sig.ConstExprs = append(sig.ConstExprs, c.Value)
-			sig.ConstDocs = append(sig.ConstDocs, c.Doc)
-			sig.ConstVisibility = append(sig.ConstVisibility, c.Visibility)
-		}
-
-		for _, f := range ent.Fields {
-			if sig.fieldIndex(f.Name) != -1 || sig.staticFieldIndex(f.Name) != -1 || sig.constIndex(f.Name) != -1 {
-				return errNoPos(CodeDuplicateDecl, "сущность %q: поле %q объявлено более одного раза", ent.Name, f.Name)
-			}
-			typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, f.Type)
-			if err != nil {
-				return diagnostics.Wrap(err, "сущность %q: поле %q", ent.Name, f.Name)
-			}
-			if ent.IsExternStruct && !isFFIType(entities, methods, aliases, a.interfaces, enums, typ) {
-				return errNoPos(CodeEntityDecl, "внешняя структура %q: поле %q имеет тип %s - допустимы только примитивы (Целое/Целое8/16/32/64/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\") и \"Указатель<T>\" над FFI-совместимым T - иначе реальный размер C-структуры был бы искажён", ent.Name, f.Name, typ)
-			}
-			if f.IsStatic {
-				if ent.IsExternStruct {
-					return errNoPos(CodeEntityDecl, "внешняя структура %q: статическое поле %q недопустимо - у внешней структуры разрешены только поля FFI-совместимого C-представления", ent.Name, f.Name)
-				}
-				sig.StaticFieldNames = append(sig.StaticFieldNames, f.Name)
-				sig.StaticFieldTypes = append(sig.StaticFieldTypes, typ)
-				sig.StaticFieldVisibility = append(sig.StaticFieldVisibility, f.Visibility)
-				sig.StaticFieldDefaultExprs = append(sig.StaticFieldDefaultExprs, f.Default)
-				continue
-			}
-			sig.FieldNames = append(sig.FieldNames, f.Name)
-			sig.FieldTypes = append(sig.FieldTypes, typ)
-			sig.FieldDocs = append(sig.FieldDocs, f.Doc)
-			sig.FieldTags = append(sig.FieldTags, f.Tag)
-			sig.FieldVisibility = append(sig.FieldVisibility, f.Visibility)
-			sig.FieldDefaultExprs = append(sig.FieldDefaultExprs, f.Default)
-		}
-		if len(ent.States) > 0 {
-			sig.States = map[string]string{}
-			for _, st := range ent.States {
-				sig.States[st.BecomeForm] = st.Name
-				sig.StateNames = append(sig.StateNames, st.Name)
-				if _, exists := entities[st.TypeName]; exists {
-					return errNoPos(CodeDuplicateDecl, "сущность %q: производный тип состояния %q совпадает с именем уже объявленной сущности", ent.Name, st.TypeName)
-				}
-				if other, exists := aliases[st.TypeName]; exists && other != ent.Name {
-					return errNoPos(CodeEntityDecl, "сущность %q: производный тип состояния %q уже используется сущностью %q", ent.Name, st.TypeName, other)
-				}
-				aliases[st.TypeName] = ent.Name
-				aliasState[st.TypeName] = st.Name
-			}
-			sig.HasStateFlags = true
-		}
-		sig.IsStruct = ent.IsStruct
-		sig.IsAbstract = ent.IsAbstract
-		sig.IsExternStruct = ent.IsExternStruct
-		// Регистрируется уже сейчас (до разбора методов), не только после
-		// сплющивания с базовой сущностью ниже - иначе метод, ссылающийся
-		// на тип самой этой сущности в своей сигнатуре (параметр/результат),
-		// не смог бы её найти. Флаттенинг ниже просто перезапишет запись,
-		// когда будет готова - Type{Kind:KindEntity, Entity: ent.Name},
-		// который уже вернул resolveTypeName где угодно раньше, от этого
-		// не меняется (имя типа - не сама сигнатура по значению).
-		entities[ent.Name] = sig
-
-		// byMethodName/methodOrder - та же группировка по имени, что и в
-		// collectFuncSigs (см. package doc funcSig.MangledName) - метод
-		// может быть объявлен более одного раза ТОЛЬКО как перегрузка
-		// (разный список типов параметров).
-		byMethodName := map[string][]*ast.MethodDecl{}
-		var methodOrder []string
-		for _, m := range ent.Methods {
-			if _, seen := byMethodName[m.Name]; !seen {
-				methodOrder = append(methodOrder, m.Name)
-			}
-			byMethodName[m.Name] = append(byMethodName[m.Name], m)
-		}
-		// overloadedMethodNames - нужно ДО построения любой сигнатуры:
-		// resolveOpposesTag (тег `` `противоположность:X` ``) ищет X ПО
-		// ИМЕНИ среди ent.Methods - при перегруженном X нашёл бы ПЕРВОЕ
-		// попавшееся объявление с этим именем, произвольно (см. package doc
-		// resolveOpposesTag) - явно запрещаем такую комбинацию, а не тихо
-		// выбираем не ту перегрузку.
-		overloadedMethodNames := map[string]bool{}
-		for _, name := range methodOrder {
-			if len(byMethodName[name]) > 1 {
-				overloadedMethodNames[name] = true
+			if _, exists := a.methodOverloads[ent.Name]; !exists {
+				a.methodOverloads[ent.Name] = map[string][]funcSig{}
 			}
 		}
-		ownMethods := map[string]funcSig{}
-		ownOverloads := map[string][]funcSig{}
-		for _, name := range methodOrder {
-			decls := byMethodName[name]
-			if len(decls) == 1 {
-				msig, err := a.buildMethodSig(entities, methods, aliases, aliasState, enums, ent, decls[0], sig.States, overloadedMethodNames)
-				if err != nil {
-					return err
-				}
-				ownMethods[name] = msig
-				a.methodDeclNames[decls[0]] = name
-				continue
-			}
-			// Перегрузка - несколько методов с одним и тем же именем, разным
-			// списком типов параметров (см. package doc funcSig.MangledName).
-			var group []funcSig
-			for _, m := range decls {
-				if m.IsAbstract || m.IsStatic {
-					return errNoPos(CodeEntityDecl, "сущность %q: метод %q: перегрузка не поддерживается для абстрактных/статических методов в этой версии", ent.Name, name)
-				}
-				msig, err := a.buildMethodSig(entities, methods, aliases, aliasState, enums, ent, m, sig.States, overloadedMethodNames)
-				if err != nil {
-					return err
-				}
-				for _, other := range group {
-					if sameParamTypeList(other.Params, msig.Params) {
-						return errNoPos(CodeEntityDecl, "сущность %q: метод %q: две перегрузки с одинаковым списком типов параметров (%s) - неотличимы ни на одном вызове", ent.Name, name, paramTypesString(msig.Params))
-					}
-				}
-				msig.MangledName = overloadMangledName(name, msig.Params)
-				a.methodDeclNames[m] = msig.MangledName
-				group = append(group, msig)
-			}
-			ownOverloads[name] = group
-		}
-
-		if ent.Ctor != nil {
-			ctorParams := make([]ir.Type, len(ent.Ctor.Params))
-			ctorParamNames := make([]string, len(ent.Ctor.Params))
-			ctorParamDefaults := make([]ast.Expr, len(ent.Ctor.Params))
-			for i, p := range ent.Ctor.Params {
-				typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, p.Type)
-				if err != nil {
-					return diagnostics.Wrap(err, "сущность %q: конструктор: параметр %q", ent.Name, p.Name)
-				}
-				ctorParams[i] = typ
-				ctorParamNames[i] = p.Name
-				ctorParamDefaults[i] = p.Default
-			}
-			sig.HasCtor = true
-			sig.CtorParams = ctorParams
-			sig.CtorParamNames = ctorParamNames
-			sig.CtorParamDefaults = ctorParamDefaults
-		}
-
-		// Наследование ("наследует")/интерфейсы ("реализует") -
-		// сплющивает sig/ownMethods с базовой сущностью, если она есть, и
-		// проверяет соответствие каждому объявленному интерфейсу - см.
-		// internal/semantic/inheritance.go. methodOverloads - ТРАНЗИТИВНО
-		// сплющенные (своя группа + унаследованные от базовой) перегрузки
-		// методов этой сущности, см. package doc Analyzer.methodOverloads.
-		flatSig, flatMethods, methodOverloads, err := a.applyInheritance(entities, methods, ent, sig, ownMethods, ownOverloads)
-		if err != nil {
-			return err
-		}
-		a.methodOverloads[ent.Name] = methodOverloads
-		if !ent.IsAbstract {
-			for name, msig := range flatMethods {
-				if msig.IsAbstract {
-					return errNoPos(CodeEntityDecl, "сущность %q: не реализован абстрактный метод %q - дайте ему тело или объявите саму сущность абстрактной", ent.Name, name)
-				}
-			}
-		}
-		entities[ent.Name] = flatSig
-		methods[ent.Name] = flatMethods
+	}
+	if bag.Len() > 0 {
+		return bag.AsError()
 	}
 	a.entities = entities
 	a.methods = methods
 	a.aliases = aliases
 	a.aliasState = aliasState
+	return nil
+}
+
+// collectOneEntity разбирает ОДНУ сущность ent в готовую (сплющенную по
+// инвариантам наследования) сигнатуру - вынесена из collectEntities, чтобы
+// вызывающая сторона могла поймать ошибку, поставить entitySig.Poisoned-
+// заглушку вместо остановки всего прохода и перейти к следующей сущности
+// (см. package doc collectEntities про bag/poison-маркеры). Пишет в
+// entities/methods НАПРЯМУЮ по ходу разбора, тем же принципом, что и раньше
+// (единый цикл в collectEntities): в частности, промежуточная, ещё не
+// сплющенная запись entities[ent.Name] (см. комментарий у неё ниже)
+// остаётся видна ДРУГИМ вызовам этой же функции для последующих сущностей.
+func (a *Analyzer) collectOneEntity(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, aliasState map[string]string, enums map[string]map[string]int64, ent *ast.EntityDecl) error {
+	if builtins.ReservedEntityNames[ent.Name] && !builtins.ShadowableEntityNames[ent.Name] {
+		return errNoPos(CodeEntityDecl, "сущность %q - зарезервированное имя встроенной сущности, нельзя объявить свою сущность с этим именем", ent.Name)
+	}
+	if _, exists := entities[ent.Name]; exists {
+		return errNoPos(CodeDuplicateDecl, "сущность %q объявлена более одного раза", ent.Name)
+	}
+	if other, exists := aliases[ent.Name]; exists {
+		return errNoPos(CodeDuplicateDecl, "сущность %q: имя совпадает с производным типом состояния, уже занятым сущностью %q", ent.Name, other)
+	}
+	if _, exists := a.interfaces[ent.Name]; exists {
+		return errNoPos(CodeDuplicateDecl, "сущность %q: имя совпадает с уже объявленным интерфейсом", ent.Name)
+	}
+	if err := a.checkGenericConstraints(entities, methods, aliases, enums, ent.Name); err != nil {
+		return err
+	}
+	var sig entitySig
+
+	// Собираем константы, если есть
+	for _, c := range ent.Constants {
+		if sig.fieldIndex(c.Name) != -1 {
+			return errNoPos(CodeDuplicateDecl, "сущность %q: константа %q конфликтует с полем с тем же именем", ent.Name, c.Name)
+		}
+		if sig.constIndex(c.Name) != -1 {
+			return errNoPos(CodeDuplicateDecl, "сущность %q: константа %q объявлена более одного раза", ent.Name, c.Name)
+		}
+		sig.ConstNames = append(sig.ConstNames, c.Name)
+		sig.ConstExprs = append(sig.ConstExprs, c.Value)
+		sig.ConstDocs = append(sig.ConstDocs, c.Doc)
+		sig.ConstVisibility = append(sig.ConstVisibility, c.Visibility)
+	}
+
+	for _, f := range ent.Fields {
+		if sig.fieldIndex(f.Name) != -1 || sig.staticFieldIndex(f.Name) != -1 || sig.constIndex(f.Name) != -1 {
+			return errNoPos(CodeDuplicateDecl, "сущность %q: поле %q объявлено более одного раза", ent.Name, f.Name)
+		}
+		typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, f.Type)
+		if err != nil {
+			return diagnostics.Wrap(err, "сущность %q: поле %q", ent.Name, f.Name)
+		}
+		if ent.IsExternStruct && !isFFIType(entities, methods, aliases, a.interfaces, enums, typ) {
+			return errNoPos(CodeEntityDecl, "внешняя структура %q: поле %q имеет тип %s - допустимы только примитивы (Целое/Целое8/16/32/64/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\") и \"Указатель<T>\" над FFI-совместимым T - иначе реальный размер C-структуры был бы искажён", ent.Name, f.Name, typ)
+		}
+		if f.IsStatic {
+			if ent.IsExternStruct {
+				return errNoPos(CodeEntityDecl, "внешняя структура %q: статическое поле %q недопустимо - у внешней структуры разрешены только поля FFI-совместимого C-представления", ent.Name, f.Name)
+			}
+			sig.StaticFieldNames = append(sig.StaticFieldNames, f.Name)
+			sig.StaticFieldTypes = append(sig.StaticFieldTypes, typ)
+			sig.StaticFieldVisibility = append(sig.StaticFieldVisibility, f.Visibility)
+			sig.StaticFieldDefaultExprs = append(sig.StaticFieldDefaultExprs, f.Default)
+			continue
+		}
+		sig.FieldNames = append(sig.FieldNames, f.Name)
+		sig.FieldTypes = append(sig.FieldTypes, typ)
+		sig.FieldDocs = append(sig.FieldDocs, f.Doc)
+		sig.FieldTags = append(sig.FieldTags, f.Tag)
+		sig.FieldVisibility = append(sig.FieldVisibility, f.Visibility)
+		sig.FieldDefaultExprs = append(sig.FieldDefaultExprs, f.Default)
+	}
+	if len(ent.States) > 0 {
+		sig.States = map[string]string{}
+		for _, st := range ent.States {
+			sig.States[st.BecomeForm] = st.Name
+			sig.StateNames = append(sig.StateNames, st.Name)
+			if _, exists := entities[st.TypeName]; exists {
+				return errNoPos(CodeDuplicateDecl, "сущность %q: производный тип состояния %q совпадает с именем уже объявленной сущности", ent.Name, st.TypeName)
+			}
+			if other, exists := aliases[st.TypeName]; exists && other != ent.Name {
+				return errNoPos(CodeEntityDecl, "сущность %q: производный тип состояния %q уже используется сущностью %q", ent.Name, st.TypeName, other)
+			}
+			aliases[st.TypeName] = ent.Name
+			aliasState[st.TypeName] = st.Name
+		}
+		sig.HasStateFlags = true
+	}
+	sig.IsStruct = ent.IsStruct
+	sig.IsAbstract = ent.IsAbstract
+	sig.IsExternStruct = ent.IsExternStruct
+	// Регистрируется уже сейчас (до разбора методов), не только после
+	// сплющивания с базовой сущностью ниже - иначе метод, ссылающийся
+	// на тип самой этой сущности в своей сигнатуре (параметр/результат),
+	// не смог бы её найти. Флаттенинг ниже просто перезапишет запись,
+	// когда будет готова - Type{Kind:KindEntity, Entity: ent.Name},
+	// который уже вернул resolveTypeName где угодно раньше, от этого
+	// не меняется (имя типа - не сама сигнатура по значению).
+	entities[ent.Name] = sig
+
+	// byMethodName/methodOrder - та же группировка по имени, что и в
+	// collectFuncSigs (см. package doc funcSig.MangledName) - метод
+	// может быть объявлен более одного раза ТОЛЬКО как перегрузка
+	// (разный список типов параметров).
+	byMethodName := map[string][]*ast.MethodDecl{}
+	var methodOrder []string
+	for _, m := range ent.Methods {
+		if _, seen := byMethodName[m.Name]; !seen {
+			methodOrder = append(methodOrder, m.Name)
+		}
+		byMethodName[m.Name] = append(byMethodName[m.Name], m)
+	}
+	// overloadedMethodNames - нужно ДО построения любой сигнатуры:
+	// resolveOpposesTag (тег `` `противоположность:X` ``) ищет X ПО
+	// ИМЕНИ среди ent.Methods - при перегруженном X нашёл бы ПЕРВОЕ
+	// попавшееся объявление с этим именем, произвольно (см. package doc
+	// resolveOpposesTag) - явно запрещаем такую комбинацию, а не тихо
+	// выбираем не ту перегрузку.
+	overloadedMethodNames := map[string]bool{}
+	for _, name := range methodOrder {
+		if len(byMethodName[name]) > 1 {
+			overloadedMethodNames[name] = true
+		}
+	}
+	ownMethods := map[string]funcSig{}
+	ownOverloads := map[string][]funcSig{}
+	for _, name := range methodOrder {
+		decls := byMethodName[name]
+		if len(decls) == 1 {
+			msig, err := a.buildMethodSig(entities, methods, aliases, aliasState, enums, ent, decls[0], sig.States, overloadedMethodNames)
+			if err != nil {
+				return err
+			}
+			ownMethods[name] = msig
+			a.methodDeclNames[decls[0]] = name
+			continue
+		}
+		// Перегрузка - несколько методов с одним и тем же именем, разным
+		// списком типов параметров (см. package doc funcSig.MangledName).
+		var group []funcSig
+		for _, m := range decls {
+			if m.IsAbstract || m.IsStatic {
+				return errNoPos(CodeEntityDecl, "сущность %q: метод %q: перегрузка не поддерживается для абстрактных/статических методов в этой версии", ent.Name, name)
+			}
+			msig, err := a.buildMethodSig(entities, methods, aliases, aliasState, enums, ent, m, sig.States, overloadedMethodNames)
+			if err != nil {
+				return err
+			}
+			for _, other := range group {
+				if sameParamTypeList(other.Params, msig.Params) {
+					return errNoPos(CodeEntityDecl, "сущность %q: метод %q: две перегрузки с одинаковым списком типов параметров (%s) - неотличимы ни на одном вызове", ent.Name, name, paramTypesString(msig.Params))
+				}
+			}
+			msig.MangledName = overloadMangledName(name, msig.Params)
+			a.methodDeclNames[m] = msig.MangledName
+			group = append(group, msig)
+		}
+		ownOverloads[name] = group
+	}
+
+	if ent.Ctor != nil {
+		ctorParams := make([]ir.Type, len(ent.Ctor.Params))
+		ctorParamNames := make([]string, len(ent.Ctor.Params))
+		ctorParamDefaults := make([]ast.Expr, len(ent.Ctor.Params))
+		for i, p := range ent.Ctor.Params {
+			typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, p.Type)
+			if err != nil {
+				return diagnostics.Wrap(err, "сущность %q: конструктор: параметр %q", ent.Name, p.Name)
+			}
+			ctorParams[i] = typ
+			ctorParamNames[i] = p.Name
+			ctorParamDefaults[i] = p.Default
+		}
+		sig.HasCtor = true
+		sig.CtorParams = ctorParams
+		sig.CtorParamNames = ctorParamNames
+		sig.CtorParamDefaults = ctorParamDefaults
+	}
+
+	// Наследование ("наследует")/интерфейсы ("реализует") -
+	// сплющивает sig/ownMethods с базовой сущностью, если она есть, и
+	// проверяет соответствие каждому объявленному интерфейсу - см.
+	// internal/semantic/inheritance.go. methodOverloads - ТРАНЗИТИВНО
+	// сплющенные (своя группа + унаследованные от базовой) перегрузки
+	// методов этой сущности, см. package doc Analyzer.methodOverloads.
+	flatSig, flatMethods, methodOverloads, err := a.applyInheritance(entities, methods, ent, sig, ownMethods, ownOverloads)
+	if err != nil {
+		return err
+	}
+	a.methodOverloads[ent.Name] = methodOverloads
+	if !ent.IsAbstract {
+		for name, msig := range flatMethods {
+			if msig.IsAbstract {
+				return errNoPos(CodeEntityDecl, "сущность %q: не реализован абстрактный метод %q - дайте ему тело или объявите саму сущность абстрактной", ent.Name, name)
+			}
+		}
+	}
+	entities[ent.Name] = flatSig
+	methods[ent.Name] = flatMethods
 	return nil
 }
 
@@ -519,6 +590,15 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 // полностью собраны (collectEntities) - функция может ссылаться на любую
 // сущность, производный тип состояния или generic-коллекцию, независимо
 // от того, где та объявлена в файле относительно функции.
+//
+// Ошибка ОДНОГО имени/перегрузки/"внешняя функция" не останавливает весь
+// проход - собирается в общий bag, само объявление просто не попадает в
+// funcs (или получает пустую funcSig{}-заглушку, только чтобы имя
+// продолжало считаться "занятым" для последующей проверки коллизий - см.
+// комментарии у bag внутри). В отличие от collectEntities, свободная
+// функция никогда не служит ТИПОМ для сигнатуры другой (только целью
+// вызова, разрешаемой в buildIR) - настоящий poison-механизм здесь не
+// нужен, достаточно просто пропустить сломанное объявление.
 func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 	funcs := map[string]funcSig{}
 	// enums - a.enums ещё не собран (collectEnums идёт ПОСЛЕ этого прохода) -
@@ -568,22 +648,39 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 	}
 	declNames := map[*ast.FunctionDecl]string{}
 	funcOverloads := map[string][]funcSig{}
+	// bag - собирает диагностики НЕЗАВИСИМЫХ объявлений (включая "внешняя
+	// функция" ниже, collectExternFuncSigs) за один прогон, тем же
+	// принципом, что и bag в collectEntities (см. её package doc) - ошибка
+	// ОДНОГО имени/перегрузки/внешней функции не мешает разобрать
+	// следующую. В отличие от сущностей, свободная функция никогда не
+	// служит ТИПОМ для сигнатуры другой (только целью вызова, разрешаемой
+	// уже в buildIR) - poison-заглушка в funcs нужна значительно реже, лишь
+	// для того, чтобы имя, под которым сборка сигнатуры провалилась,
+	// по-прежнему считалось "уже занятым" при коллизии с "внешняя функция"
+	// того же имени ниже (funcSig{} - пустое, ничего сверх самого факта
+	// присутствия ключа от неё не требуется).
+	bag := diagnostics.NewBag()
 	for _, name := range order {
 		decls := byName[name]
 		currentFile = decls[0].File
 		if _, exists := funcs[name]; exists {
 			if builtins.IsReservedName(name) {
-				return errNoPos(CodeEntityDecl, "функция %q - зарезервированное имя встроенной функции, нельзя объявить свою функцию с этим именем", name)
+				bag.AddErr(errNoPos(CodeEntityDecl, "функция %q - зарезервированное имя встроенной функции, нельзя объявить свою функцию с этим именем", name))
+			} else {
+				bag.AddErr(errNoPos(CodeDuplicateDecl, "функция %q объявлена более одного раза", name))
 			}
-			return errNoPos(CodeDuplicateDecl, "функция %q объявлена более одного раза", name)
+			continue
 		}
 		if err := a.checkGenericConstraints(a.entities, a.methods, a.aliases, enums, name); err != nil {
-			return err
+			bag.AddErr(err)
+			continue
 		}
 		if len(decls) == 1 {
 			sig, err := a.buildFreeFuncSig(decls[0], enums)
 			if err != nil {
-				return err
+				bag.AddErr(err)
+				funcs[name] = funcSig{}
+				continue
 			}
 			funcs[name] = sig
 			declNames[decls[0]] = name
@@ -591,23 +688,37 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 		}
 		// Перегрузка - несколько объявлений с одним и тем же именем, разным
 		// списком типов параметров (см. package doc funcSig.MangledName).
+		// Каждое объявление группы разбирается НЕЗАВИСИМО от соседних - на
+		// ошибке одного (тип параметра/"экспортировать"+перегрузка/...)
+		// просто пропускается ОНО, остальные перегрузки того же имени
+		// продолжают собираться (тот же принцип, что и entities/methods в
+		// collectOneEntity).
 		var group []funcSig
 		for _, fn := range decls {
 			currentFile = fn.File
 			if fn.Exported {
-				return errNoPos(CodeEntityDecl, "функция %q: перегрузка не поддерживается для \"экспортировать\" в этой версии - C-символ вычисляется из настоящего имени функции без учёта списка параметров, коллизия с другой перегрузкой той же группы", name)
+				bag.AddErr(errNoPos(CodeEntityDecl, "функция %q: перегрузка не поддерживается для \"экспортировать\" в этой версии - C-символ вычисляется из настоящего имени функции без учёта списка параметров, коллизия с другой перегрузкой той же группы", name))
+				continue
 			}
 			if fn.IsAsync {
-				return errNoPos(CodeEntityDecl, "функция %q: перегрузка не поддерживается для \"асинхронная\" в этой версии - \"дождаться %s(...)\" резолвит целевую функцию по голому имени, без учёта списка параметров", name, name)
+				bag.AddErr(errNoPos(CodeEntityDecl, "функция %q: перегрузка не поддерживается для \"асинхронная\" в этой версии - \"дождаться %s(...)\" резолвит целевую функцию по голому имени, без учёта списка параметров", name, name))
+				continue
 			}
 			sig, err := a.buildFreeFuncSig(fn, enums)
 			if err != nil {
-				return err
+				bag.AddErr(err)
+				continue
 			}
+			dup := false
 			for _, other := range group {
 				if sameParamTypeList(other.Params, sig.Params) {
-					return errNoPos(CodeEntityDecl, "функция %q: две перегрузки с одинаковым списком типов параметров (%s) - неотличимы ни на одном вызове", name, paramTypesString(sig.Params))
+					bag.AddErr(errNoPos(CodeEntityDecl, "функция %q: две перегрузки с одинаковым списком типов параметров (%s) - неотличимы ни на одном вызове", name, paramTypesString(sig.Params)))
+					dup = true
+					break
 				}
+			}
+			if dup {
+				continue
 			}
 			sig.MangledName = overloadMangledName(name, sig.Params)
 			funcs[sig.MangledName] = sig
@@ -618,9 +729,9 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 	}
 	a.funcOverloads = funcOverloads
 	a.funcDeclNames = declNames
-	externFuncs, err := a.collectExternFuncSigs(funcs, a.entities, a.methods, a.aliases, enums, prog)
-	if err != nil {
-		return err
+	externFuncs := a.collectExternFuncSigs(bag, funcs, a.entities, a.methods, a.aliases, enums, prog)
+	if bag.Len() > 0 {
+		return bag.AsError()
 	}
 	a.funcs = funcs
 	a.externFuncs = externFuncs
@@ -711,34 +822,50 @@ func (a *Analyzer) buildMethodSig(entities map[string]entitySig, methods map[str
 // Регистрирует Alias в funcs (для проверки вызовов), возвращает
 // []*ir.ExternFuncDecl для ir.Program.ExternFuncs - настоящий C-символ
 // (CName) для кодогенерации берёт оттуда только cbackend.GenerateFromIR,
-// семантическому анализу он не нужен.
-func (a *Analyzer) collectExternFuncSigs(funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, enums map[string]map[string]int64, prog *ast.Program) ([]*ir.ExternFuncDecl, error) {
+// семантическому анализу он не нужен. Ошибка ОДНОЙ "внешняя функция" -
+// независима от остальных (нет ни перегрузки, ни ссылки одной на другую
+// внутри этого прохода) - копится в bag (тем же принципом, что остальная
+// часть collectFuncSigs, см. её package doc), не прерывая разбор следующих.
+func (a *Analyzer) collectExternFuncSigs(bag *diagnostics.Bag, funcs map[string]funcSig, entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, enums map[string]map[string]int64, prog *ast.Program) []*ir.ExternFuncDecl {
 	var out []*ir.ExternFuncDecl
 	for _, ext := range prog.ExternFuncs {
 		label := fmt.Sprintf("внешняя функция %q", ext.Alias)
 		if _, exists := funcs[ext.Alias]; exists {
 			if builtins.IsReservedName(ext.Alias) {
-				return nil, errNoPos(CodeEntityDecl, "%s - зарезервированное имя встроенной функции, нельзя объявить с этим именем", label)
+				bag.AddErr(errNoPos(CodeEntityDecl, "%s - зарезервированное имя встроенной функции, нельзя объявить с этим именем", label))
+			} else {
+				bag.AddErr(errNoPos(CodeDuplicateDecl, "имя %q уже объявлено (как функция) - нельзя повторно объявить его как внешнюю функцию", ext.Alias))
 			}
-			return nil, errNoPos(CodeDuplicateDecl, "имя %q уже объявлено (как функция) - нельзя повторно объявить его как внешнюю функцию", ext.Alias)
+			continue
 		}
 		params := make([]ir.Type, len(ext.Params))
+		failed := false
 		for i, p := range ext.Params {
 			typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, p.Type)
 			if err != nil {
-				return nil, diagnostics.Wrap(err, "%s: параметр %q", label, p.Name)
+				bag.AddErr(diagnostics.Wrap(err, "%s: параметр %q", label, p.Name))
+				failed = true
+				break
 			}
 			if !isFFIType(entities, methods, aliases, a.interfaces, enums, typ) {
-				return nil, errNoPos(CodeEntityDecl, "%s: параметр %q имеет тип %s - у внешней функции допустимы только примитивы (Целое/Целое8/16/32/64/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\"), \"Указатель<T>\" над FFI-совместимым T и \"Вызываемый(...)\" с FFI-совместимыми параметрами/результатом", label, p.Name, typ)
+				bag.AddErr(errNoPos(CodeEntityDecl, "%s: параметр %q имеет тип %s - у внешней функции допустимы только примитивы (Целое/Целое8/16/32/64/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\"), \"Указатель<T>\" над FFI-совместимым T и \"Вызываемый(...)\" с FFI-совместимыми параметрами/результатом", label, p.Name, typ))
+				failed = true
+				break
 			}
 			params[i] = typ
+		}
+		if failed {
+			funcs[ext.Alias] = funcSig{IsExtern: true}
+			continue
 		}
 		decl := &ir.ExternFuncDecl{CName: ext.CName, Alias: ext.Alias, Params: params}
 		sig := funcSig{Params: params, IsExtern: true}
 		if ext.ReturnType != "" {
 			typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, ext.ReturnType)
 			if err != nil {
-				return nil, diagnostics.Wrap(err, "%s: тип результата", label)
+				bag.AddErr(diagnostics.Wrap(err, "%s: тип результата", label))
+				funcs[ext.Alias] = sig
+				continue
 			}
 			if typ.Kind == ir.KindCallable {
 				// "Вызываемый(...)" ТИПОМ РЕЗУЛЬТАТА внешней функции (сырой
@@ -751,10 +878,14 @@ func (a *Analyzer) collectExternFuncSigs(funcs map[string]funcSig, entities map[
 				// механизме, что и параметр (marshalCallbackArg,
 				// ffi_callback.go) - сознательно отложено, параметром
 				// "Вызываемый(...)" уже поддержана (ниже).
-				return nil, errNoPos(CodeEntityDecl, "%s: тип результата - \"Вызываемый(...)\" пока допустима только ПАРАМЕТРОМ внешней функции, не типом результата", label)
+				bag.AddErr(errNoPos(CodeEntityDecl, "%s: тип результата - \"Вызываемый(...)\" пока допустима только ПАРАМЕТРОМ внешней функции, не типом результата", label))
+				funcs[ext.Alias] = sig
+				continue
 			}
 			if !isFFIType(entities, methods, aliases, a.interfaces, enums, typ) {
-				return nil, errNoPos(CodeEntityDecl, "%s: тип результата %s не поддерживается - у внешней функции допустимы только примитивы (Целое/Целое8/16/32/64/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\") и \"Указатель<T>\" над FFI-совместимым T", label, typ)
+				bag.AddErr(errNoPos(CodeEntityDecl, "%s: тип результата %s не поддерживается - у внешней функции допустимы только примитивы (Целое/Целое8/16/32/64/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\") и \"Указатель<T>\" над FFI-совместимым T", label, typ))
+				funcs[ext.Alias] = sig
+				continue
 			}
 			decl.ReturnType = typ
 			decl.HasReturn = true
@@ -764,7 +895,7 @@ func (a *Analyzer) collectExternFuncSigs(funcs map[string]funcSig, entities map[
 		funcs[ext.Alias] = sig
 		out = append(out, decl)
 	}
-	return out, nil
+	return out
 }
 
 // collectEnums собирает все перечисления программы (шаг 12) - стандартные
@@ -780,6 +911,7 @@ func (a *Analyzer) collectEnums(prog *ast.Program) error {
 		seen[name] = true
 	}
 	for _, e := range prog.Enums {
+		currentFile = e.File
 		if _, exists := a.entities[e.Name]; exists {
 			return errAtLine(e.Line, CodeDuplicateDecl, "перечисление %q совпадает с именем уже объявленной сущности", e.Name)
 		}
@@ -832,6 +964,7 @@ func (a *Analyzer) collectModuleConsts(prog *ast.Program) error {
 	}
 	consts := make(map[string]ast.Expr, len(prog.Consts))
 	for _, c := range prog.Consts {
+		currentFile = c.File
 		if _, exists := consts[c.Name]; exists {
 			return errAtLine(c.Line, CodeDuplicateDecl, "константа %q уровня модуля объявлена более одного раза", c.Name)
 		}
@@ -1082,13 +1215,20 @@ func (a *Analyzer) analyzeFunction(fn *ast.FunctionDecl) (*ir.Function, error) {
 // экспорта ниже (они полагаются на ПОЛНЫЙ, а не частичный out.Entities/
 // out.Functions).
 //
-// Ошибки более РАННИХ проходов Analyze (collectInterfaces/collectEntities/
-// collectFuncSigs/collectEnums/collectModuleConsts, вызываются до buildIR) -
-// по-прежнему останавливаются на первой: там результат ОДНОГО объявления
-// (например, поле сущности) может быть НУЖЕН для проверки другого
-// (сущность-наследник), реальный сбор нескольких независимых ошибок
-// потребовал бы poison-маркеров по каждой из них отдельно - сознательно не
-// сделано в этом переносе (см. план диагностики компилятора).
+// Более РАННИЕ проходы Analyze (вызываются до buildIR) делятся на две
+// группы по тому же признаку. collectEntities/collectFuncSigs - результат
+// ОДНОГО объявления (например, поле сущности) может быть НУЖЕН для
+// проверки другого (сущность-наследник) - поэтому пропуск сломанного
+// объявления сам по себе дал бы каскад ложных ошибок у всех, кто на него
+// ссылается; вместо этого они СТАВЯТ poison-заглушку (entitySig.Poisoned,
+// пустая запись в funcs) вместо настоящей сигнатуры и продолжают со
+// следующего объявления - ссылка на заглушку резолвится как обычно, не
+// порождая вторую диагностику (см. package doc collectEntities/
+// collectFuncSigs). collectInterfaces/collectEnums/collectModuleConsts -
+// по-прежнему останавливаются на первой ошибке: их объявления с тем же
+// каскадным риском (наследование интерфейса, коллизия имени с уже
+// известными таблицами) редки в реальном коде, заводить для них
+// собственный poison-механизм отдельной задачей сознательно не стали.
 func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	out := &ir.Program{ExternFuncs: a.externFuncs, DBPoolSize: DefaultDBPoolSize, DBSQLiteBusyTimeoutMs: DefaultDBSQLiteBusyTimeoutMs, PoolShrinkEnabled: true, PoolIdleTimeoutMs: DefaultPoolIdleTimeoutMs, HTTPMaxRequestBytes: DefaultHTTPMaxRequestBytes}
 	bag := diagnostics.NewBag()

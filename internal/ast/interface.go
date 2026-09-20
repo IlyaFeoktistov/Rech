@@ -26,6 +26,8 @@ type InterfaceDecl struct {
 	Extends []string
 	Methods []InterfaceMethod
 	Line    int
+	// File - см. EntityDecl.File.
+	File string
 }
 
 func (*InterfaceDecl) node() {}

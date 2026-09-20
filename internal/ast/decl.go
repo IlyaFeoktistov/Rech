@@ -340,6 +340,9 @@ type EnumDecl struct {
 	// rewriteExpr проверяет доступность через imported/own-file имя).
 	Visibility Visibility
 	Line       int
+	// File - см. EntityDecl.File. Проставляется только у перечислений
+	// уровня модуля (ast.Program.Enums) - см. ast.StampFile.
+	File string
 }
 
 func (*EnumDecl) node() {}

@@ -72,6 +72,7 @@ func (a *Analyzer) collectInterfaces(prog *ast.Program) error {
 	// см. Analyze) - тот же приём-плейсхолдер, что paramEntities выше.
 	enums := buildEnumTable(prog)
 	for _, iface := range prog.Interfaces {
+		currentFile = iface.File
 		if _, exists := interfaces[iface.Name]; exists {
 			return errNoPos(CodeDuplicateDecl, "интерфейс %q объявлен более одного раза", iface.Name)
 		}

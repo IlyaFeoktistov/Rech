@@ -12,4 +12,13 @@ func StampFile(prog *Program, path string) {
 	for _, ent := range prog.Entities {
 		ent.File = path
 	}
+	for _, iface := range prog.Interfaces {
+		iface.File = path
+	}
+	for _, e := range prog.Enums {
+		e.File = path
+	}
+	for _, c := range prog.Consts {
+		c.File = path
+	}
 }

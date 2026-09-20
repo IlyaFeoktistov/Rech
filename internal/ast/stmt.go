@@ -88,6 +88,12 @@ type ConstDecl struct {
 	// парсер его так же разбирает, но там он не несёт смысла (см.
 	// EntityDecl.Doc про локальные переменные).
 	Doc string
+	// File - см. EntityDecl.File. Осмысленно только у константы уровня
+	// модуля (ast.Program.Consts, см. ast.StampFile) - у константы уровня
+	// сущности (EntityDecl.Constants) файл известен через саму EntityDecl,
+	// у локальной (обычная инструкция внутри тела) - через File функции/
+	// метода, в обоих случаях отдельное поле не нужно, остаётся "".
+	File string
 }
 
 func (*ConstDecl) node() {}
