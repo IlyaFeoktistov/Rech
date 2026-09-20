@@ -116,8 +116,8 @@ func TestRenderAllMultipleHeader(t *testing.T) {
 }
 
 func TestRegisterDuplicateSameDescriptionOK(t *testing.T) {
-	Register("RECHTEST0001", "тестовая категория")
-	Register("RECHTEST0001", "тестовая категория") // не паникует
+	Register("RECH0001", "тестовая категория")
+	Register("RECH0001", "тестовая категория") // не паникует
 }
 
 func TestRegisterDuplicateDifferentDescriptionPanics(t *testing.T) {
@@ -126,6 +126,6 @@ func TestRegisterDuplicateDifferentDescriptionPanics(t *testing.T) {
 			t.Fatal("ожидалась паника при конфликтующей повторной регистрации")
 		}
 	}()
-	Register("RECHTEST0002", "первое описание")
-	Register("RECHTEST0002", "другое описание")
+	Register("RECH0002", "первое описание")
+	Register("RECH0002", "другое описание")
 }
