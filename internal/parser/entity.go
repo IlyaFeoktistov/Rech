@@ -1,10 +1,10 @@
 package parser
 
 import (
-	"fmt"
 	"unicode"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 	"github.com/IlyaFeoktistov/Rech/internal/morph"
 )
@@ -15,31 +15,30 @@ func (p *Parser) parseStatesSection(entityName string) ([]ast.StateDecl, error) 
 		return nil, err
 	}
 	if _, err := p.expect(lexer.COLON); err != nil {
-		return nil, fmt.Errorf("после \"состояние\" ожидалось \":\": %w", err)
+		return nil, diagnostics.Wrap(err, "после \"состояние\" ожидалось \":\"")
 	}
 	var words []lexer.Token
 	for p.cur().Type == lexer.IDENT && p.cur().Line == label.Line {
 		words = append(words, p.advance())
 	}
 	if len(words) == 0 {
-		return nil, fmt.Errorf("строка %d: после \"состояние:\" ожидалось хотя бы одно название состояния", label.Line)
+		return nil, errAtLine(label.Line, CodeUnexpectedToken, "после \"состояние:\" ожидалось хотя бы одно название состояния")
 	}
 
 	gender, number, ok := morph.CompoundNounAgreement(entityName)
 	if !ok {
-		return nil, fmt.Errorf("строка %d: не удалось определить род сущности %q (окончание не классифицируется, слова нет в словаре OpenCorpora) - без рода нельзя вывести имя производного типа состояния",
-			label.Line, entityName)
+		return nil, errAtLine(label.Line, CodeEntityInvariant, "не удалось определить род сущности %q (окончание не классифицируется, слова нет в словаре OpenCorpora) - без рода нельзя вывести имя производного типа состояния", entityName)
 	}
 
 	states := make([]ast.StateDecl, len(words))
 	for i, w := range words {
 		long, err := p.stateWordAgreement(w.Value, gender, number)
 		if err != nil {
-			return nil, fmt.Errorf("строка %d, столбец %d: состояние %q: %w", w.Line, w.Col, w.Value, err)
+			return nil, diagnostics.WrapAt(err, diagnostics.Position{Line: w.Line, Col: w.Col}, "состояние %q", w.Value)
 		}
 		become, err := p.stateWordInstrumentalAgreement(w.Value, gender, number)
 		if err != nil {
-			return nil, fmt.Errorf("строка %d, столбец %d: состояние %q (творительный падеж для \"становится\"): %w", w.Line, w.Col, w.Value, err)
+			return nil, diagnostics.WrapAt(err, diagnostics.Position{Line: w.Line, Col: w.Col}, "состояние %q (творительный падеж для \"становится\")", w.Value)
 		}
 		states[i] = ast.StateDecl{Name: w.Value, TypeName: capitalizeFirst(long) + entityName, BecomeForm: become, Line: w.Line}
 	}
@@ -114,7 +113,7 @@ func (p *Parser) parseBecomeStmt() (ast.Stmt, error) {
 	var receiver ast.Expr
 	if receiverTok.Type == lexer.KwThis {
 		if !p.inMethodBody {
-			return nil, fmt.Errorf("строка %d, столбец %d: \"этот\" валиден только внутри тела метода", receiverTok.Line, receiverTok.Col)
+			return nil, errAt(receiverTok.Line, receiverTok.Col, CodeContextRestrict, "\"этот\" валиден только внутри тела метода")
 		}
 		receiver = &ast.ThisExpr{Line: receiverTok.Line}
 	} else {
@@ -126,7 +125,7 @@ func (p *Parser) parseBecomeStmt() (ast.Stmt, error) {
 	}
 	state, err := p.expect(lexer.IDENT)
 	if err != nil {
-		return nil, fmt.Errorf("после \"становится\" ожидалось название состояния: %w", err)
+		return nil, diagnostics.Wrap(err, "после \"становится\" ожидалось название состояния")
 	}
 	return &ast.BecomeStmt{Receiver: receiver, State: state.Value, Line: kw.Line}, nil
 }
@@ -164,8 +163,7 @@ func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
 	if p.cur().Type == lexer.KwStatic {
 		tok := p.advance()
 		if tok.Value != "статический" {
-			return nil, fmt.Errorf("строка %d, столбец %d: у метода модификатор \"статический\" не согласуется по роду (метод - не существительное) - нужна форма \"статический\", получено %q",
-				tok.Line, tok.Col, tok.Value)
+			return nil, errAt(tok.Line, tok.Col, CodeModifierAgree, "у метода модификатор \"статический\" не согласуется по роду (метод - не существительное) - нужна форма \"статический\", получено %q", tok.Value)
 		}
 		isStatic = true
 	}
@@ -175,8 +173,7 @@ func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
 		vis = visibilityFromToken(tok)
 		want := methodVisibilityWord(vis)
 		if tok.Value != want {
-			return nil, fmt.Errorf("строка %d, столбец %d: у метода модификатор видимости не согласуется по роду (метод - не существительное) - нужна форма %q, получено %q",
-				tok.Line, tok.Col, want, tok.Value)
+			return nil, errAt(tok.Line, tok.Col, CodeModifierAgree, "у метода модификатор видимости не согласуется по роду (метод - не существительное) - нужна форма %q, получено %q", want, tok.Value)
 		}
 	}
 	var isOperator bool
@@ -184,12 +181,11 @@ func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
 	if p.cur().Type == lexer.KwOperator {
 		opKw := p.advance()
 		if !isStatic {
-			return nil, fmt.Errorf("строка %d, столбец %d: перегрузка оператора обязана быть статической - напишите \"статический\" перед \"оператор\"", opKw.Line, opKw.Col)
+			return nil, errAt(opKw.Line, opKw.Col, CodeEntityInvariant, "перегрузка оператора обязана быть статической - напишите \"статический\" перед \"оператор\"")
 		}
 		symbol, ok := overloadableOperatorSymbols[p.cur().Type]
 		if !ok {
-			return nil, fmt.Errorf("строка %d, столбец %d: после \"оператор\" ожидался один из %s, получено %q",
-				p.cur().Line, p.cur().Col, overloadableOperatorSymbolsList(), p.cur().Value)
+			return nil, errAt(p.cur().Line, p.cur().Col, CodeUnexpectedToken, "после \"оператор\" ожидался один из %s, получено %q", overloadableOperatorSymbolsList(), p.cur().Value)
 		}
 		p.advance()
 		isOperator = true
@@ -202,15 +198,14 @@ func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
 		}
 	}
 	if p.cur().Type != lexer.LPAREN {
-		return nil, fmt.Errorf("строка %d, столбец %d: после имени метода %q ожидалось \"(\" (даже без параметров - \"()\")",
-			p.cur().Line, p.cur().Col, name.Value)
+		return nil, errAt(p.cur().Line, p.cur().Col, CodeUnexpectedToken, "после имени метода %q ожидалось \"(\" (даже без параметров - \"()\")", name.Value)
 	}
 	params, err := p.parseParams()
 	if err != nil {
-		return nil, fmt.Errorf("в списке параметров метода %q: %w", name.Value, err)
+		return nil, diagnostics.Wrap(err, "в списке параметров метода %q", name.Value)
 	}
 	if isOperator && len(params) != 2 {
-		return nil, fmt.Errorf("строка %d: перегрузка оператора обязана принимать ровно 2 параметра (оба операнда), получено %d", name.Line, len(params))
+		return nil, errAtLine(name.Line, CodeEntityInvariant, "перегрузка оператора обязана принимать ровно 2 параметра (оба операнда), получено %d", len(params))
 	}
 	returnType := ""
 	selfReturn := false
@@ -223,13 +218,13 @@ func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
 			var err error
 			returnType, err = p.parseTypeName()
 			if err != nil {
-				return nil, fmt.Errorf("после \":\" у метода %q ожидалось имя типа результата: %w", name.Value, err)
+				return nil, diagnostics.Wrap(err, "после \":\" у метода %q ожидалось имя типа результата", name.Value)
 			}
 			returnType = normalizeReturnType(returnType)
 		}
 	}
 	if isOperator && returnType == "" && !selfReturn {
-		return nil, fmt.Errorf("строка %d: перегрузка оператора %q обязана объявлять тип результата (после \":\")", name.Line, name.Value)
+		return nil, errAtLine(name.Line, CodeEntityInvariant, "перегрузка оператора %q обязана объявлять тип результата (после \":\")", name.Value)
 	}
 	var tag string
 	if p.cur().Type == lexer.TAG {
@@ -237,12 +232,10 @@ func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
 	}
 	if p.peekPastNewlines().Type != lexer.LBRACE {
 		if !p.inAbstractEntity {
-			return nil, fmt.Errorf("строка %d, столбец %d: у метода %q не указано тело - тело может отсутствовать только внутри \"абстрактная сущность\"/\"абстрактный класс\"",
-				p.cur().Line, p.cur().Col, name.Value)
+			return nil, errAt(p.cur().Line, p.cur().Col, CodeEntityInvariant, "у метода %q не указано тело - тело может отсутствовать только внутри \"абстрактная сущность\"/\"абстрактный класс\"", name.Value)
 		}
 		if isStatic {
-			return nil, fmt.Errorf("строка %d, столбец %d: статический метод %q не может быть абстрактным - у него нет получателя, отменять/переопределять через наследование нечего",
-				p.cur().Line, p.cur().Col, name.Value)
+			return nil, errAt(p.cur().Line, p.cur().Col, CodeEntityInvariant, "статический метод %q не может быть абстрактным - у него нет получателя, отменять/переопределять через наследование нечего", name.Value)
 		}
 		return &ast.MethodDecl{Name: name.Value, Params: params, ReturnType: returnType, SelfReturn: selfReturn, IsAbstract: true, Visibility: vis, Line: name.Line, Tag: tag}, nil
 	}
@@ -295,8 +288,7 @@ func (p *Parser) resolveDeclinedTypeRef(tok lexer.Token, verb string) (string, e
 			continue
 		}
 		if acc, ok := p.dict.FormOf(a.Lemma, morph.Accusative); ok && acc != tok.Value {
-			return "", fmt.Errorf("строка %d, столбец %d: после %q ожидается винительный падеж - %q, получено %q (именительный)",
-				tok.Line, tok.Col, verb, acc, tok.Value)
+			return "", errAt(tok.Line, tok.Col, CodeNaturalCall, "после %q ожидается винительный падеж - %q, получено %q (именительный)", verb, acc, tok.Value)
 		}
 	}
 	return tok.Value, nil
@@ -314,12 +306,11 @@ func (p *Parser) parseConstructor() (*ast.ConstructorDecl, error) {
 		return nil, err
 	}
 	if p.cur().Type != lexer.LPAREN {
-		return nil, fmt.Errorf("строка %d, столбец %d: после \"конструктор\" ожидалось \"(\" (даже без параметров - \"()\")",
-			p.cur().Line, p.cur().Col)
+		return nil, errAt(p.cur().Line, p.cur().Col, CodeUnexpectedToken, "после \"конструктор\" ожидалось \"(\" (даже без параметров - \"()\")")
 	}
 	params, err := p.parseParams()
 	if err != nil {
-		return nil, fmt.Errorf("в списке параметров конструктора: %w", err)
+		return nil, diagnostics.Wrap(err, "в списке параметров конструктора")
 	}
 	p.skipNewlines()
 	prevInMethod, prevInCtor := p.inMethodBody, p.inConstructorBody
@@ -341,14 +332,14 @@ func (p *Parser) parseConstructor() (*ast.ConstructorDecl, error) {
 func (p *Parser) parseParentCallStmt() (ast.Stmt, error) {
 	kw := p.advance() // "родитель"
 	if !p.inConstructorBody {
-		return nil, fmt.Errorf("строка %d, столбец %d: \"родитель(...)\" валидно только внутри тела конструктора", kw.Line, kw.Col)
+		return nil, errAt(kw.Line, kw.Col, CodeContextRestrict, "\"родитель(...)\" валидно только внутри тела конструктора")
 	}
 	if p.cur().Type != lexer.LPAREN {
-		return nil, fmt.Errorf("строка %d, столбец %d: после \"родитель\" ожидалось \"(\"", p.cur().Line, p.cur().Col)
+		return nil, errAt(p.cur().Line, p.cur().Col, CodeUnexpectedToken, "после \"родитель\" ожидалось \"(\"")
 	}
 	args, err := p.parseArgList()
 	if err != nil {
-		return nil, fmt.Errorf("в аргументах \"родитель(...)\": %w", err)
+		return nil, diagnostics.Wrap(err, "в аргументах \"родитель(...)\"")
 	}
 	return &ast.ParentCallStmt{Args: args, Line: kw.Line}, nil
 }
@@ -368,7 +359,7 @@ func (p *Parser) parseFieldsSection() ([]ast.Field, error) {
 		return nil, err
 	}
 	if _, err := p.expect(lexer.COLON); err != nil {
-		return nil, fmt.Errorf("после \"имеет\" ожидалось \":\": %w", err)
+		return nil, diagnostics.Wrap(err, "после \"имеет\" ожидалось \":\"")
 	}
 
 	var fields []ast.Field
@@ -396,7 +387,7 @@ func (p *Parser) parseFieldsSection() ([]ast.Field, error) {
 			break
 		}
 		if err := p.requireSeparator(); err != nil {
-			return nil, fmt.Errorf("перед полем: %w", err)
+			return nil, diagnostics.Wrap(err, "перед полем")
 		}
 		doc := p.consumeDoc()
 		field, err := p.parseField()
@@ -430,33 +421,33 @@ func (p *Parser) parseField() (ast.Field, error) {
 	}
 	name, err := p.expect(lexer.IDENT)
 	if err != nil {
-		return ast.Field{}, fmt.Errorf("ожидалось имя поля: %w", err)
+		return ast.Field{}, diagnostics.Wrap(err, "ожидалось имя поля")
 	}
 	if staticTok != nil {
 		if err := checkStaticAgreement(*staticTok, name.Value); err != nil {
-			return ast.Field{}, fmt.Errorf("поле %q: %w", name.Value, err)
+			return ast.Field{}, diagnostics.Wrap(err, "поле %q", name.Value)
 		}
 	}
 	var vis ast.Visibility
 	if visTok != nil {
 		vis = visibilityFromToken(*visTok)
 		if err := checkVisibilityAgreement(*visTok, vis, name.Value); err != nil {
-			return ast.Field{}, fmt.Errorf("поле %q: %w", name.Value, err)
+			return ast.Field{}, diagnostics.Wrap(err, "поле %q", name.Value)
 		}
 	}
 	if _, err := p.expect(lexer.COLON); err != nil {
-		return ast.Field{}, fmt.Errorf("после имени поля %q ожидалось \":\" и тип: %w", name.Value, err)
+		return ast.Field{}, diagnostics.Wrap(err, "после имени поля %q ожидалось \":\" и тип", name.Value)
 	}
 	typeName, err := p.parseTypeName()
 	if err != nil {
-		return ast.Field{}, fmt.Errorf("после \":\" у поля %q ожидалось имя типа: %w", name.Value, err)
+		return ast.Field{}, diagnostics.Wrap(err, "после \":\" у поля %q ожидалось имя типа", name.Value)
 	}
 	var def ast.Expr
 	if p.cur().Type == lexer.ASSIGN {
 		p.advance()
 		def, err = p.parseExpr()
 		if err != nil {
-			return ast.Field{}, fmt.Errorf("в значении по умолчанию поля %q: %w", name.Value, err)
+			return ast.Field{}, diagnostics.Wrap(err, "в значении по умолчанию поля %q", name.Value)
 		}
 	}
 	var tag string
@@ -491,8 +482,7 @@ func checkStaticAgreement(kw lexer.Token, fieldName string) error {
 	}
 	want := staticKeywordFor(gender, number)
 	if kw.Value != want {
-		return fmt.Errorf("строка %d, столбец %d: модификатор \"статический\" не согласован по роду с именем поля - требует форму %q, получено %q",
-			kw.Line, kw.Col, want, kw.Value)
+		return errAt(kw.Line, kw.Col, CodeModifierAgree, "модификатор \"статический\" не согласован по роду с именем поля - требует форму %q, получено %q", want, kw.Value)
 	}
 	return nil
 }
@@ -582,8 +572,7 @@ func checkVisibilityAgreement(kw lexer.Token, vis ast.Visibility, fieldName stri
 	}
 	want := visibilityKeywordFor(vis, gender, number)
 	if kw.Value != want {
-		return fmt.Errorf("строка %d, столбец %d: требует форму модификатора видимости %q, получено %q",
-			kw.Line, kw.Col, want, kw.Value)
+		return errAt(kw.Line, kw.Col, CodeModifierAgree, "требует форму модификатора видимости %q, получено %q", want, kw.Value)
 	}
 	return nil
 }
@@ -598,8 +587,7 @@ func checkVisibilityAgreement(kw lexer.Token, vis ast.Visibility, fieldName stri
 func checkConstVisibilityAgreement(kw lexer.Token) error {
 	want := visibilityKeywordFor(visibilityFromToken(kw), morph.Feminine, morph.Singular)
 	if kw.Value != want {
-		return fmt.Errorf("строка %d, столбец %d: перед \"константа\" модификатор видимости согласуется со словом \"константа\" (женский род, единственное число) - ожидалось %q, получено %q",
-			kw.Line, kw.Col, want, kw.Value)
+		return errAt(kw.Line, kw.Col, CodeModifierAgree, "перед \"константа\" модификатор видимости согласуется со словом \"константа\" (женский род, единственное число) - ожидалось %q, получено %q", want, kw.Value)
 	}
 	return nil
 }

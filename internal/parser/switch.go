@@ -12,9 +12,8 @@
 package parser
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 )
 
@@ -27,7 +26,7 @@ func (p *Parser) parseSwitchStmt() (ast.Stmt, error) {
 	}
 	subject, err := p.parseExpr()
 	if err != nil {
-		return nil, fmt.Errorf("после \"выбрать\" ожидалось выражение: %w", err)
+		return nil, diagnostics.Wrap(err, "после \"выбрать\" ожидалось выражение")
 	}
 	p.skipNewlines()
 	if _, err := p.expect(lexer.LBRACE); err != nil {
@@ -47,7 +46,7 @@ func (p *Parser) parseSwitchStmt() (ast.Stmt, error) {
 				return nil, err
 			}
 			if _, err := p.expect(lexer.COLON); err != nil {
-				return nil, fmt.Errorf("после условия \"когда\" ожидалось \":\": %w", err)
+				return nil, diagnostics.Wrap(err, "после условия \"когда\" ожидалось \":\"")
 			}
 			p.skipSeparators()
 			body, err := p.parseSwitchCaseBody()
@@ -55,18 +54,18 @@ func (p *Parser) parseSwitchStmt() (ast.Stmt, error) {
 				return nil, err
 			}
 			if len(body) == 0 {
-				return nil, fmt.Errorf("строка %d: пустая ветка \"когда\" - нужна хотя бы одна инструкция", whenTok.Line)
+				return nil, errAtLine(whenTok.Line, CodeSwitch, "пустая ветка \"когда\" - нужна хотя бы одна инструкция")
 			}
 			cases = append(cases, ast.SwitchCase{Values: values, Body: body, Line: whenTok.Line})
 
 		case lexer.KwElse:
 			if sawDefault {
-				return nil, fmt.Errorf("строка %d: повторное \"иначе\" внутри \"выбрать\" - допустима только одна ветка по умолчанию", p.cur().Line)
+				return nil, errAtLine(p.cur().Line, CodeDuplicateDecl, "повторное \"иначе\" внутри \"выбрать\" - допустима только одна ветка по умолчанию")
 			}
 			sawDefault = true
 			p.advance()
 			if _, err := p.expect(lexer.COLON); err != nil {
-				return nil, fmt.Errorf("после \"иначе\" внутри \"выбрать\" ожидалось \":\": %w", err)
+				return nil, diagnostics.Wrap(err, "после \"иначе\" внутри \"выбрать\" ожидалось \":\"")
 			}
 			p.skipSeparators()
 			body, err := p.parseSwitchCaseBody()
@@ -76,11 +75,10 @@ func (p *Parser) parseSwitchStmt() (ast.Stmt, error) {
 			defaultBody = body
 
 		case lexer.EOF:
-			return nil, fmt.Errorf("строка %d: не найдена закрывающая } у \"выбрать\"", p.cur().Line)
+			return nil, errAtLine(p.cur().Line, CodeUnclosedBracket, "не найдена закрывающая } у \"выбрать\"")
 
 		default:
-			return nil, fmt.Errorf("строка %d, столбец %d: внутри \"выбрать { ... }\" ожидалось \"когда\" или \"иначе\", получено %q",
-				p.cur().Line, p.cur().Col, p.cur().Value)
+			return nil, errAt(p.cur().Line, p.cur().Col, CodeSwitch, "внутри \"выбрать { ... }\" ожидалось \"когда\" или \"иначе\", получено %q", p.cur().Value)
 		}
 		p.skipSeparators()
 	}
@@ -88,7 +86,7 @@ func (p *Parser) parseSwitchStmt() (ast.Stmt, error) {
 		return nil, err
 	}
 	if len(cases) == 0 {
-		return nil, fmt.Errorf("строка %d: \"выбрать\" должен содержать хотя бы одну ветку \"когда\"", kw.Line)
+		return nil, errAtLine(kw.Line, CodeSwitch, "\"выбрать\" должен содержать хотя бы одну ветку \"когда\"")
 	}
 	return &ast.SwitchStmt{Subject: subject, Cases: cases, Default: defaultBody, Line: kw.Line}, nil
 }
@@ -106,7 +104,7 @@ func (p *Parser) parseSwitchStmt() (ast.Stmt, error) {
 func (p *Parser) parseSwitchValues() ([]ast.Expr, error) {
 	first, err := p.parseBitXor()
 	if err != nil {
-		return nil, fmt.Errorf("после \"когда\" ожидалось значение: %w", err)
+		return nil, diagnostics.Wrap(err, "после \"когда\" ожидалось значение")
 	}
 	values := []ast.Expr{first}
 	for {
@@ -126,7 +124,7 @@ func (p *Parser) parseSwitchValues() ([]ast.Expr, error) {
 		p.skipNewlines()
 		v, err := p.parseBitXor()
 		if err != nil {
-			return nil, fmt.Errorf("после \"|\" в \"когда\" ожидалось ещё одно значение: %w", err)
+			return nil, diagnostics.Wrap(err, "после \"|\" в \"когда\" ожидалось ещё одно значение")
 		}
 		values = append(values, v)
 	}

@@ -18,9 +18,8 @@
 package parser
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 	"github.com/IlyaFeoktistov/Rech/internal/morph"
 )
@@ -62,7 +61,7 @@ func moduleVisibilityWordFor(vis ast.Visibility, governing lexer.TokenType) (str
 	case lexer.KwEnum:
 		return visibilityKeywordFor(vis, morph.Neuter, morph.Singular), nil
 	default:
-		return "", fmt.Errorf("модификатор видимости здесь неуместен - ожидалась \"функция\", \"сущность\", \"класс\", \"структура\", \"перечисление\" или \"константа\"")
+		return "", diagnostics.New(CodeModifierAgree, diagnostics.Position{}, "модификатор видимости здесь неуместен - ожидалась \"функция\", \"сущность\", \"класс\", \"структура\", \"перечисление\" или \"константа\"")
 	}
 }
 
@@ -79,11 +78,11 @@ func (p *Parser) parseModuleVisibility() (ast.Visibility, error) {
 	governing := p.governingModuleKeyword()
 	want, err := moduleVisibilityWordFor(vis, governing)
 	if err != nil {
-		return ast.Public, fmt.Errorf("строка %d, столбец %d: %w", tok.Line, tok.Col, err)
+		return ast.Public, diagnostics.WithPos(err, diagnostics.Position{Line: tok.Line, Col: tok.Col})
 	}
 	if tok.Value != want {
-		return ast.Public, fmt.Errorf("строка %d, столбец %d: модификатор видимости согласуется со словом %q - ожидалось %q, получено %q",
-			tok.Line, tok.Col, governing.String(), want, tok.Value)
+		return ast.Public, errAt(tok.Line, tok.Col, CodeModifierAgree, "модификатор видимости согласуется со словом %q - ожидалось %q, получено %q",
+			governing.String(), want, tok.Value)
 	}
 	return vis, nil
 }

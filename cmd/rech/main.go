@@ -292,7 +292,7 @@ func main() {
 		if isLib {
 			libPath, hPath, rechiPaths, err := buildLib()
 			if err != nil {
-				fmt.Fprintln(os.Stderr, "ошибка:", err)
+				printCompileError(err)
 				os.Exit(1)
 			}
 			if outDir != "" {
@@ -320,7 +320,7 @@ func main() {
 		}
 		binPath, err := build()
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "ошибка:", err)
+			printCompileError(err)
 			os.Exit(1)
 		}
 		if outDir != "" {
@@ -343,7 +343,7 @@ func main() {
 		}
 		binPath, err := build()
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "ошибка:", err)
+			printCompileError(err)
 			os.Exit(1)
 		}
 		if outDir != "" {

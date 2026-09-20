@@ -1,9 +1,8 @@
 package parser
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 )
 
@@ -64,7 +63,7 @@ func (p *Parser) tryParseCast() (ast.Expr, bool, error) {
 	p.advance()           // ")"
 	value, err := p.parseUnary()
 	if err != nil {
-		return nil, false, fmt.Errorf("после каста (%s) ожидалось выражение: %w", typeTok.Value, err)
+		return nil, false, diagnostics.Wrap(err, "после каста (%s) ожидалось выражение", typeTok.Value)
 	}
 	return &ast.CastExpr{Type: typeTok.Value, Value: value, Line: lparen.Line}, true, nil
 }

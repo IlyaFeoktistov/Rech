@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 )
 
@@ -25,7 +26,7 @@ func (p *Parser) parseLambdaExpr() (*ast.LambdaExpr, error) {
 	if p.cur().Type == lexer.LPAREN {
 		params, err = p.parseParams()
 		if err != nil {
-			return nil, fmt.Errorf("в списке параметров лямбды: %w", err)
+			return nil, diagnostics.Wrap(err, "в списке параметров лямбды")
 		}
 	}
 
@@ -34,7 +35,7 @@ func (p *Parser) parseLambdaExpr() (*ast.LambdaExpr, error) {
 		p.advance()
 		returnType, err = p.parseTypeName()
 		if err != nil {
-			return nil, fmt.Errorf("после \":\" у лямбды ожидалось имя типа результата: %w", err)
+			return nil, diagnostics.Wrap(err, "после \":\" у лямбды ожидалось имя типа результата")
 		}
 		returnType = normalizeReturnType(returnType)
 	}
@@ -74,7 +75,7 @@ func (p *Parser) parseCaptureList() ([]ast.CaptureSpec, error) {
 			}
 			name, err := p.expect(lexer.IDENT)
 			if err != nil {
-				return nil, fmt.Errorf("в списке захвата лямбды: %w", err)
+				return nil, diagnostics.Wrap(err, "в списке захвата лямбды")
 			}
 			captures = append(captures, ast.CaptureSpec{Name: name.Value, ByRef: byRef, Line: name.Line})
 			if p.cur().Type != lexer.COMMA {
@@ -92,7 +93,7 @@ func (p *Parser) parseCaptureList() ([]ast.CaptureSpec, error) {
 	}
 	p.skipNewlines()
 	if _, err := p.expect(lexer.RBRACKET); err != nil {
-		return nil, fmt.Errorf("после списка захвата лямбды ожидалось \"]\": %w", err)
+		return nil, diagnostics.Wrap(err, "после списка захвата лямбды ожидалось \"]\"")
 	}
 	return captures, nil
 }
@@ -131,10 +132,10 @@ const callableTypeName = "Вызываемый"
 // Позиция парсера на входе - сразу после IDENT "Вызываемый".
 func (p *Parser) parseCallableTypeName(name lexer.Token) (string, error) {
 	if _, err := p.parseGenericParams(); err != nil {
-		return "", fmt.Errorf("в параметрах типа %q: %w", name.Value, err)
+		return "", diagnostics.Wrap(err, "в параметрах типа %q", name.Value)
 	}
 	if p.cur().Type != lexer.LPAREN {
-		return "", fmt.Errorf("строка %d, столбец %d: после %q ожидался список параметров \"(...)\"", p.cur().Line, p.cur().Col, name.Value)
+		return "", errAt(p.cur().Line, p.cur().Col, CodeUnexpectedToken, "после %q ожидался список параметров \"(...)\"", name.Value)
 	}
 	p.advance() // "("
 	p.skipNewlines()
@@ -143,7 +144,7 @@ func (p *Parser) parseCallableTypeName(name lexer.Token) (string, error) {
 		for {
 			t, err := p.parseTypeName()
 			if err != nil {
-				return "", fmt.Errorf("в параметрах типа %q: %w", name.Value, err)
+				return "", diagnostics.Wrap(err, "в параметрах типа %q", name.Value)
 			}
 			params = append(params, t)
 			if p.cur().Type != lexer.COMMA {
@@ -161,14 +162,14 @@ func (p *Parser) parseCallableTypeName(name lexer.Token) (string, error) {
 	}
 	p.skipNewlines()
 	if _, err := p.expect(lexer.RPAREN); err != nil {
-		return "", fmt.Errorf("после параметров типа %q: %w", name.Value, err)
+		return "", diagnostics.Wrap(err, "после параметров типа %q", name.Value)
 	}
 	result := ""
 	if p.cur().Type == lexer.COLON {
 		p.advance()
 		r, err := p.parseTypeName()
 		if err != nil {
-			return "", fmt.Errorf("после \":\" в типе результата %q: %w", name.Value, err)
+			return "", diagnostics.Wrap(err, "после \":\" в типе результата %q", name.Value)
 		}
 		result = normalizeReturnType(r)
 	}

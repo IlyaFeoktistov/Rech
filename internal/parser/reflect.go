@@ -1,9 +1,8 @@
 package parser
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 )
 
@@ -19,7 +18,7 @@ func (p *Parser) parseTypeOfExpr() (ast.Expr, error) {
 	}
 	typeName, err := p.parseTypeName()
 	if err != nil {
-		return nil, fmt.Errorf("после %q ожидалось имя типа: %w", kw.Value, err)
+		return nil, diagnostics.Wrap(err, "после %q ожидалось имя типа", kw.Value)
 	}
 	return &ast.TypeOfExpr{TypeName: typeName, Line: kw.Line}, nil
 }
@@ -31,7 +30,7 @@ func (p *Parser) parseAsExpr(left ast.Expr) (ast.Expr, error) {
 	kw := p.advance() // "как"
 	typeName, err := p.parseTypeName()
 	if err != nil {
-		return nil, fmt.Errorf("после \"как\" ожидалось имя типа: %w", err)
+		return nil, diagnostics.Wrap(err, "после \"как\" ожидалось имя типа")
 	}
 	return &ast.AsExpr{Value: left, TypeName: typeName, Line: kw.Line}, nil
 }

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 	"github.com/IlyaFeoktistov/Rech/internal/morph"
 )
@@ -21,7 +22,7 @@ func (p *Parser) parseOptionalAlias() (string, error) {
 	p.advance() // "как"
 	aliasTok, err := p.expect(lexer.IDENT)
 	if err != nil {
-		return "", fmt.Errorf("после \"как\" ожидался псевдоним: %w", err)
+		return "", diagnostics.Wrap(err, "после \"как\" ожидался псевдоним")
 	}
 	return aliasTok.Value, nil
 }
@@ -41,7 +42,7 @@ func (p *Parser) parseUseDecl() (*ast.UseDecl, error) {
 	for {
 		name, err := p.expect(lexer.IDENT)
 		if err != nil {
-			return nil, fmt.Errorf("после %q ожидалось имя: %w", kw.Value, err)
+			return nil, diagnostics.Wrap(err, "после %q ожидалось имя", kw.Value)
 		}
 		alias := name.Value
 		if a, err := p.parseOptionalAlias(); err != nil {
@@ -58,11 +59,11 @@ func (p *Parser) parseUseDecl() (*ast.UseDecl, error) {
 	}
 	p.skipNewlines()
 	if _, err := p.expect(lexer.KwOf); err != nil {
-		return nil, fmt.Errorf("после списка имён ожидалось \"из\": %w", err)
+		return nil, diagnostics.Wrap(err, "после списка имён ожидалось \"из\"")
 	}
 	path, err := p.expect(lexer.STRING)
 	if err != nil {
-		return nil, fmt.Errorf("после \"из\" ожидался путь строковым литералом: %w", err)
+		return nil, diagnostics.Wrap(err, "после \"из\" ожидался путь строковым литералом")
 	}
 	return &ast.UseDecl{Names: names, Path: path.Value, Line: kw.Line}, nil
 }
@@ -80,11 +81,11 @@ func (p *Parser) parseExternFuncDecl() (*ast.ExternFuncDecl, error) {
 		return nil, err
 	}
 	if _, err := p.expect(lexer.KwFunction); err != nil {
-		return nil, fmt.Errorf("после %q ожидалось \"функция\": %w", kw.Value, err)
+		return nil, diagnostics.Wrap(err, "после %q ожидалось \"функция\"", kw.Value)
 	}
 	cName, err := p.expect(lexer.IDENT)
 	if err != nil {
-		return nil, fmt.Errorf("после \"внешняя функция\" ожидалось имя C-функции: %w", err)
+		return nil, diagnostics.Wrap(err, "после \"внешняя функция\" ожидалось имя C-функции")
 	}
 	alias := cName.Value
 	if a, err := p.parseOptionalAlias(); err != nil {
@@ -93,14 +94,14 @@ func (p *Parser) parseExternFuncDecl() (*ast.ExternFuncDecl, error) {
 		alias = a
 	}
 	if alias == entryPointName {
-		return nil, fmt.Errorf("строка %d: %q - точка входа программы, внешняя функция не может так называться", kw.Line, entryPointName)
+		return nil, errAtLine(kw.Line, CodeEntryPoint, "%q - точка входа программы, внешняя функция не может так называться", entryPointName)
 	}
 
 	var params []ast.Param
 	if p.cur().Type == lexer.LPAREN {
 		params, err = p.parseParams()
 		if err != nil {
-			return nil, fmt.Errorf("в списке параметров внешней функции %q: %w", alias, err)
+			return nil, diagnostics.Wrap(err, "в списке параметров внешней функции %q", alias)
 		}
 	}
 
@@ -109,7 +110,7 @@ func (p *Parser) parseExternFuncDecl() (*ast.ExternFuncDecl, error) {
 		p.advance()
 		returnType, err = p.parseTypeName()
 		if err != nil {
-			return nil, fmt.Errorf("после \":\" у внешней функции %q ожидалось имя типа результата: %w", alias, err)
+			return nil, diagnostics.Wrap(err, "после \":\" у внешней функции %q ожидалось имя типа результата", alias)
 		}
 		returnType = normalizeReturnType(returnType)
 	}
@@ -131,7 +132,7 @@ func (p *Parser) parseEnumDecl() (*ast.EnumDecl, error) {
 	}
 	name, err := p.expect(lexer.IDENT)
 	if err != nil {
-		return nil, fmt.Errorf("после %q ожидалось имя перечисления: %w", kw.Value, err)
+		return nil, diagnostics.Wrap(err, "после %q ожидалось имя перечисления", kw.Value)
 	}
 	p.skipNewlines()
 	if _, err := p.expect(lexer.LBRACE); err != nil {
@@ -145,10 +146,10 @@ func (p *Parser) parseEnumDecl() (*ast.EnumDecl, error) {
 	for p.cur().Type != lexer.RBRACE {
 		memberName, err := p.expect(lexer.IDENT)
 		if err != nil {
-			return nil, fmt.Errorf("перечисление %q: %w", name.Value, err)
+			return nil, diagnostics.Wrap(err, "перечисление %q", name.Value)
 		}
 		if seen[memberName.Value] {
-			return nil, fmt.Errorf("строка %d: перечисление %q: член %q объявлен более одного раза", memberName.Line, name.Value, memberName.Value)
+			return nil, errAtLine(memberName.Line, CodeDuplicateDecl, "перечисление %q: член %q объявлен более одного раза", name.Value, memberName.Value)
 		}
 		seen[memberName.Value] = true
 
@@ -162,11 +163,11 @@ func (p *Parser) parseEnumDecl() (*ast.EnumDecl, error) {
 			}
 			numTok, err := p.expect(lexer.INT)
 			if err != nil {
-				return nil, fmt.Errorf("перечисление %q: член %q: после \"=\" ожидалось целое число: %w", name.Value, memberName.Value, err)
+				return nil, diagnostics.Wrap(err, "перечисление %q: член %q: после \"=\" ожидалось целое число", name.Value, memberName.Value)
 			}
 			v, err := parseIntTokenValue(numTok.Value)
 			if err != nil {
-				return nil, fmt.Errorf("строка %d: перечисление %q: член %q: некорректное число %q", numTok.Line, name.Value, memberName.Value, numTok.Value)
+				return nil, errAtLine(numTok.Line, CodeEntityInvariant, "перечисление %q: член %q: некорректное число %q", name.Value, memberName.Value, numTok.Value)
 			}
 			if neg {
 				v = -v
@@ -187,10 +188,10 @@ func (p *Parser) parseEnumDecl() (*ast.EnumDecl, error) {
 		break
 	}
 	if _, err := p.expect(lexer.RBRACE); err != nil {
-		return nil, fmt.Errorf("перечисление %q: %w", name.Value, err)
+		return nil, diagnostics.Wrap(err, "перечисление %q", name.Value)
 	}
 	if len(members) == 0 {
-		return nil, fmt.Errorf("строка %d: перечисление %q должно содержать хотя бы один член", kw.Line, name.Value)
+		return nil, errAtLine(kw.Line, CodeEntityInvariant, "перечисление %q должно содержать хотя бы один член", name.Value)
 	}
 	return &ast.EnumDecl{Name: name.Value, Members: members, Line: kw.Line}, nil
 }
@@ -217,24 +218,24 @@ func (p *Parser) parseFunction(isAsync bool) (*ast.FunctionDecl, error) {
 	}
 	name, err := p.expect(lexer.IDENT)
 	if err != nil {
-		return nil, fmt.Errorf("после \"функция\" ожидалось имя функции: %w", err)
+		return nil, diagnostics.Wrap(err, "после \"функция\" ожидалось имя функции")
 	}
 	if isAsync && name.Value == entryPointName {
-		return nil, fmt.Errorf("строка %d: %q - точка входа программы, не может быть \"асинхронная\"", kw.Line, entryPointName)
+		return nil, errAtLine(kw.Line, CodeEntryPoint, "%q - точка входа программы, не может быть \"асинхронная\"", entryPointName)
 	}
 	typeParams, err := p.parseGenericParams()
 	if err != nil {
-		return nil, fmt.Errorf("функция %q: %w", name.Value, err)
+		return nil, diagnostics.Wrap(err, "функция %q", name.Value)
 	}
 	if name.Value == entryPointName && typeParams != nil {
-		return nil, fmt.Errorf("строка %d: %q - точка входа программы, не может быть generic", kw.Line, entryPointName)
+		return nil, errAtLine(kw.Line, CodeEntryPoint, "%q - точка входа программы, не может быть generic", entryPointName)
 	}
 
 	var params []ast.Param
 	if p.cur().Type == lexer.LPAREN {
 		params, err = p.parseParams()
 		if err != nil {
-			return nil, fmt.Errorf("в списке параметров функции %q: %w", name.Value, err)
+			return nil, diagnostics.Wrap(err, "в списке параметров функции %q", name.Value)
 		}
 	}
 
@@ -244,13 +245,13 @@ func (p *Parser) parseFunction(isAsync bool) (*ast.FunctionDecl, error) {
 		var err error
 		returnType, err = p.parseTypeName()
 		if err != nil {
-			return nil, fmt.Errorf("после \":\" у функции %q ожидалось имя типа результата: %w", name.Value, err)
+			return nil, diagnostics.Wrap(err, "после \":\" у функции %q ожидалось имя типа результата", name.Value)
 		}
 		returnType = normalizeReturnType(returnType)
 	}
 
 	if name.Value == entryPointName && (len(params) > 0 || returnType != "") {
-		return nil, fmt.Errorf("строка %d: %q - точка входа программы, у неё фиксированная сигнатура: нельзя объявить параметры или тип результата", kw.Line, entryPointName)
+		return nil, errAtLine(kw.Line, CodeEntryPoint, "%q - точка входа программы, у неё фиксированная сигнатура: нельзя объявить параметры или тип результата", entryPointName)
 	}
 
 	var tag string
@@ -296,8 +297,7 @@ func (p *Parser) parseParams() ([]ast.Param, error) {
 			if param.CaseWord != "" {
 				c, _ := morph.CaseOfParamName(param.CaseWord)
 				if prev, exists := seenCases[c]; exists {
-					return nil, fmt.Errorf("строка %d: параметр %q дублирует падежную роль параметра %q - у каждого падежа может быть только один параметр",
-						param.Line, param.Name, prev)
+					return nil, errAtLine(param.Line, CodeNaturalCall, "параметр %q дублирует падежную роль параметра %q - у каждого падежа может быть только один параметр", param.Name, prev)
 				}
 				seenCases[c] = param.Name
 			}
@@ -339,8 +339,7 @@ func checkTrailingDefaults(params []ast.Param) error {
 			continue
 		}
 		if seenDefault {
-			return fmt.Errorf("строка %d: параметр %q без значения по умолчанию идёт после параметра со значением по умолчанию - значения по умолчанию допустимы только хвостом списка параметров",
-				p.Line, p.Name)
+			return errAtLine(p.Line, CodeUnexpectedToken, "параметр %q без значения по умолчанию идёт после параметра со значением по умолчанию - значения по умолчанию допустимы только хвостом списка параметров", p.Name)
 		}
 	}
 	return nil
@@ -385,7 +384,7 @@ func (p *Parser) parseTypeName() (string, error) {
 		p.advance()
 		inner, err := p.parseTypeName()
 		if err != nil {
-			return "", fmt.Errorf("после \"?\": %w", err)
+			return "", diagnostics.Wrap(err, "после \"?\"")
 		}
 		return "?" + inner, nil
 	}
@@ -393,7 +392,7 @@ func (p *Parser) parseTypeName() (string, error) {
 		p.advance()
 		inner, err := p.parseTypeName()
 		if err != nil {
-			return "", fmt.Errorf("после \"*\": %w", err)
+			return "", diagnostics.Wrap(err, "после \"*\"")
 		}
 		return fmt.Sprintf("Указатель<%s>", inner), nil
 	}
@@ -412,7 +411,7 @@ func (p *Parser) parseTypeName() (string, error) {
 		for {
 			arg, err := p.parseTypeName()
 			if err != nil {
-				return "", fmt.Errorf("в аргументе типа %q: %w", name.Value, err)
+				return "", diagnostics.Wrap(err, "в аргументе типа %q", name.Value)
 			}
 			args = append(args, arg)
 			if p.cur().Type != lexer.COMMA {
@@ -429,7 +428,7 @@ func (p *Parser) parseTypeName() (string, error) {
 		}
 		p.skipNewlines()
 		if err := p.expectCloseAngle(); err != nil {
-			return "", fmt.Errorf("после аргументов типа %q<%s>: %w", name.Value, strings.Join(args, ", "), err)
+			return "", diagnostics.Wrap(err, "после аргументов типа %q<%s>", name.Value, strings.Join(args, ", "))
 		}
 		result = fmt.Sprintf("%s<%s>", name.Value, strings.Join(args, ", "))
 	}
@@ -483,7 +482,7 @@ func (p *Parser) parseParam() (ast.Param, error) {
 	}
 	first, err := p.expect(lexer.IDENT)
 	if err != nil {
-		return ast.Param{}, fmt.Errorf("ожидалось имя параметра: %w", err)
+		return ast.Param{}, diagnostics.Wrap(err, "ожидалось имя параметра")
 	}
 	caseWord := ""
 	name := first
@@ -497,11 +496,11 @@ func (p *Parser) parseParam() (ast.Param, error) {
 		}
 	}
 	if _, err := p.expect(lexer.COLON); err != nil {
-		return ast.Param{}, fmt.Errorf("после имени параметра %q ожидалось \":\" и тип: %w", name.Value, err)
+		return ast.Param{}, diagnostics.Wrap(err, "после имени параметра %q ожидалось \":\" и тип", name.Value)
 	}
 	typeName, err := p.parseTypeName()
 	if err != nil {
-		return ast.Param{}, fmt.Errorf("после \":\" у параметра %q ожидалось имя типа: %w", name.Value, err)
+		return ast.Param{}, diagnostics.Wrap(err, "после \":\" у параметра %q ожидалось имя типа", name.Value)
 	}
 	def, err := p.parseParamDefault(name.Value)
 	if err != nil {
@@ -521,7 +520,7 @@ func (p *Parser) parseParamDefault(paramName string) (ast.Expr, error) {
 	p.advance()
 	def, err := p.parseExpr()
 	if err != nil {
-		return nil, fmt.Errorf("в значении по умолчанию параметра %q: %w", paramName, err)
+		return nil, diagnostics.Wrap(err, "в значении по умолчанию параметра %q", paramName)
 	}
 	return def, nil
 }
@@ -546,11 +545,11 @@ func (p *Parser) parseTwoWordCaseParam(animateWord, inanimateWord string) (ast.P
 		}
 	}
 	if _, err := p.expect(lexer.COLON); err != nil {
-		return ast.Param{}, fmt.Errorf("после имени параметра %q ожидалось \":\" и тип: %w", name.Value, err)
+		return ast.Param{}, diagnostics.Wrap(err, "после имени параметра %q ожидалось \":\" и тип", name.Value)
 	}
 	typeName, err := p.parseTypeName()
 	if err != nil {
-		return ast.Param{}, fmt.Errorf("после \":\" у параметра %q ожидалось имя типа: %w", name.Value, err)
+		return ast.Param{}, diagnostics.Wrap(err, "после \":\" у параметра %q ожидалось имя типа", name.Value)
 	}
 	def, err := p.parseParamDefault(name.Value)
 	if err != nil {

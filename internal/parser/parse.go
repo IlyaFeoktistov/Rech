@@ -1,9 +1,8 @@
 package parser
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 )
 
@@ -16,7 +15,7 @@ func (p *Parser) expectFormat(after string) (lexer.Token, error) {
 		return p.advance(), nil
 	}
 	tok := p.cur()
-	return lexer.Token{}, fmt.Errorf("строка %d, столбец %d: после %q ожидался формат (JSON, XML, YAML или PROTOBUF), получено %q", tok.Line, tok.Col, after, tok.Value)
+	return lexer.Token{}, errAt(tok.Line, tok.Col, CodeUnexpectedToken, "после %q ожидался формат (JSON, XML, YAML или PROTOBUF), получено %q", after, tok.Value)
 }
 
 // parseParseExpr разбирает:
@@ -37,14 +36,14 @@ func (p *Parser) parseParseExpr() (ast.Expr, error) {
 	}
 	source, err := p.parseUnary()
 	if err != nil {
-		return nil, fmt.Errorf("после \"разобрать %s\" ожидалось выражение-источник: %w", format.Value, err)
+		return nil, diagnostics.Wrap(err, "после \"разобрать %s\" ожидалось выражение-источник", format.Value)
 	}
 	if _, err := p.expect(lexer.KwAs); err != nil {
-		return nil, fmt.Errorf("после источника \"разобрать %s\" ожидалось \"как\": %w", format.Value, err)
+		return nil, diagnostics.Wrap(err, "после источника \"разобрать %s\" ожидалось \"как\"", format.Value)
 	}
 	typeName, err := p.parseTypeName()
 	if err != nil {
-		return nil, fmt.Errorf("после \"как\" ожидался целевой тип: %w", err)
+		return nil, diagnostics.Wrap(err, "после \"как\" ожидался целевой тип")
 	}
 	return &ast.ParseExpr{Format: format.Value, Source: source, TypeName: typeName, Line: kw.Line}, nil
 }
@@ -65,7 +64,7 @@ func (p *Parser) parseSerializeExpr() (ast.Expr, error) {
 	}
 	value, err := p.parseUnary()
 	if err != nil {
-		return nil, fmt.Errorf("после \"сериализовать %s\" ожидалось выражение: %w", format.Value, err)
+		return nil, diagnostics.Wrap(err, "после \"сериализовать %s\" ожидалось выражение", format.Value)
 	}
 	return &ast.SerializeExpr{Format: format.Value, Value: value, Line: kw.Line}, nil
 }

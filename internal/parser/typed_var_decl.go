@@ -1,9 +1,8 @@
 package parser
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 )
 
@@ -46,7 +45,7 @@ func (p *Parser) tryParseTypedVarDecl() (ast.Stmt, bool, error) {
 	p.advance() // "="
 	value, err := p.parseExpr()
 	if err != nil {
-		return nil, true, fmt.Errorf("в инициализации переменной %q: %w", name.Value, err)
+		return nil, true, diagnostics.Wrap(err, "в инициализации переменной %q", name.Value)
 	}
 	p.registerNoun(name.Value)
 	p.registerVarEntityType(name.Value, typeName)

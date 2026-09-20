@@ -9,8 +9,6 @@
 package parser
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 )
@@ -37,8 +35,7 @@ func (p *Parser) beginPendingScope() []pendingVarDecl {
 func (p *Parser) endPendingScope(saved []pendingVarDecl) error {
 	if len(p.pendingVarDecls) > 0 {
 		first := p.pendingVarDecls[0]
-		return fmt.Errorf("строка %d, столбец %d: переменная %q объявлена без значения и ни разу не заполнена (\"%s = ...\" или \"... и положить в %s\") до конца блока",
-			first.tok.Line, first.tok.Col, first.name, first.name, first.name)
+		return errAt(first.tok.Line, first.tok.Col, CodeStmtRestrict, "переменная %q объявлена без значения и ни разу не заполнена (\"%s = ...\" или \"... и положить в %s\") до конца блока", first.name, first.name, first.name)
 	}
 	p.pendingVarDecls = saved
 	return nil

@@ -1,9 +1,8 @@
 package parser
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 )
 
@@ -31,25 +30,25 @@ func (p *Parser) collectEntitySignature(entityMethods map[string]map[string][]as
 
 	name, err := p.expect(lexer.IDENT)
 	if err != nil {
-		return fmt.Errorf("после \"сущность\"/\"класс\"/\"структура\" ожидалось имя: %w", err)
+		return diagnostics.Wrap(err, "после \"сущность\"/\"класс\"/\"структура\" ожидалось имя")
 	}
 
 	if p.cur().Type == lexer.LT {
 		if _, err := p.parseGenericParams(); err != nil {
-			return fmt.Errorf("сущность %q: %w", name.Value, err)
+			return diagnostics.Wrap(err, "сущность %q", name.Value)
 		}
 	}
 	if p.cur().Type == lexer.KwInherits {
 		p.advance()
 		if _, err := p.expect(lexer.IDENT); err != nil {
-			return fmt.Errorf("сущность %q: после \"наследует\" ожидалось имя: %w", name.Value, err)
+			return diagnostics.Wrap(err, "сущность %q: после \"наследует\" ожидалось имя", name.Value)
 		}
 	}
 	if p.cur().Type == lexer.KwImplements {
 		p.advance()
 		for {
 			if _, err := p.expect(lexer.IDENT); err != nil {
-				return fmt.Errorf("сущность %q: после \"реализует\" ожидалось имя: %w", name.Value, err)
+				return diagnostics.Wrap(err, "сущность %q: после \"реализует\" ожидалось имя", name.Value)
 			}
 			if p.cur().Type != lexer.COMMA {
 				break
@@ -63,7 +62,7 @@ func (p *Parser) collectEntitySignature(entityMethods map[string]map[string][]as
 	}
 	p.skipNewlines()
 	if _, err := p.expect(lexer.LBRACE); err != nil {
-		return fmt.Errorf("сущность %q: %w", name.Value, err)
+		return diagnostics.Wrap(err, "сущность %q", name.Value)
 	}
 
 	methods := map[string][]ast.Param{}
@@ -71,12 +70,12 @@ func (p *Parser) collectEntitySignature(entityMethods map[string]map[string][]as
 	atMemberStart := true
 	for depth > 0 {
 		if p.cur().Type == lexer.EOF {
-			return fmt.Errorf("сущность %q: не найдена закрывающая \"}\"", name.Value)
+			return errAt(p.cur().Line, p.cur().Col, CodeUnclosedBracket, "сущность %q: не найдена закрывающая \"}\"", name.Value)
 		}
 		if atMemberStart && depth == 1 {
 			methodName, params, ok, err := p.tryCollectMethodHeader()
 			if err != nil {
-				return fmt.Errorf("сущность %q: %w", name.Value, err)
+				return diagnostics.Wrap(err, "сущность %q", name.Value)
 			}
 			if ok {
 				methods[methodName] = params

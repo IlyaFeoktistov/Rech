@@ -16,9 +16,8 @@
 package parser
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 	"github.com/IlyaFeoktistov/Rech/internal/morph"
 	"github.com/IlyaFeoktistov/Rech/internal/structtag"
@@ -38,7 +37,7 @@ func (p *Parser) registerGerundWord(funcName, tag string) error {
 		word = auto
 	}
 	if existing, exists := p.gerundWords[word]; exists && existing != funcName {
-		return fmt.Errorf("деепричастие %q уже зарегистрировано функцией %q - нельзя использовать его же для %q (переопределите одну из форм тегом `деепричастие:...`)",
+		return diagnostics.New(CodeDuplicateDecl, diagnostics.Position{}, "деепричастие %q уже зарегистрировано функцией %q - нельзя использовать его же для %q (переопределите одну из форм тегом `деепричастие:...`)",
 			word, existing, funcName)
 	}
 	if p.gerundWords == nil {
@@ -56,12 +55,11 @@ func (p *Parser) registerGerundWord(funcName, tag string) error {
 func (p *Parser) parseGerundStmt(lemma string) (ast.Stmt, error) {
 	word := p.advance() // деепричастная форма
 	if p.cur().Type != lexer.LPAREN {
-		return nil, fmt.Errorf("строка %d, столбец %d: после деепричастия %q ожидалось \"(\" (даже без аргументов - \"()\")",
-			p.cur().Line, p.cur().Col, word.Value)
+		return nil, errAt(p.cur().Line, p.cur().Col, CodeUnexpectedToken, "после деепричастия %q ожидалось \"(\" (даже без аргументов - \"()\")", word.Value)
 	}
 	args, err := p.parseArgList()
 	if err != nil {
-		return nil, fmt.Errorf("в аргументах деепричастного вызова %q: %w", word.Value, err)
+		return nil, diagnostics.Wrap(err, "в аргументах деепричастного вызова %q", word.Value)
 	}
 
 	var body []ast.Stmt
@@ -71,7 +69,7 @@ func (p *Parser) parseGerundStmt(lemma string) (ast.Stmt, error) {
 			break
 		}
 		if err := p.requireSeparator(); err != nil {
-			return nil, fmt.Errorf("после деепричастного вызова %q: %w", word.Value, err)
+			return nil, diagnostics.Wrap(err, "после деепричастного вызова %q", word.Value)
 		}
 		stmt, err := p.parseStatement()
 		if err != nil {
@@ -80,8 +78,7 @@ func (p *Parser) parseGerundStmt(lemma string) (ast.Stmt, error) {
 		body = append(body, stmt)
 	}
 	if len(body) == 0 {
-		return nil, fmt.Errorf("строка %d, столбец %d: после деепричастного вызова %q ожидался блок инструкций с бОльшим отступом",
-			word.Line, word.Col, word.Value)
+		return nil, errAt(word.Line, word.Col, CodeUnexpectedToken, "после деепричастного вызова %q ожидался блок инструкций с бОльшим отступом", word.Value)
 	}
 	return &ast.GerundStmt{Callee: lemma, Args: args, Body: body, Line: word.Line}, nil
 }

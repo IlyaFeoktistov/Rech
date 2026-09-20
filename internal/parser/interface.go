@@ -1,9 +1,8 @@
 package parser
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 )
 
@@ -15,7 +14,7 @@ func (p *Parser) parseInterfaceDecl() (*ast.InterfaceDecl, error) {
 	kw := p.advance() // "интерфейс"
 	name, err := p.expect(lexer.IDENT)
 	if err != nil {
-		return nil, fmt.Errorf("после %q ожидалось имя интерфейса: %w", kw.Value, err)
+		return nil, diagnostics.Wrap(err, "после %q ожидалось имя интерфейса", kw.Value)
 	}
 	p.registerNoun(name.Value)
 
@@ -30,11 +29,11 @@ func (p *Parser) parseInterfaceDecl() (*ast.InterfaceDecl, error) {
 		for {
 			base, err := p.expect(lexer.IDENT)
 			if err != nil {
-				return nil, fmt.Errorf("интерфейс %q: после \"наследует\" ожидалось имя интерфейса: %w", name.Value, err)
+				return nil, diagnostics.Wrap(err, "интерфейс %q: после \"наследует\" ожидалось имя интерфейса", name.Value)
 			}
 			baseName, err := p.resolveDeclinedTypeRef(base, verb.Value)
 			if err != nil {
-				return nil, fmt.Errorf("интерфейс %q: %w", name.Value, err)
+				return nil, diagnostics.Wrap(err, "интерфейс %q", name.Value)
 			}
 			extends = append(extends, baseName)
 			if p.cur().Type != lexer.COMMA {
@@ -63,7 +62,7 @@ func (p *Parser) parseInterfaceDecl() (*ast.InterfaceDecl, error) {
 		}
 		m, err := p.parseInterfaceMethod()
 		if err != nil {
-			return nil, fmt.Errorf("интерфейс %q: %w", name.Value, err)
+			return nil, diagnostics.Wrap(err, "интерфейс %q", name.Value)
 		}
 		methods = append(methods, m)
 		p.skipSeparators()
@@ -84,12 +83,11 @@ func (p *Parser) parseInterfaceMethod() (ast.InterfaceMethod, error) {
 		return ast.InterfaceMethod{}, err
 	}
 	if p.cur().Type != lexer.LPAREN {
-		return ast.InterfaceMethod{}, fmt.Errorf("строка %d, столбец %d: после имени метода %q ожидалось \"(\" (даже без параметров - \"()\")",
-			p.cur().Line, p.cur().Col, name.Value)
+		return ast.InterfaceMethod{}, errAt(p.cur().Line, p.cur().Col, CodeUnexpectedToken, "после имени метода %q ожидалось \"(\" (даже без параметров - \"()\")", name.Value)
 	}
 	params, err := p.parseParams()
 	if err != nil {
-		return ast.InterfaceMethod{}, fmt.Errorf("в списке параметров метода %q: %w", name.Value, err)
+		return ast.InterfaceMethod{}, diagnostics.Wrap(err, "в списке параметров метода %q", name.Value)
 	}
 	returnType := ""
 	selfReturn := false
@@ -101,7 +99,7 @@ func (p *Parser) parseInterfaceMethod() (ast.InterfaceMethod, error) {
 		} else {
 			returnType, err = p.parseTypeName()
 			if err != nil {
-				return ast.InterfaceMethod{}, fmt.Errorf("после \":\" у метода %q ожидалось имя типа результата: %w", name.Value, err)
+				return ast.InterfaceMethod{}, diagnostics.Wrap(err, "после \":\" у метода %q ожидалось имя типа результата", name.Value)
 			}
 			returnType = normalizeReturnType(returnType)
 		}

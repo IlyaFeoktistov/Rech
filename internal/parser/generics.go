@@ -1,9 +1,8 @@
 package parser
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 )
 
@@ -24,10 +23,10 @@ func (p *Parser) parseGenericParams() ([]ast.GenericParam, error) {
 	for {
 		name, err := p.expect(lexer.IDENT)
 		if err != nil {
-			return nil, fmt.Errorf("в параметрах типа ожидалось имя параметра: %w", err)
+			return nil, diagnostics.Wrap(err, "в параметрах типа ожидалось имя параметра")
 		}
 		if seen[name.Value] {
-			return nil, fmt.Errorf("строка %d, столбец %d: параметр типа %q уже объявлен", name.Line, name.Col, name.Value)
+			return nil, errAt(name.Line, name.Col, CodeDuplicateDecl, "параметр типа %q уже объявлен", name.Value)
 		}
 		seen[name.Value] = true
 		param := ast.GenericParam{Name: name.Value, Line: name.Line}
@@ -36,7 +35,7 @@ func (p *Parser) parseGenericParams() ([]ast.GenericParam, error) {
 			for {
 				c, err := p.parseTypeName()
 				if err != nil {
-					return nil, fmt.Errorf("в ограничении параметра типа %q: %w", name.Value, err)
+					return nil, diagnostics.Wrap(err, "в ограничении параметра типа %q", name.Value)
 				}
 				param.Constraints = append(param.Constraints, c)
 				if p.cur().Type != lexer.BITOR {
@@ -60,7 +59,7 @@ func (p *Parser) parseGenericParams() ([]ast.GenericParam, error) {
 	}
 	p.skipNewlines()
 	if err := p.expectCloseAngle(); err != nil {
-		return nil, fmt.Errorf("после параметров типа: %w", err)
+		return nil, diagnostics.Wrap(err, "после параметров типа")
 	}
 	return params, nil
 }
@@ -78,7 +77,7 @@ func (p *Parser) parseGenericCallExpr() (*ast.CallExpr, error) {
 	for {
 		t, err := p.parseTypeName()
 		if err != nil {
-			return nil, fmt.Errorf("в аргументах типа вызова %q: %w", name.Value, err)
+			return nil, diagnostics.Wrap(err, "в аргументах типа вызова %q", name.Value)
 		}
 		typeArgs = append(typeArgs, t)
 		if p.cur().Type != lexer.COMMA {
@@ -95,11 +94,11 @@ func (p *Parser) parseGenericCallExpr() (*ast.CallExpr, error) {
 	}
 	p.skipNewlines()
 	if err := p.expectCloseAngle(); err != nil {
-		return nil, fmt.Errorf("после аргументов типа вызова %q: %w", name.Value, err)
+		return nil, diagnostics.Wrap(err, "после аргументов типа вызова %q", name.Value)
 	}
 	args, err := p.parseArgList()
 	if err != nil {
-		return nil, fmt.Errorf("в аргументах вызова %q: %w", name.Value, err)
+		return nil, diagnostics.Wrap(err, "в аргументах вызова %q", name.Value)
 	}
 	return &ast.CallExpr{Callee: name.Value, Args: args, TypeArgs: typeArgs, Line: name.Line}, nil
 }

@@ -22,6 +22,7 @@ import (
 	"golang.org/x/text/unicode/norm"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 )
 
 // Frontend превращает исходный текст на Rech в AST - то же самое, что
@@ -290,7 +291,7 @@ func (l *loader) load(path string, stack []string, deps map[string]string, root 
 	}
 	prog, err := l.frontend.Parse(string(src))
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, diagnostics.WithFile(err, path)
 	}
 	ast.StampFile(prog, path)
 	// "#если ОС.<Член> { ... }" (docs/SPEC.md) - разрешается ЗДЕСЬ, ДО

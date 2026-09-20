@@ -1,9 +1,8 @@
 package parser
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 )
 
@@ -17,11 +16,11 @@ func (p *Parser) parseExternEntityDecl() (*ast.ExternEntityDecl, error) {
 		return nil, err
 	}
 	if _, err := p.expect(lexer.KwEntity); err != nil {
-		return nil, fmt.Errorf("после %q ожидалось \"сущность\": %w", kw.Value, err)
+		return nil, diagnostics.Wrap(err, "после %q ожидалось \"сущность\"", kw.Value)
 	}
 	cName, err := p.expect(lexer.IDENT)
 	if err != nil {
-		return nil, fmt.Errorf("после \"внешняя сущность\" ожидалось имя C-типа: %w", err)
+		return nil, diagnostics.Wrap(err, "после \"внешняя сущность\" ожидалось имя C-типа")
 	}
 	alias := cName.Value
 	if a, err := p.parseOptionalAlias(); err != nil {
@@ -46,11 +45,11 @@ func (p *Parser) parseExternStructDecl() (*ast.EntityDecl, error) {
 		return nil, err
 	}
 	if _, err := p.expect(lexer.KwStruct); err != nil {
-		return nil, fmt.Errorf("после %q ожидалось \"структура\": %w", kw.Value, err)
+		return nil, diagnostics.Wrap(err, "после %q ожидалось \"структура\"", kw.Value)
 	}
 	cName, err := p.expect(lexer.IDENT)
 	if err != nil {
-		return nil, fmt.Errorf("после \"внешняя структура\" ожидалось имя C-типа: %w", err)
+		return nil, diagnostics.Wrap(err, "после \"внешняя структура\" ожидалось имя C-типа")
 	}
 	alias := cName.Value
 	if a, err := p.parseOptionalAlias(); err != nil {
@@ -67,14 +66,14 @@ func (p *Parser) parseExternStructDecl() (*ast.EntityDecl, error) {
 	p.skipSeparators()
 	fields, err := p.parseFieldsSection()
 	if err != nil {
-		return nil, fmt.Errorf("внешняя структура %q: %w", alias, err)
+		return nil, diagnostics.Wrap(err, "внешняя структура %q", alias)
 	}
 	p.skipSeparators()
 	if _, err := p.expect(lexer.RBRACE); err != nil {
-		return nil, fmt.Errorf("внешняя структура %q: %w", alias, err)
+		return nil, diagnostics.Wrap(err, "внешняя структура %q", alias)
 	}
 	if len(fields) == 0 {
-		return nil, fmt.Errorf("строка %d: внешняя структура %q должна содержать хотя бы одно поле", kw.Line, alias)
+		return nil, errAtLine(kw.Line, CodeEntityInvariant, "внешняя структура %q должна содержать хотя бы одно поле", alias)
 	}
 	return &ast.EntityDecl{
 		Name: alias, IsStruct: true, IsExternStruct: true, ExternCName: cName.Value,

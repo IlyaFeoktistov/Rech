@@ -14,9 +14,8 @@
 package parser
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 )
 
@@ -57,7 +56,7 @@ func (p *Parser) parseExportPathList() ([]exportPathItem, error) {
 	var items []exportPathItem
 	for p.cur().Type != lexer.RPAREN {
 		if p.cur().Type == lexer.EOF {
-			return nil, fmt.Errorf("строка %d: незакрытая \"экспортировать(\" - ожидалась \")\"", p.cur().Line)
+			return nil, errAtLine(p.cur().Line, CodeUnclosedBracket, "незакрытая \"экспортировать(\" - ожидалась \")\"")
 		}
 		item, err := p.parseExportPath()
 		if err != nil {
@@ -80,7 +79,7 @@ func (p *Parser) parseExportPathList() ([]exportPathItem, error) {
 func (p *Parser) parseExportPath() (exportPathItem, error) {
 	name, err := p.expect(lexer.IDENT)
 	if err != nil {
-		return exportPathItem{}, fmt.Errorf("в списке \"экспортировать\": %w", err)
+		return exportPathItem{}, diagnostics.Wrap(err, "в списке \"экспортировать\"")
 	}
 	item := exportPathItem{Target: name.Value, Line: name.Line}
 	if p.cur().Type != lexer.DOT {
@@ -94,8 +93,7 @@ func (p *Parser) parseExportPath() (exportPathItem, error) {
 	case lexer.IDENT:
 		item.Member = p.advance().Value
 	default:
-		return exportPathItem{}, fmt.Errorf("строка %d, столбец %d: после %q ожидалось имя метода или \"конструктор\", получено %q",
-			p.cur().Line, p.cur().Col, item.Target+".", p.cur().Value)
+		return exportPathItem{}, errAt(p.cur().Line, p.cur().Col, CodeUnexpectedToken, "после %q ожидалось имя метода или \"конструктор\", получено %q", item.Target+".", p.cur().Value)
 	}
 	return item, nil
 }
@@ -112,10 +110,10 @@ func applyExportItem(prog *ast.Program, item exportPathItem) error {
 			continue
 		}
 		if item.Member != "" {
-			return fmt.Errorf("строка %d: %q - функция, у неё не может быть члена %q", item.Line, item.Target, item.Member)
+			return errAtLine(item.Line, CodeExport, "%q - функция, у неё не может быть члена %q", item.Target, item.Member)
 		}
 		if fn.Name == entryPointName {
-			return fmt.Errorf("строка %d: %q - точка входа программы, не может быть экспортирована", item.Line, entryPointName)
+			return errAtLine(item.Line, CodeEntryPoint, "%q - точка входа программы, не может быть экспортирована", entryPointName)
 		}
 		fn.Exported = true
 		return nil
@@ -129,7 +127,7 @@ func applyExportItem(prog *ast.Program, item exportPathItem) error {
 			ent.Exported = true
 		case "конструктор":
 			if ent.Ctor == nil {
-				return fmt.Errorf("строка %d: у сущности %q нет явного конструктора (нужен \"конструктор(...)\" в теле, чтобы его можно было экспортировать)", item.Line, item.Target)
+				return errAtLine(item.Line, CodeExport, "у сущности %q нет явного конструктора (нужен \"конструктор(...)\" в теле, чтобы его можно было экспортировать)", item.Target)
 			}
 			ent.Ctor.Exported = true
 		default:
@@ -142,10 +140,10 @@ func applyExportItem(prog *ast.Program, item exportPathItem) error {
 				}
 			}
 			if !found {
-				return fmt.Errorf("строка %d: у сущности %q нет метода %q", item.Line, item.Target, item.Member)
+				return errAtLine(item.Line, CodeExport, "у сущности %q нет метода %q", item.Target, item.Member)
 			}
 		}
 		return nil
 	}
-	return fmt.Errorf("строка %d: %q не объявлено выше в этом файле (список \"экспортировать\" видит только уже разобранные объявления)", item.Line, item.Target)
+	return errAtLine(item.Line, CodeExport, "%q не объявлено выше в этом файле (список \"экспортировать\" видит только уже разобранные объявления)", item.Target)
 }

@@ -1,9 +1,8 @@
 package parser
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 )
 
@@ -15,7 +14,7 @@ func (p *Parser) parseThrowStmt() (ast.Stmt, error) {
 	}
 	value, err := p.parseExpr()
 	if err != nil {
-		return nil, fmt.Errorf("после \"выбросить\" ожидалось выражение: %w", err)
+		return nil, diagnostics.Wrap(err, "после \"выбросить\" ожидалось выражение")
 	}
 	return &ast.ThrowStmt{Value: value, Line: kw.Line}, nil
 }
@@ -40,21 +39,21 @@ func (p *Parser) parseOneCatchClause() (tryCatchClause, error) {
 		return tryCatchClause{}, err
 	}
 	if _, err := p.expect(lexer.LPAREN); err != nil {
-		return tryCatchClause{}, fmt.Errorf("после \"поймать\" ожидалось \"(\": %w", err)
+		return tryCatchClause{}, diagnostics.Wrap(err, "после \"поймать\" ожидалось \"(\"")
 	}
 	catchVar, err := p.expect(lexer.IDENT)
 	if err != nil {
-		return tryCatchClause{}, fmt.Errorf("в \"поймать(...)\" ожидалось имя переменной исключения: %w", err)
+		return tryCatchClause{}, diagnostics.Wrap(err, "в \"поймать(...)\" ожидалось имя переменной исключения")
 	}
 	if _, err := p.expect(lexer.COLON); err != nil {
-		return tryCatchClause{}, fmt.Errorf("после имени %q в \"поймать(...)\" ожидалось \":\": %w", catchVar.Value, err)
+		return tryCatchClause{}, diagnostics.Wrap(err, "после имени %q в \"поймать(...)\" ожидалось \":\"", catchVar.Value)
 	}
 	p.registerNoun(catchVar.Value)
 	var catchTypes []string
 	for {
 		t, err := p.parseTypeName()
 		if err != nil {
-			return tryCatchClause{}, fmt.Errorf("в \"поймать(...)\" ожидалось имя типа исключения: %w", err)
+			return tryCatchClause{}, diagnostics.Wrap(err, "в \"поймать(...)\" ожидалось имя типа исключения")
 		}
 		catchTypes = append(catchTypes, t)
 		if p.cur().Type != lexer.BITOR {
@@ -63,7 +62,7 @@ func (p *Parser) parseOneCatchClause() (tryCatchClause, error) {
 		p.advance() // "|"
 	}
 	if _, err := p.expect(lexer.RPAREN); err != nil {
-		return tryCatchClause{}, fmt.Errorf("после списка типов в \"поймать(...)\" ожидалось \")\": %w", err)
+		return tryCatchClause{}, diagnostics.Wrap(err, "после списка типов в \"поймать(...)\" ожидалось \")\"")
 	}
 	p.skipNewlines()
 	catchBody, err := p.parseBlock()
@@ -88,7 +87,7 @@ func (p *Parser) parseOneCatchClause() (tryCatchClause, error) {
 		otherTypes = append(otherTypes, t)
 	}
 	if panicCount > 1 {
-		return tryCatchClause{}, fmt.Errorf("строка %d: \"Паника\" в \"поймать(...)\" перечислена более одного раза", kw.Line)
+		return tryCatchClause{}, errAtLine(kw.Line, CodeUnexpectedToken, "\"Паника\" в \"поймать(...)\" перечислена более одного раза")
 	}
 	return tryCatchClause{
 		catchVar: catchVar.Value, catchTypes: otherTypes, catchPanic: panicCount == 1, catchBody: catchBody, line: kw.Line,
@@ -139,14 +138,14 @@ func (p *Parser) parseTryStmt() (ast.Stmt, error) {
 		p.skipNewlines()
 		finallyBody, err = p.parseBlock()
 		if err != nil {
-			return nil, fmt.Errorf("после \"окончательно\" ожидался блок: %w", err)
+			return nil, diagnostics.Wrap(err, "после \"окончательно\" ожидался блок")
 		}
 		hasFinally = true
 	}
 
 	if len(clauses) == 0 {
 		if !hasFinally {
-			return nil, fmt.Errorf("строка %d: после блока \"попытаться\" ожидалось \"поймать\" или \"окончательно\"", kw.Line)
+			return nil, errAtLine(kw.Line, CodeUnexpectedToken, "после блока \"попытаться\" ожидалось \"поймать\" или \"окончательно\"")
 		}
 		return &ast.TryStmt{Body: body, NoCatch: true, Finally: finallyBody, Line: kw.Line}, nil
 	}

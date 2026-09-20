@@ -1,10 +1,10 @@
 package parser
 
 import (
-	"fmt"
 	"strconv"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 )
 
@@ -52,7 +52,7 @@ func (p *Parser) parseTernary() (ast.Expr, error) {
 	}
 	p.skipNewlines()
 	if p.cur().Type != lexer.COLON {
-		return nil, fmt.Errorf("строка %d, столбец %d: тернарный оператор \"?\" без \":\": ожидался \":\", получено %q", p.cur().Line, p.cur().Col, p.cur().Value)
+		return nil, errAt(p.cur().Line, p.cur().Col, CodeUnexpectedToken, "тернарный оператор \"?\" без \":\": ожидался \":\", получено %q", p.cur().Value)
 	}
 	p.advance()
 	p.skipNewlines()
@@ -89,7 +89,7 @@ func (p *Parser) ParseExpr() (ast.Expr, error) {
 	}
 	p.skipNewlines()
 	if p.cur().Type != lexer.EOF {
-		return nil, fmt.Errorf("строка %d, столбец %d: лишние символы после выражения: %q", p.cur().Line, p.cur().Col, p.cur().Value)
+		return nil, errAt(p.cur().Line, p.cur().Col, CodeUnexpectedToken, "лишние символы после выражения: %q", p.cur().Value)
 	}
 	return e, nil
 }
@@ -223,11 +223,11 @@ func (p *Parser) parseComparison() (ast.Expr, error) {
 func (p *Parser) parseIsExpr(left ast.Expr) (ast.Expr, error) {
 	kw := p.advance() // "относится"
 	if _, err := p.expect(lexer.KwToward); err != nil {
-		return nil, fmt.Errorf("после \"относится\" ожидалось \"к\": %w", err)
+		return nil, diagnostics.Wrap(err, "после \"относится\" ожидалось \"к\"")
 	}
 	target, err := p.expect(lexer.IDENT)
 	if err != nil {
-		return nil, fmt.Errorf("после \"относится к\" ожидалось имя типа: %w", err)
+		return nil, diagnostics.Wrap(err, "после \"относится к\" ожидалось имя типа")
 	}
 	return &ast.IsExpr{Value: left, Target: target.Value, Line: kw.Line}, nil
 }
@@ -319,7 +319,7 @@ func (p *Parser) parseUnary() (ast.Expr, error) {
 		op := p.advance()
 		operand, err := p.parseUnary()
 		if err != nil {
-			return nil, fmt.Errorf("после \"*\" ожидалось выражение: %w", err)
+			return nil, diagnostics.Wrap(err, "после \"*\" ожидалось выражение")
 		}
 		return &ast.DerefExpr{Value: operand, Line: op.Line}, nil
 	}
@@ -337,24 +337,24 @@ func (p *Parser) parseAddressOf() (ast.Expr, error) {
 	op := p.advance() // "&"
 	name, err := p.expect(lexer.IDENT)
 	if err != nil {
-		return nil, fmt.Errorf("после \"&\" ожидалось имя переменной или функции: %w", err)
+		return nil, diagnostics.Wrap(err, "после \"&\" ожидалось имя переменной или функции")
 	}
 	switch p.cur().Type {
 	case lexer.DOT:
 		p.advance()
 		field, err := p.expect(lexer.IDENT)
 		if err != nil {
-			return nil, fmt.Errorf("после \"&%s.\" ожидалось имя поля: %w", name.Value, err)
+			return nil, diagnostics.Wrap(err, "после \"&%s.\" ожидалось имя поля", name.Value)
 		}
 		return &ast.AddressOfExpr{Receiver: name.Value, Field: field.Value, Line: op.Line}, nil
 	case lexer.LBRACKET:
 		p.advance()
 		index, err := p.parseExpr()
 		if err != nil {
-			return nil, fmt.Errorf("в индексе \"&%s[...]\": %w", name.Value, err)
+			return nil, diagnostics.Wrap(err, "в индексе \"&%s[...]\"", name.Value)
 		}
 		if _, err := p.expect(lexer.RBRACKET); err != nil {
-			return nil, fmt.Errorf("после индекса \"&%s[...]\": %w", name.Value, err)
+			return nil, diagnostics.Wrap(err, "после индекса \"&%s[...]\"", name.Value)
 		}
 		return &ast.AddressOfExpr{Receiver: name.Value, Index: index, Line: op.Line}, nil
 	default:
@@ -370,7 +370,7 @@ func (p *Parser) parsePrefixIncDec() (ast.Expr, error) {
 	op := p.advance()
 	name, err := p.expect(lexer.IDENT)
 	if err != nil {
-		return nil, fmt.Errorf("после %q ожидалось имя переменной: %w", op.Value, err)
+		return nil, diagnostics.Wrap(err, "после %q ожидалось имя переменной", op.Value)
 	}
 	return &ast.IncDecExpr{Name: name.Value, Op: op.Value, Prefix: true, Line: op.Line}, nil
 }
@@ -405,12 +405,12 @@ func (p *Parser) parsePostfixTail(expr ast.Expr) (ast.Expr, error) {
 			dot := p.advance()
 			field, err := p.expect(lexer.IDENT)
 			if err != nil {
-				return nil, fmt.Errorf("после \".\" ожидалось имя поля или метода: %w", err)
+				return nil, diagnostics.Wrap(err, "после \".\" ожидалось имя поля или метода")
 			}
 			if p.cur().Type == lexer.LPAREN {
 				args, err := p.parseArgList()
 				if err != nil {
-					return nil, fmt.Errorf("в аргументах вызова метода %q: %w", field.Value, err)
+					return nil, diagnostics.Wrap(err, "в аргументах вызова метода %q", field.Value)
 				}
 				expr = &ast.MethodCallExpr{Receiver: expr, Method: field.Value, Args: args, Line: dot.Line}
 				continue
@@ -420,12 +420,12 @@ func (p *Parser) parsePostfixTail(expr ast.Expr) (ast.Expr, error) {
 			dc := p.advance()
 			field, err := p.expect(lexer.IDENT)
 			if err != nil {
-				return nil, fmt.Errorf("после \"::\" ожидалось имя статического поля или метода: %w", err)
+				return nil, diagnostics.Wrap(err, "после \"::\" ожидалось имя статического поля или метода")
 			}
 			if p.cur().Type == lexer.LPAREN {
 				args, err := p.parseArgList()
 				if err != nil {
-					return nil, fmt.Errorf("в аргументах вызова статического метода %q: %w", field.Value, err)
+					return nil, diagnostics.Wrap(err, "в аргументах вызова статического метода %q", field.Value)
 				}
 				expr = &ast.MethodCallExpr{Receiver: expr, Method: field.Value, Args: args, Static: true, Line: dc.Line}
 				continue
@@ -435,10 +435,10 @@ func (p *Parser) parsePostfixTail(expr ast.Expr) (ast.Expr, error) {
 			lb := p.advance()
 			index, err := p.parseExpr()
 			if err != nil {
-				return nil, fmt.Errorf("в индексе \"[...]\": %w", err)
+				return nil, diagnostics.Wrap(err, "в индексе \"[...]\"")
 			}
 			if _, err := p.expect(lexer.RBRACKET); err != nil {
-				return nil, fmt.Errorf("после индекса ожидалось \"]\": %w", err)
+				return nil, diagnostics.Wrap(err, "после индекса ожидалось \"]\"")
 			}
 			expr = &ast.IndexExpr{Receiver: expr, Index: index, Line: lb.Line}
 		default:
@@ -457,7 +457,7 @@ func (p *Parser) parseListLiteral() (ast.Expr, error) {
 		for {
 			el, err := p.parseExpr()
 			if err != nil {
-				return nil, fmt.Errorf("в литерале списка: %w", err)
+				return nil, diagnostics.Wrap(err, "в литерале списка")
 			}
 			elems = append(elems, el)
 			if p.cur().Type != lexer.COMMA {
@@ -475,7 +475,7 @@ func (p *Parser) parseListLiteral() (ast.Expr, error) {
 	}
 	p.skipNewlines()
 	if _, err := p.expect(lexer.RBRACKET); err != nil {
-		return nil, fmt.Errorf("после элементов литерала списка ожидалось \"]\": %w", err)
+		return nil, diagnostics.Wrap(err, "после элементов литерала списка ожидалось \"]\"")
 	}
 	return &ast.ListLiteral{Elems: elems, Line: lb.Line}, nil
 }
@@ -521,14 +521,14 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 		p.advance()
 		v, err := parseIntTokenValue(tok.Value)
 		if err != nil {
-			return nil, fmt.Errorf("строка %d, столбец %d: некорректный целочисленный литерал %q", tok.Line, tok.Col, tok.Value)
+			return nil, errAt(tok.Line, tok.Col, CodeInvalidLiteral, "некорректный целочисленный литерал %q", tok.Value)
 		}
 		return &ast.IntLiteral{Value: v, Line: tok.Line}, nil
 	case lexer.FLOAT:
 		p.advance()
 		v, err := strconv.ParseFloat(tok.Value, 64)
 		if err != nil {
-			return nil, fmt.Errorf("строка %d, столбец %d: некорректный числовой литерал %q", tok.Line, tok.Col, tok.Value)
+			return nil, errAt(tok.Line, tok.Col, CodeInvalidLiteral, "некорректный числовой литерал %q", tok.Value)
 		}
 		return &ast.FloatLiteral{Value: v, Line: tok.Line}, nil
 	case lexer.KwTrue:
@@ -594,7 +594,7 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 	case lexer.KwThis:
 		if !p.inMethodBody {
 			p.advance()
-			return nil, fmt.Errorf("строка %d, столбец %d: \"этот\" валиден только внутри тела метода", tok.Line, tok.Col)
+			return nil, errAt(tok.Line, tok.Col, CodeContextRestrict, "\"этот\" валиден только внутри тела метода")
 		}
 		if params, ok := p.startsNaturalMethodCall(); ok {
 			return p.parseNaturalMethodCall(params)
@@ -622,7 +622,6 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 	case lexer.LBRACKET:
 		return p.parseListLiteral()
 	default:
-		return nil, fmt.Errorf("строка %d, столбец %d: ожидалось выражение, получено %q",
-			tok.Line, tok.Col, tok.Value)
+		return nil, errAt(tok.Line, tok.Col, CodeUnexpectedToken, "ожидалось выражение, получено %q", tok.Value)
 	}
 }

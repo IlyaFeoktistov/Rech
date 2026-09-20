@@ -16,6 +16,7 @@ import (
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 	"github.com/IlyaFeoktistov/Rech/internal/module"
@@ -120,6 +121,15 @@ type defaultFrontend struct{}
 // NewFrontend создаёт стандартный Frontend v0.1 (lexer.New + parser.New).
 func NewFrontend() Frontend { return defaultFrontend{} }
 
+// Parse разбирает src в AST. Синтаксическая ошибка внутри ОДНОГО
+// верхнеуровневого объявления не обрывает весь разбор (parser.
+// ParseProgramLenient, тот же механизм восстановления, что раньше
+// использовался только LSP - см. internal/parser/recovery.go): все
+// независимые ошибки собираются в internal/diagnostics.Bag за один
+// прогон, а не только первая. Частичный *ast.Program при ЛЮБОЙ ошибке
+// (одной или нескольких) намеренно отбрасывается (возвращается nil) -
+// сборка/кодогенерация не должны увидеть программу со сломанными
+// объявлениями внутри.
 func (defaultFrontend) Parse(src string) (*ast.Program, error) {
 	if err := lexer.ValidateUTF8(src); err != nil {
 		return nil, err
@@ -131,9 +141,13 @@ func (defaultFrontend) Parse(src string) (*ast.Program, error) {
 	if err != nil {
 		return nil, fmt.Errorf("лексер: %w", err)
 	}
-	prog, err := parser.New(tokens).ParseProgram()
-	if err != nil {
-		return nil, fmt.Errorf("парсер: %w", err)
+	prog, errs := parser.New(tokens).ParseProgramLenient()
+	if len(errs) > 0 {
+		bag := diagnostics.NewBag()
+		for _, e := range errs {
+			bag.AddErr(e)
+		}
+		return nil, bag.AsError()
 	}
 	return prog, nil
 }
@@ -557,7 +571,7 @@ func (c *Compiler) parseFileRaw(srcPath string) (*ast.Program, error) {
 	}
 	prog, err := c.Frontend.Parse(string(srcBytes))
 	if err != nil {
-		return nil, err
+		return nil, diagnostics.WithFile(err, srcPath)
 	}
 	ast.StampFile(prog, srcPath)
 	return prog, nil

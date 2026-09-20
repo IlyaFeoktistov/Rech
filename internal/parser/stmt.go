@@ -1,9 +1,8 @@
 package parser
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 	"github.com/IlyaFeoktistov/Rech/internal/morph"
 )
@@ -20,7 +19,7 @@ func (p *Parser) parseBlock() ([]ast.Stmt, error) {
 	var stmts []ast.Stmt
 	for p.cur().Type != lexer.RBRACE {
 		if p.cur().Type == lexer.EOF {
-			return nil, fmt.Errorf("строка %d: не найдена закрывающая }", p.cur().Line)
+			return nil, errAtLine(p.cur().Line, CodeUnclosedBracket, "не найдена закрывающая }")
 		}
 		if p.cur().Type == lexer.DOC_COMMENT {
 			// "/** ... */" внутри тела - не сразу перед объявлением
@@ -137,8 +136,7 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 		} else if ok {
 			return decl, nil
 		}
-		return nil, fmt.Errorf("строка %d, столбец %d: неожиданный токен %q в теле функции",
-			p.cur().Line, p.cur().Col, p.cur().Value)
+		return nil, errAt(p.cur().Line, p.cur().Col, CodeUnexpectedToken, "неожиданный токен %q в теле функции", p.cur().Value)
 	case lexer.IDENT:
 		if decl, ok, err := p.tryParseTypedVarDecl(); err != nil {
 			return nil, err
@@ -205,8 +203,7 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 			}
 			return p.parseNaturalMethodCallContinuation(call)
 		}
-		return nil, fmt.Errorf("строка %d, столбец %d: неожиданный токен %q в теле функции",
-			p.cur().Line, p.cur().Col, p.cur().Value)
+		return nil, errAt(p.cur().Line, p.cur().Col, CodeUnexpectedToken, "неожиданный токен %q в теле функции", p.cur().Value)
 	case lexer.KwThis:
 		if p.peekAt(1).Type == lexer.DOT {
 			return p.parseDotStatement()
@@ -221,11 +218,9 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 			}
 			return p.parseNaturalMethodCallContinuation(call)
 		}
-		return nil, fmt.Errorf("строка %d, столбец %d: \"этот\" в начале инструкции допустимо только с полем, методом или переходом состояния (\"этот.поле = ...\"/\"этот.метод(...)\"/\"этот становится ...\")",
-			p.cur().Line, p.cur().Col)
+		return nil, errAt(p.cur().Line, p.cur().Col, CodeContextRestrict, "\"этот\" в начале инструкции допустимо только с полем, методом или переходом состояния (\"этот.поле = ...\"/\"этот.метод(...)\"/\"этот становится ...\")")
 	default:
-		return nil, fmt.Errorf("строка %d, столбец %d: неожиданный токен %q в теле функции",
-			p.cur().Line, p.cur().Col, p.cur().Value)
+		return nil, errAt(p.cur().Line, p.cur().Col, CodeUnexpectedToken, "неожиданный токен %q в теле функции", p.cur().Value)
 	}
 }
 
@@ -244,10 +239,10 @@ func (p *Parser) parseOptionalLoopDepth() (int, error) {
 	tok := p.advance()
 	v, err := parseIntTokenValue(tok.Value)
 	if err != nil {
-		return 0, fmt.Errorf("строка %d, столбец %d: некорректный целочисленный литерал %q", tok.Line, tok.Col, tok.Value)
+		return 0, errAt(tok.Line, tok.Col, CodeInvalidLiteral, "некорректный целочисленный литерал %q", tok.Value)
 	}
 	if v < 1 {
-		return 0, fmt.Errorf("строка %d: глубина вложенности цикла должна быть не меньше 1, получено %d", tok.Line, v)
+		return 0, errAtLine(tok.Line, CodeStmtRestrict, "глубина вложенности цикла должна быть не меньше 1, получено %d", v)
 	}
 	return int(v), nil
 }
@@ -291,8 +286,7 @@ func (p *Parser) finishCallChainStmt(call *ast.CallExpr) (ast.Stmt, error) {
 			return p.finishFieldIncDec(e.Receiver, e.Field, e.Static, e.Line)
 		}
 	}
-	return nil, fmt.Errorf("строка %d, столбец %d: доступ к полю сам по себе не является инструкцией - нужен вызов метода или присваивание",
-		startLine, startCol)
+	return nil, errAt(startLine, startCol, CodeStmtRestrict, "доступ к полю сам по себе не является инструкцией - нужен вызов метода или присваивание")
 }
 
 // isIncDecTok - true у "++"/"--" (см. finishFieldIncDec).
@@ -324,8 +318,7 @@ func (p *Parser) parseDotStatement() (ast.Stmt, error) {
 			return p.finishFieldIncDec(e.Receiver, e.Field, e.Static, e.Line)
 		}
 	}
-	return nil, fmt.Errorf("строка %d, столбец %d: доступ к полю сам по себе не является инструкцией - нужен вызов метода или присваивание",
-		start.Line, start.Col)
+	return nil, errAt(start.Line, start.Col, CodeStmtRestrict, "доступ к полю сам по себе не является инструкцией - нужен вызов метода или присваивание")
 }
 
 func (p *Parser) parsePrintStmt() (ast.Stmt, error) {
@@ -335,7 +328,7 @@ func (p *Parser) parsePrintStmt() (ast.Stmt, error) {
 	}
 	value, err := p.parseExpr()
 	if err != nil {
-		return nil, fmt.Errorf("после \"вывести\" ожидалось выражение: %w", err)
+		return nil, diagnostics.Wrap(err, "после \"вывести\" ожидалось выражение")
 	}
 	return &ast.PrintStmt{Value: value, Line: kw.Line}, nil
 }
@@ -347,7 +340,7 @@ func (p *Parser) parseShowStmt() (ast.Stmt, error) {
 	}
 	value, err := p.parseExpr()
 	if err != nil {
-		return nil, fmt.Errorf("после \"показать\" ожидалось выражение: %w", err)
+		return nil, diagnostics.Wrap(err, "после \"показать\" ожидалось выражение")
 	}
 	return &ast.ShowStmt{Value: value, Line: kw.Line}, nil
 }
@@ -359,7 +352,7 @@ func (p *Parser) parseAssertStmt() (ast.Stmt, error) {
 	}
 	cond, err := p.parseExpr()
 	if err != nil {
-		return nil, fmt.Errorf("после \"утверждать\" ожидалось выражение: %w", err)
+		return nil, diagnostics.Wrap(err, "после \"утверждать\" ожидалось выражение")
 	}
 	// "утверждать <условие>, <сообщение>" - необязательное второе
 	// выражение (внятные сообщения о несовпадении),
@@ -380,7 +373,7 @@ func (p *Parser) parseAssertStmt() (ast.Stmt, error) {
 		p.skipNewlines()
 		message, err = p.parseExpr()
 		if err != nil {
-			return nil, fmt.Errorf("после \"утверждать <условие>,\" ожидалось выражение сообщения: %w", err)
+			return nil, diagnostics.Wrap(err, "после \"утверждать <условие>,\" ожидалось выражение сообщения")
 		}
 	}
 	return &ast.AssertStmt{Cond: cond, Message: message, Line: kw.Line}, nil
@@ -400,7 +393,7 @@ func (p *Parser) parseVarDecl() (ast.Stmt, error) {
 		// от "статический"/"приватный" у поля сущности) - единственная
 		// правильная форма всегда "статическая".
 		if tok.Value != "статическая" {
-			return nil, fmt.Errorf("строка %d, столбец %d: перед \"переменная\" нужна форма \"статическая\", получено %q", tok.Line, tok.Col, tok.Value)
+			return nil, errAt(tok.Line, tok.Col, CodeStmtRestrict, "перед \"переменная\" нужна форма \"статическая\", получено %q", tok.Value)
 		}
 		isStatic = true
 	}
@@ -410,14 +403,14 @@ func (p *Parser) parseVarDecl() (ast.Stmt, error) {
 	}
 	name, err := p.expect(lexer.IDENT)
 	if err != nil {
-		return nil, fmt.Errorf("после \"переменная\" ожидалось имя переменной: %w", err)
+		return nil, diagnostics.Wrap(err, "после \"переменная\" ожидалось имя переменной")
 	}
 	var typeName string
 	if p.cur().Type == lexer.COLON {
 		p.advance()
 		typeName, err = p.parseTypeName()
 		if err != nil {
-			return nil, fmt.Errorf("в аннотации типа переменной %q: %w", name.Value, err)
+			return nil, diagnostics.Wrap(err, "в аннотации типа переменной %q", name.Value)
 		}
 	}
 	// Перенос строки перед "=" ("переменная X\n= значение") допустим, только
@@ -430,7 +423,7 @@ func (p *Parser) parseVarDecl() (ast.Stmt, error) {
 	}
 	if p.cur().Type != lexer.ASSIGN && typeName == "" {
 		if isStatic {
-			return nil, fmt.Errorf("строка %d, столбец %d: \"статическая переменная\" должна содержать инициализацию (\"=\") - без неё непонятно, каким значением она заполнится ровно один раз", p.cur().Line, p.cur().Col)
+			return nil, errAt(p.cur().Line, p.cur().Col, CodeStmtRestrict, "\"статическая переменная\" должна содержать инициализацию (\"=\") - без неё непонятно, каким значением она заполнится ровно один раз")
 		}
 		// Отложенное объявление (pendingvar.go, "переменная X" без "=") -
 		// настоящий ast.VarDecl появится позже, в точке первого
@@ -442,12 +435,12 @@ func (p *Parser) parseVarDecl() (ast.Stmt, error) {
 		return nil, nil
 	}
 	if _, err := p.expect(lexer.ASSIGN); err != nil {
-		return nil, fmt.Errorf("объявление переменной %q должно содержать инициализацию (\"=\"): %w", name.Value, err)
+		return nil, diagnostics.Wrap(err, "объявление переменной %q должно содержать инициализацию (\"=\")", name.Value)
 	}
 	p.skipNewlines() // "=\nзначение" - перенос сразу после "=" тоже незначим.
 	value, err := p.parseExpr()
 	if err != nil {
-		return nil, fmt.Errorf("в инициализации переменной %q: %w", name.Value, err)
+		return nil, diagnostics.Wrap(err, "в инициализации переменной %q", name.Value)
 	}
 	p.registerNoun(name.Value)
 	if typeName != "" {
@@ -469,18 +462,18 @@ func (p *Parser) parseConstDecl() (*ast.ConstDecl, error) {
 	}
 	name, err := p.expect(lexer.IDENT)
 	if err != nil {
-		return nil, fmt.Errorf("после \"константа\" ожидалось имя константы: %w", err)
+		return nil, diagnostics.Wrap(err, "после \"константа\" ожидалось имя константы")
 	}
 	if p.cur().Type == lexer.NEWLINE && p.peekPastNewlines().Type == lexer.ASSIGN {
 		p.skipNewlines()
 	}
 	if _, err := p.expect(lexer.ASSIGN); err != nil {
-		return nil, fmt.Errorf("объявление константы %q должно содержать инициализацию (\"=\"): %w", name.Value, err)
+		return nil, diagnostics.Wrap(err, "объявление константы %q должно содержать инициализацию (\"=\")", name.Value)
 	}
 	p.skipNewlines()
 	value, err := p.parseExpr()
 	if err != nil {
-		return nil, fmt.Errorf("в инициализации константы %q: %w", name.Value, err)
+		return nil, diagnostics.Wrap(err, "в инициализации константы %q", name.Value)
 	}
 	p.registerNoun(name.Value)
 	return &ast.ConstDecl{Name: name.Value, Value: value, Line: kw.Line}, nil
@@ -515,14 +508,14 @@ func (p *Parser) parseDerefAssignStmt() (ast.Stmt, error) {
 	star := p.advance() // "*"
 	pointer, err := p.parseUnary()
 	if err != nil {
-		return nil, fmt.Errorf("после \"*\" ожидался указатель: %w", err)
+		return nil, diagnostics.Wrap(err, "после \"*\" ожидался указатель")
 	}
 	if _, err := p.expect(lexer.ASSIGN); err != nil {
-		return nil, fmt.Errorf("после \"*<указатель>\" ожидалось \"=\": %w", err)
+		return nil, diagnostics.Wrap(err, "после \"*<указатель>\" ожидалось \"=\"")
 	}
 	value, err := p.parseExpr()
 	if err != nil {
-		return nil, fmt.Errorf("в присваивании через указатель: %w", err)
+		return nil, diagnostics.Wrap(err, "в присваивании через указатель")
 	}
 	return &ast.DerefAssignStmt{Pointer: pointer, Value: value, Line: star.Line}, nil
 }
@@ -537,13 +530,13 @@ func (p *Parser) parseAssign() (ast.Stmt, error) {
 	p.skipNewlines()
 	opTok := p.cur()
 	if opTok.Type != lexer.ASSIGN && !isCompoundAssignTok(opTok.Type) {
-		return nil, fmt.Errorf("строка %d, столбец %d: ожидался \"=\" в присваивании %q, получено %q", opTok.Line, opTok.Col, name.Value, opTok.Value)
+		return nil, errAt(opTok.Line, opTok.Col, CodeUnexpectedToken, "ожидался \"=\" в присваивании %q, получено %q", name.Value, opTok.Value)
 	}
 	p.advance()
 	p.skipNewlines() // "=\nзначение" - перенос сразу после "=" тоже незначим.
 	value, err := p.parseExpr()
 	if err != nil {
-		return nil, fmt.Errorf("в присваивании %q: %w", name.Value, err)
+		return nil, diagnostics.Wrap(err, "в присваивании %q", name.Value)
 	}
 	if baseOp, ok := compoundAssignOps[opTok.Type]; ok {
 		// Составное присваивание всегда читает старое значение name -
@@ -563,7 +556,7 @@ func (p *Parser) parseNullCoalesceAssign() (ast.Stmt, error) {
 	p.advance() // "?="
 	value, err := p.parseExpr()
 	if err != nil {
-		return nil, fmt.Errorf("в присваивании %q: %w", name.Value, err)
+		return nil, diagnostics.Wrap(err, "в присваивании %q", name.Value)
 	}
 	return &ast.NullCoalesceAssign{Name: name.Value, Value: value, Line: name.Line}, nil
 }
@@ -583,17 +576,17 @@ func (p *Parser) parseIndexAssign() (ast.Stmt, error) {
 	p.advance() // "["
 	index, err := p.parseExpr()
 	if err != nil {
-		return nil, fmt.Errorf("в индексе \"[...]\": %w", err)
+		return nil, diagnostics.Wrap(err, "в индексе \"[...]\"")
 	}
 	if _, err := p.expect(lexer.RBRACKET); err != nil {
-		return nil, fmt.Errorf("после индекса ожидалось \"]\": %w", err)
+		return nil, diagnostics.Wrap(err, "после индекса ожидалось \"]\"")
 	}
 	if _, err := p.expect(lexer.ASSIGN); err != nil {
-		return nil, fmt.Errorf("после %q[...] ожидалось \"=\" (индексация сама по себе не инструкция): %w", receiverTok.Value, err)
+		return nil, diagnostics.Wrap(err, "после %q[...] ожидалось \"=\" (индексация сама по себе не инструкция)", receiverTok.Value)
 	}
 	value, err := p.parseExpr()
 	if err != nil {
-		return nil, fmt.Errorf("в присваивании по индексу: %w", err)
+		return nil, diagnostics.Wrap(err, "в присваивании по индексу")
 	}
 	call := &ast.MethodCallExpr{Receiver: receiver, Method: "установить", Args: []ast.Expr{index, value}, Line: receiverTok.Line}
 	return &ast.ExprStmt{MethodCall: call, Line: receiverTok.Line}, nil
@@ -608,7 +601,7 @@ func (p *Parser) parseSimpleFieldReceiver() (receiver ast.Expr, field string, st
 	receiverTok := p.advance() // IDENT получателя или "этот"
 	if receiverTok.Type == lexer.KwThis {
 		if !p.inMethodBody {
-			return nil, "", false, 0, fmt.Errorf("строка %d, столбец %d: \"этот\" валиден только внутри тела метода", receiverTok.Line, receiverTok.Col)
+			return nil, "", false, 0, errAt(receiverTok.Line, receiverTok.Col, CodeContextRestrict, "\"этот\" валиден только внутри тела метода")
 		}
 		receiver = &ast.ThisExpr{Line: receiverTok.Line}
 	} else {
@@ -618,7 +611,7 @@ func (p *Parser) parseSimpleFieldReceiver() (receiver ast.Expr, field string, st
 	p.advance() // "." или "::"
 	fieldTok, err := p.expect(lexer.IDENT)
 	if err != nil {
-		return nil, "", false, 0, fmt.Errorf("после \".\" ожидалось имя поля: %w", err)
+		return nil, "", false, 0, diagnostics.Wrap(err, "после \".\" ожидалось имя поля")
 	}
 	return receiver, fieldTok.Value, static, receiverTok.Line, nil
 }
@@ -654,12 +647,12 @@ func (p *Parser) parseFieldIncDec() (ast.Stmt, error) {
 func (p *Parser) finishFieldAssign(receiver ast.Expr, field string, static bool, line int) (ast.Stmt, error) {
 	opTok := p.cur()
 	if opTok.Type != lexer.ASSIGN && !isCompoundAssignTok(opTok.Type) {
-		return nil, fmt.Errorf("строка %d, столбец %d: ожидался \"=\" в присваивании полю %q, получено %q", opTok.Line, opTok.Col, field, opTok.Value)
+		return nil, errAt(opTok.Line, opTok.Col, CodeUnexpectedToken, "ожидался \"=\" в присваивании полю %q, получено %q", field, opTok.Value)
 	}
 	p.advance()
 	value, err := p.parseExpr()
 	if err != nil {
-		return nil, fmt.Errorf("в присваивании полю %q: %w", field, err)
+		return nil, diagnostics.Wrap(err, "в присваивании полю %q", field)
 	}
 	if baseOp, ok := compoundAssignOps[opTok.Type]; ok {
 		value = &ast.BinaryExpr{Op: baseOp, Left: &ast.FieldAccess{Receiver: receiver, Field: field, Static: static, Line: line}, Right: value, Line: opTok.Line}
@@ -702,7 +695,7 @@ func (p *Parser) parseIfStmt() (ast.Stmt, error) {
 	}
 	cond, err := p.parseExpr()
 	if err != nil {
-		return nil, fmt.Errorf("после \"если\" ожидалось условие: %w", err)
+		return nil, diagnostics.Wrap(err, "после \"если\" ожидалось условие")
 	}
 	p.skipNewlines()
 	thenBlock, err := p.parseBlock()
@@ -744,7 +737,7 @@ func (p *Parser) parseWhileStmt() (ast.Stmt, error) {
 	}
 	cond, err := p.parseExpr()
 	if err != nil {
-		return nil, fmt.Errorf("после \"пока\" ожидалось условие: %w", err)
+		return nil, diagnostics.Wrap(err, "после \"пока\" ожидалось условие")
 	}
 	p.skipNewlines()
 	body, err := p.parseBlock()
@@ -773,14 +766,14 @@ func (p *Parser) parseForStmt() (ast.Stmt, error) {
 		p.advance() // "от"
 		from, err := p.parseExpr()
 		if err != nil {
-			return nil, fmt.Errorf("после \"от\" ожидалось выражение: %w", err)
+			return nil, diagnostics.Wrap(err, "после \"от\" ожидалось выражение")
 		}
 		if _, err := p.expect(lexer.KwTo); err != nil {
-			return nil, fmt.Errorf("после начала диапазона ожидалось \"до\": %w", err)
+			return nil, diagnostics.Wrap(err, "после начала диапазона ожидалось \"до\"")
 		}
 		to, err := p.parseExpr()
 		if err != nil {
-			return nil, fmt.Errorf("после \"до\" ожидалось выражение: %w", err)
+			return nil, diagnostics.Wrap(err, "после \"до\" ожидалось выражение")
 		}
 		p.registerNoun(name.Value)
 		p.skipNewlines()
@@ -815,25 +808,25 @@ func (p *Parser) parseCStyleForStmt(kw lexer.Token) (ast.Stmt, error) {
 		}
 	}
 	if _, err := p.expect(lexer.SEMICOLON); err != nil {
-		return nil, fmt.Errorf("после инициализации цикла \"для\" ожидалось \";\": %w", err)
+		return nil, diagnostics.Wrap(err, "после инициализации цикла \"для\" ожидалось \";\"")
 	}
 	var cond ast.Expr
 	if p.cur().Type != lexer.SEMICOLON {
 		var err error
 		cond, err = p.parseExpr()
 		if err != nil {
-			return nil, fmt.Errorf("после \";\" ожидалось условие цикла \"для\": %w", err)
+			return nil, diagnostics.Wrap(err, "после \";\" ожидалось условие цикла \"для\"")
 		}
 	}
 	if _, err := p.expect(lexer.SEMICOLON); err != nil {
-		return nil, fmt.Errorf("после условия цикла \"для\" ожидалось \";\": %w", err)
+		return nil, diagnostics.Wrap(err, "после условия цикла \"для\" ожидалось \";\"")
 	}
 	var post ast.Stmt
 	if p.cur().Type != lexer.LBRACE {
 		var err error
 		post, err = p.parseStatement()
 		if err != nil {
-			return nil, fmt.Errorf("после \";\" ожидалась инструкция шага цикла \"для\": %w", err)
+			return nil, diagnostics.Wrap(err, "после \";\" ожидалась инструкция шага цикла \"для\"")
 		}
 	}
 	if init != nil {
@@ -861,20 +854,20 @@ func (p *Parser) parseForInitStmt() (*ast.VarDecl, error) {
 		}
 		vd, ok := decl.(*ast.VarDecl)
 		if !ok {
-			return nil, fmt.Errorf("строка %d: инициализация цикла \"для\" должна содержать значение (\"=\")", p.cur().Line)
+			return nil, errAtLine(p.cur().Line, CodeStmtRestrict, "инициализация цикла \"для\" должна содержать значение (\"=\")")
 		}
 		return vd, nil
 	}
 	name, err := p.expect(lexer.IDENT)
 	if err != nil {
-		return nil, fmt.Errorf("после \"для\" ожидалась инициализация переменной цикла: %w", err)
+		return nil, diagnostics.Wrap(err, "после \"для\" ожидалась инициализация переменной цикла")
 	}
 	if _, err := p.expect(lexer.ASSIGN); err != nil {
-		return nil, fmt.Errorf("после имени переменной цикла ожидалось \"=\": %w", err)
+		return nil, diagnostics.Wrap(err, "после имени переменной цикла ожидалось \"=\"")
 	}
 	value, err := p.parseExpr()
 	if err != nil {
-		return nil, fmt.Errorf("после \"=\" ожидалось начальное значение переменной цикла: %w", err)
+		return nil, diagnostics.Wrap(err, "после \"=\" ожидалось начальное значение переменной цикла")
 	}
 	p.registerNoun(name.Value)
 	return &ast.VarDecl{Name: name.Value, Value: value, Line: name.Line}, nil
@@ -894,7 +887,7 @@ func (p *Parser) parseForEachStmt(kw lexer.Token, name lexer.Token) (ast.Stmt, e
 	p.advance() // "в"
 	collTok, err := p.expect(lexer.IDENT)
 	if err != nil {
-		return nil, fmt.Errorf("после \"в\" в цикле по коллекции ожидалось название коллекции (в предложном падеже): %w", err)
+		return nil, diagnostics.Wrap(err, "после \"в\" в цикле по коллекции ожидалось название коллекции (в предложном падеже)")
 	}
 	lemma, err := p.resolvePrepositionalNoun(collTok)
 	if err != nil {
@@ -945,14 +938,12 @@ func (p *Parser) resolvePrepositionalNoun(tok lexer.Token) (string, error) {
 			continue
 		}
 		if lemma != "" && lemma != a.Lemma {
-			return "", fmt.Errorf("строка %d, столбец %d: словоформа %q неоднозначна как коллекция цикла - подходит нескольким переменным",
-				tok.Line, tok.Col, tok.Value)
+			return "", errAt(tok.Line, tok.Col, CodeNaturalCall, "словоформа %q неоднозначна как коллекция цикла - подходит нескольким переменным", tok.Value)
 		}
 		lemma = a.Lemma
 	}
 	if lemma == "" {
-		return "", fmt.Errorf("строка %d, столбец %d: %q не распознано как существительное в предложном падеже (ожидалась переменная-коллекция после \"в\")",
-			tok.Line, tok.Col, tok.Value)
+		return "", errAt(tok.Line, tok.Col, CodeNaturalCall, "%q не распознано как существительное в предложном падеже (ожидалась переменная-коллекция после \"в\")", tok.Value)
 	}
 	return lemma, nil
 }
@@ -968,7 +959,7 @@ func (p *Parser) parseReturnStmt() (ast.Stmt, error) {
 	default:
 		value, err := p.parseExpr()
 		if err != nil {
-			return nil, fmt.Errorf("после \"вернуть\" ожидалось выражение: %w", err)
+			return nil, diagnostics.Wrap(err, "после \"вернуть\" ожидалось выражение")
 		}
 		return &ast.ReturnStmt{Value: value, Line: kw.Line}, nil
 	}

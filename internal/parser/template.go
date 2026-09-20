@@ -1,9 +1,8 @@
 package parser
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 )
 
@@ -27,7 +26,7 @@ type templatePart struct {
 func (p *Parser) parseTemplateLiteral(tok lexer.Token) (ast.Expr, error) {
 	parts, err := splitTemplateParts(tok.Value)
 	if err != nil {
-		return nil, fmt.Errorf("строка %d, столбец %d: %w", tok.Line, tok.Col, err)
+		return nil, diagnostics.WithPos(err, diagnostics.Position{Line: tok.Line, Col: tok.Col})
 	}
 	if len(parts) == 0 {
 		return &ast.StringLiteral{Value: "", Line: tok.Line}, nil
@@ -38,7 +37,7 @@ func (p *Parser) parseTemplateLiteral(tok lexer.Token) (ast.Expr, error) {
 		if part.isExpr {
 			expr, err := parseTemplateExprPart(part.text)
 			if err != nil {
-				return nil, fmt.Errorf("строка %d, столбец %d: во вставке \"${%s}\" шаблонного литерала: %w", tok.Line, tok.Col, part.text, err)
+				return nil, diagnostics.WrapAt(err, diagnostics.Position{Line: tok.Line, Col: tok.Col}, "во вставке \"${%s}\" шаблонного литерала", part.text)
 			}
 			piece = &ast.CastExpr{Type: "Строка", Value: expr, Line: tok.Line}
 		} else {
@@ -68,7 +67,7 @@ func parseTemplateExprPart(src string) (ast.Expr, error) {
 		return nil, err
 	}
 	if sub.cur().Type != lexer.EOF {
-		return nil, fmt.Errorf("лишние символы после выражения")
+		return nil, errAt(sub.cur().Line, sub.cur().Col, CodeTemplate, "лишние символы после выражения")
 	}
 	return expr, nil
 }
@@ -117,7 +116,7 @@ func splitTemplateParts(raw string) ([]templatePart, error) {
 				}
 				j++
 			}
-			return nil, fmt.Errorf("вставка \"${\" не закрыта символом \"}\"")
+			return nil, diagnostics.New(CodeTemplate, diagnostics.Position{}, "вставка \"${\" не закрыта символом \"}\"")
 		found:
 			parts = append(parts, templatePart{text: string(runes[start:j]), isExpr: true})
 			i = j + 1

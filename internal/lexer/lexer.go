@@ -1,12 +1,13 @@
 package lexer
 
 import (
-	"fmt"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 
 	"golang.org/x/text/unicode/norm"
+
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 )
 
 // Lexer превращает исходный текст на Rech в поток токенов.
@@ -255,7 +256,7 @@ func (l *Lexer) next() (Token, error) {
 	case unicode.IsLetter(r) || r == '_':
 		return l.readIdentOrKeyword(line, col), nil
 	default:
-		return Token{}, fmt.Errorf("строка %d, столбец %d: неожиданный символ %q", line, col, r)
+		return Token{}, errAt(CodeUnexpectedChar, line, col, "неожиданный символ %q", r)
 	}
 }
 
@@ -295,7 +296,7 @@ func (l *Lexer) skipInsignificantWhitespaceAndComments() error {
 				l.advance()
 			}
 			if !closed {
-				return fmt.Errorf("строка %d, столбец %d: комментарий не закрыт (нет \"*/\")", line, col)
+				return errAt(CodeUnclosedComment, line, col, "комментарий не закрыт (нет \"*/\")")
 			}
 		default:
 			return nil
@@ -322,7 +323,7 @@ func (l *Lexer) readDocComment(line, col int) (Token, error) {
 	start := l.pos
 	for {
 		if l.pos >= len(l.src) {
-			return Token{}, fmt.Errorf("строка %d, столбец %d: doc-комментарий не закрыт (нет \"*/\")", line, col)
+			return Token{}, errAt(CodeUnclosedComment, line, col, "doc-комментарий не закрыт (нет \"*/\")")
 		}
 		if l.peek() == '*' && l.peekAt(1) == '/' {
 			text := string(l.src[start:l.pos])
@@ -450,7 +451,7 @@ func (l *Lexer) readString(line, col int) (Token, error) {
 	var sb []rune
 	for {
 		if l.pos >= len(l.src) {
-			return Token{}, fmt.Errorf("строка %d, столбец %d: строка не закрыта кавычкой", line, col)
+			return Token{}, errAt(CodeBadLiteral, line, col, "строка не закрыта кавычкой")
 		}
 		r := l.peek()
 		if r == '"' {
@@ -458,7 +459,7 @@ func (l *Lexer) readString(line, col int) (Token, error) {
 			break
 		}
 		if r == '\n' {
-			return Token{}, fmt.Errorf("строка %d, столбец %d: перенос строки внутри строкового литерала не поддерживается в v0.1", line, col)
+			return Token{}, errAt(CodeBadLiteral, line, col, "перенос строки внутри строкового литерала не поддерживается в v0.1")
 		}
 		sb = append(sb, r)
 		l.advance()
@@ -474,14 +475,14 @@ func (l *Lexer) readString(line, col int) (Token, error) {
 func (l *Lexer) readChar(line, col int) (Token, error) {
 	l.advance() // открывающая '
 	if l.pos >= len(l.src) {
-		return Token{}, fmt.Errorf("строка %d, столбец %d: символьный литерал не закрыт кавычкой", line, col)
+		return Token{}, errAt(CodeBadLiteral, line, col, "символьный литерал не закрыт кавычкой")
 	}
 	var value rune
 	switch r := l.peek(); r {
 	case '\'':
-		return Token{}, fmt.Errorf("строка %d, столбец %d: пустой символьный литерал", line, col)
+		return Token{}, errAt(CodeBadLiteral, line, col, "пустой символьный литерал")
 	case '\n':
-		return Token{}, fmt.Errorf("строка %d, столбец %d: перенос строки внутри символьного литерала не поддерживается", line, col)
+		return Token{}, errAt(CodeBadLiteral, line, col, "перенос строки внутри символьного литерала не поддерживается")
 	case '\\':
 		l.advance()
 		esc := l.peek()
@@ -497,7 +498,7 @@ func (l *Lexer) readChar(line, col int) (Token, error) {
 		case '\\':
 			value = '\\'
 		default:
-			return Token{}, fmt.Errorf("строка %d, столбец %d: неизвестная последовательность экранирования \\%c", l.line, l.col, esc)
+			return Token{}, errAt(CodeBadEscape, l.line, l.col, "неизвестная последовательность экранирования \\%c", esc)
 		}
 		l.advance()
 	default:
@@ -505,7 +506,7 @@ func (l *Lexer) readChar(line, col int) (Token, error) {
 		l.advance()
 	}
 	if l.pos >= len(l.src) || l.peek() != '\'' {
-		return Token{}, fmt.Errorf("строка %d, столбец %d: символьный литерал должен содержать ровно один символ", line, col)
+		return Token{}, errAt(CodeBadLiteral, line, col, "символьный литерал должен содержать ровно один символ")
 	}
 	l.advance() // закрывающая '
 	return Token{Type: CHAR, Value: string(value), Line: line, Col: col}, nil
@@ -528,7 +529,7 @@ func (l *Lexer) readTag(line, col int) (Token, error) {
 	var sb []rune
 	for {
 		if l.pos >= len(l.src) {
-			return Token{}, fmt.Errorf("строка %d, столбец %d: строка в обратных кавычках не закрыта (нет \"`\")", line, col)
+			return Token{}, errAt(CodeBadLiteral, line, col, "строка в обратных кавычках не закрыта (нет \"`\")")
 		}
 		r := l.peek()
 		if r == '`' {
@@ -552,7 +553,7 @@ func (l *Lexer) readTag(line, col int) (Token, error) {
 			case '$':
 				sb = append(sb, '$')
 			default:
-				return Token{}, fmt.Errorf("строка %d, столбец %d: неизвестная последовательность экранирования \\%c", l.line, l.col, esc)
+				return Token{}, errAt(CodeBadEscape, l.line, l.col, "неизвестная последовательность экранирования \\%c", esc)
 			}
 			l.advance()
 			continue
@@ -567,7 +568,7 @@ func (l *Lexer) readTag(line, col int) (Token, error) {
 // вызывается из cmd/rech перед лексированием.
 func ValidateUTF8(src string) error {
 	if !utf8.ValidString(src) {
-		return fmt.Errorf("исходный файл не в кодировке UTF-8")
+		return diagnostics.New(CodeBadEncoding, diagnostics.Position{}, "исходный файл не в кодировке UTF-8")
 	}
 	return nil
 }
@@ -582,7 +583,7 @@ func ValidateUTF8(src string) error {
 // docs/GRAMMAR_DRAFT.md, раздел "Имена файлов и кодировка".
 func ValidateNFC(src string) error {
 	if !norm.NFC.IsNormalString(src) {
-		return fmt.Errorf("исходный файл не в нормализованной форме Unicode NFC - пересохраните его в редакторе с нормализацией NFC (частая причина - буква \"ё\", набранная как \"е\" с отдельным диакритическим знаком)")
+		return diagnostics.New(CodeBadEncoding, diagnostics.Position{}, "исходный файл не в нормализованной форме Unicode NFC - пересохраните его в редакторе с нормализацией NFC (частая причина - буква \"ё\", набранная как \"е\" с отдельным диакритическим знаком)")
 	}
 	return nil
 }

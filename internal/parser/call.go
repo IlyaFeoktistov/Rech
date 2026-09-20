@@ -1,11 +1,11 @@
 package parser
 
 import (
-	"fmt"
 	"slices"
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 	"github.com/IlyaFeoktistov/Rech/internal/morph"
 )
@@ -14,7 +14,7 @@ func (p *Parser) parseCallExpr() (*ast.CallExpr, error) {
 	name := p.advance() // IDENT
 	args, err := p.parseArgList()
 	if err != nil {
-		return nil, fmt.Errorf("в аргументах вызова %q: %w", name.Value, err)
+		return nil, diagnostics.Wrap(err, "в аргументах вызова %q", name.Value)
 	}
 	return &ast.CallExpr{Callee: name.Value, Args: args, Line: name.Line}, nil
 }
@@ -73,13 +73,13 @@ func (p *Parser) parseNewExpr() (ast.Expr, error) {
 	}
 	typeName, err := p.parseTypeName()
 	if err != nil {
-		return nil, fmt.Errorf("после %q ожидалось имя сущности: %w", kw.Value, err)
+		return nil, diagnostics.Wrap(err, "после %q ожидалось имя сущности", kw.Value)
 	}
 	if err := p.checkNewKeywordAgreement(kw, typeName); err != nil {
 		return nil, err
 	}
 	if p.cur().Type != lexer.LPAREN {
-		return nil, fmt.Errorf("строка %d, столбец %d: после имени сущности %q ожидалось \"(\"", p.cur().Line, p.cur().Col, typeName)
+		return nil, errAt(p.cur().Line, p.cur().Col, CodeUnexpectedToken, "после имени сущности %q ожидалось \"(\"", typeName)
 	}
 	p.advance() // "("
 	p.skipNewlines()
@@ -91,8 +91,7 @@ func (p *Parser) parseNewExpr() (ast.Expr, error) {
 		for {
 			nowLabeled := p.cur().Type == lexer.IDENT && p.peekAt(1).Type == lexer.COLON
 			if nowLabeled != labeled {
-				return nil, fmt.Errorf("строка %d, столбец %d: в конструкторе %q нельзя смешивать именованные и позиционные аргументы",
-					p.cur().Line, p.cur().Col, typeName)
+				return nil, errAt(p.cur().Line, p.cur().Col, CodeUnexpectedToken, "в конструкторе %q нельзя смешивать именованные и позиционные аргументы", typeName)
 			}
 			if labeled {
 				label, err := p.expect(lexer.IDENT)
@@ -102,14 +101,14 @@ func (p *Parser) parseNewExpr() (ast.Expr, error) {
 				p.advance() // ":"
 				val, err := p.parseExpr()
 				if err != nil {
-					return nil, fmt.Errorf("в значении поля %q конструктора %q: %w", label.Value, typeName, err)
+					return nil, diagnostics.Wrap(err, "в значении поля %q конструктора %q", label.Value, typeName)
 				}
 				fieldNames = append(fieldNames, label.Value)
 				args = append(args, val)
 			} else {
 				val, err := p.parseExpr()
 				if err != nil {
-					return nil, fmt.Errorf("в аргументах конструктора %q: %w", typeName, err)
+					return nil, diagnostics.Wrap(err, "в аргументах конструктора %q", typeName)
 				}
 				args = append(args, val)
 			}
@@ -150,8 +149,7 @@ func (p *Parser) checkNewKeywordAgreement(kw lexer.Token, typeName string) error
 	}
 	want := morph.NewKeywordFor(gender, number)
 	if kw.Value != want {
-		return fmt.Errorf("строка %d, столбец %d: сущность %q требует форму %q, получено %q",
-			kw.Line, kw.Col, typeName, want, kw.Value)
+		return errAt(kw.Line, kw.Col, CodeModifierAgree, "сущность %q требует форму %q, получено %q", typeName, want, kw.Value)
 	}
 	return nil
 }
@@ -243,7 +241,7 @@ func (p *Parser) matchNaturalCallArgs(subject lexer.Token, params []ast.Param) (
 		}
 		argTok, err := p.expect(lexer.IDENT)
 		if err != nil {
-			return nil, fmt.Errorf("в естественном вызове %q: не хватает аргументов (не заполнено ещё %d): %w", name.Value, len(params)-i, err)
+			return nil, diagnostics.Wrap(err, "в естественном вызове %q: не хватает аргументов (не заполнено ещё %d)", name.Value, len(params)-i)
 		}
 		tokens[i] = argTok
 	}
@@ -276,16 +274,14 @@ func (p *Parser) matchNaturalCallArgs(subject lexer.Token, params []ast.Param) (
 					}
 				}
 				if matchIdx != -1 && (matchIdx != i || matchLemma != a.Lemma) {
-					return nil, fmt.Errorf("строка %d, столбец %d: словоформа %q неоднозначна - подходит сразу нескольким незаполненным параметрам вызова %q",
-						argTok.Line, argTok.Col, argTok.Value, name.Value)
+					return nil, errAt(argTok.Line, argTok.Col, CodeNaturalCall, "словоформа %q неоднозначна - подходит сразу нескольким незаполненным параметрам вызова %q", argTok.Value, name.Value)
 				}
 				matchIdx, matchLemma = i, a.Lemma
 			}
 		}
 		if matchIdx != -1 {
 			if allowed, needsPrep := morph.MandatoryPrepositions(params[matchIdx].CaseWord); needsPrep && !slices.Contains(allowed, tokenPrep[ti]) {
-				return nil, fmt.Errorf("строка %d, столбец %d: параметру %q нужен предлог (%s) перед аргументом",
-					argTok.Line, argTok.Col, params[matchIdx].Name, strings.Join(allowed, "/"))
+				return nil, errAt(argTok.Line, argTok.Col, CodeNaturalCall, "параметру %q нужен предлог (%s) перед аргументом", params[matchIdx].Name, strings.Join(allowed, "/"))
 			}
 			args[matchIdx] = &ast.Identifier{Name: matchLemma, Line: argTok.Line}
 			filled[matchIdx] = true
@@ -315,17 +311,14 @@ func (p *Parser) matchNaturalCallArgs(subject lexer.Token, params []ast.Param) (
 	for i, param := range params {
 		if !filled[i] {
 			if param.CaseWord != "" {
-				return nil, fmt.Errorf("строка %d, столбец %d: не удалось подобрать по падежу аргумент для параметра %q вызова %q",
-					name.Line, name.Col, param.Name, name.Value)
+				return nil, errAt(name.Line, name.Col, CodeNaturalCall, "не удалось подобрать по падежу аргумент для параметра %q вызова %q", param.Name, name.Value)
 			}
-			return nil, fmt.Errorf("строка %d, столбец %d: не хватает аргументов для параметра %q вызова %q",
-				name.Line, name.Col, param.Name, name.Value)
+			return nil, errAt(name.Line, name.Col, CodeNaturalCall, "не хватает аргументов для параметра %q вызова %q", param.Name, name.Value)
 		}
 	}
 	for i, used := range tokenUsed {
 		if !used {
-			return nil, fmt.Errorf("строка %d, столбец %d: словоформа %q лишняя в вызове %q",
-				tokens[i].Line, tokens[i].Col, tokens[i].Value, name.Value)
+			return nil, errAt(tokens[i].Line, tokens[i].Col, CodeNaturalCall, "словоформа %q лишняя в вызове %q", tokens[i].Value, name.Value)
 		}
 	}
 
@@ -394,14 +387,13 @@ func (p *Parser) parseNaturalCallContinuationCore(call ast.Expr, line int) (stmt
 	if p.cur().Type == lexer.IDENT && p.cur().Value == naturalCallPutWord {
 		p.advance() // "положить"
 		if _, err := p.expect(lexer.KwIn); err != nil {
-			return nil, true, fmt.Errorf("после %q ожидалось \"в\" и имя переменной: %w", naturalCallPutWord, err)
+			return nil, true, diagnostics.Wrap(err, "после %q ожидалось \"в\" и имя переменной", naturalCallPutWord)
 		}
 		target, err := p.expect(lexer.IDENT)
 		if err != nil {
-			return nil, true, fmt.Errorf("после \"в\" ожидалось имя переменной: %w", err)
+			return nil, true, diagnostics.Wrap(err, "после \"в\" ожидалось имя переменной")
 		}
 		return p.resolveAssignTarget(target, call), true, nil
 	}
-	return nil, true, fmt.Errorf("строка %d, столбец %d: после \"и\" ожидалось \"вывести\" или %q в <переменная>, получено %q",
-		p.cur().Line, p.cur().Col, naturalCallPutWord, p.cur().Value)
+	return nil, true, errAt(p.cur().Line, p.cur().Col, CodeUnexpectedToken, "после \"и\" ожидалось \"вывести\" или %q в <переменная>, получено %q", naturalCallPutWord, p.cur().Value)
 }

@@ -1,9 +1,8 @@
 package parser
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 )
 
@@ -13,8 +12,7 @@ import (
 func (p *Parser) parseLaunchExpr() (ast.Expr, error) {
 	kw := p.advance() // "запустить"
 	if p.cur().Type != lexer.IDENT || p.peekAt(1).Type != lexer.LPAREN {
-		return nil, fmt.Errorf("строка %d, столбец %d: после \"запустить\" ожидался вызов функции (\"имя(...)\")",
-			p.cur().Line, p.cur().Col)
+		return nil, errAt(p.cur().Line, p.cur().Col, CodeUnexpectedToken, "после \"запустить\" ожидался вызов функции (\"имя(...)\")")
 	}
 	call, err := p.parseCallExpr()
 	if err != nil {
@@ -30,8 +28,7 @@ func (p *Parser) parseLaunchExpr() (ast.Expr, error) {
 func (p *Parser) parseCoroLaunchExpr() (ast.Expr, error) {
 	kw := p.advance() // "поручить"
 	if p.cur().Type != lexer.IDENT || p.peekAt(1).Type != lexer.LPAREN {
-		return nil, fmt.Errorf("строка %d, столбец %d: после \"поручить\" ожидался вызов асинхронной функции (\"имя(...)\")",
-			p.cur().Line, p.cur().Col)
+		return nil, errAt(p.cur().Line, p.cur().Col, CodeUnexpectedToken, "после \"поручить\" ожидался вызов асинхронной функции (\"имя(...)\")")
 	}
 	call, err := p.parseCallExpr()
 	if err != nil {
@@ -48,7 +45,7 @@ func (p *Parser) parseAwaitExpr() (ast.Expr, error) {
 	kw := p.advance() // "дождаться"
 	task, err := p.parsePostfix()
 	if err != nil {
-		return nil, fmt.Errorf("после \"дождаться\" ожидалось выражение задачи: %w", err)
+		return nil, diagnostics.Wrap(err, "после \"дождаться\" ожидалось выражение задачи")
 	}
 	return &ast.AwaitExpr{Task: task, Line: kw.Line}, nil
 }
@@ -78,12 +75,10 @@ func (p *Parser) parseAsyncModifier() (bool, error) {
 	}
 	tok := p.advance()
 	if tok.Value != "асинхронная" {
-		return false, fmt.Errorf("строка %d, столбец %d: модификатор согласуется со словом \"функция\" (женский род) - ожидалось \"асинхронная\", получено %q",
-			tok.Line, tok.Col, tok.Value)
+		return false, errAt(tok.Line, tok.Col, CodeModifierAgree, "модификатор согласуется со словом \"функция\" (женский род) - ожидалось \"асинхронная\", получено %q", tok.Value)
 	}
 	if p.cur().Type != lexer.KwFunction {
-		return false, fmt.Errorf("строка %d, столбец %d: после \"асинхронная\" ожидалось \"функция\" (модификатор пока поддерживается только для обычных функций - не методов, не сущностей, не \"экспортировать\"), получено %q",
-			p.cur().Line, p.cur().Col, p.cur().Value)
+		return false, errAt(p.cur().Line, p.cur().Col, CodeUnexpectedToken, "после \"асинхронная\" ожидалось \"функция\" (модификатор пока поддерживается только для обычных функций - не методов, не сущностей, не \"экспортировать\"), получено %q", p.cur().Value)
 	}
 	return true, nil
 }

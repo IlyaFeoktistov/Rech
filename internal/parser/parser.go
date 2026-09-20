@@ -42,6 +42,7 @@ import (
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 	"github.com/IlyaFeoktistov/Rech/internal/morph"
 )
@@ -239,8 +240,7 @@ func (p *Parser) atCloseAngle() bool {
 // atCloseAngle - GT или ещё не расщеплённый SHR).
 func (p *Parser) skipNewlinesAfterAngleComma() (bool, error) {
 	if p.atCloseAngle() {
-		return false, fmt.Errorf("строка %d, столбец %d: висячая запятая перед \">\" требует переноса строки - закрывающая скобка обязана оказаться на своей строке (либо уберите запятую)",
-			p.cur().Line, p.cur().Col)
+		return false, errAt(p.cur().Line, p.cur().Col, CodeUnclosedBracket, "висячая запятая перед \">\" требует переноса строки - закрывающая скобка обязана оказаться на своей строке (либо уберите запятую)")
 	}
 	p.skipNewlines()
 	return p.atCloseAngle(), nil
@@ -258,13 +258,12 @@ func (p *Parser) expectCloseAngle() error {
 		p.pendingGT = true
 		return nil
 	}
-	return fmt.Errorf("строка %d, столбец %d: ожидался \">\", получен %q", p.cur().Line, p.cur().Col, p.cur().Value)
+	return errAt(p.cur().Line, p.cur().Col, CodeUnexpectedToken, "ожидался \">\", получен %q", p.cur().Value)
 }
 
 func (p *Parser) expect(tt lexer.TokenType) (lexer.Token, error) {
 	if p.cur().Type != tt {
-		return lexer.Token{}, fmt.Errorf("строка %d, столбец %d: ожидался %s, получен %q",
-			p.cur().Line, p.cur().Col, tt, p.cur().Value)
+		return lexer.Token{}, errAt(p.cur().Line, p.cur().Col, CodeUnexpectedToken, "ожидался %s, получен %q", tt, p.cur().Value)
 	}
 	return p.advance(), nil
 }
@@ -290,8 +289,7 @@ func (p *Parser) skipNewlines() {
 // закрывающей скобки на свою строку.
 func (p *Parser) skipNewlinesAfterListComma(closing lexer.TokenType) (bool, error) {
 	if p.cur().Type == closing {
-		return false, fmt.Errorf("строка %d, столбец %d: висячая запятая перед %q требует переноса строки - закрывающая скобка обязана оказаться на своей строке (либо уберите запятую)",
-			p.cur().Line, p.cur().Col, closing)
+		return false, errAt(p.cur().Line, p.cur().Col, CodeUnclosedBracket, "висячая запятая перед %q требует переноса строки - закрывающая скобка обязана оказаться на своей строке (либо уберите запятую)", closing)
 	}
 	p.skipNewlines()
 	return p.cur().Type == closing, nil
@@ -411,8 +409,7 @@ func (p *Parser) skipSeparators() int {
 // языке появятся многословные конструкции (естественные вызовы, шаг 3).
 func (p *Parser) requireSeparator() error {
 	if p.skipSeparators() == 0 {
-		return fmt.Errorf("строка %d, столбец %d: инструкции должны быть разделены переносом строки или \";\", получено %q",
-			p.cur().Line, p.cur().Col, p.cur().Value)
+		return errAt(p.cur().Line, p.cur().Col, CodeUnexpectedToken, "инструкции должны быть разделены переносом строки или \";\", получено %q", p.cur().Value)
 	}
 	return nil
 }
@@ -487,11 +484,11 @@ func (p *Parser) collectOneSignature(sigs map[string][]ast.Param, generics map[s
 		p.advance() // "функция"
 		name, err := p.expect(lexer.IDENT)
 		if err != nil {
-			return fmt.Errorf("после \"функция\" ожидалось имя функции: %w", err)
+			return diagnostics.Wrap(err, "после \"функция\" ожидалось имя функции")
 		}
 		typeParams, err := p.parseGenericParams()
 		if err != nil {
-			return fmt.Errorf("функция %q: %w", name.Value, err)
+			return diagnostics.Wrap(err, "функция %q", name.Value)
 		}
 		if typeParams != nil {
 			generics[name.Value] = true
@@ -500,13 +497,13 @@ func (p *Parser) collectOneSignature(sigs map[string][]ast.Param, generics map[s
 		if p.cur().Type == lexer.LPAREN {
 			params, err = p.parseParams()
 			if err != nil {
-				return fmt.Errorf("в списке параметров функции %q: %w", name.Value, err)
+				return diagnostics.Wrap(err, "в списке параметров функции %q", name.Value)
 			}
 		}
 		if p.cur().Type == lexer.COLON {
 			p.advance()
 			if _, err := p.parseTypeName(); err != nil {
-				return fmt.Errorf("после \":\" у функции %q ожидалось имя типа результата: %w", name.Value, err)
+				return diagnostics.Wrap(err, "после \":\" у функции %q ожидалось имя типа результата", name.Value)
 			}
 		}
 		var tag string
@@ -556,7 +553,7 @@ func (p *Parser) skipFunctionBody() error {
 		case lexer.RBRACE:
 			depth--
 		case lexer.EOF:
-			return fmt.Errorf("строка %d: не найдена закрывающая }", p.cur().Line)
+			return errAtLine(p.cur().Line, CodeUnclosedBracket, "не найдена закрывающая }")
 		}
 		p.advance()
 	}
@@ -625,7 +622,7 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 	}
 	if len(topLevelStmts) > 0 {
 		if explicitMain != nil {
-			err := fmt.Errorf("программа объявляет функцию %q явно и одновременно содержит инструкции на верхнем уровне - выберите одну форму", entryPointName)
+			err := errAtLine(explicitMain.Line, CodeEntryPoint, "программа объявляет функцию %q явно и одновременно содержит инструкции на верхнем уровне - выберите одну форму", entryPointName)
 			if !p.lenient {
 				return nil, err
 			}
@@ -802,32 +799,26 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 
 	if abstractTok != nil {
 		if kw.Type == lexer.KwStruct {
-			return nil, fmt.Errorf("строка %d: \"структура\" не может быть абстрактной - абстрактность применима только к \"сущность\"/\"класс\" (наследование ограничено ссылочными типами)", abstractTok.Line)
+			return nil, errAtLine(abstractTok.Line, CodeEntityInvariant, "\"структура\" не может быть абстрактной - абстрактность применима только к \"сущность\"/\"класс\" (наследование ограничено ссылочными типами)")
 		}
 		want := "абстрактная"
 		if kw.Type == lexer.KwClass {
 			want = "абстрактный"
 		}
 		if abstractTok.Value != want {
-			return nil, fmt.Errorf("строка %d, столбец %d: перед %q модификатор согласуется по роду - ожидалось %q, получено %q",
-				abstractTok.Line, abstractTok.Col, kw.Value, want, abstractTok.Value)
+			return nil, errAt(abstractTok.Line, abstractTok.Col, CodeModifierAgree, "перед %q модификатор согласуется по роду - ожидалось %q, получено %q", kw.Value, want, abstractTok.Value)
 		}
 	}
 
 	name, err := p.expect(lexer.IDENT)
 	if err != nil {
-		return nil, fmt.Errorf(
-			"после %q ожидалось имя %s: %w",
-			kw.Value,
-			label,
-			err,
-		)
+		return nil, diagnostics.Wrap(err, "после %q ожидалось имя %s", kw.Value, label)
 	}
 	p.registerNoun(name.Value)
 
 	typeParams, err := p.parseGenericParams()
 	if err != nil {
-		return nil, fmt.Errorf("%s %q: %w", label, name.Value, err)
+		return nil, diagnostics.Wrap(err, "%s %q", label, name.Value)
 	}
 
 	var baseName string
@@ -836,11 +827,11 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 		verb := p.advance() // "наследует"
 		base, err := p.expect(lexer.IDENT)
 		if err != nil {
-			return nil, fmt.Errorf("%s %q: после \"наследует\" ожидалось имя базовой сущности: %w", label, name.Value, err)
+			return nil, diagnostics.Wrap(err, "%s %q: после \"наследует\" ожидалось имя базовой сущности", label, name.Value)
 		}
 		baseName, err = p.resolveDeclinedTypeRef(base, verb.Value)
 		if err != nil {
-			return nil, fmt.Errorf("%s %q: %w", label, name.Value, err)
+			return nil, diagnostics.Wrap(err, "%s %q", label, name.Value)
 		}
 	}
 	if p.cur().Type == lexer.KwImplements {
@@ -848,11 +839,11 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 		for {
 			iface, err := p.expect(lexer.IDENT)
 			if err != nil {
-				return nil, fmt.Errorf("%s %q: после \"реализует\" ожидалось имя интерфейса: %w", label, name.Value, err)
+				return nil, diagnostics.Wrap(err, "%s %q: после \"реализует\" ожидалось имя интерфейса", label, name.Value)
 			}
 			ifaceName, err := p.resolveDeclinedTypeRef(iface, verb.Value)
 			if err != nil {
-				return nil, fmt.Errorf("%s %q: %w", label, name.Value, err)
+				return nil, diagnostics.Wrap(err, "%s %q", label, name.Value)
 			}
 			interfaces = append(interfaces, ifaceName)
 			if p.cur().Type != lexer.COMMA {
@@ -863,13 +854,13 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 		}
 	}
 	if kw.Type == lexer.KwStruct && (baseName != "" || len(interfaces) > 0) {
-		return nil, fmt.Errorf("структура %q: \"наследует\"/\"реализует\" допустимы только у \"сущность\"/\"класс\" (наследование/интерфейсы ограничены ссылочными типами)", name.Value)
+		return nil, errAt(name.Line, name.Col, CodeEntityInvariant, "структура %q: \"наследует\"/\"реализует\" допустимы только у \"сущность\"/\"класс\" (наследование/интерфейсы ограничены ссылочными типами)", name.Value)
 	}
 	if typeParams != nil && (baseName != "" || len(interfaces) > 0) {
-		return nil, fmt.Errorf("%s %q: generic-%s (с параметром типа) не может наследовать/реализовывать - не реализовано в этом срезе", label, name.Value, label)
+		return nil, errAt(name.Line, name.Col, CodeEntityInvariant, "%s %q: generic-%s (с параметром типа) не может наследовать/реализовывать - не реализовано в этом срезе", label, name.Value, label)
 	}
 	if typeParams != nil && abstractTok != nil {
-		return nil, fmt.Errorf("%s %q: generic-%s не может быть абстрактной - её нельзя ни унаследовать, ни (тем более) создать экземпляр", label, name.Value, label)
+		return nil, errAt(name.Line, name.Col, CodeEntityInvariant, "%s %q: generic-%s не может быть абстрактной - её нельзя ни унаследовать, ни (тем более) создать экземпляр", label, name.Value, label)
 	}
 
 	var tag string
@@ -910,23 +901,18 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 		switch p.cur().Type {
 		case lexer.KwConstructor:
 			if ctor != nil {
-				return nil, fmt.Errorf("%s %q: конструктор объявлен более одного раза", label, name.Value)
+				return nil, errAt(p.cur().Line, p.cur().Col, CodeDuplicateDecl, "%s %q: конструктор объявлен более одного раза", label, name.Value)
 			}
 			c, err := p.parseConstructor()
 			if err != nil {
-				return nil, fmt.Errorf("%s %q: %w", label, name.Value, err)
+				return nil, diagnostics.Wrap(err, "%s %q", label, name.Value)
 			}
 			ctor = c
 
 		case lexer.KwConst:
 			c, err := p.parseConstDecl()
 			if err != nil {
-				return nil, fmt.Errorf(
-					"%s %q: %w",
-					label,
-					name.Value,
-					err,
-				)
+				return nil, diagnostics.Wrap(err, "%s %q", label, name.Value)
 			}
 			c.Doc = doc
 
@@ -935,12 +921,7 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 		case lexer.KwState:
 			parsedStates, err := p.parseStatesSection(name.Value)
 			if err != nil {
-				return nil, fmt.Errorf(
-					"%s %q: %w",
-					label,
-					name.Value,
-					err,
-				)
+				return nil, diagnostics.Wrap(err, "%s %q", label, name.Value)
 			}
 
 			states = append(states, parsedStates...)
@@ -948,12 +929,7 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 		case lexer.KwHas:
 			parsedFields, err := p.parseFieldsSection()
 			if err != nil {
-				return nil, fmt.Errorf(
-					"%s %q: %w",
-					label,
-					name.Value,
-					err,
-				)
+				return nil, diagnostics.Wrap(err, "%s %q", label, name.Value)
 			}
 
 			fields = append(fields, parsedFields...)
@@ -961,12 +937,7 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 		case lexer.IDENT:
 			m, err := p.parseMethod()
 			if err != nil {
-				return nil, fmt.Errorf(
-					"%s %q: %w",
-					label,
-					name.Value,
-					err,
-				)
+				return nil, diagnostics.Wrap(err, "%s %q", label, name.Value)
 			}
 			m.Doc = doc
 
@@ -981,16 +952,11 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 			if p.peekAt(1).Type == lexer.KwConst {
 				visTok := p.advance()
 				if err := checkConstVisibilityAgreement(visTok); err != nil {
-					return nil, fmt.Errorf("%s %q: %w", label, name.Value, err)
+					return nil, diagnostics.Wrap(err, "%s %q", label, name.Value)
 				}
 				c, err := p.parseConstDecl()
 				if err != nil {
-					return nil, fmt.Errorf(
-						"%s %q: %w",
-						label,
-						name.Value,
-						err,
-					)
+					return nil, diagnostics.Wrap(err, "%s %q", label, name.Value)
 				}
 				c.Visibility = visibilityFromToken(visTok)
 				c.Doc = doc
@@ -999,12 +965,7 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 			}
 			m2, err := p.parseMethod()
 			if err != nil {
-				return nil, fmt.Errorf(
-					"%s %q: %w",
-					label,
-					name.Value,
-					err,
-				)
+				return nil, diagnostics.Wrap(err, "%s %q", label, name.Value)
 			}
 			m2.Doc = doc
 			methods = append(methods, m2)
@@ -1019,12 +980,7 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 			// смысла).
 			m3, err := p.parseMethod()
 			if err != nil {
-				return nil, fmt.Errorf(
-					"%s %q: %w",
-					label,
-					name.Value,
-					err,
-				)
+				return nil, diagnostics.Wrap(err, "%s %q", label, name.Value)
 			}
 			m3.Doc = doc
 			methods = append(methods, m3)
@@ -1037,12 +993,12 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 			// решает, пересекает ли создание объекта границу ABI.
 			if p.peekAt(1).Type == lexer.KwConstructor {
 				if ctor != nil {
-					return nil, fmt.Errorf("%s %q: конструктор объявлен более одного раза", label, name.Value)
+					return nil, errAt(p.cur().Line, p.cur().Col, CodeDuplicateDecl, "%s %q: конструктор объявлен более одного раза", label, name.Value)
 				}
 				p.advance() // "экспортировать"
 				c, err := p.parseConstructor()
 				if err != nil {
-					return nil, fmt.Errorf("%s %q: %w", label, name.Value, err)
+					return nil, diagnostics.Wrap(err, "%s %q", label, name.Value)
 				}
 				c.Exported = true
 				ctor = c
@@ -1057,33 +1013,23 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 			expTok := p.advance()
 			m4, err := p.parseMethod()
 			if err != nil {
-				return nil, fmt.Errorf(
-					"%s %q: %w",
-					label,
-					name.Value,
-					err,
-				)
+				return nil, diagnostics.Wrap(err, "%s %q", label, name.Value)
 			}
 			if m4.IsStatic {
-				return nil, fmt.Errorf("строка %d: \"экспортировать\" перед статическим методом %q не поддержан - экспортируемый метод обязан иметь получателя", expTok.Line, m4.Name)
+				return nil, errAtLine(expTok.Line, CodeUnexpectedToken, "\"экспортировать\" перед статическим методом %q не поддержан - экспортируемый метод обязан иметь получателя", m4.Name)
 			}
 			if m4.IsAbstract {
-				return nil, fmt.Errorf("строка %d: \"экспортировать\" перед абстрактным методом %q не поддержан - экспортированный символ обязан иметь реализацию", expTok.Line, m4.Name)
+				return nil, errAtLine(expTok.Line, CodeEntityInvariant, "\"экспортировать\" перед абстрактным методом %q не поддержан - экспортированный символ обязан иметь реализацию", m4.Name)
 			}
 			if m4.Visibility != ast.Public {
-				return nil, fmt.Errorf("строка %d: \"экспортировать\" метода %q не сочетается с модификатором видимости - экспорт сам по себе делает метод видимым за границей библиотеки", expTok.Line, m4.Name)
+				return nil, errAtLine(expTok.Line, CodeUnexpectedToken, "\"экспортировать\" метода %q не сочетается с модификатором видимости - экспорт сам по себе делает метод видимым за границей библиотеки", m4.Name)
 			}
 			m4.Exported = true
 			m4.Doc = doc
 			methods = append(methods, m4)
 
 		default:
-			return nil, fmt.Errorf(
-				"%s %q: неожиданный токен %q",
-				label,
-				name.Value,
-				p.cur().Value,
-			)
+			return nil, errAt(p.cur().Line, p.cur().Col, CodeUnexpectedToken, "%s %q: неожиданный токен %q", label, name.Value, p.cur().Value)
 		}
 
 		p.skipSeparators()
@@ -1094,7 +1040,7 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 	}
 
 	if kw.Type == lexer.KwStruct && ctor != nil {
-		return nil, fmt.Errorf("структура %q: \"конструктор\" допустим только у \"сущность\"/\"класс\" (структура продолжает неявное позиционное присваивание полей)", name.Value)
+		return nil, errAt(name.Line, name.Col, CodeEntityInvariant, "структура %q: \"конструктор\" допустим только у \"сущность\"/\"класс\" (структура продолжает неявное позиционное присваивание полей)", name.Value)
 	}
 
 	return &ast.EntityDecl{

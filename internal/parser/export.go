@@ -1,8 +1,6 @@
 package parser
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 )
@@ -25,7 +23,7 @@ func (p *Parser) parseExportedDecl() (fn *ast.FunctionDecl, ent *ast.EntityDecl,
 			return nil, nil, err
 		}
 		if fn.Name == entryPointName {
-			return nil, nil, fmt.Errorf("строка %d: %q - точка входа программы, не может быть экспортирована", kw.Line, entryPointName)
+			return nil, nil, errAtLine(kw.Line, CodeEntryPoint, "%q - точка входа программы, не может быть экспортирована", entryPointName)
 		}
 		fn.Exported = true
 		return fn, nil, nil
@@ -37,6 +35,6 @@ func (p *Parser) parseExportedDecl() (fn *ast.FunctionDecl, ent *ast.EntityDecl,
 		ent.Exported = true
 		return nil, ent, nil
 	default:
-		return nil, nil, fmt.Errorf("строка %d: после %q ожидалось \"функция\", \"сущность\", \"класс\" или \"структура\", получено %q", p.cur().Line, kw.Value, p.cur().Value)
+		return nil, nil, errAtLine(p.cur().Line, CodeUnexpectedToken, "после %q ожидалось \"функция\", \"сущность\", \"класс\" или \"структура\", получено %q", kw.Value, p.cur().Value)
 	}
 }

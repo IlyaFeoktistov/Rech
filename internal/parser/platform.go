@@ -1,9 +1,8 @@
 package parser
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 )
 
@@ -16,7 +15,7 @@ func (p *Parser) parsePlatformBlock() (*ast.PlatformBlockDecl, error) {
 	block := &ast.PlatformBlockDecl{Line: p.cur().Line}
 	p.advance() // "#"
 	if p.cur().Type != lexer.KwIf {
-		return nil, fmt.Errorf("строка %d: после \"#\" ожидалось \"если\", получено %q", block.Line, p.cur().Value)
+		return nil, errAtLine(block.Line, CodeUnexpectedToken, "после \"#\" ожидалось \"если\", получено %q", p.cur().Value)
 	}
 	for {
 		p.advance() // "если"
@@ -60,22 +59,22 @@ func (p *Parser) parsePlatformBlock() (*ast.PlatformBlockDecl, error) {
 func (p *Parser) parsePlatformCondition() (string, error) {
 	tok := p.cur()
 	if tok.Type != lexer.IDENT || tok.Value != "ОС" {
-		return "", fmt.Errorf("строка %d: после \"если\" внутри \"#если\" ожидалось \"ОС.<Член>\", получено %q", tok.Line, tok.Value)
+		return "", errAtLine(tok.Line, CodeConditionalBuild, "после \"если\" внутри \"#если\" ожидалось \"ОС.<Член>\", получено %q", tok.Value)
 	}
 	p.advance() // "ОС"
 	if _, err := p.expect(lexer.DOT); err != nil {
-		return "", fmt.Errorf("строка %d: ожидалось \".\" после \"ОС\": %w", tok.Line, err)
+		return "", diagnostics.WrapAt(err, diagnostics.Position{Line: tok.Line}, "ожидалось \".\" после \"ОС\"")
 	}
 	member, err := p.expect(lexer.IDENT)
 	if err != nil {
-		return "", fmt.Errorf("строка %d: ожидалось имя платформы после \"ОС.\": %w", tok.Line, err)
+		return "", diagnostics.WrapAt(err, diagnostics.Position{Line: tok.Line}, "ожидалось имя платформы после \"ОС.\"")
 	}
 	for _, name := range ast.PlatformNames {
 		if name == member.Value {
 			return name, nil
 		}
 	}
-	return "", fmt.Errorf("строка %d: \"ОС.%s\" не существует - допустимо \"ОС.Linux\"/\"ОС.Windows\"/\"ОС.MacOS\"", member.Line, member.Value)
+	return "", errAtLine(member.Line, CodeConditionalBuild, "\"ОС.%s\" не существует - допустимо \"ОС.Linux\"/\"ОС.Windows\"/\"ОС.MacOS\"", member.Value)
 }
 
 // parsePlatformArmBody разбирает "{ <объявления> }" одной руки - тот же
@@ -87,7 +86,7 @@ func (p *Parser) parsePlatformCondition() (string, error) {
 func (p *Parser) parsePlatformArmBody() (ast.PlatformArm, error) {
 	openTok, err := p.expect(lexer.LBRACE)
 	if err != nil {
-		return ast.PlatformArm{}, fmt.Errorf("после условия \"#если\"/\"#иначе если\"/\"#иначе\" ожидалось \"{\": %w", err)
+		return ast.PlatformArm{}, diagnostics.Wrap(err, "после условия \"#если\"/\"#иначе если\"/\"#иначе\" ожидалось \"{\"")
 	}
 	armProg := &ast.Program{}
 	var stmts []ast.Stmt
@@ -95,7 +94,7 @@ func (p *Parser) parsePlatformArmBody() (ast.PlatformArm, error) {
 	p.skipSeparators()
 	for p.cur().Type != lexer.RBRACE {
 		if p.cur().Type == lexer.EOF {
-			return ast.PlatformArm{}, fmt.Errorf("строка %d: не закрыта \"{\" блока условной компиляции", openTok.Line)
+			return ast.PlatformArm{}, errAtLine(openTok.Line, CodeConditionalBuild, "не закрыта \"{\" блока условной компиляции")
 		}
 		itemLine := p.cur().Line
 		skip, err := p.parseTopLevelItem(armProg, &stmts, &explicitMain)
@@ -106,7 +105,7 @@ func (p *Parser) parsePlatformArmBody() (ast.PlatformArm, error) {
 			continue
 		}
 		if len(stmts) > 0 {
-			return ast.PlatformArm{}, fmt.Errorf("строка %d: внутри \"#если\" разрешены только объявления (функция/сущность/внешняя функция/использовать/...), не обычные инструкции", itemLine)
+			return ast.PlatformArm{}, errAtLine(itemLine, CodeConditionalBuild, "внутри \"#если\" разрешены только объявления (функция/сущность/внешняя функция/использовать/...), не обычные инструкции")
 		}
 		if p.cur().Type == lexer.RBRACE {
 			break
