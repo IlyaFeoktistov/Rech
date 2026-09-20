@@ -6,9 +6,8 @@
 package semantic
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
@@ -104,7 +103,7 @@ func analyzeThrowStmt(sc *ctx, s *ast.ThrowStmt) (ir.Stmt, error) {
 	}
 	typ := ir.TypeOf(value)
 	if typ.Kind != ir.KindEntity || !entityIsOrExtends(sc.entities, typ.Entity, systemExceptionEntity) {
-		return nil, fmt.Errorf("строка %d: \"выбросить\" ожидает значение сущности %q или наследника, получено %s", s.Line, systemExceptionEntity, typ)
+		return nil, errAtLine(s.Line, CodeException, "\"выбросить\" ожидает значение сущности %q или наследника, получено %s", systemExceptionEntity, typ)
 	}
 	return &ir.ThrowStmt{Value: value, Line: s.Line}, nil
 }
@@ -121,13 +120,13 @@ func checkCatchTypesAreExceptions(sc *ctx, names []string) error {
 	for _, name := range names {
 		typ, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, name)
 		if err != nil {
-			return fmt.Errorf("\"поймать(...)\": %w", err)
+			return diagnostics.Wrap(err, "\"поймать(...)\"")
 		}
 		if typ.Kind != ir.KindEntity || !entityIsOrExtends(sc.entities, typ.Entity, systemExceptionEntity) {
-			return fmt.Errorf("\"поймать(...)\" ожидает сущность %q или наследника, получено %s", systemExceptionEntity, typ)
+			return errNoPos(CodeException, "\"поймать(...)\" ожидает сущность %q или наследника, получено %s", systemExceptionEntity, typ)
 		}
 		if seen[typ.Entity] {
-			return fmt.Errorf("\"поймать(...)\": тип %q перечислен более одного раза", typ.Entity)
+			return errNoPos(CodeDuplicateDecl, "\"поймать(...)\": тип %q перечислен более одного раза", typ.Entity)
 		}
 		seen[typ.Entity] = true
 	}
@@ -174,12 +173,12 @@ func analyzeTryStmt(sc *ctx, s *ast.TryStmt) (ir.Stmt, error) {
 	// типа шире неё.
 	if s.CatchPanic {
 		if err := checkCatchTypesAreExceptions(sc, s.CatchTypes); err != nil {
-			return nil, fmt.Errorf("строка %d: %w", s.Line, err)
+			return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: s.Line})
 		}
 		sc.push()
 		if err := sc.declare(s.CatchVar, ir.TypeString); err != nil {
 			sc.pop()
-			return nil, fmt.Errorf("строка %d: %w", s.Line, err)
+			return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: s.Line})
 		}
 		catchBody, err := analyzeBlock(sc, s.CatchBody)
 		sc.pop()
@@ -197,10 +196,10 @@ func analyzeTryStmt(sc *ctx, s *ast.TryStmt) (ir.Stmt, error) {
 	}
 
 	if len(s.CatchTypes) == 0 {
-		return nil, fmt.Errorf("строка %d: \"поймать(...)\" должно перечислять хотя бы один тип исключения", s.Line)
+		return nil, errAtLine(s.Line, CodeException, "\"поймать(...)\" должно перечислять хотя бы один тип исключения")
 	}
 	if err := checkCatchTypesAreExceptions(sc, s.CatchTypes); err != nil {
-		return nil, fmt.Errorf("строка %d: %w", s.Line, err)
+		return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: s.Line})
 	}
 
 	// CatchVarType - единственный перечисленный тип, если он один (полный
@@ -217,7 +216,7 @@ func analyzeTryStmt(sc *ctx, s *ast.TryStmt) (ir.Stmt, error) {
 	sc.push()
 	if err := sc.declare(s.CatchVar, catchVarType); err != nil {
 		sc.pop()
-		return nil, fmt.Errorf("строка %d: %w", s.Line, err)
+		return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: s.Line})
 	}
 	catchBody, err := analyzeBlock(sc, s.CatchBody)
 	sc.pop()
@@ -270,7 +269,7 @@ func analyzeIsExpr(sc *ctx, e *ast.IsExpr) (ir.Expr, error) {
 	}
 	vt := ir.TypeOf(value)
 	if vt.Kind != ir.KindEntity && vt.Kind != ir.KindInterface {
-		return nil, fmt.Errorf("строка %d: \"относится к\" применимо только к сущности/интерфейсу, получено %s", e.Line, vt)
+		return nil, errAtLine(e.Line, CodeException, "\"относится к\" применимо только к сущности/интерфейсу, получено %s", vt)
 	}
 	// Target, зарегистрированный как производный тип состояния (sc.a.
 	// aliasState - "АвторизованныйПользователь" -> "авторизован"), - особый
@@ -283,19 +282,19 @@ func analyzeIsExpr(sc *ctx, e *ast.IsExpr) (ir.Expr, error) {
 	if state, isStateAlias := sc.a.aliasState[e.Target]; isStateAlias {
 		owner := sc.aliases[e.Target]
 		if vt.Kind != ir.KindEntity || !entityIsOrExtends(sc.entities, vt.Entity, owner) {
-			return nil, fmt.Errorf("строка %d: \"относится к\" %q: %s не является %q (сущностью, объявляющей это состояние) или её наследником", e.Line, e.Target, vt, owner)
+			return nil, errAtLine(e.Line, CodeException, "\"относится к\" %q: %s не является %q (сущностью, объявляющей это состояние) или её наследником", e.Target, vt, owner)
 		}
 		return &ir.HasStateExpr{Value: value, Entity: owner, State: state}, nil
 	}
 	target, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, e.Target)
 	if err != nil {
-		return nil, fmt.Errorf("строка %d: \"относится к\": %w", e.Line, err)
+		return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "\"относится к\"")
 	}
 	if target.Kind != ir.KindEntity && target.Kind != ir.KindInterface {
-		return nil, fmt.Errorf("строка %d: \"относится к\" ожидает сущность/интерфейс, получено %s", e.Line, target)
+		return nil, errAtLine(e.Line, CodeException, "\"относится к\" ожидает сущность/интерфейс, получено %s", target)
 	}
 	if !relatedForIsCheck(sc.entities, sc.interfaces, vt, target) {
-		return nil, fmt.Errorf("строка %d: \"относится к\": %s и %s не связаны наследованием/интерфейсом", e.Line, vt, target)
+		return nil, errAtLine(e.Line, CodeException, "\"относится к\": %s и %s не связаны наследованием/интерфейсом", vt, target)
 	}
 	return &ir.IsExpr{Value: value, Target: target.Entity}, nil
 }

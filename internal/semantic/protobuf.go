@@ -24,10 +24,10 @@
 package semantic
 
 import (
-	"fmt"
 	"strconv"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/structtag"
 )
@@ -45,10 +45,10 @@ func analyzeProtobufParseExpr(sc *ctx, e *ast.ParseExpr, source ir.Expr) (ir.Exp
 	}
 	target, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, e.TypeName)
 	if err != nil {
-		return nil, fmt.Errorf("строка %d: \"разобрать %s ... как\": %w", e.Line, protobufFormat, err)
+		return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "\"разобрать %s ... как\"", protobufFormat)
 	}
 	if err := protobufTopLevelMessage(sc.entities, target); err != nil {
-		return nil, fmt.Errorf("строка %d: \"разобрать %s\" в %s: %w", e.Line, protobufFormat, target, err)
+		return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "\"разобрать %s\" в %s", protobufFormat, target)
 	}
 	registerParseErrorEntity(sc.entities)
 	if err := registerByteListTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
@@ -64,7 +64,7 @@ func analyzeProtobufSerializeExpr(sc *ctx, value ir.Expr, line int) (ir.Expr, er
 	value = maybeUnwrapNarrowed(sc, value)
 	t := ir.TypeOf(value)
 	if err := protobufTopLevelMessage(sc.entities, t); err != nil {
-		return nil, fmt.Errorf("строка %d: \"сериализовать %s\" для %s: %w", line, protobufFormat, t, err)
+		return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: line}, "\"сериализовать %s\" для %s", protobufFormat, t)
 	}
 	if err := registerByteListTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
 		return nil, err
@@ -80,7 +80,7 @@ func requireByteListType(t ir.Type, line int, what string) error {
 	if t.Kind == ir.KindEntity && t.Entity == byteListType {
 		return nil
 	}
-	return fmt.Errorf("строка %d: %q ожидает источник типа Список<Байт>, получено %s", line, what, t)
+	return errAtLine(line, CodeBuiltinTarget, "%q ожидает источник типа Список<Байт>, получено %s", what, t)
 }
 
 // protobufTopLevelMessage - настоящий protobuf не знает понятия "верхний
@@ -93,10 +93,10 @@ func requireByteListType(t ir.Type, line int, what string) error {
 // вложенное сообщение/Список<Байт> - как обычно, через protobufCompatible.
 func protobufTopLevelMessage(entities map[string]entitySig, t ir.Type) error {
 	if t.Kind != ir.KindEntity || t.Entity == byteListType {
-		return fmt.Errorf("%s не поддержан как верхний уровень %s (protobuf message - только сущность/структура, не примитив и не голый список)", t, protobufFormat)
+		return errNoPos(CodeBuiltinTarget, "%s не поддержан как верхний уровень %s (protobuf message - только сущность/структура, не примитив и не голый список)", t, protobufFormat)
 	}
 	if sig, ok := entities[t.Entity]; ok && sig.IsList {
-		return fmt.Errorf("%s не поддержан как верхний уровень %s (protobuf message - только сущность/структура, не голый список - оберните его полем сообщения)", t, protobufFormat)
+		return errNoPos(CodeBuiltinTarget, "%s не поддержан как верхний уровень %s (protobuf message - только сущность/структура, не голый список - оберните его полем сообщения)", t, protobufFormat)
 	}
 	return protobufCompatible(entities, t, nil)
 }
@@ -121,27 +121,27 @@ func protobufCompatible(entities map[string]entitySig, t ir.Type, seen map[strin
 		}
 		sig, ok := entities[t.Entity]
 		if !ok {
-			return fmt.Errorf("тип %s не найден", t)
+			return errNoPos(CodeNameResolution, "тип %s не найден", t)
 		}
 		if sig.IsList {
 			if sig.ElemType.Kind == ir.KindEntity {
 				if elemSig, ok := entities[sig.ElemType.Entity]; ok && elemSig.IsList {
-					return fmt.Errorf("Список<Список<...>> не поддержан как цель %s (protobuf не выражает repeated-of-repeated без промежуточного message)", protobufFormat)
+					return errNoPos(CodeBuiltinTarget, "Список<Список<...>> не поддержан как цель %s (protobuf не выражает repeated-of-repeated без промежуточного message)", protobufFormat)
 				}
 			}
 			return protobufCompatible(entities, sig.ElemType, seen)
 		}
 		if sig.IsDict || sig.IsExternOpaque || sig.IsExternStruct {
-			return fmt.Errorf("%s не поддержан как цель %s (только примитивы, сущности/структуры и Список<T>)", t, protobufFormat)
+			return errNoPos(CodeBuiltinTarget, "%s не поддержан как цель %s (только примитивы, сущности/структуры и Список<T>)", t, protobufFormat)
 		}
 		if sig.HasCtor {
-			return fmt.Errorf("%s не поддержан как цель %s: у сущности есть собственный \"конструктор(...)\" - разбор заполняет поля напрямую, а не вызывает пользовательский конструктор с неизвестным ему набором аргументов", t, protobufFormat)
+			return errNoPos(CodeBuiltinTarget, "%s не поддержан как цель %s: у сущности есть собственный \"конструктор(...)\" - разбор заполняет поля напрямую, а не вызывает пользовательский конструктор с неизвестным ему набором аргументов", t, protobufFormat)
 		}
 		if seen[t.Entity] {
-			return fmt.Errorf("%s ссылается сам на себя - самоссылающиеся типы не поддержаны как цель %s", t, protobufFormat)
+			return errNoPos(CodeBuiltinTarget, "%s ссылается сам на себя - самоссылающиеся типы не поддержаны как цель %s", t, protobufFormat)
 		}
 		if _, err := protobufFieldNumbers(sig); err != nil {
-			return fmt.Errorf("%s: %w", t, err)
+			return diagnostics.Wrap(err, "%s", t)
 		}
 		next := make(map[string]bool, len(seen)+1)
 		for k := range seen {
@@ -150,12 +150,12 @@ func protobufCompatible(entities map[string]entitySig, t ir.Type, seen map[strin
 		next[t.Entity] = true
 		for i, ft := range sig.FieldTypes {
 			if err := protobufCompatible(entities, ft, next); err != nil {
-				return fmt.Errorf("поле %q: %w", sig.FieldNames[i], err)
+				return diagnostics.Wrap(err, "поле %q", sig.FieldNames[i])
 			}
 		}
 		return nil
 	default:
-		return fmt.Errorf("%s не поддержан как цель %s (только примитивы, сущности/структуры и Список<T>)", t, protobufFormat)
+		return errNoPos(CodeBuiltinTarget, "%s не поддержан как цель %s (только примитивы, сущности/структуры и Список<T>)", t, protobufFormat)
 	}
 }
 
@@ -173,14 +173,14 @@ func protobufFieldNumbers(sig entitySig) ([]int, error) {
 			raw = structtag.Parse(sig.FieldTags[i]).Get("protobuf")
 		}
 		if raw == "" {
-			return nil, fmt.Errorf("поле %q не помечено тегом `protobuf:<номер>` - обязателен для каждого поля цели PROTOBUF", name)
+			return nil, errNoPos(CodeBuiltinTarget, "поле %q не помечено тегом `protobuf:<номер>` - обязателен для каждого поля цели PROTOBUF", name)
 		}
 		n, err := strconv.Atoi(raw)
 		if err != nil || n <= 0 {
-			return nil, fmt.Errorf("поле %q: тег `protobuf:%s` - номер поля обязан быть целым положительным числом", name, raw)
+			return nil, errNoPos(CodeBuiltinTarget, "поле %q: тег `protobuf:%s` - номер поля обязан быть целым положительным числом", name, raw)
 		}
 		if other, dup := seen[n]; dup {
-			return nil, fmt.Errorf("поля %q и %q конфликтуют - у обоих одинаковый номер protobuf-поля %d", other, name, n)
+			return nil, errNoPos(CodeBuiltinTarget, "поля %q и %q конфликтуют - у обоих одинаковый номер protobuf-поля %d", other, name, n)
 		}
 		seen[n] = name
 		nums[i] = n

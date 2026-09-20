@@ -8,9 +8,8 @@
 package semantic
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/structtag"
 )
@@ -59,7 +58,7 @@ var supportedFormats = map[string]bool{"JSON": true, "XML": true, "YAML": true, 
 // рекурсивно для любого достижимого из него типа поля/элемента списка).
 func analyzeParseExpr(sc *ctx, e *ast.ParseExpr) (ir.Expr, error) {
 	if !supportedFormats[e.Format] {
-		return nil, fmt.Errorf("строка %d: \"разобрать\" поддерживает только форматы JSON/XML/YAML/PROTOBUF, получено %q", e.Line, e.Format)
+		return nil, errAtLine(e.Line, CodeBuiltinTarget, "\"разобрать\" поддерживает только форматы JSON/XML/YAML/PROTOBUF, получено %q", e.Format)
 	}
 	source, err := analyzeExpr(sc, e.Source)
 	if err != nil {
@@ -69,14 +68,14 @@ func analyzeParseExpr(sc *ctx, e *ast.ParseExpr) (ir.Expr, error) {
 		return analyzeProtobufParseExpr(sc, e, source)
 	}
 	if ir.TypeOf(source).Kind != ir.KindString {
-		return nil, fmt.Errorf("строка %d: \"разобрать %s\" ожидает источник типа Строка, получено %s", e.Line, e.Format, ir.TypeOf(source))
+		return nil, errAtLine(e.Line, CodeBuiltinTarget, "\"разобрать %s\" ожидает источник типа Строка, получено %s", e.Format, ir.TypeOf(source))
 	}
 	target, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, e.TypeName)
 	if err != nil {
-		return nil, fmt.Errorf("строка %d: \"разобрать %s ... как\": %w", e.Line, e.Format, err)
+		return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "\"разобрать %s ... как\"", e.Format)
 	}
 	if err := structCompatible(sc.entities, target, nil, e.Format); err != nil {
-		return nil, fmt.Errorf("строка %d: \"разобрать %s\" в %s: %w", e.Line, e.Format, target, err)
+		return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "\"разобрать %s\" в %s", e.Format, target)
 	}
 	registerParseErrorEntity(sc.entities)
 	switch e.Format {
@@ -99,7 +98,7 @@ func analyzeParseExpr(sc *ctx, e *ast.ParseExpr) (ir.Expr, error) {
 // рекурсивно для любого достижимого из него).
 func analyzeSerializeExpr(sc *ctx, e *ast.SerializeExpr) (ir.Expr, error) {
 	if !supportedFormats[e.Format] {
-		return nil, fmt.Errorf("строка %d: \"сериализовать\" поддерживает только форматы JSON/XML/YAML/PROTOBUF, получено %q", e.Line, e.Format)
+		return nil, errAtLine(e.Line, CodeBuiltinTarget, "\"сериализовать\" поддерживает только форматы JSON/XML/YAML/PROTOBUF, получено %q", e.Format)
 	}
 	value, err := analyzeExpr(sc, e.Value)
 	if err != nil {
@@ -118,7 +117,7 @@ func analyzeSerializeExpr(sc *ctx, e *ast.SerializeExpr) (ir.Expr, error) {
 	value = maybeUnwrapNarrowed(sc, value)
 	t := ir.TypeOf(value)
 	if err := structCompatible(sc.entities, t, nil, e.Format); err != nil {
-		return nil, fmt.Errorf("строка %d: \"сериализовать %s\" для %s: %w", e.Line, e.Format, t, err)
+		return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "\"сериализовать %s\" для %s", e.Format, t)
 	}
 	switch e.Format {
 	case "XML":
@@ -163,19 +162,19 @@ func structCompatible(entities map[string]entitySig, t ir.Type, seen map[string]
 	case ir.KindEntity:
 		sig, ok := entities[t.Entity]
 		if !ok {
-			return fmt.Errorf("тип %s не найден", t)
+			return errNoPos(CodeNameResolution, "тип %s не найден", t)
 		}
 		if sig.IsList {
 			return structCompatible(entities, sig.ElemType, seen, format)
 		}
 		if sig.IsDict || sig.IsExternOpaque || sig.IsExternStruct {
-			return fmt.Errorf("%s не поддержан как цель разбора %s (только примитивы, сущности/структуры и Список<T>)", t, format)
+			return errNoPos(CodeBuiltinTarget, "%s не поддержан как цель разбора %s (только примитивы, сущности/структуры и Список<T>)", t, format)
 		}
 		if sig.HasCtor {
-			return fmt.Errorf("%s не поддержан как цель разбора %s: у сущности есть собственный \"конструктор(...)\" - разбор заполняет поля напрямую, а не вызывает пользовательский конструктор с неизвестным ему набором аргументов", t, format)
+			return errNoPos(CodeBuiltinTarget, "%s не поддержан как цель разбора %s: у сущности есть собственный \"конструктор(...)\" - разбор заполняет поля напрямую, а не вызывает пользовательский конструктор с неизвестным ему набором аргументов", t, format)
 		}
 		if seen[t.Entity] {
-			return fmt.Errorf("%s ссылается сам на себя - самоссылающиеся типы не поддержаны как цель разбора %s", t, format)
+			return errNoPos(CodeBuiltinTarget, "%s ссылается сам на себя - самоссылающиеся типы не поддержаны как цель разбора %s", t, format)
 		}
 		if format == "JSON" || format == "YAML" {
 			// YAML - тот же принцип "ключ: значение", что и JSON (и то же
@@ -184,7 +183,7 @@ func structCompatible(entities map[string]entitySig, t ir.Type, seen map[string]
 			// под одним и тем же ключом обоим форматам) - проверка
 			// попарной различности ключей нужна ей ровно так же.
 			if err := checkJSONKeysDistinct(sig); err != nil {
-				return fmt.Errorf("%s: %w", t, err)
+				return diagnostics.Wrap(err, "%s", t)
 			}
 		}
 		next := make(map[string]bool, len(seen)+1)
@@ -194,12 +193,12 @@ func structCompatible(entities map[string]entitySig, t ir.Type, seen map[string]
 		next[t.Entity] = true
 		for i, ft := range sig.FieldTypes {
 			if err := structCompatible(entities, ft, next, format); err != nil {
-				return fmt.Errorf("поле %q: %w", sig.FieldNames[i], err)
+				return diagnostics.Wrap(err, "поле %q", sig.FieldNames[i])
 			}
 		}
 		return nil
 	default:
-		return fmt.Errorf("%s не поддержан как цель разбора %s (только примитивы, сущности/структуры и Список<T>)", t, format)
+		return errNoPos(CodeBuiltinTarget, "%s не поддержан как цель разбора %s (только примитивы, сущности/структуры и Список<T>)", t, format)
 	}
 }
 
@@ -226,7 +225,7 @@ func checkJSONKeysDistinct(sig entitySig) error {
 	for i, name := range sig.FieldNames {
 		key := jsonFieldKey(sig, i)
 		if other, dup := seen[key]; dup {
-			return fmt.Errorf("поля %q и %q конфликтуют - у обоих одинаковый JSON-ключ %q (проверьте теги `json:...`)", other, name, key)
+			return errNoPos(CodeBuiltinTarget, "поля %q и %q конфликтуют - у обоих одинаковый JSON-ключ %q (проверьте теги `json:...`)", other, name, key)
 		}
 		seen[key] = name
 	}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
@@ -16,10 +17,10 @@ import (
 func resolvePointerTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64, name, argName string) (ir.Type, error) {
 	inner, err := resolveTypeName(entities, methods, aliases, interfaces, enums, argName)
 	if err != nil {
-		return ir.TypeUnknown, fmt.Errorf("тип назначения %q в %q: %w", argName, name, err)
+		return ir.TypeUnknown, diagnostics.Wrap(err, "тип назначения %q в %q", argName, name)
 	}
 	if inner.Kind == ir.KindNullable {
-		return ir.TypeUnknown, fmt.Errorf("%q: указатель на nullable-тип (\"?Тип\") не поддержан", name)
+		return ir.TypeUnknown, errNoPos(CodePointer, "%q: указатель на nullable-тип (\"?Тип\") не поддержан", name)
 	}
 	if _, exists := entities[name]; !exists {
 		entities[name] = entitySig{IsPointer: true, ElemType: inner}
@@ -52,18 +53,18 @@ func pointerTypeFor(sc *ctx, inner ir.Type) (ir.Type, error) {
 func analyzeAddressOfExpr(sc *ctx, e *ast.AddressOfExpr) (ir.Expr, error) {
 	recvType, ok := sc.lookup(e.Receiver)
 	if !ok {
-		return nil, fmt.Errorf("строка %d: %q не объявлено", e.Line, e.Receiver)
+		return nil, errAtLine(e.Line, CodeNameResolution, "%q не объявлено", e.Receiver)
 	}
 	receiver := &ir.Identifier{Name: e.Receiver, Type: recvType}
 
 	if e.Field != "" {
 		if recvType.Kind != ir.KindEntity {
-			return nil, fmt.Errorf("строка %d: нельзя взять адрес поля %q - тип %s не сущность", e.Line, e.Field, recvType)
+			return nil, errAtLine(e.Line, CodePointer, "нельзя взять адрес поля %q - тип %s не сущность", e.Field, recvType)
 		}
 		sig := sc.entities[recvType.Entity]
 		idx := sig.fieldIndex(e.Field)
 		if idx == -1 {
-			return nil, fmt.Errorf("строка %d: у сущности %q нет поля %q", e.Line, recvType.Entity, e.Field)
+			return nil, errAtLine(e.Line, CodeNameResolution, "у сущности %q нет поля %q", recvType.Entity, e.Field)
 		}
 		if err := checkFieldVisibility(sc, recvType.Entity, e.Field, sig.FieldVisibility[idx], e.Line); err != nil {
 			return nil, err
@@ -71,7 +72,7 @@ func analyzeAddressOfExpr(sc *ctx, e *ast.AddressOfExpr) (ir.Expr, error) {
 		fieldType := sig.FieldTypes[idx]
 		ptrType, err := pointerTypeFor(sc, fieldType)
 		if err != nil {
-			return nil, fmt.Errorf("строка %d: %w", e.Line, err)
+			return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: e.Line})
 		}
 		fieldAccess := &ir.FieldAccess{Receiver: receiver, Field: e.Field, Type: fieldType}
 		return &ir.AddressOfExpr{Receiver: fieldAccess, Type: ptrType, Line: e.Line}, nil
@@ -80,7 +81,7 @@ func analyzeAddressOfExpr(sc *ctx, e *ast.AddressOfExpr) (ir.Expr, error) {
 	if e.Index != nil {
 		sig, ok := sc.entities[recvType.Entity]
 		if recvType.Kind != ir.KindEntity || !ok || !sig.IsList {
-			return nil, fmt.Errorf("строка %d: \"&%s[...]\" применимо только к Список<T>, получен %s", e.Line, e.Receiver, recvType)
+			return nil, errAtLine(e.Line, CodePointer, "\"&%s[...]\" применимо только к Список<T>, получен %s", e.Receiver, recvType)
 		}
 		index, err := analyzeExpr(sc, e.Index)
 		if err != nil {
@@ -88,12 +89,12 @@ func analyzeAddressOfExpr(sc *ctx, e *ast.AddressOfExpr) (ir.Expr, error) {
 		}
 		index = maybeUnwrapNarrowed(sc, index)
 		if it := ir.TypeOf(index); it != ir.TypeInt {
-			return nil, fmt.Errorf("строка %d: индекс \"&%s[...]\" должен быть типа Целое, получен %s", e.Line, e.Receiver, it)
+			return nil, errAtLine(e.Line, CodePointer, "индекс \"&%s[...]\" должен быть типа Целое, получен %s", e.Receiver, it)
 		}
 		elemType := sig.ElemType
 		ptrType, err := pointerTypeFor(sc, elemType)
 		if err != nil {
-			return nil, fmt.Errorf("строка %d: %w", e.Line, err)
+			return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: e.Line})
 		}
 		elemRef := &ir.ListElementRef{Receiver: receiver, Index: index, CollectionName: recvType.Entity, Type: elemType, Line: e.Line}
 		return &ir.AddressOfExpr{Receiver: elemRef, Type: ptrType, Line: e.Line}, nil
@@ -102,7 +103,7 @@ func analyzeAddressOfExpr(sc *ctx, e *ast.AddressOfExpr) (ir.Expr, error) {
 	// Не должно происходить - парсер строит AddressOfExpr только когда
 	// сразу после имени следует "."/"[" (см. parser.parseAddressOf), голое
 	// "&имя" остаётся FuncRefExpr.
-	return nil, fmt.Errorf("строка %d: некорректный \"&%s\"", e.Line, e.Receiver)
+	return nil, errAtLine(e.Line, CodePointer, "некорректный \"&%s\"", e.Receiver)
 }
 
 // analyzeDerefExpr разбирает "*значение" - чтение через "Указатель<T>".
@@ -114,7 +115,7 @@ func analyzeDerefExpr(sc *ctx, e *ast.DerefExpr) (ir.Expr, error) {
 	value = maybeUnwrapNarrowed(sc, value)
 	typ := ir.TypeOf(value)
 	if typ.Kind != ir.KindPointer {
-		return nil, fmt.Errorf("строка %d: \"*\" применимо только к \"Указатель<T>\", получен %s", e.Line, typ)
+		return nil, errAtLine(e.Line, CodePointer, "\"*\" применимо только к \"Указатель<T>\", получен %s", typ)
 	}
 	return &ir.DerefExpr{Value: value, Type: pointerInner(sc, typ), Line: e.Line}, nil
 }
@@ -129,7 +130,7 @@ func analyzeDerefAssignStmt(sc *ctx, s *ast.DerefAssignStmt) (ir.Stmt, error) {
 	pointer = maybeUnwrapNarrowed(sc, pointer)
 	typ := ir.TypeOf(pointer)
 	if typ.Kind != ir.KindPointer {
-		return nil, fmt.Errorf("строка %d: \"*<...> = значение\" применимо только к \"Указатель<T>\", получен %s", s.Line, typ)
+		return nil, errAtLine(s.Line, CodePointer, "\"*<...> = значение\" применимо только к \"Указатель<T>\", получен %s", typ)
 	}
 	inner := pointerInner(sc, typ)
 	value, err := coerceExpr(sc, s.Value, inner)
@@ -137,7 +138,7 @@ func analyzeDerefAssignStmt(sc *ctx, s *ast.DerefAssignStmt) (ir.Stmt, error) {
 		return nil, err
 	}
 	if vt := ir.TypeOf(value); !isAssignable(sc.entities, sc.interfaces, vt, inner) {
-		return nil, fmt.Errorf("строка %d: через указатель на %s нельзя записать значение типа %s", s.Line, inner, vt)
+		return nil, errAtLine(s.Line, CodePointer, "через указатель на %s нельзя записать значение типа %s", inner, vt)
 	}
 	return &ir.DerefAssignStmt{Pointer: pointer, Value: value, Line: s.Line}, nil
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/builtins"
 	"github.com/IlyaFeoktistov/Rech/internal/dbscheme"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
@@ -276,7 +277,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 	// поле - см. systemExceptionCodeType).
 	nullableIntType, err := resolveNullableTypeName(entities, methods, aliases, a.interfaces, enums, "?Целое")
 	if err != nil {
-		return fmt.Errorf("внутренняя ошибка: %w", err)
+		return diagnostics.Wrap(err, "внутренняя ошибка")
 	}
 	entities["Исключение"] = entitySig{
 		FieldNames:      []string{"сообщение", "код"},
@@ -303,31 +304,32 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 	// не ir.EntityType.
 	for _, extEnt := range prog.ExternEntities {
 		if builtins.ReservedEntityNames[extEnt.Alias] {
-			return fmt.Errorf("внешняя сущность %q - зарезервированное имя встроенной сущности, нельзя объявить с этим именем", extEnt.Alias)
+			return errNoPos(CodeEntityDecl, "внешняя сущность %q - зарезервированное имя встроенной сущности, нельзя объявить с этим именем", extEnt.Alias)
 		}
 		if _, exists := entities[extEnt.Alias]; exists {
-			return fmt.Errorf("внешняя сущность %q: имя уже занято", extEnt.Alias)
+			return errNoPos(CodeDuplicateDecl, "внешняя сущность %q: имя уже занято", extEnt.Alias)
 		}
 		if other, exists := aliases[extEnt.Alias]; exists {
-			return fmt.Errorf("внешняя сущность %q: имя совпадает с производным типом состояния, уже занятым сущностью %q", extEnt.Alias, other)
+			return errNoPos(CodeDuplicateDecl, "внешняя сущность %q: имя совпадает с производным типом состояния, уже занятым сущностью %q", extEnt.Alias, other)
 		}
 		if _, exists := a.interfaces[extEnt.Alias]; exists {
-			return fmt.Errorf("внешняя сущность %q: имя совпадает с уже объявленным интерфейсом", extEnt.Alias)
+			return errNoPos(CodeDuplicateDecl, "внешняя сущность %q: имя совпадает с уже объявленным интерфейсом", extEnt.Alias)
 		}
 		entities[extEnt.Alias] = entitySig{IsExternOpaque: true}
 	}
 	for _, ent := range prog.Entities {
+		currentFile = ent.File
 		if builtins.ReservedEntityNames[ent.Name] && !builtins.ShadowableEntityNames[ent.Name] {
-			return fmt.Errorf("сущность %q - зарезервированное имя встроенной сущности, нельзя объявить свою сущность с этим именем", ent.Name)
+			return errNoPos(CodeEntityDecl, "сущность %q - зарезервированное имя встроенной сущности, нельзя объявить свою сущность с этим именем", ent.Name)
 		}
 		if _, exists := entities[ent.Name]; exists {
-			return fmt.Errorf("сущность %q объявлена более одного раза", ent.Name)
+			return errNoPos(CodeDuplicateDecl, "сущность %q объявлена более одного раза", ent.Name)
 		}
 		if other, exists := aliases[ent.Name]; exists {
-			return fmt.Errorf("сущность %q: имя совпадает с производным типом состояния, уже занятым сущностью %q", ent.Name, other)
+			return errNoPos(CodeDuplicateDecl, "сущность %q: имя совпадает с производным типом состояния, уже занятым сущностью %q", ent.Name, other)
 		}
 		if _, exists := a.interfaces[ent.Name]; exists {
-			return fmt.Errorf("сущность %q: имя совпадает с уже объявленным интерфейсом", ent.Name)
+			return errNoPos(CodeDuplicateDecl, "сущность %q: имя совпадает с уже объявленным интерфейсом", ent.Name)
 		}
 		if err := a.checkGenericConstraints(entities, methods, aliases, enums, ent.Name); err != nil {
 			return err
@@ -337,10 +339,10 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 		// Собираем константы, если есть
 		for _, c := range ent.Constants {
 			if sig.fieldIndex(c.Name) != -1 {
-				return fmt.Errorf("сущность %q: константа %q конфликтует с полем с тем же именем", ent.Name, c.Name)
+				return errNoPos(CodeDuplicateDecl, "сущность %q: константа %q конфликтует с полем с тем же именем", ent.Name, c.Name)
 			}
 			if sig.constIndex(c.Name) != -1 {
-				return fmt.Errorf("сущность %q: константа %q объявлена более одного раза", ent.Name, c.Name)
+				return errNoPos(CodeDuplicateDecl, "сущность %q: константа %q объявлена более одного раза", ent.Name, c.Name)
 			}
 			sig.ConstNames = append(sig.ConstNames, c.Name)
 			sig.ConstExprs = append(sig.ConstExprs, c.Value)
@@ -350,18 +352,18 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 
 		for _, f := range ent.Fields {
 			if sig.fieldIndex(f.Name) != -1 || sig.staticFieldIndex(f.Name) != -1 || sig.constIndex(f.Name) != -1 {
-				return fmt.Errorf("сущность %q: поле %q объявлено более одного раза", ent.Name, f.Name)
+				return errNoPos(CodeDuplicateDecl, "сущность %q: поле %q объявлено более одного раза", ent.Name, f.Name)
 			}
 			typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, f.Type)
 			if err != nil {
-				return fmt.Errorf("сущность %q: поле %q: %w", ent.Name, f.Name, err)
+				return diagnostics.Wrap(err, "сущность %q: поле %q", ent.Name, f.Name)
 			}
 			if ent.IsExternStruct && !isFFIType(entities, methods, aliases, a.interfaces, enums, typ) {
-				return fmt.Errorf("внешняя структура %q: поле %q имеет тип %s - допустимы только примитивы (Целое/Целое8/16/32/64/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\") и \"Указатель<T>\" над FFI-совместимым T - иначе реальный размер C-структуры был бы искажён", ent.Name, f.Name, typ)
+				return errNoPos(CodeEntityDecl, "внешняя структура %q: поле %q имеет тип %s - допустимы только примитивы (Целое/Целое8/16/32/64/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\") и \"Указатель<T>\" над FFI-совместимым T - иначе реальный размер C-структуры был бы искажён", ent.Name, f.Name, typ)
 			}
 			if f.IsStatic {
 				if ent.IsExternStruct {
-					return fmt.Errorf("внешняя структура %q: статическое поле %q недопустимо - у внешней структуры разрешены только поля FFI-совместимого C-представления", ent.Name, f.Name)
+					return errNoPos(CodeEntityDecl, "внешняя структура %q: статическое поле %q недопустимо - у внешней структуры разрешены только поля FFI-совместимого C-представления", ent.Name, f.Name)
 				}
 				sig.StaticFieldNames = append(sig.StaticFieldNames, f.Name)
 				sig.StaticFieldTypes = append(sig.StaticFieldTypes, typ)
@@ -382,10 +384,10 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 				sig.States[st.BecomeForm] = st.Name
 				sig.StateNames = append(sig.StateNames, st.Name)
 				if _, exists := entities[st.TypeName]; exists {
-					return fmt.Errorf("сущность %q: производный тип состояния %q совпадает с именем уже объявленной сущности", ent.Name, st.TypeName)
+					return errNoPos(CodeDuplicateDecl, "сущность %q: производный тип состояния %q совпадает с именем уже объявленной сущности", ent.Name, st.TypeName)
 				}
 				if other, exists := aliases[st.TypeName]; exists && other != ent.Name {
-					return fmt.Errorf("сущность %q: производный тип состояния %q уже используется сущностью %q", ent.Name, st.TypeName, other)
+					return errNoPos(CodeEntityDecl, "сущность %q: производный тип состояния %q уже используется сущностью %q", ent.Name, st.TypeName, other)
 				}
 				aliases[st.TypeName] = ent.Name
 				aliasState[st.TypeName] = st.Name
@@ -446,7 +448,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 			var group []funcSig
 			for _, m := range decls {
 				if m.IsAbstract || m.IsStatic {
-					return fmt.Errorf("сущность %q: метод %q: перегрузка не поддерживается для абстрактных/статических методов в этой версии", ent.Name, name)
+					return errNoPos(CodeEntityDecl, "сущность %q: метод %q: перегрузка не поддерживается для абстрактных/статических методов в этой версии", ent.Name, name)
 				}
 				msig, err := a.buildMethodSig(entities, methods, aliases, aliasState, enums, ent, m, sig.States, overloadedMethodNames)
 				if err != nil {
@@ -454,7 +456,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 				}
 				for _, other := range group {
 					if sameParamTypeList(other.Params, msig.Params) {
-						return fmt.Errorf("сущность %q: метод %q: две перегрузки с одинаковым списком типов параметров (%s) - неотличимы ни на одном вызове", ent.Name, name, paramTypesString(msig.Params))
+						return errNoPos(CodeEntityDecl, "сущность %q: метод %q: две перегрузки с одинаковым списком типов параметров (%s) - неотличимы ни на одном вызове", ent.Name, name, paramTypesString(msig.Params))
 					}
 				}
 				msig.MangledName = overloadMangledName(name, msig.Params)
@@ -471,7 +473,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 			for i, p := range ent.Ctor.Params {
 				typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, p.Type)
 				if err != nil {
-					return fmt.Errorf("сущность %q: конструктор: параметр %q: %w", ent.Name, p.Name, err)
+					return diagnostics.Wrap(err, "сущность %q: конструктор: параметр %q", ent.Name, p.Name)
 				}
 				ctorParams[i] = typ
 				ctorParamNames[i] = p.Name
@@ -497,7 +499,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 		if !ent.IsAbstract {
 			for name, msig := range flatMethods {
 				if msig.IsAbstract {
-					return fmt.Errorf("сущность %q: не реализован абстрактный метод %q - дайте ему тело или объявите саму сущность абстрактной", ent.Name, name)
+					return errNoPos(CodeEntityDecl, "сущность %q: не реализован абстрактный метод %q - дайте ему тело или объявите саму сущность абстрактной", ent.Name, name)
 				}
 			}
 		}
@@ -568,11 +570,12 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 	funcOverloads := map[string][]funcSig{}
 	for _, name := range order {
 		decls := byName[name]
+		currentFile = decls[0].File
 		if _, exists := funcs[name]; exists {
 			if builtins.IsReservedName(name) {
-				return fmt.Errorf("функция %q - зарезервированное имя встроенной функции, нельзя объявить свою функцию с этим именем", name)
+				return errNoPos(CodeEntityDecl, "функция %q - зарезервированное имя встроенной функции, нельзя объявить свою функцию с этим именем", name)
 			}
-			return fmt.Errorf("функция %q объявлена более одного раза", name)
+			return errNoPos(CodeDuplicateDecl, "функция %q объявлена более одного раза", name)
 		}
 		if err := a.checkGenericConstraints(a.entities, a.methods, a.aliases, enums, name); err != nil {
 			return err
@@ -590,11 +593,12 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 		// списком типов параметров (см. package doc funcSig.MangledName).
 		var group []funcSig
 		for _, fn := range decls {
+			currentFile = fn.File
 			if fn.Exported {
-				return fmt.Errorf("функция %q: перегрузка не поддерживается для \"экспортировать\" в этой версии - C-символ вычисляется из настоящего имени функции без учёта списка параметров, коллизия с другой перегрузкой той же группы", name)
+				return errNoPos(CodeEntityDecl, "функция %q: перегрузка не поддерживается для \"экспортировать\" в этой версии - C-символ вычисляется из настоящего имени функции без учёта списка параметров, коллизия с другой перегрузкой той же группы", name)
 			}
 			if fn.IsAsync {
-				return fmt.Errorf("функция %q: перегрузка не поддерживается для \"асинхронная\" в этой версии - \"дождаться %s(...)\" резолвит целевую функцию по голому имени, без учёта списка параметров", name, name)
+				return errNoPos(CodeEntityDecl, "функция %q: перегрузка не поддерживается для \"асинхронная\" в этой версии - \"дождаться %s(...)\" резолвит целевую функцию по голому имени, без учёта списка параметров", name, name)
 			}
 			sig, err := a.buildFreeFuncSig(fn, enums)
 			if err != nil {
@@ -602,7 +606,7 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 			}
 			for _, other := range group {
 				if sameParamTypeList(other.Params, sig.Params) {
-					return fmt.Errorf("функция %q: две перегрузки с одинаковым списком типов параметров (%s) - неотличимы ни на одном вызове", name, paramTypesString(sig.Params))
+					return errNoPos(CodeEntityDecl, "функция %q: две перегрузки с одинаковым списком типов параметров (%s) - неотличимы ни на одном вызове", name, paramTypesString(sig.Params))
 				}
 			}
 			sig.MangledName = overloadMangledName(name, sig.Params)
@@ -634,7 +638,7 @@ func (a *Analyzer) buildFreeFuncSig(fn *ast.FunctionDecl, enums map[string]map[s
 	for i, p := range fn.Params {
 		typ, err := resolveTypeName(a.entities, a.methods, a.aliases, a.interfaces, enums, p.Type)
 		if err != nil {
-			return funcSig{}, fmt.Errorf("функция %q: параметр %q: %w", fn.Name, p.Name, err)
+			return funcSig{}, diagnostics.Wrap(err, "функция %q: параметр %q", fn.Name, p.Name)
 		}
 		params[i] = typ
 		paramStates[i] = a.aliasState[p.Type]
@@ -644,7 +648,7 @@ func (a *Analyzer) buildFreeFuncSig(fn *ast.FunctionDecl, enums map[string]map[s
 	if fn.ReturnType != "" {
 		typ, err := resolveTypeName(a.entities, a.methods, a.aliases, a.interfaces, enums, fn.ReturnType)
 		if err != nil {
-			return funcSig{}, fmt.Errorf("функция %q: тип результата: %w", fn.Name, err)
+			return funcSig{}, diagnostics.Wrap(err, "функция %q: тип результата", fn.Name)
 		}
 		sig.ReturnType = typ
 		sig.HasReturn = true
@@ -669,7 +673,7 @@ func (a *Analyzer) buildMethodSig(entities map[string]entitySig, methods map[str
 	for i, p := range m.Params {
 		typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, p.Type)
 		if err != nil {
-			return funcSig{}, fmt.Errorf("сущность %q: метод %q: параметр %q: %w", ent.Name, m.Name, p.Name, err)
+			return funcSig{}, diagnostics.Wrap(err, "сущность %q: метод %q: параметр %q", ent.Name, m.Name, p.Name)
 		}
 		params[i] = typ
 		paramStates[i] = aliasState[p.Type]
@@ -677,7 +681,7 @@ func (a *Analyzer) buildMethodSig(entities map[string]entitySig, methods map[str
 	}
 	revokes, err := resolveOpposesTag(m, ent.Methods, states, overloadedNames)
 	if err != nil {
-		return funcSig{}, fmt.Errorf("сущность %q: %w", ent.Name, err)
+		return funcSig{}, diagnostics.Wrap(err, "сущность %q", ent.Name)
 	}
 	msig := funcSig{Params: params, ParamStates: paramStates, ParamDefaults: paramDefaults, Visibility: m.Visibility, IsAbstract: m.IsAbstract, IsStatic: m.IsStatic, RevokesStates: revokes}
 	switch {
@@ -693,7 +697,7 @@ func (a *Analyzer) buildMethodSig(entities map[string]entitySig, methods map[str
 	case m.ReturnType != "":
 		typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, m.ReturnType)
 		if err != nil {
-			return funcSig{}, fmt.Errorf("сущность %q: метод %q: тип результата: %w", ent.Name, m.Name, err)
+			return funcSig{}, diagnostics.Wrap(err, "сущность %q: метод %q: тип результата", ent.Name, m.Name)
 		}
 		msig.ReturnType = typ
 		msig.HasReturn = true
@@ -714,18 +718,18 @@ func (a *Analyzer) collectExternFuncSigs(funcs map[string]funcSig, entities map[
 		label := fmt.Sprintf("внешняя функция %q", ext.Alias)
 		if _, exists := funcs[ext.Alias]; exists {
 			if builtins.IsReservedName(ext.Alias) {
-				return nil, fmt.Errorf("%s - зарезервированное имя встроенной функции, нельзя объявить с этим именем", label)
+				return nil, errNoPos(CodeEntityDecl, "%s - зарезервированное имя встроенной функции, нельзя объявить с этим именем", label)
 			}
-			return nil, fmt.Errorf("имя %q уже объявлено (как функция) - нельзя повторно объявить его как внешнюю функцию", ext.Alias)
+			return nil, errNoPos(CodeDuplicateDecl, "имя %q уже объявлено (как функция) - нельзя повторно объявить его как внешнюю функцию", ext.Alias)
 		}
 		params := make([]ir.Type, len(ext.Params))
 		for i, p := range ext.Params {
 			typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, p.Type)
 			if err != nil {
-				return nil, fmt.Errorf("%s: параметр %q: %w", label, p.Name, err)
+				return nil, diagnostics.Wrap(err, "%s: параметр %q", label, p.Name)
 			}
 			if !isFFIType(entities, methods, aliases, a.interfaces, enums, typ) {
-				return nil, fmt.Errorf("%s: параметр %q имеет тип %s - у внешней функции допустимы только примитивы (Целое/Целое8/16/32/64/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\"), \"Указатель<T>\" над FFI-совместимым T и \"Вызываемый(...)\" с FFI-совместимыми параметрами/результатом", label, p.Name, typ)
+				return nil, errNoPos(CodeEntityDecl, "%s: параметр %q имеет тип %s - у внешней функции допустимы только примитивы (Целое/Целое8/16/32/64/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\"), \"Указатель<T>\" над FFI-совместимым T и \"Вызываемый(...)\" с FFI-совместимыми параметрами/результатом", label, p.Name, typ)
 			}
 			params[i] = typ
 		}
@@ -734,7 +738,7 @@ func (a *Analyzer) collectExternFuncSigs(funcs map[string]funcSig, entities map[
 		if ext.ReturnType != "" {
 			typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, ext.ReturnType)
 			if err != nil {
-				return nil, fmt.Errorf("%s: тип результата: %w", label, err)
+				return nil, diagnostics.Wrap(err, "%s: тип результата", label)
 			}
 			if typ.Kind == ir.KindCallable {
 				// "Вызываемый(...)" ТИПОМ РЕЗУЛЬТАТА внешней функции (сырой
@@ -747,10 +751,10 @@ func (a *Analyzer) collectExternFuncSigs(funcs map[string]funcSig, entities map[
 				// механизме, что и параметр (marshalCallbackArg,
 				// ffi_callback.go) - сознательно отложено, параметром
 				// "Вызываемый(...)" уже поддержана (ниже).
-				return nil, fmt.Errorf("%s: тип результата - \"Вызываемый(...)\" пока допустима только ПАРАМЕТРОМ внешней функции, не типом результата", label)
+				return nil, errNoPos(CodeEntityDecl, "%s: тип результата - \"Вызываемый(...)\" пока допустима только ПАРАМЕТРОМ внешней функции, не типом результата", label)
 			}
 			if !isFFIType(entities, methods, aliases, a.interfaces, enums, typ) {
-				return nil, fmt.Errorf("%s: тип результата %s не поддерживается - у внешней функции допустимы только примитивы (Целое/Целое8/16/32/64/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\") и \"Указатель<T>\" над FFI-совместимым T", label, typ)
+				return nil, errNoPos(CodeEntityDecl, "%s: тип результата %s не поддерживается - у внешней функции допустимы только примитивы (Целое/Целое8/16/32/64/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\") и \"Указатель<T>\" над FFI-совместимым T", label, typ)
 			}
 			decl.ReturnType = typ
 			decl.HasReturn = true
@@ -777,10 +781,10 @@ func (a *Analyzer) collectEnums(prog *ast.Program) error {
 	}
 	for _, e := range prog.Enums {
 		if _, exists := a.entities[e.Name]; exists {
-			return fmt.Errorf("строка %d: перечисление %q совпадает с именем уже объявленной сущности", e.Line, e.Name)
+			return errAtLine(e.Line, CodeDuplicateDecl, "перечисление %q совпадает с именем уже объявленной сущности", e.Name)
 		}
 		if seen[e.Name] {
-			return fmt.Errorf("строка %d: перечисление %q уже объявлено (возможно, совпадает со встроенным перечислением)", e.Line, e.Name)
+			return errAtLine(e.Line, CodeDuplicateDecl, "перечисление %q уже объявлено (возможно, совпадает со встроенным перечислением)", e.Name)
 		}
 		seen[e.Name] = true
 	}
@@ -829,19 +833,19 @@ func (a *Analyzer) collectModuleConsts(prog *ast.Program) error {
 	consts := make(map[string]ast.Expr, len(prog.Consts))
 	for _, c := range prog.Consts {
 		if _, exists := consts[c.Name]; exists {
-			return fmt.Errorf("строка %d: константа %q уровня модуля объявлена более одного раза", c.Line, c.Name)
+			return errAtLine(c.Line, CodeDuplicateDecl, "константа %q уровня модуля объявлена более одного раза", c.Name)
 		}
 		if _, exists := a.entities[c.Name]; exists {
-			return fmt.Errorf("строка %d: константа %q уровня модуля: имя совпадает с уже объявленной сущностью", c.Line, c.Name)
+			return errAtLine(c.Line, CodeDuplicateDecl, "константа %q уровня модуля: имя совпадает с уже объявленной сущностью", c.Name)
 		}
 		if _, exists := a.funcs[c.Name]; exists {
-			return fmt.Errorf("строка %d: константа %q уровня модуля: имя совпадает с уже объявленной функцией", c.Line, c.Name)
+			return errAtLine(c.Line, CodeDuplicateDecl, "константа %q уровня модуля: имя совпадает с уже объявленной функцией", c.Name)
 		}
 		if _, exists := a.enums[c.Name]; exists {
-			return fmt.Errorf("строка %d: константа %q уровня модуля: имя совпадает с уже объявленным перечислением", c.Line, c.Name)
+			return errAtLine(c.Line, CodeDuplicateDecl, "константа %q уровня модуля: имя совпадает с уже объявленным перечислением", c.Name)
 		}
 		if _, exists := a.interfaces[c.Name]; exists {
-			return fmt.Errorf("строка %d: константа %q уровня модуля: имя совпадает с уже объявленным интерфейсом", c.Line, c.Name)
+			return errAtLine(c.Line, CodeDuplicateDecl, "константа %q уровня модуля: имя совпадает с уже объявленным интерфейсом", c.Name)
 		}
 		consts[c.Name] = c.Value
 	}
@@ -858,7 +862,7 @@ func (a *Analyzer) analyzeParamsAndBody(sc *ctx, astParams []ast.Param, sig func
 	for i, p := range astParams {
 		params[i] = ir.Param{Name: p.Name, Type: sig.Params[i]}
 		if err := sc.declare(p.Name, sig.Params[i]); err != nil {
-			return nil, nil, sig, fmt.Errorf("строка %d: параметр %q: %w", p.Line, p.Name, err)
+			return nil, nil, sig, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: p.Line}, "параметр %q", p.Name)
 		}
 		if i < len(sig.ParamStates) && sig.ParamStates[i] != "" {
 			sc.setEstablished(p.Name, map[string]bool{sig.ParamStates[i]: true})
@@ -884,7 +888,7 @@ func (a *Analyzer) analyzeEntity(ent *ast.EntityDecl) (*ir.Entity, error) {
 		if i < len(sig.FieldDefaultExprs) && sig.FieldDefaultExprs[i] != nil {
 			val, err := resolveFieldDefault(fsc, ent.Name, name, ent.Line)
 			if err != nil {
-				return nil, fmt.Errorf("поле %q: %w", name, err)
+				return nil, diagnostics.Wrap(err, "поле %q", name)
 			}
 			def = val
 		}
@@ -900,7 +904,7 @@ func (a *Analyzer) analyzeEntity(ent *ast.EntityDecl) (*ir.Entity, error) {
 		if i < len(sig.StaticFieldDefaultExprs) && sig.StaticFieldDefaultExprs[i] != nil {
 			val, err := resolveStaticFieldDefault(fsc, ent.Name, name, ent.Line)
 			if err != nil {
-				return nil, fmt.Errorf("статическое поле %q: %w", name, err)
+				return nil, diagnostics.Wrap(err, "статическое поле %q", name)
 			}
 			def = val
 		}
@@ -916,7 +920,7 @@ func (a *Analyzer) analyzeEntity(ent *ast.EntityDecl) (*ir.Entity, error) {
 		for i, cname := range sig.ConstNames {
 			val, err := resolveEntityConstant(sc, ent.Name, cname, ent.Line)
 			if err != nil {
-				return nil, fmt.Errorf("константа %q: %w", cname, err)
+				return nil, diagnostics.Wrap(err, "константа %q", cname)
 			}
 			var doc string
 			if i < len(sig.ConstDocs) {
@@ -929,7 +933,7 @@ func (a *Analyzer) analyzeEntity(ent *ast.EntityDecl) (*ir.Entity, error) {
 	for i, m := range ent.Methods {
 		irM, err := a.analyzeMethod(ent, m)
 		if err != nil {
-			return nil, fmt.Errorf("метод %q: %w", m.Name, err)
+			return nil, diagnostics.Wrap(err, "метод %q", m.Name)
 		}
 		irMethods[i] = irM
 	}
@@ -937,7 +941,7 @@ func (a *Analyzer) analyzeEntity(ent *ast.EntityDecl) (*ir.Entity, error) {
 	if ent.Ctor != nil {
 		irCtor, err := a.analyzeConstructor(ent)
 		if err != nil {
-			return nil, fmt.Errorf("конструктор: %w", err)
+			return nil, diagnostics.Wrap(err, "конструктор")
 		}
 		ctor = irCtor
 	} else if !ent.IsStruct {
@@ -977,7 +981,7 @@ func (a *Analyzer) analyzeConstructor(ent *ast.EntityDecl) (*ir.Method, error) {
 	for i, p := range c.Params {
 		params[i] = ir.Param{Name: p.Name, Type: sig.CtorParams[i]}
 		if err := sc.declare(p.Name, sig.CtorParams[i]); err != nil {
-			return nil, fmt.Errorf("строка %d: параметр %q: %w", p.Line, p.Name, err)
+			return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: p.Line}, "параметр %q", p.Name)
 		}
 	}
 	body := make([]ir.Stmt, len(c.Body))
@@ -1010,7 +1014,7 @@ func (a *Analyzer) analyzeMethod(ent *ast.EntityDecl, m *ast.MethodDecl) (*ir.Me
 			return nil, unreachable
 		}
 		if sig.HasReturn && fallsThrough {
-			return nil, fmt.Errorf("строка %d: с объявленным типом результата %s должен заканчиваться \"вернуть <значение>\" на каждом пути выполнения", m.Line, sig.ReturnType)
+			return nil, errAtLine(m.Line, CodeEntityDecl, "с объявленным типом результата %s должен заканчиваться \"вернуть <значение>\" на каждом пути выполнения", sig.ReturnType)
 		}
 	}
 	sig.GuaranteedThisStates = sc.thisEstablished
@@ -1048,7 +1052,7 @@ func (a *Analyzer) analyzeFunction(fn *ast.FunctionDecl) (*ir.Function, error) {
 		return nil, unreachable
 	}
 	if sig.HasReturn && fallsThrough {
-		return nil, fmt.Errorf("строка %d: с объявленным типом результата %s должна заканчиваться \"вернуть <значение>\" на каждом пути выполнения", fn.Line, sig.ReturnType)
+		return nil, errAtLine(fn.Line, CodeEntityDecl, "с объявленным типом результата %s должна заканчиваться \"вернуть <значение>\" на каждом пути выполнения", sig.ReturnType)
 	}
 	return &ir.Function{
 		Name:       name,
@@ -1062,8 +1066,32 @@ func (a *Analyzer) analyzeFunction(fn *ast.FunctionDecl) (*ir.Function, error) {
 	}, nil
 }
 
+// buildIR строит *ir.Program из уже собранных сигнатур (a.entities/a.funcs/
+// a.interfaces, заполненных предыдущими collect*-проходами Analyze).
+//
+// Тела сущностей и функций программы (analyzeEntity/analyzeFunction ниже) -
+// НЕЗАВИСИМЫ друг от друга: сигнатуры ВСЕХ сущностей/функций/методов уже
+// собраны раньше (collectEntities/collectFuncSigs), значит ошибка внутри
+// тела ОДНОЙ функции не может исказить анализ другой - это ровно то
+// условие, при котором можно собрать НЕСКОЛЬКО независимых диагностик за
+// один прогон вместо остановки на первой (тот же принцип, что и у
+// parser.ParseProgramLenient - см. internal/diagnostics.Bag). Ошибка
+// сохраняется в bag, соответствующая сущность/функция просто не попадает в
+// out - если bag непуст к концу обоих циклов, buildIR возвращает все
+// диагностики сразу, не продолжая до generic-инстанциаций/callables/
+// экспорта ниже (они полагаются на ПОЛНЫЙ, а не частичный out.Entities/
+// out.Functions).
+//
+// Ошибки более РАННИХ проходов Analyze (collectInterfaces/collectEntities/
+// collectFuncSigs/collectEnums/collectModuleConsts, вызываются до buildIR) -
+// по-прежнему останавливаются на первой: там результат ОДНОГО объявления
+// (например, поле сущности) может быть НУЖЕН для проверки другого
+// (сущность-наследник), реальный сбор нескольких независимых ошибок
+// потребовал бы poison-маркеров по каждой из них отдельно - сознательно не
+// сделано в этом переносе (см. план диагностики компилятора).
 func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	out := &ir.Program{ExternFuncs: a.externFuncs, DBPoolSize: DefaultDBPoolSize, DBSQLiteBusyTimeoutMs: DefaultDBSQLiteBusyTimeoutMs, PoolShrinkEnabled: true, PoolIdleTimeoutMs: DefaultPoolIdleTimeoutMs, HTTPMaxRequestBytes: DefaultHTTPMaxRequestBytes}
+	bag := diagnostics.NewBag()
 	for _, iface := range prog.Interfaces {
 		sig := a.interfaces[iface.Name]
 		// sig.IRMethods - уже готовые ir.InterfaceMethod, включая
@@ -1086,9 +1114,11 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	// входит в курируемый список cbackend, генерация упала бы).
 	declaredEntityNames := make(map[string]bool, len(prog.Entities))
 	for _, ent := range prog.Entities {
+		currentFile = ent.File
 		irEnt, err := a.analyzeEntity(ent)
 		if err != nil {
-			return nil, fmt.Errorf("сущность %q: %w", ent.Name, err)
+			bag.AddErr(diagnostics.Wrap(err, "сущность %q", ent.Name))
+			continue
 		}
 		out.Entities = append(out.Entities, irEnt)
 		declaredEntityNames[ent.Name] = true
@@ -1142,11 +1172,22 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 		&ir.Entity{Name: "Исключение", Fields: systemExceptionFields(), Ctor: systemExceptionCtor()},
 	)
 	for _, fn := range prog.Functions {
+		currentFile = fn.File
 		irFn, err := a.analyzeFunction(fn)
 		if err != nil {
-			return nil, fmt.Errorf("функция %q: %w", fn.Name, err)
+			bag.AddErr(diagnostics.Wrap(err, "функция %q", fn.Name))
+			continue
 		}
 		out.Functions = append(out.Functions, irFn)
+	}
+	if bag.Len() > 0 {
+		// Дальнейшие шаги (generic-инстанциации/callables/экспорт ниже)
+		// полагаются на ПОЛНЫЙ out.Entities/out.Functions - сломанная
+		// сущность/функция просто отсутствует в них (см. continue выше),
+		// поэтому при любой накопленной ошибке анализ останавливается
+		// здесь, но с ПОЛНЫМ списком независимых диагностик за один
+		// прогон, а не только первой (см. package doc buildIR).
+		return nil, bag.AsError()
 	}
 
 	names := make([]string, 0, len(a.entities))

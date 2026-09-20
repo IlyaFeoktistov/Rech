@@ -35,7 +35,7 @@ const DefaultPoolIdleTimeoutMs = 30000
 func analyzeLaunchExpr(sc *ctx, e *ast.LaunchExpr) (ir.Expr, error) {
 	name := e.Call.Callee
 	if builtins.IsReservedName(name) {
-		return nil, fmt.Errorf("строка %d: \"запустить\" не поддерживает встроенные функции - только обычные функции программы", e.Line)
+		return nil, errAtLine(e.Line, CodeSemanticOther, "\"запустить\" не поддерживает встроенные функции - только обычные функции программы")
 	}
 	// callee - имя, которое реально попадёт в ir.LaunchExpr.Callee (и, через
 	// ir.TaskType(Callee), в тип результата "запустить") - мангл-имя у
@@ -54,11 +54,11 @@ func analyzeLaunchExpr(sc *ctx, e *ast.LaunchExpr) (ir.Expr, error) {
 		var ok bool
 		sig, ok = sc.funcs[name]
 		if !ok {
-			return nil, fmt.Errorf("строка %d: функция %q не объявлена", e.Line, name)
+			return nil, errAtLine(e.Line, CodeNameResolution, "функция %q не объявлена", name)
 		}
 	}
 	if sig.IsExtern {
-		return nil, fmt.Errorf("строка %d: \"запустить\" не поддерживает внешние функции (\"внешняя функция\") - нет гарантии потокобезопасности произвольного C-символа", e.Line)
+		return nil, errAtLine(e.Line, CodeSemanticOther, "\"запустить\" не поддерживает внешние функции (\"внешняя функция\") - нет гарантии потокобезопасности произвольного C-символа")
 	}
 	args, err := checkCallArgs(sc, e.Call.Args, sig, e.Line, fmt.Sprintf("функция %q", name), fmt.Sprintf("вызова %q", name))
 	if err != nil {
@@ -86,7 +86,7 @@ func analyzeCoroLaunchExpr(sc *ctx, e *ast.CoroLaunchExpr) (ir.Expr, error) {
 	}
 	l := launch.(*ir.LaunchExpr)
 	if sig, ok := sc.funcs[l.Callee]; !ok || !sig.IsAsync {
-		return nil, fmt.Errorf("строка %d: \"поручить\" поддерживает только \"асинхронная функция\" - %q не объявлена асинхронной", e.Line, e.Call.Callee)
+		return nil, errAtLine(e.Line, CodeNameResolution, "\"поручить\" поддерживает только \"асинхронная функция\" - %q не объявлена асинхронной", e.Call.Callee)
 	}
 	l.Coroutine = true
 	return l, nil
@@ -107,7 +107,7 @@ func analyzeAwaitExpr(sc *ctx, e *ast.AwaitExpr) (*ir.AwaitExpr, error) {
 	}
 	t := ir.TypeOf(task)
 	if t.Kind != ir.KindTask && t.Kind != ir.KindCoroTask {
-		return nil, fmt.Errorf("строка %d: \"дождаться\" ожидает значение задачи (результат \"запустить\"/\"поручить\" или вызов \"асинхронная функция\"), получено %s", e.Line, t)
+		return nil, errAtLine(e.Line, CodeSemanticOther, "\"дождаться\" ожидает значение задачи (результат \"запустить\"/\"поручить\" или вызов \"асинхронная функция\"), получено %s", t)
 	}
 	sig := sc.funcs[t.Entity]
 	return &ir.AwaitExpr{Task: task, Callee: t.Entity, Type: sig.ReturnType, HasReturn: sig.HasReturn}, nil

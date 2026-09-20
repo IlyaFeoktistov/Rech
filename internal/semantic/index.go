@@ -1,9 +1,8 @@
 package semantic
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
@@ -15,7 +14,7 @@ import (
 // раньше, "[]" - новый безопасный путь.
 func analyzeIndexExpr(sc *ctx, e *ast.IndexExpr) (ir.Expr, error) {
 	if !receiverAddressable(e.Receiver) {
-		return nil, fmt.Errorf("строка %d: получателем индексации \"[]\" может быть только переменная, поле или \"этот\"", e.Line)
+		return nil, errAtLine(e.Line, CodeSemanticOther, "получателем индексации \"[]\" может быть только переменная, поле или \"этот\"")
 	}
 	receiver, err := analyzeExpr(sc, e.Receiver)
 	if err != nil {
@@ -25,12 +24,12 @@ func analyzeIndexExpr(sc *ctx, e *ast.IndexExpr) (ir.Expr, error) {
 	typ := ir.TypeOf(receiver)
 	sig, ok := sc.entities[typ.Entity]
 	if typ.Kind != ir.KindEntity || !ok || (!sig.IsList && !sig.IsDict) {
-		return nil, fmt.Errorf("строка %d: индексация \"[]\" применима только к Список<T>/Словарь<К, В>, получен %s", e.Line, typ)
+		return nil, errAtLine(e.Line, CodeSemanticOther, "индексация \"[]\" применима только к Список<T>/Словарь<К, В>, получен %s", typ)
 	}
 
 	resultType, err := resolveNullableTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, "?"+sig.ElemType.String())
 	if err != nil {
-		return nil, fmt.Errorf("строка %d: %w", e.Line, err)
+		return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: e.Line})
 	}
 
 	if sig.IsList {
@@ -40,7 +39,7 @@ func analyzeIndexExpr(sc *ctx, e *ast.IndexExpr) (ir.Expr, error) {
 		}
 		index = maybeUnwrapNarrowed(sc, index)
 		if it := ir.TypeOf(index); it != ir.TypeInt {
-			return nil, fmt.Errorf("строка %d: индекс \"[]\" должен быть типа Целое, получен %s", e.Line, it)
+			return nil, errAtLine(e.Line, CodeSemanticOther, "индекс \"[]\" должен быть типа Целое, получен %s", it)
 		}
 		sc.a.markIndexUsed(typ.Entity)
 		return &ir.ListIndexExpr{Receiver: receiver, Index: index, CollectionName: typ.Entity, Type: resultType, Line: e.Line}, nil
@@ -52,7 +51,7 @@ func analyzeIndexExpr(sc *ctx, e *ast.IndexExpr) (ir.Expr, error) {
 	}
 	key = maybeUnwrapNarrowed(sc, key)
 	if kt := ir.TypeOf(key); kt != sig.KeyType {
-		return nil, fmt.Errorf("строка %d: ключ \"[]\" должен быть типа %s, получен %s", e.Line, sig.KeyType, kt)
+		return nil, errAtLine(e.Line, CodeSemanticOther, "ключ \"[]\" должен быть типа %s, получен %s", sig.KeyType, kt)
 	}
 	sc.a.markIndexUsed(typ.Entity)
 	return &ir.DictIndexExpr{Receiver: receiver, Key: key, CollectionName: typ.Entity, Type: resultType, Line: e.Line}, nil

@@ -1,9 +1,8 @@
 package semantic
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
@@ -16,7 +15,7 @@ import (
 func analyzeListLiteralExpr(sc *ctx, e *ast.ListLiteral, targetElem ir.Type, hasTarget bool) (ir.Expr, error) {
 	if len(e.Elems) == 0 {
 		if !hasTarget {
-			return nil, fmt.Errorf("строка %d: пустой литерал списка \"[]\" требует известный тип - объявите тип переменной явно (\"переменная а: Список<Тип> = []\")", e.Line)
+			return nil, errAtLine(e.Line, CodeSemanticOther, "пустой литерал списка \"[]\" требует известный тип - объявите тип переменной явно (\"переменная а: Список<Тип> = []\")")
 		}
 		return buildListLiteral(sc, nil, targetElem, e.Line)
 	}
@@ -33,10 +32,10 @@ func analyzeListLiteralExpr(sc *ctx, e *ast.ListLiteral, targetElem ir.Type, has
 		if i == 0 {
 			elemType = vt
 			if hasTarget && elemType != targetElem {
-				return nil, fmt.Errorf("строка %d: элемент 1 литерала списка должен быть типа %s, получен %s", e.Line, targetElem, elemType)
+				return nil, errAtLine(e.Line, CodeSemanticOther, "элемент 1 литерала списка должен быть типа %s, получен %s", targetElem, elemType)
 			}
 		} else if vt != elemType {
-			return nil, fmt.Errorf("строка %d: элемент %d литерала списка должен быть типа %s (как первый элемент) - массивы строго типизированы, без неявного расширения, получен %s", e.Line, i+1, elemType, vt)
+			return nil, errAtLine(e.Line, CodeSemanticOther, "элемент %d литерала списка должен быть типа %s (как первый элемент) - массивы строго типизированы, без неявного расширения, получен %s", i+1, elemType, vt)
 		}
 		elems[i] = v
 	}
@@ -51,7 +50,7 @@ func buildListLiteral(sc *ctx, elems []ir.Expr, elemType ir.Type, line int) (ir.
 	name := "Список<" + elemType.String() + ">"
 	listType, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, name)
 	if err != nil {
-		return nil, fmt.Errorf("строка %d: %w", line, err)
+		return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: line})
 	}
 	sc.a.markListLiteralUsed(listType.Entity)
 	return &ir.ListLiteralExpr{Elems: elems, ElemType: elemType, CollectionName: listType.Entity, Type: listType, Line: line}, nil

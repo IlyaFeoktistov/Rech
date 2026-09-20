@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
@@ -86,7 +87,7 @@ func analyzeLoopBody(sc *ctx, declareVar string, declareType ir.Type, body []ast
 		if err := sc.declare(declareVar, declareType); err != nil {
 			sc.loopDepth--
 			sc.pop()
-			return nil, fmt.Errorf("строка %d: %w", line, err)
+			return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: line})
 		}
 	}
 	analyzed, err := analyzeBlock(sc, body)
@@ -106,7 +107,7 @@ func analyzeLoopBody(sc *ctx, declareVar string, declareType ir.Type, body []ast
 // "прервать"/"продолжить", только для текста ошибки.
 func checkLoopJumpDepth(sc *ctx, word string, depth, line int) error {
 	if depth > sc.loopDepth {
-		return fmt.Errorf("строка %d: \"%s %d\" - глубина вложенности циклов в этой точке только %d", line, word, depth, sc.loopDepth)
+		return errAtLine(line, CodeStmtCheck, "\"%s %d\" - глубина вложенности циклов в этой точке только %d", word, depth, sc.loopDepth)
 	}
 	return nil
 }
@@ -121,7 +122,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		value = maybeUnwrapNarrowed(sc, value)
 		typ := ir.TypeOf(value)
 		if typ.Kind == ir.KindNullable {
-			return nil, fmt.Errorf("строка %d: нельзя напрямую вывести значение nullable-типа %s - разверните его сначала (\"?? запасное\" или явный каст)", s.Line, typ)
+			return nil, errAtLine(s.Line, CodeStmtCheck, "нельзя напрямую вывести значение nullable-типа %s - разверните его сначала (\"?? запасное\" или явный каст)", typ)
 		}
 		if wrapped := wrapStringerPrint(sc, value, typ); wrapped != nil {
 			value = wrapped
@@ -135,7 +136,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		}
 		value = maybeUnwrapNarrowed(sc, value)
 		if typ := ir.TypeOf(value); typ.Kind == ir.KindNullable {
-			return nil, fmt.Errorf("строка %d: нельзя напрямую показать значение nullable-типа %s - разверните его сначала (\"?? запасное\" или явный каст)", s.Line, typ)
+			return nil, errAtLine(s.Line, CodeStmtCheck, "нельзя напрямую показать значение nullable-типа %s - разверните его сначала (\"?? запасное\" или явный каст)", typ)
 		}
 		return &ir.ShowStmt{Value: value, Line: s.Line}, nil
 
@@ -145,7 +146,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if s.Type != "" {
 			t, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, s.Type)
 			if err != nil {
-				return nil, fmt.Errorf("строка %d: %w", s.Line, err)
+				return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: s.Line})
 			}
 			declared, hasAnnotation = t, true
 		}
@@ -161,7 +162,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		}
 		if hasAnnotation {
 			if typ := ir.TypeOf(value); !isAssignable(sc.entities, sc.interfaces, typ, declared) {
-				return nil, fmt.Errorf("строка %d: переменная %q объявлена типом %s, но инициализирована значением типа %s", s.Line, s.Name, declared, typ)
+				return nil, errAtLine(s.Line, CodeStmtCheck, "переменная %q объявлена типом %s, но инициализирована значением типа %s", s.Name, declared, typ)
 			}
 		}
 		// До sc.declare - иначе при затенении (переменная %s уже с этим же
@@ -170,7 +171,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		// которую на самом деле ссылается value.
 		newEstablished := establishedForNewBinding(sc, s.Name, value)
 		if err := sc.declare(s.Name, ir.TypeOf(value)); err != nil {
-			return nil, fmt.Errorf("строка %d: %w", s.Line, err)
+			return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: s.Line})
 		}
 		sc.setEstablished(s.Name, newEstablished)
 		var staticID int
@@ -191,7 +192,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		}
 		newEstablished := establishedForNewBinding(sc, s.Name, value)
 		if err := sc.declare(s.Name, ir.TypeOf(value)); err != nil {
-			return nil, fmt.Errorf("строка %d: %w", s.Line, err)
+			return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: s.Line})
 		}
 		sc.setEstablished(s.Name, newEstablished)
 		sc.markConst(s.Name)
@@ -200,17 +201,17 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 	case *ast.Assign:
 		declared, exists := sc.lookup(s.Name)
 		if !exists {
-			return nil, fmt.Errorf("строка %d: переменная %q не объявлена - используйте \"переменная\" для объявления", s.Line, s.Name)
+			return nil, errAtLine(s.Line, CodeNameResolution, "переменная %q не объявлена - используйте \"переменная\" для объявления", s.Name)
 		}
 		if sc.isConst(s.Name) {
-			return nil, fmt.Errorf("строка %d: %q объявлено как \"константа\" - нельзя присвоить новое значение", s.Line, s.Name)
+			return nil, errAtLine(s.Line, CodeStmtCheck, "%q объявлено как \"константа\" - нельзя присвоить новое значение", s.Name)
 		}
 		value, err := coerceExpr(sc, s.Value, declared)
 		if err != nil {
 			return nil, err
 		}
 		if typ := ir.TypeOf(value); !isAssignable(sc.entities, sc.interfaces, typ, declared) {
-			return nil, fmt.Errorf("строка %d: переменной %q типа %s нельзя присвоить значение типа %s", s.Line, s.Name, declared, typ)
+			return nil, errAtLine(s.Line, CodeStmtCheck, "переменной %q типа %s нельзя присвоить значение типа %s", s.Name, declared, typ)
 		}
 		sc.setEstablished(s.Name, establishedForNewBinding(sc, s.Name, value))
 		// Захвачено лямбдой по ссылке - запись прозрачно идёт через
@@ -230,7 +231,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			return nil, err
 		}
 		if typ := ir.TypeOf(cond); typ != ir.TypeBool {
-			return nil, fmt.Errorf("строка %d: условие \"утверждать\" должно быть логическим, получено %s", s.Line, typ)
+			return nil, errAtLine(s.Line, CodeStmtCheck, "условие \"утверждать\" должно быть логическим, получено %s", typ)
 		}
 		var message ir.Expr
 		if s.Message != nil {
@@ -239,7 +240,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 				return nil, err
 			}
 			if typ := ir.TypeOf(message); typ != ir.TypeString {
-				return nil, fmt.Errorf("строка %d: сообщение \"утверждать <условие>, <сообщение>\" должно быть Строка, получено %s", s.Line, typ)
+				return nil, errAtLine(s.Line, CodeStmtCheck, "сообщение \"утверждать <условие>, <сообщение>\" должно быть Строка, получено %s", typ)
 			}
 		}
 		return &ir.AssertStmt{Cond: cond, Message: message, Line: s.Line}, nil
@@ -250,7 +251,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			return nil, err
 		}
 		if typ := ir.TypeOf(cond); typ != ir.TypeBool {
-			return nil, fmt.Errorf("строка %d: условие \"если\" должно быть логическим, получено %s", s.Line, typ)
+			return nil, errAtLine(s.Line, CodeStmtCheck, "условие \"если\" должно быть логическим, получено %s", typ)
 		}
 		// Слияние established после "если/иначе" - переменная доказанно
 		// прошла состояние X дальше по коду только если прошла его НА ОБОИХ
@@ -326,7 +327,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			return nil, err
 		}
 		if typ := ir.TypeOf(cond); typ != ir.TypeBool {
-			return nil, fmt.Errorf("строка %d: условие \"пока\" должно быть логическим, получено %s", s.Line, typ)
+			return nil, errAtLine(s.Line, CodeStmtCheck, "условие \"пока\" должно быть логическим, получено %s", typ)
 		}
 		// Сужение nullable-типа в условии "пока а != Ничто {...}" - ТЕМ ЖЕ
 		// принципом, что и "если а != Ничто {...}" (established, см. её же
@@ -374,14 +375,14 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			return nil, err
 		}
 		if typ := ir.TypeOf(from); typ != ir.TypeInt {
-			return nil, fmt.Errorf("строка %d: граница диапазона после \"от\" должна быть целым числом, получено %s", s.Line, typ)
+			return nil, errAtLine(s.Line, CodeStmtCheck, "граница диапазона после \"от\" должна быть целым числом, получено %s", typ)
 		}
 		to, err := analyzeExpr(sc, s.To)
 		if err != nil {
 			return nil, err
 		}
 		if typ := ir.TypeOf(to); typ != ir.TypeInt {
-			return nil, fmt.Errorf("строка %d: граница диапазона после \"до\" должна быть целым числом, получено %s", s.Line, typ)
+			return nil, errAtLine(s.Line, CodeStmtCheck, "граница диапазона после \"до\" должна быть целым числом, получено %s", typ)
 		}
 		body, err := analyzeLoopBody(sc, s.Var, ir.TypeInt, s.Body, s.Line)
 		if err != nil {
@@ -408,7 +409,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		}
 		sig := sc.entities[typ.Entity]
 		if typ.Kind != ir.KindEntity || !sig.IsList {
-			return nil, fmt.Errorf("строка %d: цикл \"для %s в ...\" ожидает переменную-Список<T> или Файл, получен тип %s", s.Line, s.Var, typ)
+			return nil, errAtLine(s.Line, CodeStmtCheck, "цикл \"для %s в ...\" ожидает переменную-Список<T> или Файл, получен тип %s", s.Var, typ)
 		}
 		body, err := analyzeLoopBody(sc, s.Var, sig.ElemType, s.Body, s.Line)
 		if err != nil {
@@ -441,7 +442,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			if !ok {
 				sc.loopDepth--
 				sc.pop()
-				return nil, fmt.Errorf("строка %d: инициализация цикла \"для\" должна объявлять переменную", s.Line)
+				return nil, errAtLine(s.Line, CodeStmtCheck, "инициализация цикла \"для\" должна объявлять переменную")
 			}
 		}
 		var cond ir.Expr
@@ -456,7 +457,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			if typ := ir.TypeOf(cond); typ != ir.TypeBool {
 				sc.loopDepth--
 				sc.pop()
-				return nil, fmt.Errorf("строка %d: условие цикла \"для\" должно быть логическим, получено %s", s.Line, typ)
+				return nil, errAtLine(s.Line, CodeStmtCheck, "условие цикла \"для\" должно быть логическим, получено %s", typ)
 			}
 		}
 		var post ir.Stmt
@@ -480,7 +481,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 
 	case *ast.BreakStmt:
 		if sc.loopDepth == 0 {
-			return nil, fmt.Errorf("строка %d: \"прервать\" допустимо только внутри цикла", s.Line)
+			return nil, errAtLine(s.Line, CodeStmtCheck, "\"прервать\" допустимо только внутри цикла")
 		}
 		if err := checkLoopJumpDepth(sc, "прервать", s.Depth, s.Line); err != nil {
 			return nil, err
@@ -489,7 +490,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 
 	case *ast.ContinueStmt:
 		if sc.loopDepth == 0 {
-			return nil, fmt.Errorf("строка %d: \"продолжить\" допустимо только внутри цикла", s.Line)
+			return nil, errAtLine(s.Line, CodeStmtCheck, "\"продолжить\" допустимо только внутри цикла")
 		}
 		if err := checkLoopJumpDepth(sc, "продолжить", s.Depth, s.Line); err != nil {
 			return nil, err
@@ -499,19 +500,19 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 	case *ast.ReturnStmt:
 		if s.Value == nil {
 			if sc.hasReturn {
-				return nil, fmt.Errorf("строка %d: функция с объявленным типом результата должна возвращать значение (\"вернуть <значение>\")", s.Line)
+				return nil, errAtLine(s.Line, CodeStmtCheck, "функция с объявленным типом результата должна возвращать значение (\"вернуть <значение>\")")
 			}
 			return &ir.ReturnStmt{Line: s.Line}, nil
 		}
 		if !sc.hasReturn {
-			return nil, fmt.Errorf("строка %d: у функции не объявлен тип результата - используйте \"вернуть\" без значения", s.Line)
+			return nil, errAtLine(s.Line, CodeNameResolution, "у функции не объявлен тип результата - используйте \"вернуть\" без значения")
 		}
 		value, err := coerceExpr(sc, s.Value, sc.returnType)
 		if err != nil {
 			return nil, err
 		}
 		if typ := ir.TypeOf(value); !isAssignable(sc.entities, sc.interfaces, typ, sc.returnType) {
-			return nil, fmt.Errorf("строка %d: функция объявлена с типом результата %s, но возвращается значение типа %s", s.Line, sc.returnType, typ)
+			return nil, errAtLine(s.Line, CodeStmtCheck, "функция объявлена с типом результата %s, но возвращается значение типа %s", sc.returnType, typ)
 		}
 		return &ir.ReturnStmt{Value: value, Line: s.Line}, nil
 
@@ -541,7 +542,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 				case *ir.CallValueExpr:
 					return &ir.ExprStmt{CallValue: call, Line: s.Line}, nil
 				default:
-					return nil, fmt.Errorf("внутренняя ошибка: неизвестный вид вызова %T", call)
+					return nil, errNoPos(diagnostics.CodeInternal, "внутренняя ошибка: неизвестный вид вызова %T", call)
 				}
 			}
 			call, err := analyzeMethodCallExpr(sc, s.MethodCall)
@@ -554,7 +555,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			case *ir.CallValueExpr:
 				return &ir.ExprStmt{CallValue: call, Line: s.Line}, nil
 			default:
-				return nil, fmt.Errorf("внутренняя ошибка: неизвестный вид вызова %T", call)
+				return nil, errNoPos(diagnostics.CodeInternal, "внутренняя ошибка: неизвестный вид вызова %T", call)
 			}
 		}
 		if s.IncDec != nil {
@@ -574,7 +575,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		case *ir.CallValueExpr:
 			return &ir.ExprStmt{CallValue: call, Line: s.Line}, nil
 		default:
-			return nil, fmt.Errorf("внутренняя ошибка: неизвестный вид вызова %T", call)
+			return nil, errNoPos(diagnostics.CodeInternal, "внутренняя ошибка: неизвестный вид вызова %T", call)
 		}
 
 	case *ast.FieldAssign:
@@ -587,7 +588,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		}
 		typ := ir.TypeOf(receiver)
 		if typ.Kind != ir.KindEntity {
-			return nil, fmt.Errorf("строка %d: нельзя присвоить полю %q - тип %s не сущность", s.Line, s.Field, typ)
+			return nil, errAtLine(s.Line, CodeStmtCheck, "нельзя присвоить полю %q - тип %s не сущность", s.Field, typ)
 		}
 		sig := sc.entities[typ.Entity]
 		// Получатель НЕ обязан быть адресуемым на уровне семантики - как и у
@@ -599,15 +600,15 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 
 		// Нельзя присваивать значение константе сущности
 		if cidx := sig.constIndex(s.Field); cidx != -1 {
-			return nil, fmt.Errorf("строка %d: нельзя присвоить значение константе %q.%q", s.Line, typ.Entity, s.Field)
+			return nil, errAtLine(s.Line, CodeStmtCheck, "нельзя присвоить значение константе %q.%q", typ.Entity, s.Field)
 		}
 
 		idx := sig.fieldIndex(s.Field)
 		if idx == -1 {
 			if sig.staticFieldIndex(s.Field) != -1 {
-				return nil, fmt.Errorf("строка %d: %q - статическое поле сущности %q, присваивать только через \"%s::%s\", не через экземпляр", s.Line, s.Field, typ.Entity, typ.Entity, s.Field)
+				return nil, errAtLine(s.Line, CodeStmtCheck, "%q - статическое поле сущности %q, присваивать только через \"%s::%s\", не через экземпляр", s.Field, typ.Entity, typ.Entity, s.Field)
 			}
-			return nil, fmt.Errorf("строка %d: у сущности %q нет поля %q", s.Line, typ.Entity, s.Field)
+			return nil, errAtLine(s.Line, CodeNameResolution, "у сущности %q нет поля %q", typ.Entity, s.Field)
 		}
 		if err := checkFieldVisibility(sc, typ.Entity, s.Field, sig.FieldVisibility[idx], s.Line); err != nil {
 			return nil, err
@@ -617,7 +618,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			return nil, err
 		}
 		if vt := ir.TypeOf(value); !isAssignable(sc.entities, sc.interfaces, vt, sig.FieldTypes[idx]) {
-			return nil, fmt.Errorf("строка %d: полю %q типа %s нельзя присвоить значение типа %s", s.Line, s.Field, sig.FieldTypes[idx], vt)
+			return nil, errAtLine(s.Line, CodeStmtCheck, "полю %q типа %s нельзя присвоить значение типа %s", s.Field, sig.FieldTypes[idx], vt)
 		}
 		return &ir.FieldAssign{Receiver: receiver, Field: s.Field, Value: value, Line: s.Line}, nil
 
@@ -631,7 +632,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		}
 		typ := ir.TypeOf(receiver)
 		if typ.Kind != ir.KindEntity {
-			return nil, fmt.Errorf("строка %d: \"становится\" применимо только к сущности, получен тип %s", s.Line, typ)
+			return nil, errAtLine(s.Line, CodeStmtCheck, "\"становится\" применимо только к сущности, получен тип %s", typ)
 		}
 		sig := sc.entities[typ.Entity]
 		// sig.States - ключ полная форма, согласованная по роду/числу И
@@ -642,9 +643,9 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		base, ok := sig.States[s.State]
 		if !ok {
 			if hint := suggestStateForm(sig.States, s.State); hint != "" {
-				return nil, fmt.Errorf("строка %d: у сущности %q нет состояния, записанного как %q - \"становится\" требует полную форму, согласованную по роду и творительным падежом (%q)", s.Line, typ.Entity, s.State, hint)
+				return nil, errAtLine(s.Line, CodeStmtCheck, "у сущности %q нет состояния, записанного как %q - \"становится\" требует полную форму, согласованную по роду и творительным падежом (%q)", typ.Entity, s.State, hint)
 			}
-			return nil, fmt.Errorf("строка %d: у сущности %q не объявлено состояние %q", s.Line, typ.Entity, s.State)
+			return nil, errAtLine(s.Line, CodeNameResolution, "у сущности %q не объявлено состояние %q", typ.Entity, s.State)
 		}
 		// Фиксируем доказанный переход - только для отслеживаемых форм
 		// получателя (простая переменная/"этот", см. package doc ctx.
@@ -664,16 +665,16 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 
 	case *ast.ParentCallStmt:
 		if !sc.allowParentCall {
-			return nil, fmt.Errorf("строка %d: \"родитель(...)\" допустимо только первой инструкцией тела конструктора", s.Line)
+			return nil, errAtLine(s.Line, CodeStmtCheck, "\"родитель(...)\" допустимо только первой инструкцией тела конструктора")
 		}
 		sc.allowParentCall = false
 		baseName := sc.entities[sc.thisEntity].BaseName
 		if baseName == "" {
-			return nil, fmt.Errorf("строка %d: у сущности %q нет базовой сущности - \"родитель(...)\" вызывать нечего", s.Line, sc.thisEntity)
+			return nil, errAtLine(s.Line, CodeStmtCheck, "у сущности %q нет базовой сущности - \"родитель(...)\" вызывать нечего", sc.thisEntity)
 		}
 		baseSig := sc.entities[baseName]
 		if !baseSig.HasCtor {
-			return nil, fmt.Errorf("строка %d: у базовой сущности %q нет собственного конструктора - вызывать нечего, присвойте унаследованные поля напрямую через \"этот.поле = ...\"", s.Line, baseName)
+			return nil, errAtLine(s.Line, CodeStmtCheck, "у базовой сущности %q нет собственного конструктора - вызывать нечего, присвойте унаследованные поля напрямую через \"этот.поле = ...\"", baseName)
 		}
 		baseCtorSig := funcSig{Params: baseSig.CtorParams, ParamDefaults: baseSig.CtorParamDefaults}
 		args, err := checkCallArgs(sc, s.Args, baseCtorSig, s.Line, fmt.Sprintf("конструктор %q", baseName), fmt.Sprintf("конструктора %q", baseName))
@@ -695,7 +696,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		return analyzeSwitchStmt(sc, s)
 
 	default:
-		return nil, fmt.Errorf("инструкция %T не поддерживается", s)
+		return nil, errNoPos(diagnostics.CodeInternal, "инструкция %T не поддерживается", s)
 	}
 }
 

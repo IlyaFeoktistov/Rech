@@ -184,9 +184,9 @@ func (d *doc) update(text string) {
 		// linkErr, если линковка вообще пыталась (см. package doc tryLink) -
 		// обычно информативнее одиночного semErr одного файла.
 		if linkErr != nil {
-			d.setDiagnostics(append(parseDiagnostics(parseErrs, lines), errToDiagnostic(linkErr, lines)))
+			d.setDiagnostics(append(parseDiagnostics(parseErrs, lines), semanticDiagnosticsFor(linkErr, lines)...))
 		} else {
-			d.setDiagnostics(append(parseDiagnostics(parseErrs, lines), errToDiagnostic(semErr, lines)))
+			d.setDiagnostics(append(parseDiagnostics(parseErrs, lines), semanticDiagnosticsFor(semErr, lines)...))
 		}
 		return
 	}

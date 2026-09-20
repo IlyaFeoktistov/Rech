@@ -6,10 +6,13 @@
 package lsp
 
 import (
+	"errors"
 	"regexp"
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 )
 
 // Diagnostic - одна запись диагностики в форме, которую JSON-кодирует
@@ -183,4 +186,24 @@ func parseDiagnostics(errs []error, lines []string) []Diagnostic {
 		out[i] = errToDiagnostic(err, lines)
 	}
 	return out
+}
+
+// semanticDiagnosticsFor - как errToDiagnostic, но разворачивает err в
+// НЕСКОЛЬКО Diagnostic, если это internal/diagnostics.Bag (semantic.Analyze
+// теперь может вернуть несколько независимых ошибок за один прогон - см.
+// internal/semantic/analyzer.go, buildIR) - без этого LSP видел бы только
+// текст-сводку Bag.Error() ("... (и ещё диагностик: N)") вместо реальной
+// позиции каждой из них. Обычная одиночная ошибка (в т.ч. до-миграционная,
+// без internal/diagnostics) - тот же путь, что и раньше, один Diagnostic.
+func semanticDiagnosticsFor(err error, lines []string) []Diagnostic {
+	var bag *diagnostics.Bag
+	if errors.As(err, &bag) {
+		diags := bag.Diagnostics()
+		out := make([]Diagnostic, len(diags))
+		for i, d := range diags {
+			out[i] = errToDiagnostic(d, lines)
+		}
+		return out
+	}
+	return []Diagnostic{errToDiagnostic(err, lines)}
 }

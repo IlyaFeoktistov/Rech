@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
@@ -39,8 +40,7 @@ func checkVisibility(sc *ctx, kindWord, kindEnding, actionWord, entityName, memb
 	if vis == ast.Protected && entityIsOrExtends(sc.entities, sc.thisEntity, entityName) {
 		return nil
 	}
-	return fmt.Errorf("строка %d: %s %q сущности %q %s - %s только из методов самой сущности%s", line, kindWord, memberName, entityName,
-		visibilityAdjective(vis, kindEnding), actionWord, protectedHint(vis))
+	return errAtLine(line, CodeConstEval, "%s %q сущности %q %s - %s только из методов самой сущности%s", kindWord, memberName, entityName, visibilityAdjective(vis, kindEnding), actionWord, protectedHint(vis))
 }
 
 // protectedHint - у "защищённого" доступ шире, чем у "приватного" (не
@@ -91,7 +91,7 @@ func resolveEntityConstant(sc *ctx, entityName, constName string, line int) (ir.
 		return v, nil
 	}
 	if sc.resolvingConsts[key] {
-		return nil, fmt.Errorf("строка %d: константа %q.%q ссылается сама на себя (прямо или через другую константу) - вычислить значение невозможно", line, entityName, constName)
+		return nil, errAtLine(line, CodeConstEval, "константа %q.%q ссылается сама на себя (прямо или через другую константу) - вычислить значение невозможно", entityName, constName)
 	}
 	sig := sc.entities[entityName]
 	idx := sig.constIndex(constName)
@@ -99,7 +99,7 @@ func resolveEntityConstant(sc *ctx, entityName, constName string, line int) (ir.
 	val, err := analyzeExpr(sc, sig.ConstExprs[idx])
 	delete(sc.resolvingConsts, key)
 	if err != nil {
-		return nil, fmt.Errorf("строка %d: при вычислении константы %q.%q: %w", line, entityName, constName, err)
+		return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: line}, "при вычислении константы %q.%q", entityName, constName)
 	}
 	sc.resolvedConsts[key] = val
 	return val, nil
@@ -116,13 +116,13 @@ func resolveModuleConstant(sc *ctx, name string, line int) (ir.Expr, error) {
 		return v, nil
 	}
 	if sc.resolvingConsts[name] {
-		return nil, fmt.Errorf("строка %d: константа %q уровня модуля ссылается сама на себя (прямо или через другую константу) - вычислить значение невозможно", line, name)
+		return nil, errAtLine(line, CodeConstEval, "константа %q уровня модуля ссылается сама на себя (прямо или через другую константу) - вычислить значение невозможно", name)
 	}
 	sc.resolvingConsts[name] = true
 	val, err := analyzeExpr(sc, sc.a.moduleConstExprs[name])
 	delete(sc.resolvingConsts, name)
 	if err != nil {
-		return nil, fmt.Errorf("строка %d: при вычислении константы %q уровня модуля: %w", line, name, err)
+		return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: line}, "при вычислении константы %q уровня модуля", name)
 	}
 	sc.resolvedConsts[name] = val
 	return val, nil
@@ -155,10 +155,10 @@ func resolveFieldDefault(sc *ctx, entityName, fieldName string, line int) (ir.Ex
 	// вызова/присваивание/"вернуть").
 	val, err := coerceExpr(sc, sig.FieldDefaultExprs[idx], sig.FieldTypes[idx])
 	if err != nil {
-		return nil, fmt.Errorf("строка %d: значение по умолчанию поля %q сущности %q: %w", line, fieldName, entityName, err)
+		return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: line}, "значение по умолчанию поля %q сущности %q", fieldName, entityName)
 	}
 	if typ := ir.TypeOf(val); !isAssignable(sc.entities, sc.interfaces, typ, sig.FieldTypes[idx]) {
-		return nil, fmt.Errorf("строка %d: значение по умолчанию поля %q сущности %q должно быть типа %s, получено %s", line, fieldName, entityName, sig.FieldTypes[idx], typ)
+		return nil, errAtLine(line, CodeConstEval, "значение по умолчанию поля %q сущности %q должно быть типа %s, получено %s", fieldName, entityName, sig.FieldTypes[idx], typ)
 	}
 	sc.a.resolvedFieldDefaults[key] = val
 	return val, nil
@@ -184,16 +184,16 @@ func resolveParamDefault(sc *ctx, defaults []ast.Expr, idx int, target ir.Type, 
 		return v, nil
 	}
 	if sc.resolvingConsts[key] {
-		return nil, fmt.Errorf("строка %d: значение по умолчанию параметра %d ссылается само на себя (прямо или через другой параметр/константу) - вычислить значение невозможно", line, idx+1)
+		return nil, errAtLine(line, CodeConstEval, "значение по умолчанию параметра %d ссылается само на себя (прямо или через другой параметр/константу) - вычислить значение невозможно", idx+1)
 	}
 	sc.resolvingConsts[key] = true
 	val, err := coerceExpr(sc, defaults[idx], target)
 	delete(sc.resolvingConsts, key)
 	if err != nil {
-		return nil, fmt.Errorf("строка %d: в значении по умолчанию параметра %d: %w", line, idx+1, err)
+		return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: line}, "в значении по умолчанию параметра %d", idx+1)
 	}
 	if typ := ir.TypeOf(val); !isAssignable(sc.entities, sc.interfaces, typ, target) {
-		return nil, fmt.Errorf("строка %d: значение по умолчанию параметра %d должно быть типа %s, получено %s", line, idx+1, target, typ)
+		return nil, errAtLine(line, CodeConstEval, "значение по умолчанию параметра %d должно быть типа %s, получено %s", idx+1, target, typ)
 	}
 	sc.resolvedConsts[key] = val
 	return val, nil
@@ -210,10 +210,10 @@ func resolveStaticFieldDefault(sc *ctx, entityName, fieldName string, line int) 
 	idx := sig.staticFieldIndex(fieldName)
 	val, err := coerceExpr(sc, sig.StaticFieldDefaultExprs[idx], sig.StaticFieldTypes[idx])
 	if err != nil {
-		return nil, fmt.Errorf("строка %d: значение по умолчанию статического поля %q сущности %q: %w", line, fieldName, entityName, err)
+		return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: line}, "значение по умолчанию статического поля %q сущности %q", fieldName, entityName)
 	}
 	if typ := ir.TypeOf(val); !isAssignable(sc.entities, sc.interfaces, typ, sig.StaticFieldTypes[idx]) {
-		return nil, fmt.Errorf("строка %d: значение по умолчанию статического поля %q сущности %q должно быть типа %s, получено %s", line, fieldName, entityName, sig.StaticFieldTypes[idx], typ)
+		return nil, errAtLine(line, CodeConstEval, "значение по умолчанию статического поля %q сущности %q должно быть типа %s, получено %s", fieldName, entityName, sig.StaticFieldTypes[idx], typ)
 	}
 	return val, nil
 }

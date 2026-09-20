@@ -1,9 +1,8 @@
 package semantic
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
@@ -96,11 +95,11 @@ func structFieldsEquatable(entities map[string]entitySig, name string) error {
 				continue
 			}
 			if err := structFieldsEquatable(entities, ft.Entity); err != nil {
-				return fmt.Errorf("поле %q (структура %s): %w", sig.FieldNames[i], ft, err)
+				return diagnostics.Wrap(err, "поле %q (структура %s)", sig.FieldNames[i], ft)
 			}
 			continue
 		}
-		return fmt.Errorf("поле %q имеет тип %s, сравнение структур с таким полем не поддерживается", sig.FieldNames[i], ft)
+		return errNoPos(CodeTypeMismatch, "поле %q имеет тип %s, сравнение структур с таким полем не поддерживается", sig.FieldNames[i], ft)
 	}
 	return nil
 }
@@ -241,7 +240,7 @@ var allowedCasts = map[ir.Type]map[ir.Type]bool{
 func analyzeCastExpr(sc *ctx, e *ast.CastExpr) (ir.Expr, error) {
 	to, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, e.Type)
 	if err != nil {
-		return nil, fmt.Errorf("строка %d: %w", e.Line, err)
+		return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: e.Line})
 	}
 	value, err := analyzeExpr(sc, e.Value)
 	if err != nil {
@@ -273,7 +272,7 @@ func analyzeCastExpr(sc *ctx, e *ast.CastExpr) (ir.Expr, error) {
 		if nullableInner(sc, from) == to {
 			return &ir.NullUnwrapExpr{Value: value, Type: to, Line: e.Line}, nil
 		}
-		return nil, fmt.Errorf("строка %d: нельзя привести %s к %s", e.Line, from, to)
+		return nil, errAtLine(e.Line, CodeTypeMismatch, "нельзя привести %s к %s", from, to)
 	}
 	// Боксирование в "Значение" - разрешено для ЛЮБОГО from (примитив,
 	// сущность, структура), не только перечисленных в allowedCasts пар -
@@ -296,7 +295,7 @@ func analyzeCastExpr(sc *ctx, e *ast.CastExpr) (ir.Expr, error) {
 	// интерфейсно-типизированную переменную/параметр.
 	if to == ir.TypeAny {
 		if from.Kind == ir.KindInterface {
-			return nil, fmt.Errorf("строка %d: нельзя боксировать в \"Значение\" интерфейсно-типизированное выражение (%s) - боксируйте конкретное значение до того, как оно станет %s", e.Line, from, from)
+			return nil, errAtLine(e.Line, CodeTypeMismatch, "нельзя боксировать в \"Значение\" интерфейсно-типизированное выражение (%s) - боксируйте конкретное значение до того, как оно станет %s", from, from)
 		}
 		sc.a.markUsesReflection()
 		if from.Kind == ir.KindEntity {
@@ -305,7 +304,7 @@ func analyzeCastExpr(sc *ctx, e *ast.CastExpr) (ir.Expr, error) {
 		return &ir.CastExpr{Value: value, To: to}, nil
 	}
 	if !allowedCasts[from][to] {
-		return nil, fmt.Errorf("строка %d: нельзя привести %s к %s", e.Line, from, to)
+		return nil, errAtLine(e.Line, CodeTypeMismatch, "нельзя привести %s к %s", from, to)
 	}
 	return &ir.CastExpr{Value: value, To: to}, nil
 }

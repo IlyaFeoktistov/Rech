@@ -11,8 +11,7 @@
 package semantic
 
 import (
-	"fmt"
-
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/structtag"
 )
@@ -37,7 +36,7 @@ func checkSQLKeysDistinct(sig entitySig) error {
 	for i, name := range sig.FieldNames {
 		key := sqlFieldKey(sig, i)
 		if other, dup := seen[key]; dup {
-			return fmt.Errorf("поля %q и %q конфликтуют - у обоих одинаковая колонка результата запроса %q (проверьте теги `sql:...`)", other, name, key)
+			return errNoPos(CodeBuiltinTarget, "поля %q и %q конфликтуют - у обоих одинаковая колонка результата запроса %q (проверьте теги `sql:...`)", other, name, key)
 		}
 		seen[key] = name
 	}
@@ -78,25 +77,25 @@ func dbRowFieldTypeOK(entities map[string]entitySig, t ir.Type) bool {
 // (dbRowFieldTypeOK), колонки различны (checkSQLKeysDistinct).
 func dbRowEntityCompatible(entities map[string]entitySig, t ir.Type) error {
 	if t.Kind != ir.KindEntity {
-		return fmt.Errorf("%s не поддержан как цель результата запроса (только сущность/структура)", t)
+		return errNoPos(CodeBuiltinTarget, "%s не поддержан как цель результата запроса (только сущность/структура)", t)
 	}
 	sig, ok := entities[t.Entity]
 	if !ok {
-		return fmt.Errorf("тип %s не найден", t)
+		return errNoPos(CodeNameResolution, "тип %s не найден", t)
 	}
 	if sig.IsList || sig.IsDict || sig.IsExternOpaque || sig.IsExternStruct || sig.IsNullable || sig.IsPointer {
-		return fmt.Errorf("%s не поддержан как цель результата запроса (только сущность/структура с примитивными полями)", t)
+		return errNoPos(CodeBuiltinTarget, "%s не поддержан как цель результата запроса (только сущность/структура с примитивными полями)", t)
 	}
 	if sig.HasCtor {
-		return fmt.Errorf("%s не поддержан как цель результата запроса: у сущности есть собственный \"конструктор(...)\" - маппинг заполняет поля напрямую, а не вызывает пользовательский конструктор с неизвестным ему набором аргументов", t)
+		return errNoPos(CodeBuiltinTarget, "%s не поддержан как цель результата запроса: у сущности есть собственный \"конструктор(...)\" - маппинг заполняет поля напрямую, а не вызывает пользовательский конструктор с неизвестным ему набором аргументов", t)
 	}
 	for i, ft := range sig.FieldTypes {
 		if !dbRowFieldTypeOK(entities, ft) {
-			return fmt.Errorf("%s: поле %q имеет тип %s - цель результата запроса допускает только примитивы (Целое/Действительное/Строка/Логическое) и их nullable-варианты (NULL колонки)", t, sig.FieldNames[i], ft)
+			return errNoPos(CodeBuiltinTarget, "%s: поле %q имеет тип %s - цель результата запроса допускает только примитивы (Целое/Действительное/Строка/Логическое) и их nullable-варианты (NULL колонки)", t, sig.FieldNames[i], ft)
 		}
 	}
 	if err := checkSQLKeysDistinct(sig); err != nil {
-		return fmt.Errorf("%s: %w", t, err)
+		return diagnostics.Wrap(err, "%s", t)
 	}
 	return nil
 }
@@ -109,7 +108,7 @@ func dbRowEntityCompatible(entities map[string]entitySig, t ir.Type) error {
 // вложенная встроенная коллекция).
 func analyzeDBRowsAsExpr(sc *ctx, value ir.Expr, to, elem ir.Type, line int) (ir.Expr, error) {
 	if err := dbRowEntityCompatible(sc.entities, elem); err != nil {
-		return nil, fmt.Errorf("строка %d: \"как %s\": %w", line, to, err)
+		return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: line}, "\"как %s\"", to)
 	}
 	// markUsesReflection - уже безусловно взведён самим фактом, что value
 	// вообще может иметь тип dbResultType (registerDBTypesOnCall у любой из

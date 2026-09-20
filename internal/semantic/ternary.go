@@ -1,8 +1,6 @@
 package semantic
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
@@ -20,7 +18,7 @@ func analyzeTernaryExpr(sc *ctx, e *ast.TernaryExpr) (ir.Expr, error) {
 	}
 	cond = maybeUnwrapNarrowed(sc, cond)
 	if typ := ir.TypeOf(cond); typ != ir.TypeBool {
-		return nil, fmt.Errorf("строка %d: условие тернарного оператора \"? :\" должно быть логическим, получено %s", e.Line, typ)
+		return nil, errAtLine(e.Line, CodeSemanticOther, "условие тернарного оператора \"? :\" должно быть логическим, получено %s", typ)
 	}
 
 	then, err := analyzeExpr(sc, e.Then)
@@ -37,7 +35,7 @@ func analyzeTernaryExpr(sc *ctx, e *ast.TernaryExpr) (ir.Expr, error) {
 
 	thenType, elseType := ir.TypeOf(then), ir.TypeOf(elseVal)
 	if thenType != elseType {
-		return nil, fmt.Errorf("строка %d: ветви тернарного оператора \"? :\" должны быть одного типа - \"тогда\" %s, \"иначе\" %s", e.Line, thenType, elseType)
+		return nil, errAtLine(e.Line, CodeSemanticOther, "ветви тернарного оператора \"? :\" должны быть одного типа - \"тогда\" %s, \"иначе\" %s", thenType, elseType)
 	}
 
 	return &ir.TernaryExpr{Cond: cond, Then: then, Else: elseVal, Type: thenType}, nil

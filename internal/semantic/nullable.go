@@ -1,9 +1,8 @@
 package semantic
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
@@ -14,14 +13,14 @@ import (
 func resolveNullableTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64, name string) (ir.Type, error) {
 	innerName := name[len("?"):]
 	if innerName == "" {
-		return ir.TypeUnknown, fmt.Errorf("%q: после \"?\" ожидалось имя типа", name)
+		return ir.TypeUnknown, errNoPos(CodeNullable, "%q: после \"?\" ожидалось имя типа", name)
 	}
 	inner, err := resolveTypeName(entities, methods, aliases, interfaces, enums, innerName)
 	if err != nil {
-		return ir.TypeUnknown, fmt.Errorf("тип %q: %w", name, err)
+		return ir.TypeUnknown, diagnostics.Wrap(err, "тип %q", name)
 	}
 	if inner.Kind == ir.KindNullable {
-		return ir.TypeUnknown, fmt.Errorf("%q: nullable-тип нельзя обернуть повторно (\"??Тип\")", name)
+		return ir.TypeUnknown, errNoPos(CodeNullable, "%q: nullable-тип нельзя обернуть повторно (\"??Тип\")", name)
 	}
 	if _, exists := entities[name]; !exists {
 		entities[name] = entitySig{IsNullable: true, ElemType: inner}
@@ -153,7 +152,7 @@ func coerceExpr(sc *ctx, e ast.Expr, target ir.Type) (ir.Expr, error) {
 		// ir.NullLiteral.Type для разбора по Kind в generateIRExpr/
 		// evalNullLiteral обоих бэкендов.
 		if target.Kind != ir.KindNullable && target.Kind != ir.KindPointer {
-			return nil, fmt.Errorf("строка %d: \"Ничто\" допустимо только для значения nullable-типа (\"?Тип\") или \"Указатель<T>\", ожидался %s", nl.Line, target)
+			return nil, errAtLine(nl.Line, CodeNullable, "\"Ничто\" допустимо только для значения nullable-типа (\"?Тип\") или \"Указатель<T>\", ожидался %s", target)
 		}
 		return &ir.NullLiteral{Type: target, Line: nl.Line}, nil
 	}
@@ -189,7 +188,7 @@ func analyzeNullCheck(sc *ctx, other ast.Expr, isNot bool, line int) (ir.Expr, e
 	// выше, не has/value nullable-обёртка - оба бэкенда сами решают по
 	// ir.TypeOf(e.Value).Kind, как сравнивать (package doc там же).
 	if typ := ir.TypeOf(value); typ.Kind != ir.KindNullable && typ.Kind != ir.KindPointer {
-		return nil, fmt.Errorf("строка %d: сравнение с \"Ничто\" применимо только к значению nullable-типа (\"?Тип\") или \"Указатель<T>\", получен %s", line, typ)
+		return nil, errAtLine(line, CodeNullable, "сравнение с \"Ничто\" применимо только к значению nullable-типа (\"?Тип\") или \"Указатель<T>\", получен %s", typ)
 	}
 	return &ir.NullCheckExpr{Value: value, IsNot: isNot, Line: line}, nil
 }
@@ -201,7 +200,7 @@ func analyzeNullCheck(sc *ctx, other ast.Expr, isNot bool, line int) (ir.Expr, e
 func analyzeNullCoalesce(e *ast.BinaryExpr, sc *ctx, left, right ir.Expr) (ir.Expr, error) {
 	lt := ir.TypeOf(left)
 	if lt.Kind != ir.KindNullable {
-		return nil, fmt.Errorf("строка %d: \"??\" применимо только к nullable-значению слева, получен %s", e.Line, lt)
+		return nil, errAtLine(e.Line, CodeNullable, "\"??\" применимо только к nullable-значению слева, получен %s", lt)
 	}
 	inner := nullableInner(sc, lt)
 	rt := ir.TypeOf(right)
@@ -211,7 +210,7 @@ func analyzeNullCoalesce(e *ast.BinaryExpr, sc *ctx, left, right ir.Expr) (ir.Ex
 	case lt:
 		return &ir.NullCoalesceExpr{Left: left, Right: right, Type: lt, Line: e.Line}, nil
 	default:
-		return nil, fmt.Errorf("строка %d: \"??\" справа ожидает %s или %s, получено %s", e.Line, inner, lt, rt)
+		return nil, errAtLine(e.Line, CodeNullable, "\"??\" справа ожидает %s или %s, получено %s", inner, lt, rt)
 	}
 }
 
@@ -222,26 +221,26 @@ func analyzeNullCoalesce(e *ast.BinaryExpr, sc *ctx, left, right ir.Expr) (ir.Ex
 func analyzeNullCoalesceAssignStmt(sc *ctx, s *ast.NullCoalesceAssign) (ir.Stmt, error) {
 	declared, exists := sc.lookup(s.Name)
 	if !exists {
-		return nil, fmt.Errorf("строка %d: переменная %q не объявлена", s.Line, s.Name)
+		return nil, errAtLine(s.Line, CodeNameResolution, "переменная %q не объявлена", s.Name)
 	}
 	if declared.Kind != ir.KindNullable {
-		return nil, fmt.Errorf("строка %d: \"?=\" применимо только к nullable-переменной (\"?Тип\"), %q имеет тип %s", s.Line, s.Name, declared)
+		return nil, errAtLine(s.Line, CodeNullable, "\"?=\" применимо только к nullable-переменной (\"?Тип\"), %q имеет тип %s", s.Name, declared)
 	}
 	if sc.isConst(s.Name) {
-		return nil, fmt.Errorf("строка %d: %q объявлено как \"константа\" - нельзя присвоить новое значение", s.Line, s.Name)
+		return nil, errAtLine(s.Line, CodeNullable, "%q объявлено как \"константа\" - нельзя присвоить новое значение", s.Name)
 	}
 	// Захвачено лямбдой по ссылке - явно НЕ поддержано, тем же принципом,
 	// что и analyzeIncDecExpr (expr.go) - ir.NullCoalesceAssignStmt тоже
 	// читает/пишет по имени напрямую, без Deref(Assign).
 	if _, isByRef := sc.byRefPointerType(s.Name); isByRef {
-		return nil, fmt.Errorf("строка %d: %q захвачено по ссылке (\"&%s\" в списке захвата лямбды) - \"?=\" для таких переменных не поддержан", s.Line, s.Name, s.Name)
+		return nil, errAtLine(s.Line, CodeNullable, "%q захвачено по ссылке (\"&%s\" в списке захвата лямбды) - \"?=\" для таких переменных не поддержан", s.Name, s.Name)
 	}
 	value, err := coerceExpr(sc, s.Value, declared)
 	if err != nil {
 		return nil, err
 	}
 	if typ := ir.TypeOf(value); !isAssignable(sc.entities, sc.interfaces, typ, declared) {
-		return nil, fmt.Errorf("строка %d: переменной %q типа %s нельзя присвоить значение типа %s", s.Line, s.Name, declared, typ)
+		return nil, errAtLine(s.Line, CodeNullable, "переменной %q типа %s нельзя присвоить значение типа %s", s.Name, declared, typ)
 	}
 	return &ir.NullCoalesceAssignStmt{Name: s.Name, Value: value, Line: s.Line}, nil
 }

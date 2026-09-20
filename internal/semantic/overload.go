@@ -15,7 +15,6 @@
 package semantic
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
@@ -130,10 +129,10 @@ func pickOverload(sc *ctx, name string, candidates []funcSig, args []ast.Expr, l
 		}
 	}
 	if !found {
-		return funcSig{}, fmt.Errorf("строка %d: нет подходящей перегрузки %q для переданных аргументов (%d шт.)", line, name, len(args))
+		return funcSig{}, errAtLine(line, CodeSemanticOther, "нет подходящей перегрузки %q для переданных аргументов (%d шт.)", name, len(args))
 	}
 	if ambiguous {
-		return funcSig{}, fmt.Errorf("строка %d: неоднозначный вызов перегруженной функции %q - несколько перегрузок одинаково подходят переданным аргументам", line, name)
+		return funcSig{}, errAtLine(line, CodeSemanticOther, "неоднозначный вызов перегруженной функции %q - несколько перегрузок одинаково подходят переданным аргументам", name)
 	}
 	return best, nil
 }

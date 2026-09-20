@@ -1,8 +1,6 @@
 package semantic
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/ir/cfg"
 )
@@ -27,7 +25,7 @@ import (
 func analyzeFlow(body []ir.Stmt) (unreachable error, fallsThrough bool) {
 	g := cfg.Build(body)
 	if line, ok := g.UnreachableLine(); ok {
-		unreachable = fmt.Errorf("строка %d: недостижимый код", line)
+		unreachable = errAtLine(line, CodeFlow, "недостижимый код")
 	}
 	fallsThrough = g.FallsThrough()
 	return

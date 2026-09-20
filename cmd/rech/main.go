@@ -451,7 +451,7 @@ func runTests(path string) bool {
 		fmt.Println("Провалившиеся тесты:")
 		fmt.Println()
 		for i, r := range failed {
-			fmt.Printf("%d) %s\n%v\n\n", i+1, r.Path, r.Err)
+			fmt.Printf("%d) %s\n%s\n", i+1, r.Path, compileErrorText(r.Err))
 		}
 	}
 

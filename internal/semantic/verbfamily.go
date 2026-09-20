@@ -5,8 +5,6 @@
 package semantic
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/structtag"
 )
@@ -28,10 +26,10 @@ func resolveOpposesTag(m *ast.MethodDecl, siblings []*ast.MethodDecl, states map
 		return nil, nil
 	}
 	if target == m.Name {
-		return nil, fmt.Errorf("метод %q: нельзя объявить противоположностью самому себе", m.Name)
+		return nil, errNoPos(CodeStateVerb, "метод %q: нельзя объявить противоположностью самому себе", m.Name)
 	}
 	if overloadedNames[target] {
-		return nil, fmt.Errorf("метод %q: противоположность %q - метод с таким именем перегружен (несколько объявлений), неоднозначно, какую из перегрузок отменяет тег", m.Name, target)
+		return nil, errNoPos(CodeStateVerb, "метод %q: противоположность %q - метод с таким именем перегружен (несколько объявлений), неоднозначно, какую из перегрузок отменяет тег", m.Name, target)
 	}
 	var other *ast.MethodDecl
 	for _, s := range siblings {
@@ -41,15 +39,15 @@ func resolveOpposesTag(m *ast.MethodDecl, siblings []*ast.MethodDecl, states map
 		}
 	}
 	if other == nil {
-		return nil, fmt.Errorf("метод %q: противоположность %q - нет метода с таким именем у этой же сущности", m.Name, target)
+		return nil, errNoPos(CodeNameResolution, "метод %q: противоположность %q - нет метода с таким именем у этой же сущности", m.Name, target)
 	}
 	if other.IsAbstract {
-		return nil, fmt.Errorf("метод %q: противоположность %q - у абстрактного метода нет тела, нечего отменять", m.Name, target)
+		return nil, errNoPos(CodeStateVerb, "метод %q: противоположность %q - у абстрактного метода нет тела, нечего отменять", m.Name, target)
 	}
 	revoke := map[string]bool{}
 	collectBecomeStates(other.Body, states, revoke)
 	if len(revoke) == 0 {
-		return nil, fmt.Errorf("метод %q: противоположность %q не устанавливает ни одного состояния через \"становится\" - нечего отменять", m.Name, target)
+		return nil, errNoPos(CodeStateVerb, "метод %q: противоположность %q не устанавливает ни одного состояния через \"становится\" - нечего отменять", m.Name, target)
 	}
 	return revoke, nil
 }

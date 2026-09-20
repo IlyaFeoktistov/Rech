@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
@@ -418,7 +419,7 @@ func (inst *instantiator) ensureEntity(name string, line int) error {
 		return nil
 	}
 	if len(args) != len(template.TypeParams) {
-		return fmt.Errorf("строка %d: сущность %q ожидает параметров типа: %d, получено: %d", line, tplName, len(template.TypeParams), len(args))
+		return errAtLine(line, CodeGenerics, "сущность %q ожидает параметров типа: %d, получено: %d", tplName, len(template.TypeParams), len(args))
 	}
 	subst := make(map[string]string, len(args))
 	var checks []constraintCheck
@@ -466,7 +467,7 @@ func (inst *instantiator) ensureFunc(name string, line int) error {
 		return nil
 	}
 	if len(args) != len(template.TypeParams) {
-		return fmt.Errorf("строка %d: функция %q ожидает аргументов типа: %d, получено: %d", line, tplName, len(template.TypeParams), len(args))
+		return errAtLine(line, CodeGenerics, "функция %q ожидает аргументов типа: %d, получено: %d", tplName, len(template.TypeParams), len(args))
 	}
 	subst := make(map[string]string, len(args))
 	var checks []constraintCheck
@@ -779,13 +780,13 @@ func (a *Analyzer) checkGenericConstraints(entities map[string]entitySig, method
 	for _, c := range checks {
 		argType, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, c.ArgType)
 		if err != nil {
-			return fmt.Errorf("строка %d: %q: параметр типа %q: %w", c.Line, name, c.ParamName, err)
+			return diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: c.Line}, "%q: параметр типа %q", name, c.ParamName)
 		}
 		satisfied := false
 		for _, constraint := range c.Constraints {
 			constraintType, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, constraint)
 			if err != nil {
-				return fmt.Errorf("строка %d: %q: параметр типа %q: ограничение %q: %w", c.Line, name, c.ParamName, constraint, err)
+				return diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: c.Line}, "%q: параметр типа %q: ограничение %q", name, c.ParamName, constraint)
 			}
 			if isAssignable(entities, a.interfaces, argType, constraintType) {
 				satisfied = true
@@ -793,8 +794,7 @@ func (a *Analyzer) checkGenericConstraints(entities map[string]entitySig, method
 			}
 		}
 		if !satisfied {
-			return fmt.Errorf("строка %d: %q: параметр типа %q = %s не удовлетворяет ограничению (%s)",
-				c.Line, name, c.ParamName, argType, strings.Join(c.Constraints, "|"))
+			return errAtLine(c.Line, CodeGenerics, "%q: параметр типа %q = %s не удовлетворяет ограничению (%s)", name, c.ParamName, argType, strings.Join(c.Constraints, "|"))
 		}
 	}
 	return nil

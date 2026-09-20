@@ -1,12 +1,12 @@
 package semantic
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/builtins"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
@@ -602,7 +602,7 @@ func topoSortGenericNames(names []string, entities map[string]entitySig) []strin
 func resolveGenericTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64, name string) (ir.Type, error) {
 	template, argName, ok := parseGenericTypeName(name)
 	if !ok {
-		return ir.TypeUnknown, fmt.Errorf("неизвестный тип %q", name)
+		return ir.TypeUnknown, errNoPos(CodeNameResolution, "неизвестный тип %q", name)
 	}
 	if template == "Словарь" {
 		return resolveDictTypeName(entities, methods, aliases, interfaces, enums, name)
@@ -612,14 +612,14 @@ func resolveGenericTypeName(entities map[string]entitySig, methods map[string]ma
 	}
 	elem, err := resolveTypeName(entities, methods, aliases, interfaces, enums, argName)
 	if err != nil {
-		return ir.TypeUnknown, fmt.Errorf("тип элемента %q в %q: %w", argName, name, err)
+		return ir.TypeUnknown, diagnostics.Wrap(err, "тип элемента %q в %q", argName, name)
 	}
 	if elem.Kind == ir.KindNullable {
-		return ir.TypeUnknown, fmt.Errorf("%q: элементы встроенных коллекций пока не поддерживают nullable-типы", name)
+		return ir.TypeUnknown, errNoPos(CodeTypeResolution, "%q: элементы встроенных коллекций пока не поддерживают nullable-типы", name)
 	}
 	sigs, ok := genericMethodSigs(template, elem)
 	if !ok {
-		return ir.TypeUnknown, fmt.Errorf("неизвестный generic-тип %q", template)
+		return ir.TypeUnknown, errNoPos(CodeTypeResolution, "неизвестный generic-тип %q", template)
 	}
 	if _, exists := entities[name]; !exists {
 		// "равен" (глубокое сравнение содержимого, в отличие от "==" -
@@ -655,21 +655,21 @@ var dictKeyKinds = map[ir.TypeKind]bool{
 func resolveDictTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64, name string) (ir.Type, error) {
 	_, args, ok := ParseGenericTypeNameMulti(name)
 	if !ok || len(args) != 2 {
-		return ir.TypeUnknown, fmt.Errorf("%q: \"Словарь\" ожидает ровно два аргумента типа - ключ и значение (\"Словарь<Строка, Целое>\")", name)
+		return ir.TypeUnknown, errNoPos(CodeTypeResolution, "%q: \"Словарь\" ожидает ровно два аргумента типа - ключ и значение (\"Словарь<Строка, Целое>\")", name)
 	}
 	key, err := resolveTypeName(entities, methods, aliases, interfaces, enums, args[0])
 	if err != nil {
-		return ir.TypeUnknown, fmt.Errorf("тип ключа %q в %q: %w", args[0], name, err)
+		return ir.TypeUnknown, diagnostics.Wrap(err, "тип ключа %q в %q", args[0], name)
 	}
 	if !dictKeyKinds[key.Kind] {
-		return ir.TypeUnknown, fmt.Errorf("%q: тип ключа %s не поддерживается - допустимы только Целое/Байт/Символ/Логическое/Строка", name, key)
+		return ir.TypeUnknown, errNoPos(CodeTypeResolution, "%q: тип ключа %s не поддерживается - допустимы только Целое/Байт/Символ/Логическое/Строка", name, key)
 	}
 	val, err := resolveTypeName(entities, methods, aliases, interfaces, enums, args[1])
 	if err != nil {
-		return ir.TypeUnknown, fmt.Errorf("тип значения %q в %q: %w", args[1], name, err)
+		return ir.TypeUnknown, diagnostics.Wrap(err, "тип значения %q в %q", args[1], name)
 	}
 	if val.Kind == ir.KindNullable {
-		return ir.TypeUnknown, fmt.Errorf("%q: значения встроенного словаря пока не поддерживают nullable-типы", name)
+		return ir.TypeUnknown, errNoPos(CodeTypeResolution, "%q: значения встроенного словаря пока не поддерживают nullable-типы", name)
 	}
 	if _, exists := entities[name]; !exists {
 		eq := elemEquatable(entities, val)

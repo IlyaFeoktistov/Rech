@@ -22,14 +22,14 @@ import (
 func staticReceiverEntity(sc *ctx, receiver ast.Expr, line int) (string, entitySig, error) {
 	ident, ok := receiver.(*ast.Identifier)
 	if !ok {
-		return "", entitySig{}, fmt.Errorf("строка %d: слева от \"::\" ожидалось имя сущности/структуры", line)
+		return "", entitySig{}, errAtLine(line, CodeEntityDecl, "слева от \"::\" ожидалось имя сущности/структуры")
 	}
 	if _, isVar := sc.lookup(ident.Name); isVar {
-		return "", entitySig{}, fmt.Errorf("строка %d: %q - переменная, не тип - доступ к статическому члену требует имени сущности/структуры слева от \"::\"", line, ident.Name)
+		return "", entitySig{}, errAtLine(line, CodeEntityDecl, "%q - переменная, не тип - доступ к статическому члену требует имени сущности/структуры слева от \"::\"", ident.Name)
 	}
 	sig, ok := sc.entities[ident.Name]
 	if !ok {
-		return "", entitySig{}, fmt.Errorf("строка %d: сущность %q не объявлена", line, ident.Name)
+		return "", entitySig{}, errAtLine(line, CodeNameResolution, "сущность %q не объявлена", ident.Name)
 	}
 	return ident.Name, sig, nil
 }
@@ -64,7 +64,7 @@ func analyzeStaticFieldAccess(sc *ctx, e *ast.FieldAccess) (ir.Expr, error) {
 		}
 		return resolveEntityConstant(sc, entityName, e.Field, e.Line)
 	}
-	return nil, fmt.Errorf("строка %d: у сущности %q нет статического поля или константы %q", e.Line, entityName, e.Field)
+	return nil, errAtLine(e.Line, CodeEntityDecl, "у сущности %q нет статического поля или константы %q", entityName, e.Field)
 }
 
 // analyzeStaticMethodCallExpr - "Тип::метод(...)".
@@ -75,7 +75,7 @@ func analyzeStaticMethodCallExpr(sc *ctx, e *ast.MethodCallExpr) (*ir.StaticMeth
 	}
 	sig, ok := sc.methods[entityName][e.Method]
 	if !ok || !sig.IsStatic {
-		return nil, fmt.Errorf("строка %d: у сущности %q нет статического метода %q", e.Line, entityName, e.Method)
+		return nil, errAtLine(e.Line, CodeEntityDecl, "у сущности %q нет статического метода %q", entityName, e.Method)
 	}
 	if err := checkMethodVisibility(sc, entityName, e.Method, sig.Visibility, e.Line); err != nil {
 		return nil, err
@@ -91,7 +91,7 @@ func analyzeStaticMethodCallExpr(sc *ctx, e *ast.MethodCallExpr) (*ir.StaticMeth
 func analyzeStaticFieldAssign(sc *ctx, s *ast.FieldAssign) (*ir.StaticFieldAssign, error) {
 	if ident, ok := s.Receiver.(*ast.Identifier); ok {
 		if _, ok := primitiveTypes[ident.Name]; ok {
-			return nil, fmt.Errorf("строка %d: %q - константа типа %q, ей нельзя присвоить заново", s.Line, s.Field, ident.Name)
+			return nil, errAtLine(s.Line, CodeEntityDecl, "%q - константа типа %q, ей нельзя присвоить заново", s.Field, ident.Name)
 		}
 	}
 	entityName, sig, err := staticReceiverEntity(sc, s.Receiver, s.Line)
@@ -101,9 +101,9 @@ func analyzeStaticFieldAssign(sc *ctx, s *ast.FieldAssign) (*ir.StaticFieldAssig
 	idx := sig.staticFieldIndex(s.Field)
 	if idx == -1 {
 		if sig.constIndex(s.Field) != -1 {
-			return nil, fmt.Errorf("строка %d: %q - константа сущности %q, ей нельзя присвоить заново", s.Line, s.Field, entityName)
+			return nil, errAtLine(s.Line, CodeEntityDecl, "%q - константа сущности %q, ей нельзя присвоить заново", s.Field, entityName)
 		}
-		return nil, fmt.Errorf("строка %d: у сущности %q нет статического поля %q", s.Line, entityName, s.Field)
+		return nil, errAtLine(s.Line, CodeEntityDecl, "у сущности %q нет статического поля %q", entityName, s.Field)
 	}
 	if err := checkStaticFieldVisibility(sc, entityName, s.Field, sig.StaticFieldVisibility[idx], s.Line); err != nil {
 		return nil, err
@@ -113,7 +113,7 @@ func analyzeStaticFieldAssign(sc *ctx, s *ast.FieldAssign) (*ir.StaticFieldAssig
 		return nil, err
 	}
 	if typ := ir.TypeOf(value); !isAssignable(sc.entities, sc.interfaces, typ, sig.StaticFieldTypes[idx]) {
-		return nil, fmt.Errorf("строка %d: статическому полю %q сущности %q присваивается %s, ожидался %s", s.Line, s.Field, entityName, typ, sig.StaticFieldTypes[idx])
+		return nil, errAtLine(s.Line, CodeEntityDecl, "статическому полю %q сущности %q присваивается %s, ожидался %s", s.Field, entityName, typ, sig.StaticFieldTypes[idx])
 	}
 	return &ir.StaticFieldAssign{Entity: entityName, Field: s.Field, Value: value, Line: s.Line}, nil
 }

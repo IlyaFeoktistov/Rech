@@ -6,7 +6,6 @@
 package semantic
 
 import (
-	"fmt"
 	"maps"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
@@ -42,19 +41,19 @@ func (a *Analyzer) applyInheritance(entities map[string]entitySig, methods map[s
 	if ent.BaseName != "" {
 		baseSig, ok := entities[ent.BaseName]
 		if !ok {
-			return entitySig{}, nil, nil, fmt.Errorf("строка %d: сущность %q наследует %q - базовая сущность не объявлена (или объявлена позже в файле)", ent.Line, ent.Name, ent.BaseName)
+			return entitySig{}, nil, nil, errAtLine(ent.Line, CodeNameResolution, "сущность %q наследует %q - базовая сущность не объявлена (или объявлена позже в файле)", ent.Name, ent.BaseName)
 		}
 		if baseSig.IsStruct {
-			return entitySig{}, nil, nil, fmt.Errorf("строка %d: сущность %q не может наследовать %q - структура не участвует в наследовании (ограничено ссылочными типами)", ent.Line, ent.Name, ent.BaseName)
+			return entitySig{}, nil, nil, errAtLine(ent.Line, CodeInheritance, "сущность %q не может наследовать %q - структура не участвует в наследовании (ограничено ссылочными типами)", ent.Name, ent.BaseName)
 		}
 		for _, name := range ownSig.FieldNames {
 			if baseSig.fieldIndex(name) != -1 {
-				return entitySig{}, nil, nil, fmt.Errorf("строка %d: сущность %q: поле %q конфликтует с унаследованным полем базовой сущности %q", ent.Line, ent.Name, name, ent.BaseName)
+				return entitySig{}, nil, nil, errAtLine(ent.Line, CodeDuplicateDecl, "сущность %q: поле %q конфликтует с унаследованным полем базовой сущности %q", ent.Name, name, ent.BaseName)
 			}
 		}
 		for _, name := range ownSig.ConstNames {
 			if baseSig.fieldIndex(name) != -1 || baseSig.constIndex(name) != -1 {
-				return entitySig{}, nil, nil, fmt.Errorf("строка %d: сущность %q: константа %q конфликтует с унаследованным членом базовой сущности %q", ent.Line, ent.Name, name, ent.BaseName)
+				return entitySig{}, nil, nil, errAtLine(ent.Line, CodeDuplicateDecl, "сущность %q: константа %q конфликтует с унаследованным членом базовой сущности %q", ent.Name, name, ent.BaseName)
 			}
 		}
 
@@ -113,14 +112,14 @@ func (a *Analyzer) applyInheritance(entities map[string]entitySig, methods map[s
 		}
 		for name, sig := range ownMethods {
 			if baseSigM, isOverride := baseMethods[name]; isOverride && !sigsMatch(baseSigM, sig) {
-				return entitySig{}, nil, nil, fmt.Errorf("строка %d: сущность %q: переопределение метода %q не совпадает по сигнатуре с методом базовой сущности %q", ent.Line, ent.Name, name, ent.BaseName)
+				return entitySig{}, nil, nil, errAtLine(ent.Line, CodeInheritance, "сущность %q: переопределение метода %q не совпадает по сигнатуре с методом базовой сущности %q", ent.Name, name, ent.BaseName)
 			}
 			// Обычное (не перегруженное) переопределение метода, который в
 			// базовой сущности - ГРУППА перегрузок - обратный случай
 			// проверки ниже (перегрузка поверх обычного унаследованного
 			// метода): непонятно, какую из перегрузок это "переопределяет".
 			if _, baseOverloaded := baseOverloads[name]; baseOverloaded {
-				return entitySig{}, nil, nil, fmt.Errorf("строка %d: сущность %q: нельзя переопределить перегруженный метод %q - базовая сущность %q объявляет несколько перегрузок с этим именем", ent.Line, ent.Name, name, ent.BaseName)
+				return entitySig{}, nil, nil, errAtLine(ent.Line, CodeInheritance, "сущность %q: нельзя переопределить перегруженный метод %q - базовая сущность %q объявляет несколько перегрузок с этим именем", ent.Name, name, ent.BaseName)
 			}
 			flatMethods[name] = sig
 		}
@@ -132,10 +131,10 @@ func (a *Analyzer) applyInheritance(entities map[string]entitySig, methods map[s
 			// бы неясно, участвует ли унаследованный вариант(ы) в общем
 			// выборе перегрузки вместе с собственными.
 			if _, isOverride := baseMethods[name]; isOverride {
-				return entitySig{}, nil, nil, fmt.Errorf("строка %d: сущность %q: нельзя перегружать метод %q - базовая сущность %q уже объявляет метод с этим именем", ent.Line, ent.Name, name, ent.BaseName)
+				return entitySig{}, nil, nil, errAtLine(ent.Line, CodeInheritance, "сущность %q: нельзя перегружать метод %q - базовая сущность %q уже объявляет метод с этим именем", ent.Name, name, ent.BaseName)
 			}
 			if _, baseOverloaded := baseOverloads[name]; baseOverloaded {
-				return entitySig{}, nil, nil, fmt.Errorf("строка %d: сущность %q: нельзя перегружать метод %q - базовая сущность %q уже объявляет перегрузки с этим именем", ent.Line, ent.Name, name, ent.BaseName)
+				return entitySig{}, nil, nil, errAtLine(ent.Line, CodeInheritance, "сущность %q: нельзя перегружать метод %q - базовая сущность %q уже объявляет перегрузки с этим именем", ent.Name, name, ent.BaseName)
 			}
 		}
 		// methodOverloads этой сущности - копия унаследованной с наложенными
@@ -164,7 +163,7 @@ func (a *Analyzer) applyInheritance(entities map[string]entitySig, methods map[s
 		}
 	}
 	if total := flat.StateBitOffset + len(flat.StateNames); total > 64 {
-		return entitySig{}, nil, nil, fmt.Errorf("строка %d: сущность %q: суммарно %d состояний по цепочке наследования - рантайм-хранилище состояний вмещает не больше 64", ent.Line, ent.Name, total)
+		return entitySig{}, nil, nil, errAtLine(ent.Line, CodeInheritance, "сущность %q: суммарно %d состояний по цепочке наследования - рантайм-хранилище состояний вмещает не больше 64", ent.Name, total)
 	}
 	return flat, flatMethods, methodOverloads, nil
 }

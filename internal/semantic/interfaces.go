@@ -5,9 +5,8 @@
 package semantic
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
@@ -74,7 +73,7 @@ func (a *Analyzer) collectInterfaces(prog *ast.Program) error {
 	enums := buildEnumTable(prog)
 	for _, iface := range prog.Interfaces {
 		if _, exists := interfaces[iface.Name]; exists {
-			return fmt.Errorf("интерфейс %q объявлен более одного раза", iface.Name)
+			return errNoPos(CodeDuplicateDecl, "интерфейс %q объявлен более одного раза", iface.Name)
 		}
 		// "наследует А, Б" - методы каждого перечисленного интерфейса
 		// становятся частью контракта этого интерфейса тоже (сплющивание,
@@ -87,11 +86,11 @@ func (a *Analyzer) collectInterfaces(prog *ast.Program) error {
 		for _, baseName := range iface.Extends {
 			base, ok := interfaces[baseName]
 			if !ok {
-				return fmt.Errorf("интерфейс %q: наследует %q - базовый интерфейс не объявлен (или объявлен позже в файле)", iface.Name, baseName)
+				return errNoPos(CodeNameResolution, "интерфейс %q: наследует %q - базовый интерфейс не объявлен (или объявлен позже в файле)", iface.Name, baseName)
 			}
 			for i, name := range base.MethodNames {
 				if sig.methodIndex(name) != -1 {
-					return fmt.Errorf("интерфейс %q: метод %q конфликтует с унаследованным методом того же имени из другого базового интерфейса", iface.Name, name)
+					return errNoPos(CodeDuplicateDecl, "интерфейс %q: метод %q конфликтует с унаследованным методом того же имени из другого базового интерфейса", iface.Name, name)
 				}
 				sig.MethodNames = append(sig.MethodNames, name)
 				sig.MethodSigs = append(sig.MethodSigs, base.MethodSigs[i])
@@ -100,13 +99,13 @@ func (a *Analyzer) collectInterfaces(prog *ast.Program) error {
 		}
 		for _, m := range iface.Methods {
 			if sig.methodIndex(m.Name) != -1 {
-				return fmt.Errorf("интерфейс %q: метод %q объявлен более одного раза", iface.Name, m.Name)
+				return errNoPos(CodeDuplicateDecl, "интерфейс %q: метод %q объявлен более одного раза", iface.Name, m.Name)
 			}
 			params := make([]ir.Type, len(m.Params))
 			for i, p := range m.Params {
 				typ, err := resolveTypeName(paramEntities, paramMethods, nil, interfaces, enums, p.Type)
 				if err != nil {
-					return fmt.Errorf("интерфейс %q: метод %q: параметр %q: %w", iface.Name, m.Name, p.Name, err)
+					return diagnostics.Wrap(err, "интерфейс %q: метод %q: параметр %q", iface.Name, m.Name, p.Name)
 				}
 				params[i] = typ
 			}
@@ -125,7 +124,7 @@ func (a *Analyzer) collectInterfaces(prog *ast.Program) error {
 			case m.ReturnType != "":
 				typ, err := resolveTypeName(paramEntities, paramMethods, nil, interfaces, enums, m.ReturnType)
 				if err != nil {
-					return fmt.Errorf("интерфейс %q: метод %q: тип результата: %w", iface.Name, m.Name, err)
+					return diagnostics.Wrap(err, "интерфейс %q: метод %q: тип результата", iface.Name, m.Name)
 				}
 				msig.ReturnType = typ
 				msig.HasReturn = true
@@ -156,16 +155,16 @@ func (a *Analyzer) collectInterfaces(prog *ast.Program) error {
 func checkImplements(interfaces map[string]interfaceSig, entityName string, flatMethods map[string]funcSig, ifaceName string, line int) error {
 	iface, ok := interfaces[ifaceName]
 	if !ok {
-		return fmt.Errorf("строка %d: сущность %q: интерфейс %q не объявлен", line, entityName, ifaceName)
+		return errAtLine(line, CodeNameResolution, "сущность %q: интерфейс %q не объявлен", entityName, ifaceName)
 	}
 	for i, name := range iface.MethodNames {
 		want := iface.MethodSigs[i]
 		got, ok := flatMethods[name]
 		if !ok {
-			return fmt.Errorf("строка %d: сущность %q не реализует метод %q интерфейса %q", line, entityName, name, ifaceName)
+			return errAtLine(line, CodeInterface, "сущность %q не реализует метод %q интерфейса %q", entityName, name, ifaceName)
 		}
 		if !sigsMatch(want, got) {
-			return fmt.Errorf("строка %d: сущность %q: метод %q не совпадает по сигнатуре с контрактом интерфейса %q", line, entityName, name, ifaceName)
+			return errAtLine(line, CodeInterface, "сущность %q: метод %q не совпадает по сигнатуре с контрактом интерфейса %q", entityName, name, ifaceName)
 		}
 		// Вызов через интерфейсное значение не проверяет видимость (методы
 		// интерфейса - по определению публичный контракт) - значит и
@@ -173,7 +172,7 @@ func checkImplements(interfaces map[string]interfaceSig, entityName string, flat
 		// метод стал бы вызываемым откуда угодно в обход собственной
 		// видимости, просто через интерфейсную переменную.
 		if got.Visibility != ast.Public {
-			return fmt.Errorf("строка %d: сущность %q: метод %q реализует интерфейс %q, но не публичный - методы интерфейса вызываются без проверки видимости, реализация обязана быть публичной", line, entityName, name, ifaceName)
+			return errAtLine(line, CodeInterface, "сущность %q: метод %q реализует интерфейс %q, но не публичный - методы интерфейса вызываются без проверки видимости, реализация обязана быть публичной", entityName, name, ifaceName)
 		}
 	}
 	return nil

@@ -1,7 +1,6 @@
 package semantic
 
 import (
-	"fmt"
 	"slices"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
@@ -308,7 +307,7 @@ func intersectEstablished(a, b []map[string]map[string]bool) []map[string]map[st
 func (c *ctx) declare(name string, typ ir.Type) error {
 	top := c.scopes[len(c.scopes)-1]
 	if _, exists := top[name]; exists {
-		return fmt.Errorf("переменная %q уже объявлена в этой области видимости", name)
+		return errNoPos(CodeDuplicateDecl, "переменная %q уже объявлена в этой области видимости", name)
 	}
 	// Захваченное по ссылке имя (byRefCaptures) - НЕ по scope (см. package
 	// doc) - переобъявление ВЛОЖЕННЫМ блоком (если/пока/для) с тем же
@@ -322,7 +321,7 @@ func (c *ctx) declare(name string, typ ir.Type) error {
 	// видимости лямбды) - эта проверка защищает только от ПОЗДНЕЙШЕГО
 	// переобъявления внутри тела.
 	if _, isByRef := c.byRefCaptures[name]; isByRef {
-		return fmt.Errorf("переменная %q уже объявлена (захвачена по ссылке, \"&%s\" в списке захвата лямбды) - переобъявить её нельзя", name, name)
+		return errNoPos(CodeDuplicateDecl, "переменная %q уже объявлена (захвачена по ссылке, \"&%s\" в списке захвата лямбды) - переобъявить её нельзя", name, name)
 	}
 	top[name] = typ
 	return nil

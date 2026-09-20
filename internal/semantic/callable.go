@@ -6,6 +6,7 @@ import (
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/builtins"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
@@ -58,20 +59,20 @@ func splitCallableTypeString(name string) (params []string, result string, ok bo
 func resolveCallableTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64, name string) (params []ir.Type, result *ir.Type, err error) {
 	paramNames, resultName, ok := splitCallableTypeString(name)
 	if !ok {
-		return nil, nil, fmt.Errorf("неизвестный тип %q", name)
+		return nil, nil, errNoPos(CodeNameResolution, "неизвестный тип %q", name)
 	}
 	params = make([]ir.Type, len(paramNames))
 	for i, pn := range paramNames {
 		t, err := resolveTypeName(entities, methods, aliases, interfaces, enums, pn)
 		if err != nil {
-			return nil, nil, fmt.Errorf("параметр %d типа %q: %w", i+1, name, err)
+			return nil, nil, diagnostics.Wrap(err, "параметр %d типа %q", i+1, name)
 		}
 		params[i] = t
 	}
 	if resultName != "" {
 		t, err := resolveTypeName(entities, methods, aliases, interfaces, enums, resultName)
 		if err != nil {
-			return nil, nil, fmt.Errorf("тип результата %q: %w", name, err)
+			return nil, nil, diagnostics.Wrap(err, "тип результата %q", name)
 		}
 		result = &t
 	}
@@ -151,10 +152,10 @@ func (a *Analyzer) registerCallable(t ir.Type) error {
 // вообще.
 func analyzeFuncRefExpr(sc *ctx, e *ast.FuncRefExpr) (ir.Expr, error) {
 	if builtins.IsReservedName(e.Name) {
-		return nil, fmt.Errorf("строка %d: \"&%s\" не поддерживает встроенные функции - только обычные функции программы", e.Line, e.Name)
+		return nil, errAtLine(e.Line, CodeCallable, "\"&%s\" не поддерживает встроенные функции - только обычные функции программы", e.Name)
 	}
 	if _, overloaded := sc.a.funcOverloads[e.Name]; overloaded {
-		return nil, fmt.Errorf("строка %d: функция %q перегружена - \"&\" не поддерживает перегрузку в этой версии, снимать адрес можно только с неперегруженной функции", e.Line, e.Name)
+		return nil, errAtLine(e.Line, CodeCallable, "функция %q перегружена - \"&\" не поддерживает перегрузку в этой версии, снимать адрес можно только с неперегруженной функции", e.Name)
 	}
 	sig, ok := sc.funcs[e.Name]
 	if !ok {
@@ -165,19 +166,19 @@ func analyzeFuncRefExpr(sc *ctx, e *ast.FuncRefExpr) (ir.Expr, error) {
 			// (env-поле), не адрес исходной внешней переменной - тихо
 			// неверная семантика вместо ясной ошибки.
 			if _, isByRef := sc.byRefPointerType(e.Name); isByRef {
-				return nil, fmt.Errorf("строка %d: %q уже захвачено по ссылке (\"&%s\" в списке захвата лямбды) - повторный \"&%s\" не поддержан", e.Line, e.Name, e.Name, e.Name)
+				return nil, errAtLine(e.Line, CodeCallable, "%q уже захвачено по ссылке (\"&%s\" в списке захвата лямбды) - повторный \"&%s\" не поддержан", e.Name, e.Name, e.Name)
 			}
 			ptrType, err := pointerTypeFor(sc, varType)
 			if err != nil {
-				return nil, fmt.Errorf("строка %d: %w", e.Line, err)
+				return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: e.Line})
 			}
 			receiver := &ir.Identifier{Name: e.Name, Type: varType}
 			return &ir.AddressOfExpr{Receiver: receiver, Type: ptrType, Line: e.Line}, nil
 		}
-		return nil, fmt.Errorf("строка %d: функция %q не объявлена", e.Line, e.Name)
+		return nil, errAtLine(e.Line, CodeNameResolution, "функция %q не объявлена", e.Name)
 	}
 	if sig.IsExtern {
-		return nil, fmt.Errorf("строка %d: \"&%s\" не поддерживает внешние функции (\"внешняя функция\")", e.Line, e.Name)
+		return nil, errAtLine(e.Line, CodeCallable, "\"&%s\" не поддерживает внешние функции (\"внешняя функция\")", e.Name)
 	}
 	var result *ir.Type
 	if sig.HasReturn {
@@ -186,7 +187,7 @@ func analyzeFuncRefExpr(sc *ctx, e *ast.FuncRefExpr) (ir.Expr, error) {
 	}
 	t := ir.CallableType(sig.Params, result)
 	if err := sc.a.registerCallable(t); err != nil {
-		return nil, fmt.Errorf("строка %d: %w", e.Line, err)
+		return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: e.Line})
 	}
 	return &ir.FuncRefExpr{FuncName: e.Name, Type: t}, nil
 }
@@ -217,7 +218,7 @@ func analyzeLambdaExpr(sc *ctx, e *ast.LambdaExpr) (*ir.LambdaExpr, error) {
 	for i, p := range e.Params {
 		t, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, p.Type)
 		if err != nil {
-			return nil, fmt.Errorf("строка %d: лямбда: параметр %q: %w", p.Line, p.Name, err)
+			return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: p.Line}, "лямбда: параметр %q", p.Name)
 		}
 		params[i] = t
 	}
@@ -226,7 +227,7 @@ func analyzeLambdaExpr(sc *ctx, e *ast.LambdaExpr) (*ir.LambdaExpr, error) {
 	if hasReturn {
 		t, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, e.ReturnType)
 		if err != nil {
-			return nil, fmt.Errorf("строка %d: лямбда: тип результата: %w", e.Line, err)
+			return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "лямбда: тип результата")
 		}
 		result = t
 	}
@@ -236,7 +237,7 @@ func analyzeLambdaExpr(sc *ctx, e *ast.LambdaExpr) (*ir.LambdaExpr, error) {
 	for i, p := range e.Params {
 		irParams[i] = ir.Param{Name: p.Name, Type: params[i]}
 		if err := lc.declare(p.Name, params[i]); err != nil {
-			return nil, fmt.Errorf("строка %d: параметр %q: %w", p.Line, p.Name, err)
+			return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: p.Line}, "параметр %q", p.Name)
 		}
 	}
 
@@ -262,7 +263,7 @@ func analyzeLambdaExpr(sc *ctx, e *ast.LambdaExpr) (*ir.LambdaExpr, error) {
 		return nil, unreachable
 	}
 	if hasReturn && fallsThrough {
-		return nil, fmt.Errorf("строка %d: лямбда с объявленным типом результата %s должна заканчиваться \"вернуть <значение>\" на каждом пути выполнения", e.Line, result)
+		return nil, errAtLine(e.Line, CodeCallable, "лямбда с объявленным типом результата %s должна заканчиваться \"вернуть <значение>\" на каждом пути выполнения", result)
 	}
 
 	var resultPtr *ir.Type
@@ -271,7 +272,7 @@ func analyzeLambdaExpr(sc *ctx, e *ast.LambdaExpr) (*ir.LambdaExpr, error) {
 	}
 	t := ir.CallableType(params, resultPtr)
 	if err := sc.a.registerCallable(t); err != nil {
-		return nil, fmt.Errorf("строка %d: %w", e.Line, err)
+		return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: e.Line})
 	}
 
 	var captures []ir.CaptureVar
@@ -312,20 +313,20 @@ func analyzeCaptureList(sc *ctx, lc *ctx, specs []ast.CaptureSpec) ([]ir.Capture
 	seen := map[string]bool{}
 	for _, cs := range specs {
 		if seen[cs.Name] {
-			return nil, fmt.Errorf("строка %d: %q дважды в списке захвата лямбды", cs.Line, cs.Name)
+			return nil, errAtLine(cs.Line, CodeCallable, "%q дважды в списке захвата лямбды", cs.Name)
 		}
 		seen[cs.Name] = true
 		outerType, ok := sc.lookup(cs.Name)
 		if !ok {
-			return nil, fmt.Errorf("строка %d: %q не объявлено в окружающей области видимости - нечего захватывать", cs.Line, cs.Name)
+			return nil, errAtLine(cs.Line, CodeNameResolution, "%q не объявлено в окружающей области видимости - нечего захватывать", cs.Name)
 		}
 		if cs.ByRef {
 			ptrType, err := pointerTypeFor(sc, outerType)
 			if err != nil {
-				return nil, fmt.Errorf("строка %d: захват %q по ссылке: %w", cs.Line, cs.Name, err)
+				return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: cs.Line}, "захват %q по ссылке", cs.Name)
 			}
 			if err := lc.declare(cs.Name, outerType); err != nil {
-				return nil, fmt.Errorf("строка %d: %w", cs.Line, err)
+				return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: cs.Line})
 			}
 			if lc.byRefCaptures == nil {
 				lc.byRefCaptures = map[string]ir.Type{}
@@ -335,7 +336,7 @@ func analyzeCaptureList(sc *ctx, lc *ctx, specs []ast.CaptureSpec) ([]ir.Capture
 			continue
 		}
 		if err := lc.declare(cs.Name, outerType); err != nil {
-			return nil, fmt.Errorf("строка %d: %w", cs.Line, err)
+			return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: cs.Line})
 		}
 		captures = append(captures, ir.CaptureVar{Name: cs.Name, Type: outerType})
 	}

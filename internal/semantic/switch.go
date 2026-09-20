@@ -1,10 +1,10 @@
 package semantic
 
 import (
-	"fmt"
 	"slices"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
@@ -46,10 +46,10 @@ func analyzeSwitchStmt(sc *ctx, s *ast.SwitchStmt) (ir.Stmt, error) {
 	}
 	subject = maybeUnwrapNarrowed(sc, subject)
 	if typ := ir.TypeOf(subject); typ.Kind == ir.KindNullable {
-		return nil, fmt.Errorf("строка %d: нельзя напрямую выбирать по значению nullable-типа %s - разверните его сначала (\"?? запасное\" или явный каст)", s.Line, typ)
+		return nil, errAtLine(s.Line, CodeSemanticOther, "нельзя напрямую выбирать по значению nullable-типа %s - разверните его сначала (\"?? запасное\" или явный каст)", typ)
 	}
 	if err := sc.declare(switchSubjectVar, ir.TypeOf(subject)); err != nil {
-		return nil, fmt.Errorf("строка %d: %w", s.Line, err)
+		return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: s.Line})
 	}
 
 	ifChain := buildSwitchIfChain(sc, s.Cases, s.Default)

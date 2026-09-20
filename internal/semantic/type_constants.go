@@ -9,7 +9,6 @@
 package semantic
 
 import (
-	"fmt"
 	"math"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
@@ -72,8 +71,7 @@ func primitiveTypeConstant(typeName, field string, line int) (expr ir.Expr, foun
 }
 
 func unknownTypeConstError(typeName, field string, line int) error {
-	return fmt.Errorf("строка %d: у типа %q нет константы %q (доступны %s/%s/%s)",
-		line, typeName, field, typeConstMax, typeConstMin, typeConstWidth)
+	return errAtLine(line, CodeSemanticOther, "у типа %q нет константы %q (доступны %s/%s/%s)", typeName, field, typeConstMax, typeConstMin, typeConstWidth)
 }
 
 // intWidthMinMax - минимальное/максимальное представимое значение

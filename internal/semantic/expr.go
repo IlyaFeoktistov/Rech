@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
@@ -32,7 +33,7 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 		// (см. coerceExpr/analyzeNullCheck, internal/semantic/nullable.go) -
 		// если дошло досюда, значит употреблено там, где типа взять неоткуда
 		// ("вывести Ничто", аргумент "??" справа и т. п.).
-		return nil, fmt.Errorf("строка %d: \"Ничто\" здесь неуместно - тип неоткуда вывести (нужен явный контекст: объявление/присваивание nullable-переменной, сравнение с nullable-значением)", e.Line)
+		return nil, errAtLine(e.Line, CodeExprCheck, "\"Ничто\" здесь неуместно - тип неоткуда вывести (нужен явный контекст: объявление/присваивание nullable-переменной, сравнение с nullable-значением)")
 
 	case *ast.CastExpr:
 		return analyzeCastExpr(sc, e)
@@ -58,7 +59,7 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 			return nil, err
 		}
 		if !await.HasReturn {
-			return nil, fmt.Errorf("строка %d: функция %q не имеет объявленного типа результата - \"дождаться\" здесь нельзя использовать как выражение", e.Line, await.Callee)
+			return nil, errAtLine(e.Line, CodeExprCheck, "функция %q не имеет объявленного типа результата - \"дождаться\" здесь нельзя использовать как выражение", await.Callee)
 		}
 		return await, nil
 
@@ -68,7 +69,7 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 			if _, isModuleConst := sc.a.moduleConstExprs[e.Name]; isModuleConst {
 				return resolveModuleConstant(sc, e.Name, e.Line)
 			}
-			return nil, fmt.Errorf("строка %d: переменная %q не объявлена", e.Line, e.Name)
+			return nil, errAtLine(e.Line, CodeNameResolution, "переменная %q не объявлена", e.Name)
 		}
 		// Захвачено лямбдой по ссылке ("&имя" в явном списке захвата,
 		// package doc ir.CaptureVar) - чтение прозрачно идёт через
@@ -97,7 +98,7 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 			return nil, err
 		}
 		if !callHasReturn(call) {
-			return nil, fmt.Errorf("строка %d: %q не имеет объявленного типа результата - её нельзя использовать как выражение", e.Line, e.Callee)
+			return nil, errAtLine(e.Line, CodeExprCheck, "%q не имеет объявленного типа результата - её нельзя использовать как выражение", e.Callee)
 		}
 		return call, nil
 
@@ -134,7 +135,7 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 				if members, isEnum := sc.enums[ident.Name]; isEnum {
 					v, ok := members[e.Field]
 					if !ok {
-						return nil, fmt.Errorf("строка %d: у перечисления %q нет члена %q", e.Line, ident.Name, e.Field)
+						return nil, errAtLine(e.Line, CodeExprCheck, "у перечисления %q нет члена %q", ident.Name, e.Field)
 					}
 					return &ir.IntLiteral{Value: v}, nil
 				}
@@ -156,7 +157,7 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 		receiver = maybeUnwrapNarrowed(sc, receiver)
 		typ := ir.TypeOf(receiver)
 		if typ.Kind != ir.KindEntity {
-			return nil, fmt.Errorf("строка %d: нельзя обратиться к полю %q - тип выражения %s, не сущность", e.Line, e.Field, typ)
+			return nil, errAtLine(e.Line, CodeExprCheck, "нельзя обратиться к полю %q - тип выражения %s, не сущность", e.Field, typ)
 		}
 		sig := sc.entities[typ.Entity]
 		idx := sig.fieldIndex(e.Field)
@@ -171,9 +172,9 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 				return resolveEntityConstant(sc, typ.Entity, e.Field, e.Line)
 			}
 			if sig.staticFieldIndex(e.Field) != -1 {
-				return nil, fmt.Errorf("строка %d: %q - статическое поле сущности %q, доступ только через \"%s::%s\", не через экземпляр", e.Line, e.Field, typ.Entity, typ.Entity, e.Field)
+				return nil, errAtLine(e.Line, CodeExprCheck, "%q - статическое поле сущности %q, доступ только через \"%s::%s\", не через экземпляр", e.Field, typ.Entity, typ.Entity, e.Field)
 			}
-			return nil, fmt.Errorf("строка %d: у сущности %q нет поля %q", e.Line, typ.Entity, e.Field)
+			return nil, errAtLine(e.Line, CodeNameResolution, "у сущности %q нет поля %q", typ.Entity, e.Field)
 		}
 		if err := checkFieldVisibility(sc, typ.Entity, e.Field, sig.FieldVisibility[idx], e.Line); err != nil {
 			return nil, err
@@ -192,7 +193,7 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 				return nil, err
 			}
 			if !call.HasReturn {
-				return nil, fmt.Errorf("строка %d: статический метод %q не имеет объявленного типа результата - его нельзя использовать как выражение", e.Line, e.Method)
+				return nil, errAtLine(e.Line, CodeExprCheck, "статический метод %q не имеет объявленного типа результата - его нельзя использовать как выражение", e.Method)
 			}
 			return call, nil
 		}
@@ -207,7 +208,7 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 			return nil, err
 		}
 		if !callHasReturn(call) {
-			return nil, fmt.Errorf("строка %d: метод %q не имеет объявленного типа результата - его нельзя использовать как выражение", e.Line, e.Method)
+			return nil, errAtLine(e.Line, CodeExprCheck, "метод %q не имеет объявленного типа результата - его нельзя использовать как выражение", e.Method)
 		}
 		return call, nil
 
@@ -224,7 +225,7 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 		return analyzeListLiteralExpr(sc, e, ir.Type{}, false)
 
 	default:
-		return nil, fmt.Errorf("выражение %T не поддерживается", e)
+		return nil, errNoPos(diagnostics.CodeInternal, "выражение %T не поддерживается", e)
 	}
 }
 
@@ -234,7 +235,7 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 // формой был написан конструктор в исходнике.
 func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 	if _, ok := sc.interfaces[e.Type]; ok {
-		return nil, fmt.Errorf("строка %d: %q - интерфейс, у него нет реализации - создать можно только сущность, которая его \"реализует\"", e.Line, e.Type)
+		return nil, errAtLine(e.Line, CodeExprCheck, "%q - интерфейс, у него нет реализации - создать можно только сущность, которая его \"реализует\"", e.Type)
 	}
 	sig, ok := sc.entities[e.Type]
 	if !ok {
@@ -244,21 +245,21 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 		// resolveType в cbackend (AST-путь); если e.Type в принципе не
 		// тип - вернёт понятную ошибку.
 		if _, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, e.Type); err != nil {
-			return nil, fmt.Errorf("строка %d: %w", e.Line, err)
+			return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: e.Line})
 		}
 		sig, ok = sc.entities[e.Type]
 		if !ok {
-			return nil, fmt.Errorf("строка %d: сущность %q не объявлена", e.Line, e.Type)
+			return nil, errAtLine(e.Line, CodeNameResolution, "сущность %q не объявлена", e.Type)
 		}
 	}
 	if sig.IsExternOpaque {
-		return nil, fmt.Errorf("строка %d: %q - непрозрачный внешний тип (\"внешняя сущность\") - значение можно только получить от внешней функции, не через \"новый\"", e.Line, e.Type)
+		return nil, errAtLine(e.Line, CodeExprCheck, "%q - непрозрачный внешний тип (\"внешняя сущность\") - значение можно только получить от внешней функции, не через \"новый\"", e.Type)
 	}
 	if sig.IsTransaction {
-		return nil, fmt.Errorf("строка %d: %q - значение можно получить только параметром колбэка \"%s\", не через \"новый\"", e.Line, e.Type, beginTransactionFuncName)
+		return nil, errAtLine(e.Line, CodeExprCheck, "%q - значение можно получить только параметром колбэка \"%s\", не через \"новый\"", e.Type, beginTransactionFuncName)
 	}
 	if sig.IsAbstract {
-		return nil, fmt.Errorf("строка %d: %q - абстрактная сущность, создать экземпляр напрямую нельзя - унаследуйте её и реализуйте недостающие методы", e.Line, e.Type)
+		return nil, errAtLine(e.Line, CodeExprCheck, "%q - абстрактная сущность, создать экземпляр напрямую нельзя - унаследуйте её и реализуйте недостающие методы", e.Type)
 	}
 	if sig.HasCtor {
 		if e.FieldNames != nil {
@@ -285,24 +286,23 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 		// задать при создании - ровно тот случай, ради которого стоит
 		// написать явный "конструктор(...)".
 		if len(e.Args) > 0 || e.FieldNames != nil {
-			return nil, fmt.Errorf("строка %d: у сущности %q нет явного конструктора - объявите \"конструктор(...)\" в её теле, либо создайте без аргументов (\"новый %s()\"), поля получат значения по умолчанию",
-				e.Line, e.Type, e.Type)
+			return nil, errAtLine(e.Line, CodeExprCheck, "у сущности %q нет явного конструктора - объявите \"конструктор(...)\" в её теле, либо создайте без аргументов (\"новый %s()\"), поля получат значения по умолчанию", e.Type, e.Type)
 		}
 		return &ir.NewExpr{Entity: e.Type}, nil
 	}
 	args := make([]ir.Expr, len(sig.FieldNames))
 	if e.FieldNames != nil {
 		if len(e.FieldNames) > len(sig.FieldNames) {
-			return nil, fmt.Errorf("строка %d: конструктор %q ожидает значений полей: не более %d, передано: %d", e.Line, e.Type, len(sig.FieldNames), len(e.FieldNames))
+			return nil, errAtLine(e.Line, CodeExprCheck, "конструктор %q ожидает значений полей: не более %d, передано: %d", e.Type, len(sig.FieldNames), len(e.FieldNames))
 		}
 		seen := make([]bool, len(sig.FieldNames))
 		for i, label := range e.FieldNames {
 			idx := sig.fieldIndex(label)
 			if idx == -1 {
-				return nil, fmt.Errorf("строка %d: у сущности %q нет поля %q", e.Line, e.Type, label)
+				return nil, errAtLine(e.Line, CodeNameResolution, "у сущности %q нет поля %q", e.Type, label)
 			}
 			if seen[idx] {
-				return nil, fmt.Errorf("строка %d: поле %q конструктора %q указано более одного раза", e.Line, label, e.Type)
+				return nil, errAtLine(e.Line, CodeDuplicateDecl, "поле %q конструктора %q указано более одного раза", label, e.Type)
 			}
 			seen[idx] = true
 			arg, err := coerceExpr(sc, e.Args[i], sig.FieldTypes[idx])
@@ -310,7 +310,7 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 				return nil, err
 			}
 			if typ := ir.TypeOf(arg); !isAssignable(sc.entities, sc.interfaces, typ, sig.FieldTypes[idx]) {
-				return nil, fmt.Errorf("строка %d: поле %q сущности %q должно быть типа %s, получено %s", e.Line, label, e.Type, sig.FieldTypes[idx], typ)
+				return nil, errAtLine(e.Line, CodeExprCheck, "поле %q сущности %q должно быть типа %s, получено %s", label, e.Type, sig.FieldTypes[idx], typ)
 			}
 			args[idx] = arg
 		}
@@ -319,7 +319,7 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 				continue
 			}
 			if idx >= len(sig.FieldDefaultExprs) || sig.FieldDefaultExprs[idx] == nil {
-				return nil, fmt.Errorf("строка %d: конструктор %q: не указано значение поля %q (у поля нет значения по умолчанию)", e.Line, e.Type, sig.FieldNames[idx])
+				return nil, errAtLine(e.Line, CodeExprCheck, "конструктор %q: не указано значение поля %q (у поля нет значения по умолчанию)", e.Type, sig.FieldNames[idx])
 			}
 			val, err := resolveFieldDefault(sc, e.Type, sig.FieldNames[idx], e.Line)
 			if err != nil {
@@ -330,7 +330,7 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 		return &ir.NewExpr{Entity: e.Type, Args: args}, nil
 	}
 	if len(e.Args) > len(sig.FieldNames) {
-		return nil, fmt.Errorf("строка %d: конструктор %q ожидает значений полей: не более %d, передано: %d", e.Line, e.Type, len(sig.FieldNames), len(e.Args))
+		return nil, errAtLine(e.Line, CodeExprCheck, "конструктор %q ожидает значений полей: не более %d, передано: %d", e.Type, len(sig.FieldNames), len(e.Args))
 	}
 	for i, a := range e.Args {
 		arg, err := coerceExpr(sc, a, sig.FieldTypes[i])
@@ -338,13 +338,13 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 			return nil, err
 		}
 		if typ := ir.TypeOf(arg); !isAssignable(sc.entities, sc.interfaces, typ, sig.FieldTypes[i]) {
-			return nil, fmt.Errorf("строка %d: аргумент %d конструктора %q должен быть типа %s, получен %s", e.Line, i+1, e.Type, sig.FieldTypes[i], typ)
+			return nil, errAtLine(e.Line, CodeExprCheck, "аргумент %d конструктора %q должен быть типа %s, получен %s", i+1, e.Type, sig.FieldTypes[i], typ)
 		}
 		args[i] = arg
 	}
 	for i := len(e.Args); i < len(sig.FieldNames); i++ {
 		if i >= len(sig.FieldDefaultExprs) || sig.FieldDefaultExprs[i] == nil {
-			return nil, fmt.Errorf("строка %d: конструктор %q: пропущено значение поля %q (у поля нет значения по умолчанию)", e.Line, e.Type, sig.FieldNames[i])
+			return nil, errAtLine(e.Line, CodeExprCheck, "конструктор %q: пропущено значение поля %q (у поля нет значения по умолчанию)", e.Type, sig.FieldNames[i])
 		}
 		val, err := resolveFieldDefault(sc, e.Type, sig.FieldNames[i], e.Line)
 		if err != nil {
@@ -364,7 +364,7 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 // в именованной форме "новый" без конструктора (analyzeNewExpr выше).
 func analyzeNewExprCtorNamed(sc *ctx, e *ast.NewExpr, sig entitySig) (ir.Expr, error) {
 	if len(e.FieldNames) > len(sig.CtorParamNames) {
-		return nil, fmt.Errorf("строка %d: конструктор %q ожидает аргументов: не более %d, передано: %d", e.Line, e.Type, len(sig.CtorParamNames), len(e.FieldNames))
+		return nil, errAtLine(e.Line, CodeExprCheck, "конструктор %q ожидает аргументов: не более %d, передано: %d", e.Type, len(sig.CtorParamNames), len(e.FieldNames))
 	}
 	args := make([]ir.Expr, len(sig.CtorParamNames))
 	seen := make([]bool, len(sig.CtorParamNames))
@@ -377,10 +377,10 @@ func analyzeNewExprCtorNamed(sc *ctx, e *ast.NewExpr, sig entitySig) (ir.Expr, e
 			}
 		}
 		if idx == -1 {
-			return nil, fmt.Errorf("строка %d: у конструктора %q нет параметра %q", e.Line, e.Type, label)
+			return nil, errAtLine(e.Line, CodeExprCheck, "у конструктора %q нет параметра %q", e.Type, label)
 		}
 		if seen[idx] {
-			return nil, fmt.Errorf("строка %d: параметр %q конструктора %q указан более одного раза", e.Line, label, e.Type)
+			return nil, errAtLine(e.Line, CodeDuplicateDecl, "параметр %q конструктора %q указан более одного раза", label, e.Type)
 		}
 		seen[idx] = true
 		arg, err := coerceExpr(sc, e.Args[i], sig.CtorParams[idx])
@@ -388,7 +388,7 @@ func analyzeNewExprCtorNamed(sc *ctx, e *ast.NewExpr, sig entitySig) (ir.Expr, e
 			return nil, err
 		}
 		if typ := ir.TypeOf(arg); !isAssignable(sc.entities, sc.interfaces, typ, sig.CtorParams[idx]) {
-			return nil, fmt.Errorf("строка %d: параметр %q конструктора %q должен быть типа %s, получен %s", e.Line, label, e.Type, sig.CtorParams[idx], typ)
+			return nil, errAtLine(e.Line, CodeExprCheck, "параметр %q конструктора %q должен быть типа %s, получен %s", label, e.Type, sig.CtorParams[idx], typ)
 		}
 		args[idx] = arg
 	}
@@ -397,7 +397,7 @@ func analyzeNewExprCtorNamed(sc *ctx, e *ast.NewExpr, sig entitySig) (ir.Expr, e
 			continue
 		}
 		if idx >= len(sig.CtorParamDefaults) || sig.CtorParamDefaults[idx] == nil {
-			return nil, fmt.Errorf("строка %d: конструктор %q: не указан параметр %q (у параметра нет значения по умолчанию)", e.Line, e.Type, sig.CtorParamNames[idx])
+			return nil, errAtLine(e.Line, CodeExprCheck, "конструктор %q: не указан параметр %q (у параметра нет значения по умолчанию)", e.Type, sig.CtorParamNames[idx])
 		}
 		val, err := resolveParamDefault(sc, sig.CtorParamDefaults, idx, sig.CtorParams[idx], e.Line)
 		if err != nil {
@@ -446,11 +446,11 @@ func analyzeMethodCallExpr(sc *ctx, e *ast.MethodCallExpr) (ir.Expr, error) {
 		// не вызывается вовсе, не только пропускается с sig.Visibility == ast.Public.
 		iface, ok := sc.interfaces[typ.Entity]
 		if !ok {
-			return nil, fmt.Errorf("строка %d: интерфейс %q не объявлен", e.Line, typ.Entity)
+			return nil, errAtLine(e.Line, CodeNameResolution, "интерфейс %q не объявлен", typ.Entity)
 		}
 		idx := iface.methodIndex(e.Method)
 		if idx == -1 {
-			return nil, fmt.Errorf("строка %d: у интерфейса %q нет метода %q", e.Line, typ.Entity, e.Method)
+			return nil, errAtLine(e.Line, CodeNameResolution, "у интерфейса %q нет метода %q", typ.Entity, e.Method)
 		}
 		sig = iface.MethodSigs[idx]
 	case ir.KindEntity:
@@ -483,7 +483,7 @@ func analyzeMethodCallExpr(sc *ctx, e *ast.MethodCallExpr) (ir.Expr, error) {
 					field := &ir.FieldAccess{Receiver: receiver, Field: e.Method, Type: entSig.FieldTypes[idx]}
 					return analyzeCallValueExpr(sc, field, &ast.CallExpr{Args: e.Args, Line: e.Line})
 				}
-				return nil, fmt.Errorf("строка %d: у сущности %q нет метода %q", e.Line, typ.Entity, e.Method)
+				return nil, errAtLine(e.Line, CodeNameResolution, "у сущности %q нет метода %q", typ.Entity, e.Method)
 			}
 		}
 		if err := checkMethodVisibility(sc, typ.Entity, e.Method, sig.Visibility, e.Line); err != nil {
@@ -493,11 +493,11 @@ func analyzeMethodCallExpr(sc *ctx, e *ast.MethodCallExpr) (ir.Expr, error) {
 		var ok bool
 		sig, ok = anyMethodSigs[e.Method]
 		if !ok {
-			return nil, fmt.Errorf("строка %d: у \"Значение\" нет метода %q", e.Line, e.Method)
+			return nil, errAtLine(e.Line, CodeNameResolution, "у \"Значение\" нет метода %q", e.Method)
 		}
 		if e.Method == "получить_поле_по_тегу" {
 			if err := registerOptionalAnyOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
-				return nil, fmt.Errorf("строка %d: метод \"получить_поле_по_тегу\": %w", e.Line, err)
+				return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "метод \"получить_поле_по_тегу\"")
 			}
 		}
 		sc.a.markUsesReflection()
@@ -505,11 +505,11 @@ func analyzeMethodCallExpr(sc *ctx, e *ast.MethodCallExpr) (ir.Expr, error) {
 		var ok bool
 		sig, ok = typeInfoMethodSigs[e.Method]
 		if !ok {
-			return nil, fmt.Errorf("строка %d: у \"Тип\" нет метода %q", e.Line, e.Method)
+			return nil, errAtLine(e.Line, CodeNameResolution, "у \"Тип\" нет метода %q", e.Method)
 		}
 		sc.a.markUsesReflection()
 	default:
-		return nil, fmt.Errorf("строка %d: нельзя вызвать метод %q - тип %s не сущность и не интерфейс", e.Line, e.Method, typ)
+		return nil, errAtLine(e.Line, CodeExprCheck, "нельзя вызвать метод %q - тип %s не сущность и не интерфейс", e.Method, typ)
 	}
 	args, err := checkCallArgs(sc, e.Args, sig, e.Line, fmt.Sprintf("метод %q", e.Method), fmt.Sprintf("вызова метода %q", e.Method))
 	if err != nil {
@@ -599,62 +599,62 @@ func analyzeCallExpr(sc *ctx, e *ast.CallExpr) (ir.Expr, error) {
 	if sig, ok := sc.funcs[callee]; ok {
 		if callee == "параметры_пути" {
 			if err := registerQueryParamsDictTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
-				return nil, fmt.Errorf("строка %d: встроенная функция \"параметры_пути\": %w", e.Line, err)
+				return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "встроенная функция \"параметры_пути\"")
 			}
 		}
 		if callee == "разбить" {
 			if err := registerSplitTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
-				return nil, fmt.Errorf("строка %d: встроенная функция \"разбить\": %w", e.Line, err)
+				return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "встроенная функция \"разбить\"")
 			}
 		}
 		if callee == "значения_заголовка" {
 			if err := registerHeaderValuesTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
-				return nil, fmt.Errorf("строка %d: встроенная функция \"значения_заголовка\": %w", e.Line, err)
+				return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "встроенная функция \"значения_заголовка\"")
 			}
 		}
 		if callee == "регулярное" {
 			if err := registerRegexTypesOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
-				return nil, fmt.Errorf("строка %d: встроенная функция \"регулярное\": %w", e.Line, err)
+				return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "встроенная функция \"регулярное\"")
 			}
 		}
 		if callee == "запустить_процесс" {
 			if err := registerSubprocessTypesOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
-				return nil, fmt.Errorf("строка %d: встроенная функция \"запустить_процесс\": %w", e.Line, err)
+				return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "встроенная функция \"запустить_процесс\"")
 			}
 		}
 		if bytesIOFuncNames[callee] {
 			if err := registerByteListTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
-				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
+				return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "встроенная функция %q", callee)
 			}
 		}
 		if procMemFuncNames[callee] {
 			if err := registerByteListTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
-				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
+				return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "встроенная функция %q", callee)
 			}
 		}
 		if callee == "найти_байты" {
 			if err := registerIntListTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
-				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
+				return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "встроенная функция %q", callee)
 			}
 		}
 		if imageCodecFuncNames[callee] {
 			if err := registerImageCodecEntityOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
-				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
+				return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "встроенная функция %q", callee)
 			}
 		}
 		if callee == "принять_http_байты" || callee == "отправить_http_ответ_байты" {
 			if err := registerHTTPBytesTypesOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
-				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
+				return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "встроенная функция %q", callee)
 			}
 		}
 		if callee == "разобрать_multipart" {
 			if err := registerMultipartTypesOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
-				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
+				return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "встроенная функция %q", callee)
 			}
 		}
 		if dbFuncNames[callee] {
 			if err := registerDBTypesOnCall(sc); err != nil {
-				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
+				return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "встроенная функция %q", callee)
 			}
 			if callee == "подключиться_к_бд" && len(e.Args) == 1 {
 				lit, _ := e.Args[0].(*ast.StringLiteral)
@@ -664,7 +664,7 @@ func analyzeCallExpr(sc *ctx, e *ast.CallExpr) (ir.Expr, error) {
 				registerTransactionEntity(sc.entities, sc.methods)
 				txCallableType := ir.CallableType([]ir.Type{ir.EntityType(transactionEntityName)}, nil)
 				if err := sc.a.registerCallable(txCallableType); err != nil {
-					return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
+					return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "встроенная функция %q", callee)
 				}
 			}
 		}
@@ -681,37 +681,37 @@ func analyzeCallExpr(sc *ctx, e *ast.CallExpr) (ir.Expr, error) {
 		// принимающей соединения.
 		if funcSigTouchesSocket(sig) || callee == "запрос" || callee == "новая_http2_сессия" || callee == "новая_grpcs_сессия" {
 			if err := registerSocketNullableOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
-				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
+				return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "встроенная функция %q", callee)
 			}
 		}
 		if http2FuncNames[callee] {
 			if err := registerHTTP2TypesOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
-				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
+				return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "встроенная функция %q", callee)
 			}
 		}
 		if http2BytesFuncNames[callee] {
 			if err := registerByteListTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
-				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
+				return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "встроенная функция %q", callee)
 			}
 		}
 		if grpcFuncNames[callee] {
 			if err := registerGRPCTypesOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
-				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
+				return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "встроенная функция %q", callee)
 			}
 		}
 		if grpcBytesFuncNames[callee] {
 			if err := registerByteListTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
-				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
+				return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "встроенная функция %q", callee)
 			}
 		}
 		if optionalStringFuncNames[callee] {
 			if err := registerOptionalStringOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
-				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
+				return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "встроенная функция %q", callee)
 			}
 		}
 		if optionalDateTimeFuncNames[callee] {
 			if err := registerOptionalDateTimeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
-				return nil, fmt.Errorf("строка %d: встроенная функция %q: %w", e.Line, callee, err)
+				return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "встроенная функция %q", callee)
 			}
 		}
 		args, err := checkCallArgs(sc, e.Args, sig, e.Line, fmt.Sprintf("функция %q", callee), fmt.Sprintf("вызова %q", callee))
@@ -725,7 +725,7 @@ func analyzeCallExpr(sc *ctx, e *ast.CallExpr) (ir.Expr, error) {
 			return analyzeCallValueExpr(sc, &ir.Identifier{Name: e.Callee, Type: typ}, e)
 		}
 	}
-	return nil, fmt.Errorf("строка %d: функция %q не объявлена", e.Line, callee)
+	return nil, errAtLine(e.Line, CodeNameResolution, "функция %q не объявлена", callee)
 }
 
 // analyzeCallValueExpr - общая часть analyzeCallExpr (Callee - простое имя
@@ -744,10 +744,10 @@ func analyzeCallValueExpr(sc *ctx, value ir.Expr, e *ast.CallExpr) (*ir.CallValu
 	typ := ir.TypeOf(value)
 	sig, err := sc.a.resolveCallableSig(typ.Entity)
 	if err != nil {
-		return nil, fmt.Errorf("строка %d: %w", e.Line, err)
+		return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: e.Line})
 	}
 	if len(e.Args) != len(sig.Params) {
-		return nil, fmt.Errorf("строка %d: %s ожидает аргументов: %d, передано: %d", e.Line, typ, len(sig.Params), len(e.Args))
+		return nil, errAtLine(e.Line, CodeExprCheck, "%s ожидает аргументов: %d, передано: %d", typ, len(sig.Params), len(e.Args))
 	}
 	args := make([]ir.Expr, len(e.Args))
 	for i, a := range e.Args {
@@ -756,7 +756,7 @@ func analyzeCallValueExpr(sc *ctx, value ir.Expr, e *ast.CallExpr) (*ir.CallValu
 			return nil, err
 		}
 		if t := ir.TypeOf(arg); !isAssignable(sc.entities, sc.interfaces, t, sig.Params[i]) {
-			return nil, fmt.Errorf("строка %d: аргумент %d вызова %s должен быть типа %s, получен %s", e.Line, i+1, typ, sig.Params[i], t)
+			return nil, errAtLine(e.Line, CodeExprCheck, "аргумент %d вызова %s должен быть типа %s, получен %s", i+1, typ, sig.Params[i], t)
 		}
 		invalidateEstablishedForOpaqueArg(sc, arg)
 		args[i] = arg
@@ -818,7 +818,7 @@ func callHasReturn(e ir.Expr) bool {
 // то ещё", если явно не проверить это здесь.
 func checkCallArgs(sc *ctx, args []ast.Expr, sig funcSig, line int, callee, argLabel string) ([]ir.Expr, error) {
 	if len(args) > len(sig.Params) {
-		return nil, fmt.Errorf("строка %d: %s ожидает аргументов: %d, передано: %d", line, callee, len(sig.Params), len(args))
+		return nil, errAtLine(line, CodeExprCheck, "%s ожидает аргументов: %d, передано: %d", callee, len(sig.Params), len(args))
 	}
 	if len(args) < len(sig.Params) {
 		// minRequired - позиция первого параметра со значением по
@@ -829,7 +829,7 @@ func checkCallArgs(sc *ctx, args []ast.Expr, sig funcSig, line int, callee, argL
 			minRequired = i
 		}
 		if len(args) < minRequired {
-			return nil, fmt.Errorf("строка %d: %s ожидает аргументов: %d (минимум %d, остальные - по умолчанию), передано: %d", line, callee, len(sig.Params), minRequired, len(args))
+			return nil, errAtLine(line, CodeExprCheck, "%s ожидает аргументов: %d (минимум %d, остальные - по умолчанию), передано: %d", callee, len(sig.Params), minRequired, len(args))
 		}
 	}
 	out := make([]ir.Expr, len(sig.Params))
@@ -850,7 +850,7 @@ func checkCallArgs(sc *ctx, args []ast.Expr, sig funcSig, line int, callee, argL
 			return nil, err
 		}
 		if t := ir.TypeOf(arg); !isAssignable(sc.entities, sc.interfaces, t, sig.Params[i]) {
-			return nil, fmt.Errorf("строка %d: аргумент %d %s должен быть типа %s, получен %s", line, i+1, argLabel, sig.Params[i], t)
+			return nil, errAtLine(line, CodeExprCheck, "аргумент %d %s должен быть типа %s, получен %s", i+1, argLabel, sig.Params[i], t)
 		}
 		if i < len(sig.ParamStates) && sig.ParamStates[i] != "" {
 			required := sig.ParamStates[i]
@@ -896,12 +896,12 @@ func analyzeUnaryExpr(sc *ctx, e *ast.UnaryExpr) (ir.Expr, error) {
 		_, _, isFixedWidth := typ.Kind.IntWidthSigned()
 		_, isRanked := numericRanks[typ]
 		if !isRanked && !(isFixedWidth && typ.Kind != ir.KindInt) {
-			return nil, fmt.Errorf("строка %d: унарный \"-\" применим только к числам, получен %s", e.Line, typ)
+			return nil, errAtLine(e.Line, CodeExprCheck, "унарный \"-\" применим только к числам, получен %s", typ)
 		}
 		return &ir.UnaryExpr{Op: e.Op, Operand: operand, Type: typ}, nil
 	case "не":
 		if typ != ir.TypeBool {
-			return nil, fmt.Errorf("строка %d: \"не\" применимо только к логическому значению, получен %s", e.Line, typ)
+			return nil, errAtLine(e.Line, CodeExprCheck, "\"не\" применимо только к логическому значению, получен %s", typ)
 		}
 		return &ir.UnaryExpr{Op: e.Op, Operand: operand, Type: ir.TypeBool}, nil
 	case "~":
@@ -911,9 +911,9 @@ func analyzeUnaryExpr(sc *ctx, e *ast.UnaryExpr) (ir.Expr, error) {
 		if _, _, ok := typ.Kind.IntWidthSigned(); ok {
 			return &ir.UnaryExpr{Op: e.Op, Operand: operand, Type: typ}, nil
 		}
-		return nil, fmt.Errorf("строка %d: побитовый \"~\" применим только к целочисленным типам (Целое/Целое8..64/Натуральное.../Байт), получен %s", e.Line, typ)
+		return nil, errAtLine(e.Line, CodeExprCheck, "побитовый \"~\" применим только к целочисленным типам (Целое/Целое8..64/Натуральное.../Байт), получен %s", typ)
 	default:
-		return nil, fmt.Errorf("строка %d: неизвестная унарная операция %q", e.Line, e.Op)
+		return nil, errAtLine(e.Line, CodeExprCheck, "неизвестная унарная операция %q", e.Op)
 	}
 }
 
@@ -928,23 +928,22 @@ func analyzeUnaryExpr(sc *ctx, e *ast.UnaryExpr) (ir.Expr, error) {
 func analyzeIncDecExpr(sc *ctx, e *ast.IncDecExpr) (ir.Expr, error) {
 	typ, ok := sc.lookup(e.Name)
 	if !ok {
-		return nil, fmt.Errorf("строка %d: переменная %q не объявлена", e.Line, e.Name)
+		return nil, errAtLine(e.Line, CodeNameResolution, "переменная %q не объявлена", e.Name)
 	}
 	if _, isByRef := sc.byRefPointerType(e.Name); isByRef {
 		baseOp := "+"
 		if e.Op == "--" {
 			baseOp = "-"
 		}
-		return nil, fmt.Errorf("строка %d: %q захвачено по ссылке (\"&%s\" в списке захвата лямбды) - %q для таких переменных не поддержан, используйте \"%s = %s %s 1\"",
-			e.Line, e.Name, e.Name, e.Op, e.Name, e.Name, baseOp)
+		return nil, errAtLine(e.Line, CodeExprCheck, "%q захвачено по ссылке (\"&%s\" в списке захвата лямбды) - %q для таких переменных не поддержан, используйте \"%s = %s %s 1\"", e.Name, e.Name, e.Op, e.Name, e.Name, baseOp)
 	}
 	if sc.isConst(e.Name) {
-		return nil, fmt.Errorf("строка %d: %q объявлено как \"константа\" - нельзя изменить (%s)", e.Line, e.Name, e.Op)
+		return nil, errAtLine(e.Line, CodeExprCheck, "%q объявлено как \"константа\" - нельзя изменить (%s)", e.Name, e.Op)
 	}
 	_, _, isFixedWidth := typ.Kind.IntWidthSigned()
 	_, isRanked := numericRanks[typ]
 	if !isRanked && !(isFixedWidth && typ.Kind != ir.KindInt) {
-		return nil, fmt.Errorf("строка %d: оператор %q применим только к Целое/Дробное/Действительное, получено %s", e.Line, e.Op, typ)
+		return nil, errAtLine(e.Line, CodeExprCheck, "оператор %q применим только к Целое/Дробное/Действительное, получено %s", e.Op, typ)
 	}
 	return &ir.IncDecExpr{Name: e.Name, Op: e.Op, Prefix: e.Prefix, Type: typ}, nil
 }
@@ -1036,24 +1035,24 @@ func analyzeBinaryExpr(sc *ctx, e *ast.BinaryExpr) (ir.Expr, error) {
 		// полям) по IsStruct, см. structFieldsEquatable ниже.
 		if lt.Kind == ir.KindEntity && lt == rt && !entityIsRefType(sc.entities, lt.Entity) {
 			if err := structFieldsEquatable(sc.entities, lt.Entity); err != nil {
-				return nil, fmt.Errorf("строка %d: оператор %q не поддерживается для структуры %s - %w", e.Line, e.Op, lt, err)
+				return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "оператор %q не поддерживается для структуры %s", e.Op, lt)
 			}
 			return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: ir.TypeBool}, nil
 		}
 		if lt != rt || !equatableTypes[lt] {
-			return nil, fmt.Errorf("строка %d: оператор %q не поддерживается для типов %s и %s", e.Line, e.Op, lt, rt)
+			return nil, errAtLine(e.Line, CodeExprCheck, "оператор %q не поддерживается для типов %s и %s", e.Op, lt, rt)
 		}
 		return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: ir.TypeBool}, nil
 
 	case "<", ">", "<=", ">=":
 		if lt != rt || !orderableTypes[lt] {
-			return nil, fmt.Errorf("строка %d: оператор %q применим только к числам одного типа, получены %s и %s", e.Line, e.Op, lt, rt)
+			return nil, errAtLine(e.Line, CodeExprCheck, "оператор %q применим только к числам одного типа, получены %s и %s", e.Op, lt, rt)
 		}
 		return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: ir.TypeBool}, nil
 
 	case "и", "или":
 		if lt != ir.TypeBool || rt != ir.TypeBool {
-			return nil, fmt.Errorf("строка %d: оператор %q применим только к логическим значениям, получены %s и %s", e.Line, e.Op, lt, rt)
+			return nil, errAtLine(e.Line, CodeExprCheck, "оператор %q применим только к логическим значениям, получены %s и %s", e.Op, lt, rt)
 		}
 		return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: ir.TypeBool}, nil
 
@@ -1068,7 +1067,7 @@ func analyzeBinaryExpr(sc *ctx, e *ast.BinaryExpr) (ir.Expr, error) {
 		// маскировании кадра, Список<Байт> - незачем растить байт до Целое
 		// и обратно только ради маскирования/чтения битов).
 		if lt != rt {
-			return nil, fmt.Errorf("строка %d: побитовый оператор %q применим только между операндами одного целочисленного типа, получены %s и %s", e.Line, e.Op, lt, rt)
+			return nil, errAtLine(e.Line, CodeExprCheck, "побитовый оператор %q применим только между операндами одного целочисленного типа, получены %s и %s", e.Op, lt, rt)
 		}
 		if lt == ir.TypeByte {
 			return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: ir.TypeByte}, nil
@@ -1076,10 +1075,10 @@ func analyzeBinaryExpr(sc *ctx, e *ast.BinaryExpr) (ir.Expr, error) {
 		if _, _, ok := lt.Kind.IntWidthSigned(); ok {
 			return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: lt}, nil
 		}
-		return nil, fmt.Errorf("строка %d: побитовый оператор %q применим только к целочисленным типам (Целое/Целое8..64/Натуральное.../Байт), получен %s", e.Line, e.Op, lt)
+		return nil, errAtLine(e.Line, CodeExprCheck, "побитовый оператор %q применим только к целочисленным типам (Целое/Целое8..64/Натуральное.../Байт), получен %s", e.Op, lt)
 
 	default:
-		return nil, fmt.Errorf("строка %d: неизвестная операция %q", e.Line, e.Op)
+		return nil, errAtLine(e.Line, CodeExprCheck, "неизвестная операция %q", e.Op)
 	}
 }
 
@@ -1100,11 +1099,11 @@ func analyzeArithmetic(e *ast.BinaryExpr, left ir.Expr, lt ir.Type, right ir.Exp
 	}
 	lr, lok := numericRanks[lt]
 	if !lok {
-		return nil, fmt.Errorf("строка %d: оператор %q не поддерживается для типа %s", e.Line, e.Op, lt)
+		return nil, errAtLine(e.Line, CodeExprCheck, "оператор %q не поддерживается для типа %s", e.Op, lt)
 	}
 	rr, rok := numericRanks[rt]
 	if !rok {
-		return nil, fmt.Errorf("строка %d: оператор %q не поддерживается для типа %s", e.Line, e.Op, rt)
+		return nil, errAtLine(e.Line, CodeExprCheck, "оператор %q не поддерживается для типа %s", e.Op, rt)
 	}
 	result := lt
 	if rr > lr {

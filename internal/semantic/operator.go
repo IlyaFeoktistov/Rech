@@ -9,8 +9,6 @@
 package semantic
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
@@ -42,8 +40,7 @@ func tryOperatorOverload(sc *ctx, op string, left, right ir.Expr, lt ir.Type, li
 	if len(sig.Params) != 2 ||
 		!isAssignable(sc.entities, sc.interfaces, lt, sig.Params[0]) ||
 		!isAssignable(sc.entities, sc.interfaces, rt, sig.Params[1]) {
-		return nil, true, fmt.Errorf("строка %d: у сущности %q оператор %q объявлен для (%s, %s), не подходит для операндов (%s, %s)",
-			line, lt.Entity, op, sig.Params[0], sig.Params[1], lt, rt)
+		return nil, true, errAtLine(line, CodeSemanticOther, "у сущности %q оператор %q объявлен для (%s, %s), не подходит для операндов (%s, %s)", lt.Entity, op, sig.Params[0], sig.Params[1], lt, rt)
 	}
 	if err := checkMethodVisibility(sc, lt.Entity, name, sig.Visibility, line); err != nil {
 		return nil, true, err

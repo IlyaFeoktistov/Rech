@@ -8,28 +8,34 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 )
 
-// printCompileError печатает ошибку сборки (Frontend.Parse/semantic.Analyze)
-// на stderr - если err несёт internal/diagnostics.Diagnostic/Bag (см.
-// errors.As - проходит сквозь любые fmt.Errorf("...: %w", err)-обёртки
-// выше по стеку, например internal/compiler.parseDir), печатает код,
-// позицию и сниппет исходной строки (Render/RenderAll); иначе, как и
-// раньше - обычным текстом (до-миграционный путь и ошибки самого CLI,
-// не связанные с исходником программы - "файл не найден" и т.п.). Общая
-// точка для build/run (build()/buildLib() в main.go) - единственное
-// место, решающее, КАК показать ошибку компиляции.
+// printCompileError печатает compileErrorText(err) на stderr - общая точка
+// для build/run (build()/buildLib() в main.go), где ошибка сборки всегда
+// фатальна для всей команды.
 func printCompileError(err error) {
+	fmt.Fprint(os.Stderr, compileErrorText(err))
+}
+
+// compileErrorText форматирует ошибку сборки (Frontend.Parse/semantic.
+// Analyze) - если err несёт internal/diagnostics.Diagnostic/Bag (см.
+// errors.As - проходит сквозь любые fmt.Errorf("...: %w", err)-обёртки
+// выше по стеку, например internal/compiler.parseDir), возвращает код,
+// позицию и сниппет исходной строки (Render/RenderAll); иначе, как и
+// раньше - обычный текст ошибки (до-миграционный путь, ошибки самого CLI
+// не про исходник программы, и рантайм-ошибки "rech test" - неудачный
+// assert теста, а не ошибка сборки). Используется и для build/run
+// (printCompileError), и для отчёта "rech test" о непрошедших тестах
+// (cmd/rech - "Провалившиеся тесты") - тот же формат в обоих местах.
+func compileErrorText(err error) string {
 	var bag *diagnostics.Bag
 	if errors.As(err, &bag) {
 		diags := bag.Diagnostics()
-		fmt.Fprint(os.Stderr, diagnostics.RenderAll(diags, loadDiagnosticSources(diags)))
-		return
+		return diagnostics.RenderAll(diags, loadDiagnosticSources(diags))
 	}
 	var d *diagnostics.Diagnostic
 	if errors.As(err, &d) {
-		fmt.Fprint(os.Stderr, diagnostics.Render(d, readSourceOrEmpty(d.Pos.File)))
-		return
+		return diagnostics.Render(d, readSourceOrEmpty(d.Pos.File))
 	}
-	fmt.Fprintln(os.Stderr, "ошибка:", err)
+	return fmt.Sprintf("ошибка: %v\n", err)
 }
 
 // loadDiagnosticSources читает КАЖДЫЙ уникальный Position.File среди diags

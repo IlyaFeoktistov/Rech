@@ -256,7 +256,7 @@ func TestMethodOverloadOpposesTagOnOverloadedTargetFails(t *testing.T) {
         этот становится вошедшим
         вернуть этот
     }
-    выйти() ` + "`противоположность:войти`" + `
+    выйти() `+"`противоположность:войти`"+`
     {
     }
 }

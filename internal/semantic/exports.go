@@ -1,8 +1,7 @@
 package semantic
 
 import (
-	"fmt"
-
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
@@ -17,7 +16,7 @@ func validateExports(prog *ir.Program) error {
 			continue
 		}
 		if ent.IsStruct {
-			return fmt.Errorf("сущность %q: \"экспортировать\" пока не поддержан для \"структура\" - только для \"сущность\"/\"класс\" (ссылочная семантика, стабильное C-представление - указатель Boehm GC)", ent.Name)
+			return errNoPos(CodeExportSemantic, "сущность %q: \"экспортировать\" пока не поддержан для \"структура\" - только для \"сущность\"/\"класс\" (ссылочная семантика, стабильное C-представление - указатель Boehm GC)", ent.Name)
 		}
 		exportedEntities[ent.Name] = true
 	}
@@ -28,12 +27,12 @@ func validateExports(prog *ir.Program) error {
 		}
 		for _, p := range fn.Params {
 			if err := checkExportableType(p.Type, exportedEntities); err != nil {
-				return fmt.Errorf("экспортируемая функция %q: параметр %q: %w", fn.Name, p.Name, err)
+				return diagnostics.Wrap(err, "экспортируемая функция %q: параметр %q", fn.Name, p.Name)
 			}
 		}
 		if fn.HasReturn {
 			if err := checkExportableType(fn.ReturnType, exportedEntities); err != nil {
-				return fmt.Errorf("экспортируемая функция %q: тип результата: %w", fn.Name, err)
+				return diagnostics.Wrap(err, "экспортируемая функция %q: тип результата", fn.Name)
 			}
 		}
 	}
@@ -44,27 +43,27 @@ func validateExports(prog *ir.Program) error {
 				continue
 			}
 			if !ent.Exported {
-				return fmt.Errorf("сущность %q: метод %q помечен \"экспортировать\", но сама сущность - нет (пометьте \"экспортировать\" и перед %q)", ent.Name, m.Name, ent.Name)
+				return errNoPos(CodeExportSemantic, "сущность %q: метод %q помечен \"экспортировать\", но сама сущность - нет (пометьте \"экспортировать\" и перед %q)", ent.Name, m.Name, ent.Name)
 			}
 			for _, p := range m.Params {
 				if err := checkExportableType(p.Type, exportedEntities); err != nil {
-					return fmt.Errorf("экспортируемый метод %q сущности %q: параметр %q: %w", m.Name, ent.Name, p.Name, err)
+					return diagnostics.Wrap(err, "экспортируемый метод %q сущности %q: параметр %q", m.Name, ent.Name, p.Name)
 				}
 			}
 			if m.HasReturn {
 				if err := checkExportableType(m.ReturnType, exportedEntities); err != nil {
-					return fmt.Errorf("экспортируемый метод %q сущности %q: тип результата: %w", m.Name, ent.Name, err)
+					return diagnostics.Wrap(err, "экспортируемый метод %q сущности %q: тип результата", m.Name, ent.Name)
 				}
 			}
 		}
 
 		if ent.Ctor != nil && ent.Ctor.Exported {
 			if !ent.Exported {
-				return fmt.Errorf("сущность %q: конструктор помечен \"экспортировать\", но сама сущность - нет (пометьте \"экспортировать\" и перед %q)", ent.Name, ent.Name)
+				return errNoPos(CodeExportSemantic, "сущность %q: конструктор помечен \"экспортировать\", но сама сущность - нет (пометьте \"экспортировать\" и перед %q)", ent.Name, ent.Name)
 			}
 			for _, p := range ent.Ctor.Params {
 				if err := checkExportableType(p.Type, exportedEntities); err != nil {
-					return fmt.Errorf("экспортируемый конструктор сущности %q: параметр %q: %w", ent.Name, p.Name, err)
+					return diagnostics.Wrap(err, "экспортируемый конструктор сущности %q: параметр %q", ent.Name, p.Name)
 				}
 			}
 		}
@@ -88,8 +87,8 @@ func checkExportableType(t ir.Type, exportedEntities map[string]bool) error {
 		if exportedEntities[t.Entity] {
 			return nil
 		}
-		return fmt.Errorf("тип %q используется в сигнатуре экспортируемой функции, но сама сущность не помечена \"экспортировать\"", t.Entity)
+		return errNoPos(CodeExportSemantic, "тип %q используется в сигнатуре экспортируемой функции, но сама сущность не помечена \"экспортировать\"", t.Entity)
 	default:
-		return fmt.Errorf("тип %q недопустим в сигнатуре экспортируемой функции - нет стабильного C-представления на границе библиотеки", t.String())
+		return errNoPos(CodeExportSemantic, "тип %q недопустим в сигнатуре экспортируемой функции - нет стабильного C-представления на границе библиотеки", t.String())
 	}
 }

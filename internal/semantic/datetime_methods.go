@@ -24,9 +24,8 @@
 package semantic
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
@@ -147,27 +146,27 @@ func maybeDesugarDateTimeMethod(sc *ctx, e *ast.MethodCallExpr) (result ir.Expr,
 	switch e.Method {
 	case "в_поясе":
 		if len(e.Args) != 1 {
-			return nil, true, fmt.Errorf("строка %d: метод %q принимает один аргумент (Строка)", e.Line, e.Method)
+			return nil, true, errAtLine(e.Line, CodeBuiltinTarget, "метод %q принимает один аргумент (Строка)", e.Method)
 		}
 		zone, aerr := analyzeExpr(sc, e.Args[0])
 		if aerr != nil {
 			return nil, true, aerr
 		}
 		if ir.TypeOf(zone) != ir.TypeString {
-			return nil, true, fmt.Errorf("строка %d: метод %q ожидает Строка, получено %s", e.Line, e.Method, ir.TypeOf(zone))
+			return nil, true, errAtLine(e.Line, CodeBuiltinTarget, "метод %q ожидает Строка, получено %s", e.Method, ir.TypeOf(zone))
 		}
 		// "?ДатаВремя" - lazy-регистрация, тем же принципом, что и у прямого
 		// вызова "время_как_дата_в_поясе" (expr.go, analyzeCallExpr) -
 		// desugaring обходит analyzeCallExpr стороной, значит регистрация
 		// здесь должна повториться явно.
 		if rerr := registerOptionalDateTimeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); rerr != nil {
-			return nil, true, fmt.Errorf("строка %d: %w", e.Line, rerr)
+			return nil, true, diagnostics.WithPos(rerr, diagnostics.Position{File: currentFile, Line: e.Line})
 		}
 		return &ir.CallExpr{Callee: "время_как_дата_в_поясе", Args: []ir.Expr{asTime(receiver), zone},
 			Type: ir.NullableType(ir.EntityType("ДатаВремя")), HasReturn: true}, true, nil
 	case "является_выходным":
 		if len(e.Args) != 0 {
-			return nil, true, fmt.Errorf("строка %d: метод %q не принимает аргументов", e.Line, e.Method)
+			return nil, true, errAtLine(e.Line, CodeBuiltinTarget, "метод %q не принимает аргументов", e.Method)
 		}
 		wd := &ir.CallExpr{Callee: "день_недели", Args: []ir.Expr{receiver}, Type: ir.TypeInt, HasReturn: true}
 		isSunday := &ir.BinaryExpr{Op: "==", Left: wd, Right: &ir.IntLiteral{Value: 0}, Type: ir.TypeBool}
@@ -175,7 +174,7 @@ func maybeDesugarDateTimeMethod(sc *ctx, e *ast.MethodCallExpr) (result ir.Expr,
 		return &ir.BinaryExpr{Op: "или", Left: isSunday, Right: isSaturday, Type: ir.TypeBool}, true, nil
 	case "в_читаемом_виде":
 		if len(e.Args) != 0 {
-			return nil, true, fmt.Errorf("строка %d: метод %q не принимает аргументов", e.Line, e.Method)
+			return nil, true, errAtLine(e.Line, CodeBuiltinTarget, "метод %q не принимает аргументов", e.Method)
 		}
 		return &ir.CallExpr{Callee: "дату_в_читаемом_виде", Args: []ir.Expr{receiver}, Type: ir.TypeString, HasReturn: true}, true, nil
 	}
@@ -185,7 +184,7 @@ func maybeDesugarDateTimeMethod(sc *ctx, e *ast.MethodCallExpr) (result ir.Expr,
 // dateTimeOneIntArg - один аргумент типа Целое (арифметические методы).
 func dateTimeOneIntArg(sc *ctx, e *ast.MethodCallExpr) (ir.Expr, error) {
 	if len(e.Args) != 1 {
-		return nil, fmt.Errorf("строка %d: метод %q принимает один аргумент (Целое)", e.Line, e.Method)
+		return nil, errAtLine(e.Line, CodeBuiltinTarget, "метод %q принимает один аргумент (Целое)", e.Method)
 	}
 	v, err := analyzeExpr(sc, e.Args[0])
 	if err != nil {
@@ -193,7 +192,7 @@ func dateTimeOneIntArg(sc *ctx, e *ast.MethodCallExpr) (ir.Expr, error) {
 	}
 	v = maybeUnwrapNarrowed(sc, v)
 	if ir.TypeOf(v) != ir.TypeInt {
-		return nil, fmt.Errorf("строка %d: метод %q ожидает Целое, получено %s", e.Line, e.Method, ir.TypeOf(v))
+		return nil, errAtLine(e.Line, CodeBuiltinTarget, "метод %q ожидает Целое, получено %s", e.Method, ir.TypeOf(v))
 	}
 	return v, nil
 }
@@ -201,7 +200,7 @@ func dateTimeOneIntArg(sc *ctx, e *ast.MethodCallExpr) (ir.Expr, error) {
 // dateTimeOneArg - один аргумент типа ДатаВремя (сравнение/разница).
 func dateTimeOneArg(sc *ctx, e *ast.MethodCallExpr) (ir.Expr, error) {
 	if len(e.Args) != 1 {
-		return nil, fmt.Errorf("строка %d: метод %q принимает один аргумент (ДатаВремя)", e.Line, e.Method)
+		return nil, errAtLine(e.Line, CodeBuiltinTarget, "метод %q принимает один аргумент (ДатаВремя)", e.Method)
 	}
 	v, err := analyzeExpr(sc, e.Args[0])
 	if err != nil {
@@ -209,7 +208,7 @@ func dateTimeOneArg(sc *ctx, e *ast.MethodCallExpr) (ir.Expr, error) {
 	}
 	v = maybeUnwrapNarrowed(sc, v)
 	if ir.TypeOf(v) != ir.EntityType("ДатаВремя") {
-		return nil, fmt.Errorf("строка %d: метод %q ожидает ДатаВремя, получено %s", e.Line, e.Method, ir.TypeOf(v))
+		return nil, errAtLine(e.Line, CodeBuiltinTarget, "метод %q ожидает ДатаВремя, получено %s", e.Method, ir.TypeOf(v))
 	}
 	return v, nil
 }

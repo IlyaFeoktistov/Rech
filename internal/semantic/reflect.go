@@ -9,9 +9,8 @@
 package semantic
 
 import (
-	"fmt"
-
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
@@ -122,7 +121,7 @@ var typeInfoMethodSigs = map[string]funcSig{
 func analyzeTypeOfExpr(sc *ctx, e *ast.TypeOfExpr) (ir.Expr, error) {
 	t, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, e.TypeName)
 	if err != nil {
-		return nil, fmt.Errorf("строка %d: \"тип %s\": %w", e.Line, e.TypeName, err)
+		return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "\"тип %s\"", e.TypeName)
 	}
 	sc.a.markUsesReflection()
 	if t.Kind == ir.KindEntity || t.Kind == ir.KindInterface {
@@ -157,20 +156,20 @@ func analyzeAsExpr(sc *ctx, e *ast.AsExpr) (ir.Expr, error) {
 	if valType := ir.TypeOf(value); valType.Kind == ir.KindEntity && valType.Entity == dbResultType {
 		to, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, e.TypeName)
 		if err != nil {
-			return nil, fmt.Errorf("строка %d: \"как %s\": %w", e.Line, e.TypeName, err)
+			return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "\"как %s\"", e.TypeName)
 		}
 		sig, ok := sc.entities[to.Entity]
 		if to.Kind != ir.KindEntity || !ok || !sig.IsList {
-			return nil, fmt.Errorf("строка %d: результат \"запросить\"/\"выполнить\" можно привести только к \"Список<Тип>\" (маппинг строк по полям), получено %s", e.Line, to)
+			return nil, errAtLine(e.Line, CodeSemanticOther, "результат \"запросить\"/\"выполнить\" можно привести только к \"Список<Тип>\" (маппинг строк по полям), получено %s", to)
 		}
 		return analyzeDBRowsAsExpr(sc, value, to, sig.ElemType, e.Line)
 	}
 	if ir.TypeOf(value).Kind != ir.KindAny {
-		return nil, fmt.Errorf("строка %d: \"как\" применим только к \"Значение\", получено %s", e.Line, ir.TypeOf(value))
+		return nil, errAtLine(e.Line, CodeSemanticOther, "\"как\" применим только к \"Значение\", получено %s", ir.TypeOf(value))
 	}
 	to, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, e.TypeName)
 	if err != nil {
-		return nil, fmt.Errorf("строка %d: \"как %s\": %w", e.Line, e.TypeName, err)
+		return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "\"как %s\"", e.TypeName)
 	}
 	sc.a.markUsesReflection()
 	// KindInterface (находка "значение как ИмяИнтерфейса

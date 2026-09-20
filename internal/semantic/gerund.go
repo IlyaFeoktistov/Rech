@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
@@ -32,12 +33,11 @@ func analyzeGerundStmt(sc *ctx, s *ast.GerundStmt) (ir.Stmt, error) {
 		var ok bool
 		sig, ok = sc.funcs[s.Callee]
 		if !ok {
-			return nil, fmt.Errorf("строка %d: функция %q не объявлена", s.Line, s.Callee)
+			return nil, errAtLine(s.Line, CodeNameResolution, "функция %q не объявлена", s.Callee)
 		}
 	}
 	if !sig.HasReturn {
-		return nil, fmt.Errorf("строка %d: деепричастие требует функцию с объявленным типом результата - у %q его нет, \"результат\" не от чего образовать",
-			s.Line, s.Callee)
+		return nil, errAtLine(s.Line, CodeSemanticOther, "деепричастие требует функцию с объявленным типом результата - у %q его нет, \"результат\" не от чего образовать", s.Callee)
 	}
 	args, err := checkCallArgs(sc, s.Args, sig, s.Line, fmt.Sprintf("функция %q", s.Callee), fmt.Sprintf("деепричастного вызова %q", s.Callee))
 	if err != nil {
@@ -48,7 +48,7 @@ func analyzeGerundStmt(sc *ctx, s *ast.GerundStmt) (ir.Stmt, error) {
 	sc.push()
 	if err := sc.declare("результат", sig.ReturnType); err != nil {
 		sc.pop()
-		return nil, fmt.Errorf("строка %d: %w", s.Line, err)
+		return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: s.Line})
 	}
 	bodyIR, err := analyzeBlock(sc, s.Body)
 	sc.pop()
