@@ -411,6 +411,11 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return headerValue(args[0].S, args[1].S), true
 	case "получить_переменную_окружения":
 		return envValue(args[0].S), true
+	case "опции_проекта":
+		return in.optionsProjectValue(), true
+	case "установить_опции_проекта":
+		in.setOptionsProjectValue(args[0].S)
+		return Value{}, true
 	case "строка_куки":
 		return stringValue(cookieString(args[0].S, args[1].S, args[2])), true
 	case "подключиться_к_бд":

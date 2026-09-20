@@ -29,6 +29,7 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/keyboard"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/multipart"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/numbase"
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/options"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/process"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/procmem"
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/procregs"
@@ -1466,7 +1467,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// угодно в программе - её собственная блокировка защищает ЭТО
 	// соединение, независимо от того, как именно программа организует
 	// свою многопоточность.
-	if ctx.usesThreads || ctx.usesMutex || ctx.usesSemaphore || ctx.usesTLS || prog.UsesDB || ctx.usesActiveTaskWait {
+	if ctx.usesThreads || ctx.usesMutex || ctx.usesSemaphore || ctx.usesTLS || prog.UsesDB || ctx.usesActiveTaskWait || ctx.usesOptions {
 		sb.WriteString("#ifndef _WIN32\n#include <pthread.h>\n#endif\n")
 	}
 	sb.WriteString("\n")
@@ -1913,6 +1914,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// После typedefs (rech_T_n_stroka - "?Строка" - уже объявлен, тем же
 	// принципом, что и usesCookies выше).
 	appendCodeIf(&sb, ctx.usesEnv, process.EnvHelpers(mangleType("?Строка")))
+	// Не зависит от typedefs (обычная "Строка", не nullable) - можно
+	// эмитировать в любом месте после panicHelper, тем же принципом, что и
+	// usesHTTPHeaders ниже.
+	appendCodeIf(&sb, ctx.usesOptions, options.Helpers(escapeCString(prog.OptionsYAML)))
 	// После typedefs (rech_T_n_stroka уже объявлен) - тем же принципом,
 	// что и usesEnv/usesCookies выше.
 	appendCodeIf(&sb, ctx.usesHTTPHeaders, httpwire.HeaderValueHelper(mangleType("?Строка")))

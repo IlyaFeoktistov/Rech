@@ -61,6 +61,20 @@ type File struct {
 	// каждым запуском.
 	Окружение map[string]string
 
+	// Опции - секция "опции:", СЫРОЙ текст (не разобран этим пакетом
+	// вообще, в отличие от остальных полей) - единственное место в
+	// .rechproj с настоящим, не ограниченным YAML (произвольная глубина
+	// вложенности, списки, кавычки) - извлекается verbatim до попадания в
+	// основной построчный сканер ниже (см. extractOptionsSection), потому что
+	// остальной Load разбирает только один уровень отступа "ключ:
+	// значение" и споткнулся бы на вложенности глубже. Доступен программе
+	// через встроенную "опции_проекта()" (internal/builtins) -
+	// разбирается уже НАСТОЯЩИМ YAML-декодером (internal/backend/cbackend/
+	// yaml_extract.go, internal/interp/yaml_serialize.go), тем же, что и у
+	// "разобрать YAML ... как <Тип>" - этот пакет специально не пытается
+	// понять структуру сам, только вырезает текст.
+	Опции string
+
 	// Исходники - "файлы.исходники", glob-путь до .rech-файлов проекта
 	// ("исходники/**/*.rech", "*.rech" - без кавычек, формат-минимум
 	// пакета их не поддерживает, package doc File). Сама сборка по нему
@@ -247,6 +261,53 @@ func LoadFor(srcPath string) (*File, error) {
 	return Load(projPath)
 }
 
+// extractOptionsSection вырезает верхнеуровневую секцию "опции:" ИЗ СЫРОГО
+// текста .rechproj ДО того, как data попадёт в построчный сканер Load ниже -
+// единственный способ дать ей настоящую, не ограниченную вложенность
+// (списки, "- элемент", отступ глубже одного уровня) без переписывания
+// остального формата: сканер Load режет каждую строку СЕКЦИИ РОВНО одним
+// "ключ: значение" и не умеет глубже. Возвращает (текст секции без
+// заголовка "опции:" и общего отступа, остаток файла БЕЗ этой секции -
+// его получает обычный сканер). Строки этой секции НЕ проходят через
+// "#" - вырезание комментария Load (ниже) - настоящий YAML сам знает,
+// что такое комментарий, а наивное вырезание "#" сломало бы, например,
+// значение `"#ff0000"` в кавычках.
+func extractOptionsSection(data string) (options string, rest string) {
+	lines := strings.Split(data, "\n")
+	var restLines []string
+	var block []string
+	baseIndent := -1
+	inSection := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		topLevel := trimmed != "" && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t")
+		if inSection {
+			if trimmed == "" {
+				block = append(block, "")
+				continue
+			}
+			indent := len(line) - len(strings.TrimLeft(line, " \t"))
+			if baseIndent == -1 {
+				baseIndent = indent // отступ ПЕРВОЙ содержательной строки секции - вычитается из всех остальных
+			}
+			if topLevel || indent < baseIndent {
+				inSection = false // конец секции "опции:" - эта строка сама уже не её часть, падает ниже как обычная
+			} else {
+				block = append(block, line[baseIndent:])
+				continue
+			}
+		}
+		if topLevel && strings.TrimSuffix(trimmed, ":") == "опции" {
+			inSection = true
+			block = nil
+			baseIndent = -1
+			continue
+		}
+		restLines = append(restLines, line)
+	}
+	return strings.TrimRight(strings.Join(block, "\n"), "\n"), strings.Join(restLines, "\n")
+}
+
 // Load читает и разбирает .rechproj по path, подставляет значения по
 // умолчанию для необязательных полей и проверяет допустимость
 // "режим"/"платформа".
@@ -256,10 +317,13 @@ func Load(path string) (*File, error) {
 		return nil, fmt.Errorf("не удалось прочитать файл проекта: %w", err)
 	}
 	pf := &File{Dir: filepath.Dir(path)}
+	options, rest := extractOptionsSection(string(data))
+	pf.Опции = options
+
 	fields := pf.fields()
 
 	section := ""
-	sc := bufio.NewScanner(strings.NewReader(string(data)))
+	sc := bufio.NewScanner(strings.NewReader(rest))
 	for sc.Scan() {
 		line := sc.Text()
 		if idx := strings.IndexByte(line, '#'); idx >= 0 {
@@ -754,6 +818,19 @@ const Template = `проект:
 # окружение:
 #   RECH_HTTP_PORT: 8080 (переменные окружения для "rech run" - вместо
 #   "ПЕРЕМЕННАЯ=значение rech run" перед каждым запуском)
+
+# опции:
+#   единственная секция, где разрешён НАСТОЯЩИЙ YAML (произвольная
+#   вложенность, списки, кавычки - в отличие от остального этого файла) -
+#   компилятор её не разбирает и не проверяет вовсе, только отдаёт текстом
+#   через встроенную "опции_проекта(): Строка", обычно сразу в "разобрать
+#   YAML опции_проекта() как <Тип>" (docs/SPEC.md, раздел 18). Пример:
+#   почта:
+#     хост: smtp.example.com
+#     порт: 587
+#   "установить_опции_проекта(текст)" меняет то, что вернёт следующий
+#   "опции_проекта()" ТОЛЬКО в памяти текущего запуска, не в этом файле
+#   (как ini_set в PHP) - см. docs/SPEC.md, раздел 12.3.
 
 # зависимости:
 #   имя: https://github.com/пользователь/репозиторий v1.2.0 (URL и версия

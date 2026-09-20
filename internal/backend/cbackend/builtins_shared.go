@@ -149,6 +149,9 @@ type builtinFlags struct {
 	// usesEnv - нужен ли rech_getenv (env.go) - встроенная функция
 	// "получить_переменную_окружения".
 	usesEnv bool
+	// usesOptions - нужны ли rech_options/rech_set_options (runtime/
+	// options) - встроенные функции "опции_проекта"/"установить_опции_проекта".
+	usesOptions bool
 	// usesCrypto - нужны ли rech_hash_hex/rech_hmac_sha256_hex/
 	// rech_base64url_encode/rech_base64url_decode (crypto.go) - встроенные
 	// функции "хеш"/"подпись_hmac_sha256"/"закодировать_base64url"/
@@ -822,6 +825,12 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 	case "получить_переменную_окружения":
 		flags.usesEnv = true
 		return fmt.Sprintf("rech_getenv(%s)", args[0]), true
+	case "опции_проекта":
+		flags.usesOptions = true
+		return "rech_options()", true
+	case "установить_опции_проекта":
+		flags.usesOptions = true
+		return fmt.Sprintf("rech_set_options(%s)", args[0]), true
 	case "строка_куки":
 		flags.usesCookies = true
 		return fmt.Sprintf("rech_cookie_string(%s, %s, %s)", args[0], args[1], args[2]), true

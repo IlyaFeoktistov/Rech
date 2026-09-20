@@ -540,6 +540,16 @@ type Interp struct {
 	// semantic.DefaultHTTPMaxRequestBytes) - recvHTTPRequest сверяет с ним
 	// накопленный буфер запроса, см. её package doc в httpserver.go.
 	httpMaxRequestBytes int
+
+	// optionsText/optionsMu - "опции_проекта()"/"установить_опции_проекта" -
+	// ir.Program.OptionsYAML ("опции:" .rechproj) как начальное значение,
+	// дальше изменяемое ТОЛЬКО в памяти этого запуска (см. package doc
+	// options.go). RWMutex, не голый Mutex - чтение (частый путь) не должно
+	// блокировать другие одновременные чтения, только запись
+	// ("установить_опции_проекта") - тем же принципом, что fieldsMu/statesMu
+	// выше, "запустить" реально запускает горутину, разделяющую этот же *Interp.
+	optionsText string
+	optionsMu   sync.RWMutex
 }
 
 // Run исполняет prog: находит "главная" и выполняет её тело, печатая
@@ -599,6 +609,7 @@ func newInterp(prog *ir.Program, out io.Writer, stdin io.Reader) (*Interp, *ir.F
 		httpMaxRequestBytes:   prog.HTTPMaxRequestBytes,
 		ffiLibraries:          prog.FFILibraries,
 		ffiLibraryPaths:       prog.FFILibraryPaths,
+		optionsText:           prog.OptionsYAML,
 		externFuncs:           map[string]*ir.ExternFuncDecl{},
 		ffi: &ffiRegistry{
 			libs:          map[string]uintptr{},

@@ -145,6 +145,7 @@ func main() {
 	var extraLibs []string
 	var extraLibPaths []string
 	var extraHeaders []string
+	var optionsYAML string
 	var projectDeps map[string]string
 	var projectDepScopes map[string]map[string]string
 	var runEnv map[string]string
@@ -227,6 +228,7 @@ func main() {
 			extraLibs = pf.Библиотеки()
 			extraLibPaths = pf.ПутиБиблиотек()
 			extraHeaders = pf.Заголовки()
+			optionsYAML = pf.Опции
 			if deps, scopes, depLibs, depLibPaths, derr := resolveDeps(pf); derr != nil {
 				fmt.Fprintln(os.Stderr, "ошибка:", derr)
 				os.Exit(1)
@@ -260,6 +262,7 @@ func main() {
 	comp.PoolIdleTimeoutMs = poolIdleTimeoutMs
 	comp.HTTPMaxRequestBytes = httpMaxRequestBytes
 	comp.ExternHeaders = extraHeaders
+	comp.OptionsYAML = optionsYAML
 	build := func() (string, error) { return comp.Build(srcPath, keepC, extraLibs, extraLibPaths) }
 	buildLib := func() (string, string, []string, error) {
 		return comp.BuildLib(srcPath, libRoot, outDir, keepC, extraLibs, extraLibPaths)

@@ -137,6 +137,7 @@ func RunFile(path string) Result {
 	if pf != nil {
 		irProg.FFILibraries = pf.Библиотеки()
 		irProg.FFILibraryPaths = pf.ПутиБиблиотек()
+		irProg.OptionsYAML = pf.Опции
 	}
 	var buf bytes.Buffer
 	if err := interp.Run(irProg, &buf, os.Stdin); err != nil {

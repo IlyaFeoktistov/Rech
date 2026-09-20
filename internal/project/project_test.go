@@ -849,3 +849,49 @@ func TestRootForUsesSourcesRootNotMainFileDir(t *testing.T) {
 		t.Fatalf("RootFor() = %q, ожидалось %q", root, want)
 	}
 }
+
+// TestLoadOptionsSectionCapturesNestedYAMLVerbatim - "опции:" не ограничена одним
+// уровнем отступа/плоским "ключ: значение", в отличие от остальных секций
+// .rechproj (package doc extractOptionsSection) - список ("- ...") и вложенность
+// глубже одного уровня должны дойти до Опции как есть, без искажений.
+func TestLoadOptionsSectionCapturesNestedYAMLVerbatim(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := "проект:\n  имя: тест\n\nфайлы:\n  главный: исходники/главный.rech\n\n" +
+		"опции:\n  мой_заголовок:\n    мои_параметры:\n      - -123\n      - -345\n    ещё_параметр: значение\n\n" +
+		"сборка:\n  режим: отладка\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	pf, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := "мой_заголовок:\n  мои_параметры:\n    - -123\n    - -345\n  ещё_параметр: значение"
+	if pf.Опции != want {
+		t.Fatalf("Опции = %q, ожидалось %q", pf.Опции, want)
+	}
+	if pf.Режим != "отладка" {
+		t.Fatalf("сборка.режим не разобран после секции \"опции:\" - Режим = %q", pf.Режим)
+	}
+}
+
+// TestLoadWithoutOptionsSectionIsEmptyString - секция необязательна, её отсутствие не
+// ошибка, Опции - пустая строка (не nil-паника при последующем "разобрать
+// YAML" - там будет обычная ОшибкаРазбора на пустом тексте, не паника
+// компилятора).
+func TestLoadWithoutOptionsSectionIsEmptyString(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "тест.rechproj")
+	content := "проект:\n  имя: тест\n\nфайлы:\n  главный: исходники/главный.rech\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("запись файла проекта: %v", err)
+	}
+	pf, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if pf.Опции != "" {
+		t.Fatalf("Опции = %q, ожидалась пустая строка", pf.Опции)
+	}
+}
