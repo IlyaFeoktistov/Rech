@@ -8,6 +8,7 @@
 //	rech test <файл.rech>|<каталог>                                - найти и запустить тесты
 //	rech fmt [--write | --check] <файл.rech>|<каталог>             - канонический отступ, как gofmt; --check ничего не пишет, для CI
 //	rech proto [-o <файл.rech>] <файл.proto>                       - импорт ".proto"-контракта в Rech-сущности с тегами `protobuf:N`
+//	rech add <имя> <url> <версия>                                  - добавить внешнюю зависимость в .rechproj и сразу скачать её
 //	rech install                                                   - скачать/обновить кеш внешних зависимостей (.rechproj, "зависимости:")
 //	rech debug                                                     - сервер DAP по stdin/stdout (для VS Code)
 //	rech lsp                                                       - сервер LSP по stdin/stdout (hover/автодополнение, для VS Code)
@@ -67,6 +68,18 @@ func main() {
 			name = os.Args[2]
 		}
 		if err := initProject(name); err != nil {
+			fmt.Fprintln(os.Stderr, "ошибка:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if cmd == "add" {
+		if len(os.Args) < 5 {
+			fmt.Fprintln(os.Stderr, "использование: rech add <имя> <url> <версия>")
+			os.Exit(2)
+		}
+		if err := addDependency(os.Args[2], os.Args[3], os.Args[4]); err != nil {
 			fmt.Fprintln(os.Stderr, "ошибка:", err)
 			os.Exit(1)
 		}
@@ -394,7 +407,7 @@ func parseBuildArgs(args []string) (srcPath, code string, keepC, hasCode, isLib 
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "использование: rech build [--keep-c] [--lib] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech run [--keep-c] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech test <файл.rech>|<каталог> | rech fmt [--write|-w | --check] <файл.rech>|<каталог> | rech proto [-o <файл.rech>] <файл.proto> | rech install | rech debug | rech lsp | rech init [имя] | rech version")
+	fmt.Fprintln(os.Stderr, "использование: rech build [--keep-c] [--lib] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech run [--keep-c] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech test <файл.rech>|<каталог> | rech fmt [--write|-w | --check] <файл.rech>|<каталог> | rech proto [-o <файл.rech>] <файл.proto> | rech add <имя> <url> <версия> | rech install | rech debug | rech lsp | rech init [имя] | rech version")
 }
 
 // testDotsPerLine - сколько точек/"F" печатать в строке прогресса, прежде
