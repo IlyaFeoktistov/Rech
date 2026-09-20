@@ -207,6 +207,60 @@ func TestGenerateFromIRHTTPResponseAnnouncesKeepAlive(t *testing.T) {
 	}
 }
 
+// TestGenerateFromIRHTTPResponseUsesRealReasonPhrases - до 2026-09-20
+// фраза-причина была буквальной "OK" независимо от кода - живая находка
+// при аудите поддержки заголовков. rech_http_reason_phrase - таблица из
+// rtmsg.HTTPReasonPhrasesForC (единая с interp).
+func TestGenerateFromIRHTTPResponseUsesRealReasonPhrases(t *testing.T) {
+	out := generateFromSrc(t, `
+функция главная
+{
+    переменная л = сетевой_узел(СетевойПротокол.TCP, "", 8080)
+    переменная клиент = принять(л)
+    если клиент != Ничто
+    {
+        переменная запрос = принять_http(клиент)
+        отправить_http_ответ(клиент, новый Ответ(404, "", "нет"))
+    }
+}
+`)
+	if !strings.Contains(out, "rech_http_reason_phrase(") {
+		t.Fatalf("ожидался вызов rech_http_reason_phrase, получено:\n%s", out)
+	}
+	if !strings.Contains(out, `case 404: return "Not Found";`) {
+		t.Fatalf("ожидалась настоящая фраза-причина для 404, получено:\n%s", out)
+	}
+	if strings.Contains(out, `"HTTP/1.1 %lld OK\r\n"`) {
+		t.Fatalf("не ожидалась старая буквальная \"OK\" в статус-строке, получено:\n%s", out)
+	}
+}
+
+// TestGenerateFromIRHTTPResponseChecksHeaderCollision - до 2026-09-20
+// "Connection"/"Content-Length" добавлялись БЕЗУСЛОВНО поверх заголовков
+// пользователя, без проверки на коллизию - живая находка при аудите.
+// rech_header_present (использует общий rech_header_line_matches) решает,
+// нужна ли своя строка вообще, для каждого из двух независимо.
+func TestGenerateFromIRHTTPResponseChecksHeaderCollision(t *testing.T) {
+	out := generateFromSrc(t, `
+функция главная
+{
+    переменная л = сетевой_узел(СетевойПротокол.TCP, "", 8080)
+    переменная клиент = принять(л)
+    если клиент != Ничто
+    {
+        переменная запрос = принять_http(клиент)
+        отправить_http_ответ(клиент, новый Ответ(200, "Connection: close", "пока"))
+    }
+}
+`)
+	if !strings.Contains(out, "rech_header_present(") {
+		t.Fatalf("ожидался вызов rech_header_present, получено:\n%s", out)
+	}
+	if !strings.Contains(out, `rech_header_present(resp.`) || !strings.Contains(out, `"Connection")`) {
+		t.Fatalf("ожидалась проверка на \"Connection\" перед добавлением умолчания, получено:\n%s", out)
+	}
+}
+
 // TestGenerateFromIRSocketCreationIgnoresSigpipe - НАЙДЕННЫЙ ЖИВЬЁМ баг
 // ("HTTP keep-alive"): запись в сокет, который ПИР уже
 // закрыл (типичное HTTP keep-alive соединение, где клиент отключился между

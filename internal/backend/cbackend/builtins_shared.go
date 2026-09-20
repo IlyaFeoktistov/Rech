@@ -264,6 +264,12 @@ type builtinFlags struct {
 	// встроенная функция "значение_заголовка" (заголовки, имя): ?Строка -
 	// общий разбор строки заголовков Запрос/Ответ, не привязан к cookies.
 	usesHTTPHeaders bool
+	// usesHTTPHeaderValues - нужен ли rech_header_values (httpheaders.go) -
+	// встроенная функция "значения_заголовка" (заголовки, имя): Список<Строка> -
+	// тот же разбор, но ВСЕ совпадения, не только первое (повторяющиеся
+	// заголовки). Отдельный флаг от usesHTTPHeaders - программа может
+	// использовать только одну из двух функций.
+	usesHTTPHeaderValues bool
 	// usesSubprocess - нужен ли subprocessRuntimeCode (subprocess.go) -
 	// встроенные функции "запустить_процесс"/"дождаться_процесса"/
 	// "выполнить_команду". Отдельный от usesSignals флаг (мотивирующее
@@ -822,6 +828,9 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 	case "значение_заголовка":
 		flags.usesHTTPHeaders = true
 		return fmt.Sprintf("rech_header_value(%s, %s)", args[0], args[1]), true
+	case "значения_заголовка":
+		flags.usesHTTPHeaderValues = true
+		return fmt.Sprintf("rech_header_values(%s, %s)", args[0], args[1]), true
 	case "получить_переменную_окружения":
 		flags.usesEnv = true
 		return fmt.Sprintf("rech_getenv(%s)", args[0]), true

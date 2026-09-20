@@ -409,6 +409,8 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return cookieValue(args[0], args[1].S), true
 	case "значение_заголовка":
 		return headerValue(args[0].S, args[1].S), true
+	case "значения_заголовка":
+		return headerValues(args[0].S, args[1].S), true
 	case "получить_переменную_окружения":
 		return envValue(args[0].S), true
 	case "опции_проекта":

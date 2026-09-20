@@ -297,26 +297,47 @@ func (in *Interp) acceptHTTPRequestBytes(conn net.Conn) Value {
 	}}}
 }
 
-// sendHTTPResponse - "отправить_http_ответ" - сериализует "Ответ" в сырой
-// HTTP-ответ и отправляет на conn, тем же принципом, что и
-// cbackend.rech_http_send_response (единая фраза-причина "OK" для любого
-// кода - реальные HTTP-клиенты ориентируются на числовой код, не на неё).
-//
-// "Connection: keep-alive" (не "close") - сервер всегда ГОТОВ обслужить
-// следующий запрос на этом же соединении (keep-alive,
-// "HTTP keep-alive") - решает, действительно ли читать следующий запрос
-// или закрыть сокет, вызывающий Rech-код (после каждого "отправить_http_
-// ответ" явно проверяет заголовок "Connection" ВХОДЯЩЕГО запроса через
-// "значение_заголовка" - см. examples/проекты/http_сервер, "обработать_
-// соединение") - рантайм не решает это сам, только заявляет готовность.
-func (in *Interp) sendHTTPResponse(conn net.Conn, resp Value) {
-	f := resp.Obj.fields
-	code, headers, body := f["код"].I, f["заголовки"].S, f["тело"].S
+// httpResponseHead - статус-строка + заголовки + разделительная пустая
+// строка, общая часть sendHTTPResponse/sendHTTPResponseBytes ниже - тот же
+// текст, что и у cbackend.rech_http_send_response (внутри rech_http_send_
+// response, httpserver.go), включая исправления от 2026-09-20:
+//   - фраза-причина - настоящая (rtmsg.HTTPReasonPhrase), не буквальная
+//     "OK" для любого кода, как было раньше (реальные HTTP-клиенты
+//     ориентируются на числовой код, фраза - для человека/лога, но раз
+//     она уже известна - нет причины врать).
+//   - "Connection"/"Content-Length" добавляются ТОЛЬКО если Rech-программа
+//     сама их не задала в "заголовки" ответа - раньше добавлялись
+//     безусловно поверх пользовательских, давая ДВА одинаковых заголовка
+//     при коллизии (неопределённое поведение клиента) - в частности, это
+//     единственный способ РЕАЛЬНО известить клиента о закрытии соединения
+//     (свой "Connection" со значением close) - "Connection: keep-alive"
+//     по умолчанию лишь заявляет готовность, решение - за вызывающим
+//     Rech-кодом (после каждого "отправить_http_ответ" явно проверяет
+//     заголовок "Connection" ВХОДЯЩЕГО запроса через "значение_заголовка" -
+//     см. examples/проекты/http_сервер, "обработать_соединение").
+func httpResponseHead(code int64, headers string, bodyLen int) string {
 	hdrSep := ""
 	if headers != "" {
 		hdrSep = "\r\n"
 	}
-	head := fmt.Sprintf("HTTP/1.1 %d OK\r\n%s%sConnection: keep-alive\r\nContent-Length: %d\r\n\r\n", code, headers, hdrSep, len(body))
+	connLine := "Connection: keep-alive\r\n"
+	if headerValue(headers, "Connection").Nullable != nil {
+		connLine = ""
+	}
+	lenLine := fmt.Sprintf("Content-Length: %d\r\n", bodyLen)
+	if headerValue(headers, "Content-Length").Nullable != nil {
+		lenLine = ""
+	}
+	reason := rtmsg.HTTPReasonPhrase(code)
+	return fmt.Sprintf("HTTP/1.1 %d %s\r\n%s%s%s%s\r\n", code, reason, headers, hdrSep, connLine, lenLine)
+}
+
+// sendHTTPResponse - "отправить_http_ответ" - сериализует "Ответ" в сырой
+// HTTP-ответ и отправляет на conn.
+func (in *Interp) sendHTTPResponse(conn net.Conn, resp Value) {
+	f := resp.Obj.fields
+	code, headers, body := f["код"].I, f["заголовки"].S, f["тело"].S
+	head := httpResponseHead(code, headers, len(body))
 	if _, err := io.WriteString(conn, head+body); err != nil {
 		panicRuntime("%s", rtmsg.SocketSendFailed)
 	}
@@ -330,11 +351,7 @@ func (in *Interp) sendHTTPResponse(conn net.Conn, resp Value) {
 func (in *Interp) sendHTTPResponseBytes(conn net.Conn, resp Value) {
 	f := resp.Obj.fields
 	code, headers, body := f["код"].I, f["заголовки"].S, bytesFromValue(f["тело"])
-	hdrSep := ""
-	if headers != "" {
-		hdrSep = "\r\n"
-	}
-	head := fmt.Sprintf("HTTP/1.1 %d OK\r\n%s%sConnection: keep-alive\r\nContent-Length: %d\r\n\r\n", code, headers, hdrSep, len(body))
+	head := httpResponseHead(code, headers, len(body))
 	if _, err := io.WriteString(conn, head); err != nil {
 		panicRuntime("%s", rtmsg.SocketSendFailed)
 	}

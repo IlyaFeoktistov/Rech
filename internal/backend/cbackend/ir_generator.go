@@ -1143,7 +1143,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// объявленного заголовком (найдено живьём - examples/основы/
 	// внешние_функции.rech, strlen + <string.h>, включённый совсем по
 	// другой причине - memcpy захваченной лямбды).
-	ctx.includesStringH = ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesPanicCatch || ctx.usesStringSplit || ctx.usesRegex || ctx.usesHTTPHeaders || ctx.usesColor || ctx.usesSubprocess || hasStructTargets || prog.UsesReflection || ctx.usesTZ || ctx.usesDateParse
+	ctx.includesStringH = ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesPanicCatch || ctx.usesStringSplit || ctx.usesRegex || ctx.usesHTTPHeaders || ctx.usesHTTPHeaderValues || ctx.usesColor || ctx.usesSubprocess || hasStructTargets || prog.UsesReflection || ctx.usesTZ || ctx.usesDateParse
 	// usesNullables/prog.UsesReflection - те же два условия, что у panicGate
 	// (ниже) сверх её собственных: panicGate решает, эмитить ли panicHelper
 	// (безусловный exit(1)), includesStdlibH - подключать ли <stdlib.h>, где
@@ -1155,7 +1155,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// "код" (см. package doc systemExceptionFields), значит panicHelper (а
 	// с ним и <stdlib.h>) эмитится в подавляющем большинстве программ, не
 	// только там, где пользователь сам пишет "?Тип".
-	ctx.includesStdlibH = ctx.usesConcat || usesGenerics || usesNullables || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesColor || ctx.usesQueryParams || ctx.usesCookies || ctx.usesRandom || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesRegex || ctx.usesHTTPHeaders || hasStructTargets || ctx.usesExit || ctx.usesTZ || ctx.usesHumanDate || prog.UsesReflection
+	ctx.includesStdlibH = ctx.usesConcat || usesGenerics || usesNullables || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesColor || ctx.usesQueryParams || ctx.usesCookies || ctx.usesRandom || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesRegex || ctx.usesHTTPHeaders || ctx.usesHTTPHeaderValues || hasStructTargets || ctx.usesExit || ctx.usesTZ || ctx.usesHumanDate || prog.UsesReflection
 	ctx.includesMathH = ctx.usesMath
 	for _, ext := range prog.ExternFuncs {
 		protoStr, err := externPrototypeOfIR(ctx, ext)
@@ -1726,6 +1726,13 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// (httpServerHelpers) - эмитится один раз перед обоими, тем же
 	// принципом, что и rechDupHelper выше.
 	appendCodeIf(&sb, ctx.usesHTTP || ctx.usesHTTPServer, httpwire.ChunkedHelpers)
+	// rech_header_line_matches - общая часть значение_заголовка/
+	// значения_заголовка (httpheaders.go) И rech_http_send_response
+	// (httpserver.go, проверка "уже задал ли пользователь Connection/
+	// Content-Length сам") - РОВНО ОДИН раз для любого из трёх - до
+	// typedefs, ей не нужны, но должна предшествовать httpserver.Helpers
+	// ниже (та её зовёт).
+	appendCodeIf(&sb, ctx.usesHTTPHeaders || ctx.usesHTTPHeaderValues || ctx.usesHTTPServer, httpwire.HeaderLineMatchesHelper())
 
 	// После typedefs - rech_http_request принимает/возвращает Запрос/
 	// Ответ по значению, их typedef должен быть уже виден.
@@ -1838,6 +1845,14 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// stringsplit.go).
 	appendCodeIf(&sb, ctx.usesStringSplit, stringsplit.Helper(mangleType(stringsplit.ResultType),
 		mangleMethod(stringsplit.ResultType, "добавить"), rtmsg.SplitEmptySeparator))
+	// rech_header_values - "значения_заголовка" (httpheaders.go) - та же
+	// generic-инстанциация "Список<Строка>", что и у "разбить"
+	// (stringsplit.ResultType, идентичная строка - resolveTypeName
+	// идемпотентен, см. package doc registerHeaderValuesTypeOnCall,
+	// internal/semantic/httpheaders.go) - typedef/метод "добавить" уже
+	// эмитированы выше, тем же genericsCode, что и для usesStringSplit.
+	appendCodeIf(&sb, ctx.usesHTTPHeaderValues, httpwire.HeaderValuesHelper(mangleType(stringsplit.ResultType),
+		mangleMethod(stringsplit.ResultType, "добавить")))
 	// После genericsCodeAfterEntities выше (не только genericsCode) -
 	// rech_regex_find_all использует typedef/метод "добавить" Список<
 	// Совпадение> (элемент - сущность "Совпадение", см. её package doc

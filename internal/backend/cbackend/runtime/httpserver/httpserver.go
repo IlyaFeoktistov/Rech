@@ -1,6 +1,22 @@
 package httpserver
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
+)
+
+// reasonPhraseSwitchCases - "case <код>: return \"<фраза>\";\n" для каждой
+// строки rtmsg.HTTPReasonPhrasesForC() - единая точка истины (rtmsg.go)
+// между этим C-switch'ем и interp (Go-карта напрямую), см. её package doc.
+func reasonPhraseSwitchCases() string {
+	var sb strings.Builder
+	for _, entry := range rtmsg.HTTPReasonPhrasesForC() {
+		fmt.Fprintf(&sb, "    case %d: return \"%s\";\n", entry.Code, entry.Phrase)
+	}
+	return sb.String()
+}
 
 // Helpers - "принять_http"/"отправить_http_ответ" (см.
 // internal/semantic/httpserver.go, package doc) - минимальный HTTP-сервер
@@ -289,19 +305,72 @@ static %[7]s rech_http_accept_request(rech_socket_t s) {
     return req;
 }
 
-// "Connection: keep-alive" (не "close") - сервер всегда ГОТОВ обслужить
-// следующий запрос на этом же соединении - решает, действительно ли
-// читать следующий запрос или закрыть сокет, вызывающий Rech-код (см.
+// rech_http_reason_phrase - фраза-причина статус-строки (RFC 7230 §3.1.2 -
+// значения не имеет для обработки, только для человека/лога, но до
+// 2026-09-20 была захардкожена как буквальная "OK" НЕЗАВИСИМО от кода
+// ("HTTP/1.1 404 OK" вместо "HTTP/1.1 404 Not Found") - живая находка при
+// аудите поддержки заголовков. Таблица - rtmsg.HTTPReasonPhrase
+// (internal/rtmsg/http.go), единая для этого C-switch'а и interp.
+static const char *rech_http_reason_phrase(long long code) {
+    switch (code) {
+%[13]s    }
+    if (code >= 100 && code < 200) return "Informational";
+    if (code >= 200 && code < 300) return "Success";
+    if (code >= 300 && code < 400) return "Redirection";
+    if (code >= 400 && code < 500) return "Client Error";
+    if (code >= 500 && code < 600) return "Server Error";
+    return "Unknown";
+}
+
+// rech_header_present - использует rech_header_line_matches (httpheaders.go,
+// эмитирована раньше вызывающей стороной, ir_generator.go) - "уже задал ли
+// пользователь заголовок с этим именем сам" - см. rech_http_send_response
+// ниже.
+static int rech_header_present(const char *headers, const char *name) {
+    size_t name_len = strlen(name);
+    const char *line = headers;
+    while (line != NULL) {
+        const char *line_end = strstr(line, "\r\n");
+        size_t line_len = line_end ? (size_t)(line_end - line) : strlen(line);
+        if (rech_header_line_matches(line, line_len, name, name_len)) {
+            return 1;
+        }
+        if (!line_end) break;
+        line = line_end + 2;
+    }
+    return 0;
+}
+
+// "Connection: keep-alive" (не "close") ПО УМОЛЧАНИЮ - сервер ГОТОВ
+// обслужить следующий запрос на этом же соединении - решает, действительно
+// ли читать следующий запрос или закрыть сокет, вызывающий Rech-код (см.
 // examples/проекты/http_сервер, "обработать_соединение" - проверяет
 // "Connection" ВХОДЯЩЕГО запроса через "значение_заголовка"), не рантайм.
+// И "Connection", и "Content-Length" - только ПОДРАЗУМЕВАЕМОЕ умолчание:
+// до 2026-09-20 добавлялись БЕЗУСЛОВНО поверх заголовков пользователя, без
+// проверки на коллизию - если Rech-программа сама задавала любой из них в
+// "заголовки" ответа (например, свой "Connection" со значением close,
+// чтобы РЕАЛЬНО известить клиента о закрытии - раньше это было НЕВОЗМОЖНО
+// в принципе), в
+// ответе оказывались ДВА одинаковых заголовка (неопределённое поведение
+// клиента) - живая находка при аудите. Теперь rech_header_present решает,
+// нужна ли своя строка вообще, для каждого из двух независимо.
 static void rech_http_send_response(rech_socket_t s, %[8]s resp) {
     size_t body_len = strlen(resp.%[6]s);
     const char *hdr_sep = resp.%[4]s[0] ? "\r\n" : "";
-    int need = snprintf(NULL, 0, "HTTP/1.1 %%lld OK\r\n%%s%%sConnection: keep-alive\r\nContent-Length: %%lld\r\n\r\n",
-        (long long)resp.%[9]s, resp.%[4]s, hdr_sep, (long long)body_len);
+    const char *conn_line = rech_header_present(resp.%[4]s, "Connection") ? "" : "Connection: keep-alive\r\n";
+    char len_line[64];
+    if (rech_header_present(resp.%[4]s, "Content-Length")) {
+        len_line[0] = '\0';
+    } else {
+        snprintf(len_line, sizeof(len_line), "Content-Length: %%lld\r\n", (long long)body_len);
+    }
+    const char *reason = rech_http_reason_phrase((long long)resp.%[9]s);
+    int need = snprintf(NULL, 0, "HTTP/1.1 %%lld %%s\r\n%%s%%s%%s%%s\r\n",
+        (long long)resp.%[9]s, reason, resp.%[4]s, hdr_sep, conn_line, len_line);
     char *head = malloc((size_t)need + 1);
-    snprintf(head, (size_t)need + 1, "HTTP/1.1 %%lld OK\r\n%%s%%sConnection: keep-alive\r\nContent-Length: %%lld\r\n\r\n",
-        (long long)resp.%[9]s, resp.%[4]s, hdr_sep, (long long)body_len);
+    snprintf(head, (size_t)need + 1, "HTTP/1.1 %%lld %%s\r\n%%s%%s%%s%%s\r\n",
+        (long long)resp.%[9]s, reason, resp.%[4]s, hdr_sep, conn_line, len_line);
     char *full = malloc((size_t)need + body_len + 1);
     memcpy(full, head, (size_t)need);
     memcpy(full + need, resp.%[6]s, body_len);
@@ -311,7 +380,7 @@ static void rech_http_send_response(rech_socket_t s, %[8]s resp) {
 }
 `, methodField, pathField, addrField, headersField,
 		portField, bodyField, requestType, responseType,
-		codeField, recvFailedMsg, maxRequestBytes, requestTooLargeMsg)
+		codeField, recvFailedMsg, maxRequestBytes, requestTooLargeMsg, reasonPhraseSwitchCases())
 }
 
 // QueryParamsDictType - см. internal/semantic/httpserver.go,

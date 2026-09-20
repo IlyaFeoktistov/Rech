@@ -353,3 +353,43 @@ func TestRunQueryParamsBuiltin(t *testing.T) {
 		t.Fatalf("получено %q, хотели %q", got, want)
 	}
 }
+
+// TestHTTPResponseHeadUsesRealReasonPhrase - до 2026-09-20 фраза-причина
+// была буквальной "OK" независимо от кода ("HTTP/1.1 404 OK" вместо
+// "HTTP/1.1 404 Not Found") - живая находка при аудите поддержки
+// заголовков.
+func TestHTTPResponseHeadUsesRealReasonPhrase(t *testing.T) {
+	head := httpResponseHead(404, "", 0)
+	if !strings.HasPrefix(head, "HTTP/1.1 404 Not Found\r\n") {
+		t.Fatalf("получено %q, ожидалась настоящая фраза-причина \"Not Found\"", head)
+	}
+}
+
+// TestHTTPResponseHeadRespectsUserSuppliedConnection - до 2026-09-20
+// "Connection"/"Content-Length" добавлялись БЕЗУСЛОВНО поверх заголовков
+// пользователя - если Rech-программа сама задавала "Connection" (например,
+// close, чтобы РЕАЛЬНО известить клиента о закрытии), в ответе оказывались
+// ДВА одинаковых заголовка. Теперь свой заголовок побеждает, рантайм не
+// добавляет дубликат.
+func TestHTTPResponseHeadRespectsUserSuppliedConnection(t *testing.T) {
+	head := httpResponseHead(200, "Connection: close", 5)
+	if strings.Count(head, "Connection:") != 1 {
+		t.Fatalf("получено %q, ожидался ровно один заголовок \"Connection:\"", head)
+	}
+	if !strings.Contains(head, "Connection: close") {
+		t.Fatalf("получено %q, ожидался пользовательский \"Connection: close\", не перезаписанный", head)
+	}
+}
+
+// TestHTTPResponseHeadAddsDefaultsWhenAbsent - без заголовков пользователя
+// рантайм по-прежнему добавляет свои "Connection: keep-alive"/
+// "Content-Length" - поведение по умолчанию не изменилось.
+func TestHTTPResponseHeadAddsDefaultsWhenAbsent(t *testing.T) {
+	head := httpResponseHead(200, "", 5)
+	if !strings.Contains(head, "Connection: keep-alive\r\n") {
+		t.Fatalf("получено %q, ожидался \"Connection: keep-alive\" по умолчанию", head)
+	}
+	if !strings.Contains(head, "Content-Length: 5\r\n") {
+		t.Fatalf("получено %q, ожидался \"Content-Length: 5\" по умолчанию", head)
+	}
+}

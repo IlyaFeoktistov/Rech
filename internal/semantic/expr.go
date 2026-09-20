@@ -607,6 +607,11 @@ func analyzeCallExpr(sc *ctx, e *ast.CallExpr) (ir.Expr, error) {
 				return nil, fmt.Errorf("строка %d: встроенная функция \"разбить\": %w", e.Line, err)
 			}
 		}
+		if callee == "значения_заголовка" {
+			if err := registerHeaderValuesTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
+				return nil, fmt.Errorf("строка %d: встроенная функция \"значения_заголовка\": %w", e.Line, err)
+			}
+		}
 		if callee == "регулярное" {
 			if err := registerRegexTypesOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
 				return nil, fmt.Errorf("строка %d: встроенная функция \"регулярное\": %w", e.Line, err)
