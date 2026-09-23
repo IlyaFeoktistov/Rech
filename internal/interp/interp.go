@@ -156,14 +156,9 @@ func (o *entityObj) clearState(name string) {
 type collection struct {
 	template string
 	elems    []Value
-	// pairs - хранилище "Словарь<К, В>" - непусто (инициализировано
-	// evalNewExpr) только при template == "Словарь". Value как ключ Go-map
-	// сравним напрямую (==) для примитивных типов ключа Словаря (Целое/
-	// Строка/Байт/Символ/Логическое, см. internal/semantic.dictKeyKinds) -
-	// указательные поля Value (Obj/File/Listener/Conn/Task/Callable) у них
-	// всегда nil, значит сравнение всей структуры корректно отражает
-	// равенство самого значения ключа.
-	pairs map[Value]Value
+	// pairs - хранилище "Словарь<К, В>" (dictPairs) - непусто
+	// (инициализировано evalNewExpr) только при template == "Словарь".
+	pairs *dictPairs
 }
 
 // Value - значение во время исполнения. Структура (не interface{}) по тому

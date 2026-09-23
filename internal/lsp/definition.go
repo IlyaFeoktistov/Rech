@@ -174,6 +174,9 @@ func collectVarDeclLines(stmts []ir.Stmt, maxLine int, out map[string]int) {
 			collectVarDeclLines(s.Body, maxLine, out)
 		case *ir.ForEachStmt:
 			if s.Line <= maxLine {
+				if s.KeyVar != "" {
+					out[s.KeyVar] = s.Line
+				}
 				out[s.Var] = s.Line
 			}
 			collectVarDeclLines(s.Body, maxLine, out)

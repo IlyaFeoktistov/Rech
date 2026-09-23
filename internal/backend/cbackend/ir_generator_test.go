@@ -838,6 +838,7 @@ func TestGenerateFromIRFileForEach(t *testing.T) {
 	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
 		&ir.VarDecl{Name: "ф", Value: &ir.CallExpr{Callee: "открыть", Args: []ir.Expr{&ir.StringLiteral{Value: "путь"}}, Type: ir.TypeFile, HasReturn: true}},
 		&ir.ForEachStmt{
+			Kind:       ir.ForEachFile,
 			Var:        "строка",
 			Collection: &ir.Identifier{Name: "ф", Type: ir.TypeFile},
 			ElemType:   ir.TypeString,

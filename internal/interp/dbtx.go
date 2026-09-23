@@ -102,9 +102,9 @@ func (in *Interp) dbTxQuery(state *dbTxState, sqlText string, params []Value) Va
 		if err := rows.Scan(scanTargets...); err != nil {
 			panicRuntime("%s", rtmsg.DBQueryFailedFormat(sqlText))
 		}
-		pairs := make(map[Value]Value, len(cols))
+		pairs := newDictPairs()
 		for i, col := range cols {
-			pairs[stringValue(col)] = dbBoxColumnValue(scanValues[i])
+			pairs.set(stringValue(col), dbBoxColumnValue(scanValues[i]))
 		}
 		rowElems = append(rowElems, Value{
 			Type: ir.EntityType(dbRowType),

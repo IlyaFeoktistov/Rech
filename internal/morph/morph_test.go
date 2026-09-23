@@ -401,10 +401,40 @@ func TestDictionaryRegisterVerb(t *testing.T) {
 	}
 }
 
-func TestRegisterNounAmbiguousRequiresExplicit(t *testing.T) {
-	d := NewDictionary()
-	if err := d.RegisterNoun("дверь", Inanimate); err == nil {
-		t.Fatal("RegisterNoun(дверь) без словаря исключений должен вернуть ошибку - класс на \"-ь\" женского рода (ClassThirdSoft) не реализован (Фаза B), даже если gomorphy верно определил род")
+// TestRegisterNounThirdDeclension - женский род на "-ь" (род - из
+// gomorphy, парадигма - ClassThirdSoft), включая "а" вместо "я" в мн.ч.
+// после шипящей основы.
+func TestRegisterNounThirdDeclension(t *testing.T) {
+	if sharedGomorphy == nil {
+		t.Skip("gomorphy не инициализировался (нет встроенного словаря) - пропускаем")
+	}
+	cases := []struct {
+		word, form string
+		tag        Tag
+	}{
+		{"очередь", "очереди", Tag{Prepositional, Singular}},
+		{"очередь", "очередью", Tag{Instrumental, Singular}},
+		{"очередь", "очередь", Tag{Accusative, Singular}},
+		{"дверь", "дверям", Tag{Dative, Plural}},
+		{"вещь", "вещах", Tag{Prepositional, Plural}},
+		{"вещь", "вещей", Tag{Genitive, Plural}},
+		{"мощь", "мощью", Tag{Instrumental, Singular}},
+		{"мощь", "мощах", Tag{Prepositional, Plural}},
+	}
+	for _, c := range cases {
+		d := NewDictionary()
+		if err := d.RegisterNoun(c.word, Inanimate); err != nil {
+			t.Fatalf("RegisterNoun(%s): %v", c.word, err)
+		}
+		found := false
+		for _, a := range d.Analyze(c.form) {
+			if a.Lemma == c.word && a.Tag == c.tag {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Analyze(%s) = %v, ожидалась форма %v леммы %q", c.form, d.Analyze(c.form), c.tag, c.word)
+		}
 	}
 }
 
@@ -509,5 +539,35 @@ func TestActiveParticipleAgreement(t *testing.T) {
 
 	if _, err := ActiveParticipleAgreement("авторизован", Masculine, Singular); err == nil {
 		t.Error("ActiveParticipleAgreement(авторизован, ...) - ожидалась ошибка (не оканчивается на \"-ший\"), получено nil")
+	}
+}
+
+// TestSpellingNoYAfterVelarsAndHushing - "ы" в окончании после г/к/х/ж/ш/
+// ч/щ пишется как "и" ("ключи", не "ключы"; "книги", не "книгы").
+func TestSpellingNoYAfterVelarsAndHushing(t *testing.T) {
+	cases := []struct {
+		word string
+		tag  Tag
+		want string
+	}{
+		{"ключ", Tag{Nominative, Plural}, "ключи"},
+		{"нож", Tag{Nominative, Plural}, "ножи"},
+		{"книга", Tag{Genitive, Singular}, "книги"},
+		{"книга", Tag{Nominative, Plural}, "книги"},
+		{"задача", Tag{Genitive, Singular}, "задачи"},
+		{"документ", Tag{Nominative, Plural}, "документы"},
+	}
+	for _, c := range cases {
+		class, ok := ClassifyByEnding(c.word)
+		if !ok {
+			t.Fatalf("ClassifyByEnding(%s) не классифицировал", c.word)
+		}
+		p, err := BuildNounParadigm(c.word, class, Inanimate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := p[c.tag]; got != c.want {
+			t.Errorf("%s %v = %q, ожидалось %q", c.word, c.tag, got, c.want)
+		}
 	}
 }

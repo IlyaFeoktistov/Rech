@@ -98,7 +98,7 @@ func (d *Dictionary) RegisterNoun(nomSg string, animacy Animacy) error {
 			if gender == Masculine {
 				return d.RegisterNounExplicit(nomSg, ClassFirstSoft, Masculine, animacy)
 			}
-			return fmt.Errorf("%q определено как женский род на \"-ь\" (по словарю OpenCorpora) - такой класс склонения относится к Фазе B и пока не реализован; зарегистрируйте через RegisterNounExplicit с готовой парадигмой", nomSg)
+			return d.RegisterNounExplicit(nomSg, ClassThirdSoft, Feminine, animacy)
 		}
 	}
 	if hasPluralEnding(nomSg) {

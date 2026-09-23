@@ -533,6 +533,7 @@ func genericMethodSigs(template string, elem ir.Type) (map[string]funcSig, bool)
 			"верх":     {ReturnType: elem, HasReturn: true},
 			"длина":    {ReturnType: ir.TypeInt, HasReturn: true},
 			"пусто":    {ReturnType: ir.TypeBool, HasReturn: true},
+			"значения": {ReturnType: collectionListType(elem), HasReturn: true},
 		}, true
 	case "Очередь":
 		return map[string]funcSig{
@@ -541,6 +542,7 @@ func genericMethodSigs(template string, elem ir.Type) (map[string]funcSig, bool)
 			"первый":   {ReturnType: elem, HasReturn: true},
 			"длина":    {ReturnType: ir.TypeInt, HasReturn: true},
 			"пусто":    {ReturnType: ir.TypeBool, HasReturn: true},
+			"значения": {ReturnType: collectionListType(elem), HasReturn: true},
 		}, true
 	default:
 		return nil, false
@@ -689,6 +691,8 @@ func resolveDictTypeName(entities map[string]entitySig, methods map[string]map[s
 			"удалить":    {Params: []ir.Type{key}},
 			"длина":      {ReturnType: ir.TypeInt, HasReturn: true},
 			"пусто":      {ReturnType: ir.TypeBool, HasReturn: true},
+			"ключи":      {ReturnType: collectionListType(key), HasReturn: true},
+			"значения":   {ReturnType: collectionListType(val), HasReturn: true},
 		}
 		// "равен" - см. package doc entitySig.Equatable/elemEquatable
 		// (cast.go) - тот же принцип, что и у "Список<T>"

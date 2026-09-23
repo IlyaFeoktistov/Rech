@@ -751,17 +751,25 @@ func (p *Parser) parseWhileStmt() (ast.Stmt, error) {
 // следует за именем переменной цикла: "в" (parseForEachStmt), "от"
 // (диапазон, ниже) или что угодно ещё (общий C-подобный цикл,
 // parseCStyleForStmt) - определяется заглядыванием на 2 токена вперёд
-// (IDENT + "в"/"от"), НЕ потребляя имя заранее, иначе для C-подобной формы
+// (IDENT + "в"/"от"; IDENT "," IDENT "в" - цикл по коллекции с двумя
+// переменными), НЕ потребляя имя заранее, иначе для C-подобной формы
 // пришлось бы возвращать уже считанный токен имени назад.
 func (p *Parser) parseForStmt() (ast.Stmt, error) {
 	kw, err := p.expect(lexer.KwFor)
 	if err != nil {
 		return nil, err
 	}
+	if p.cur().Type == lexer.IDENT && p.peekAt(1).Type == lexer.COMMA && p.peekAt(2).Type == lexer.IDENT && p.peekAt(3).Type == lexer.KwIn {
+		key := p.advance()
+		p.advance() // ","
+		name := p.advance()
+		p.registerNoun(key.Value)
+		return p.parseForEachStmt(kw, key.Value, name)
+	}
 	if p.cur().Type == lexer.IDENT && (p.peekAt(1).Type == lexer.KwIn || p.peekAt(1).Type == lexer.KwFrom) {
 		name := p.advance()
 		if p.cur().Type == lexer.KwIn {
-			return p.parseForEachStmt(kw, name)
+			return p.parseForEachStmt(kw, "", name)
 		}
 		p.advance() // "от"
 		from, err := p.parseExpr()
@@ -876,14 +884,16 @@ func (p *Parser) parseForInitStmt() (*ast.VarDecl, error) {
 // parseForEachStmt разбирает цикл по коллекции (шаг 4.2.b):
 //
 //	для <имя> в <коллекция:P> { <тело> }
+//	для <ключ>, <имя> в <коллекция:P> { <тело> }
 //
-// Позиция парсера на входе - на "в" (kw и name уже разобраны parseForStmt).
+// Позиция парсера на входе - на "в" (kw, key и name уже разобраны
+// parseForStmt; key пуст у формы с одной переменной).
 // Слово после "в" - существительное в предложном падеже (согласование с
 // предлогом, живее, чем голая словарная форма "в список"), резолвится в
 // переменную через resolvePrepositionalNoun - тот же механизм падежного
 // сопоставления, что и у аргументов естественного вызова (шаг 3.4), а не
 // совпадение текста.
-func (p *Parser) parseForEachStmt(kw lexer.Token, name lexer.Token) (ast.Stmt, error) {
+func (p *Parser) parseForEachStmt(kw lexer.Token, key string, name lexer.Token) (ast.Stmt, error) {
 	p.advance() // "в"
 	collTok, err := p.expect(lexer.IDENT)
 	if err != nil {
@@ -900,6 +910,7 @@ func (p *Parser) parseForEachStmt(kw lexer.Token, name lexer.Token) (ast.Stmt, e
 		return nil, err
 	}
 	return &ast.ForEachStmt{
+		KeyVar:     key,
 		Var:        name.Value,
 		Collection: &ast.Identifier{Name: lemma, Line: collTok.Line},
 		Body:       body,
@@ -943,7 +954,10 @@ func (p *Parser) resolvePrepositionalNoun(tok lexer.Token) (string, error) {
 		lemma = a.Lemma
 	}
 	if lemma == "" {
-		return "", errAt(tok.Line, tok.Col, CodeNaturalCall, "%q не распознано как существительное в предложном падеже (ожидалась переменная-коллекция после \"в\")", tok.Value)
+		// Словоформа известна, но не как предложный падеж ("задачи" -
+		// род. ед./им. мн. от "задача") - сопоставление с переменной
+		// буквально, тем же путём, что и у неизвестного слова выше.
+		return tok.Value, nil
 	}
 	return lemma, nil
 }

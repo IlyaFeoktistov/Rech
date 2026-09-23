@@ -205,21 +205,28 @@ static bool %[8]s(%[2]s *this_) {
 `, elemC, structC, addMethod, removeMethod, firstMethod, lengthMethod, onEmptyMsg, emptyMethod)
 }
 
-// DictCollectionCode строит C-текст для "Словарь<К, В>" - открытая
-// адресация с линейным пробированием и надгробиями (state: 0 - пусто, 1 -
-// занято, 2 - удалено) - тот же принцип "растущий буфер через GC_MALLOC"
-// (см. package doc ListCollectionCode - тот же риск преждевременной
-// сборки мусора у entity-значения, та же причина не использовать голый
-// calloc/free), что и у списочных коллекций выше, но с рехешированием
-// вместо простого удвоения (перестройка слотов при росте - индекс зависит
-// от cap; старый блок слотов сам станет мусором, не free() вручную).
-// isStringKey переключает hash/eq на strcmp/FNV-1a над байтами C-строки
-// вместо прямого сравнения/умножения значения - единственное отличие
-// между строковым и целочисленным (Целое/Байт/Символ/Логическое) ключом,
-// оба уже приведены к общему для printf-независимого кода C-типу keyC
+// DictCollectionCode строит C-текст для "Словарь<К, В>" - компактная
+// хеш-таблица: записи (slots) лежат плотным массивом в порядке вставки
+// (state: 1 - занято, 2 - удалено), отдельная таблица index (открытая
+// адресация с линейным пробированием) хранит номер записи +1 (0 - пустая
+// ячейка, -1 - надгробие). Порядок вставки нужен циклу "для к, з в
+// словаре" (generateIRForEachStmt) - тот же, что и у interp (dictPairs).
+// Тот же принцип "растущий буфер через GC_MALLOC" (см. package doc
+// ListCollectionCode - риск преждевременной сборки мусора у
+// entity-значения, причина не использовать голый calloc/free), что и у
+// списочных коллекций выше. Перестройка (resize) сразу и уплотняет
+// записи (выбрасывает удалённые), и перехеширует index - при заполнении
+// записями 70% index; размер удваивается, только если живых записей
+// больше половины этого порога, иначе перестройка на том же размере
+// просто убирает удалённые. isStringKey переключает hash/eq на strcmp/
+// FNV-1a над байтами C-строки вместо прямого сравнения/умножения значения
+// - единственное отличие между строковым и целочисленным (Целое/Байт/
+// Символ/Логическое) ключом, оба уже приведены к общему C-типу keyC
 // вызывающей стороной (ir_generator.go). structC/setMethod/getMethod/
 // hasMethod/delMethod/lengthMethod/emptyMethod/notFoundMsg - уже
 // вычислены вызывающей стороной (mangleType/mangleMethod/escapeCString).
+// "<structC>_find" возвращает номер записи в slots (-1 - ключа нет) -
+// его используют DictIndexSafeGetCode и "равен" (collection_eq.go).
 func DictCollectionCode(keyC, valC, structC, setMethod, getMethod, hasMethod, delMethod,
 	lengthMethod, emptyMethod, notFoundMsg string, isStringKey bool) string {
 	slotType := structC + "_slot"
@@ -227,6 +234,7 @@ func DictCollectionCode(keyC, valC, structC, setMethod, getMethod, hasMethod, de
 	eqFn := structC + "_eq"
 	resizeFn := structC + "_resize"
 	findFn := structC + "_find"
+	bucketFn := structC + "_bucket"
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb, `typedef struct {
@@ -237,9 +245,10 @@ func DictCollectionCode(keyC, valC, structC, setMethod, getMethod, hasMethod, de
 
 struct %[4]s {
     %[3]s *slots;
-    long long cap;
+    long long len;
     long long count;
-    long long used;
+    long long *index;
+    long long cap;
 };
 
 `, keyC, valC, slotType, structC)
@@ -273,36 +282,36 @@ static bool %[3]s(%[2]s a, %[2]s b) {
 
 	fmt.Fprintf(&sb, `static void %[1]s(%[2]s *this_, long long newcap) {
     %[3]s *old = this_->slots;
-    long long oldcap = this_->cap;
+    long long oldlen = this_->len;
     this_->slots = GC_MALLOC((size_t)newcap * sizeof(%[3]s));
+    this_->index = GC_MALLOC((size_t)newcap * sizeof(long long));
     this_->cap = newcap;
-    this_->count = 0;
-    this_->used = 0;
-    for (long long i = 0; i < oldcap; i++) {
-        if (old[i].state == 1) {
-            long long idx = (long long)(%[4]s(old[i].key) %% (unsigned long long)newcap);
-            while (this_->slots[idx].state == 1) {
-                idx = (idx + 1) %% newcap;
-            }
-            this_->slots[idx].state = 1;
-            this_->slots[idx].key = old[i].key;
-            this_->slots[idx].value = old[i].value;
-            this_->count++;
-            this_->used++;
+    this_->len = 0;
+    for (long long i = 0; i < oldlen; i++) {
+        if (old[i].state != 1) {
+            continue;
         }
+        long long e = this_->len++;
+        this_->slots[e] = old[i];
+        long long idx = (long long)(%[4]s(old[i].key) %% (unsigned long long)newcap);
+        while (this_->index[idx] != 0) {
+            idx = (idx + 1) %% newcap;
+        }
+        this_->index[idx] = e + 1;
     }
 }
 
-static long long %[5]s(%[2]s *this_, %[6]s key) {
+static long long %[16]s(%[2]s *this_, %[6]s key) {
     if (this_->cap == 0) {
         return -1;
     }
     long long idx = (long long)(%[4]s(key) %% (unsigned long long)this_->cap);
     for (long long probes = 0; probes < this_->cap; probes++) {
-        if (this_->slots[idx].state == 0) {
+        long long e = this_->index[idx];
+        if (e == 0) {
             return -1;
         }
-        if (this_->slots[idx].state == 1 && %[7]s(this_->slots[idx].key, key)) {
+        if (e > 0 && %[7]s(this_->slots[e - 1].key, key)) {
             return idx;
         }
         idx = (idx + 1) %% this_->cap;
@@ -310,41 +319,42 @@ static long long %[5]s(%[2]s *this_, %[6]s key) {
     return -1;
 }
 
+static long long %[5]s(%[2]s *this_, %[6]s key) {
+    long long b = %[16]s(this_, key);
+    return b < 0 ? -1 : this_->index[b] - 1;
+}
+
 static void %[8]s(%[2]s *this_, %[6]s key, %[9]s value) {
-    if (this_->cap == 0 || this_->used * 10 >= this_->cap * 7) {
-        %[1]s(this_, this_->cap == 0 ? 8 : this_->cap * 2);
+    long long e = %[5]s(this_, key);
+    if (e >= 0) {
+        this_->slots[e].value = value;
+        return;
     }
+    if (this_->cap == 0 || (this_->len + 1) * 10 > this_->cap * 7) {
+        long long newcap = this_->cap == 0 ? 8 : this_->cap;
+        if ((this_->count + 1) * 20 > newcap * 7) {
+            newcap *= 2;
+        }
+        %[1]s(this_, newcap);
+    }
+    e = this_->len++;
+    this_->slots[e].state = 1;
+    this_->slots[e].key = key;
+    this_->slots[e].value = value;
+    this_->count++;
     long long idx = (long long)(%[4]s(key) %% (unsigned long long)this_->cap);
-    long long firstDeleted = -1;
-    for (;;) {
-        if (this_->slots[idx].state == 0) {
-            long long target = firstDeleted != -1 ? firstDeleted : idx;
-            if (firstDeleted == -1) {
-                this_->used++;
-            }
-            this_->slots[target].state = 1;
-            this_->slots[target].key = key;
-            this_->slots[target].value = value;
-            this_->count++;
-            return;
-        }
-        if (this_->slots[idx].state == 1 && %[7]s(this_->slots[idx].key, key)) {
-            this_->slots[idx].value = value;
-            return;
-        }
-        if (this_->slots[idx].state == 2 && firstDeleted == -1) {
-            firstDeleted = idx;
-        }
+    while (this_->index[idx] > 0) {
         idx = (idx + 1) %% this_->cap;
     }
+    this_->index[idx] = e + 1;
 }
 
 static %[9]s %[10]s(%[2]s *this_, %[6]s key) {
-    long long idx = %[5]s(this_, key);
-    if (idx < 0) {
+    long long e = %[5]s(this_, key);
+    if (e < 0) {
         rech_panic("%[11]s");
     }
-    return this_->slots[idx].value;
+    return this_->slots[e].value;
 }
 
 static bool %[12]s(%[2]s *this_, %[6]s key) {
@@ -352,9 +362,12 @@ static bool %[12]s(%[2]s *this_, %[6]s key) {
 }
 
 static void %[13]s(%[2]s *this_, %[6]s key) {
-    long long idx = %[5]s(this_, key);
-    if (idx >= 0) {
-        this_->slots[idx].state = 2;
+    long long b = %[16]s(this_, key);
+    if (b >= 0) {
+        long long e = this_->index[b] - 1;
+        memset(&this_->slots[e], 0, sizeof(%[3]s));
+        this_->slots[e].state = 2;
+        this_->index[b] = -1;
         this_->count--;
     }
 }
@@ -367,7 +380,7 @@ static bool %[15]s(%[2]s *this_) {
     return this_->count == 0;
 }
 
-`, resizeFn, structC, slotType, hashFn, findFn, keyC, eqFn, setMethod, valC, getMethod, notFoundMsg, hasMethod, delMethod, lengthMethod, emptyMethod)
+`, resizeFn, structC, slotType, hashFn, findFn, keyC, eqFn, setMethod, valC, getMethod, notFoundMsg, hasMethod, delMethod, lengthMethod, emptyMethod, bucketFn)
 
 	return sb.String()
 }
@@ -389,4 +402,32 @@ func GenericCtorCode(structC, ctorName string) string {
 }
 
 `, structC, ctorName)
+}
+
+// toListLoops - заголовок цикла и выражение элемента для ToListCode по
+// виду метода: порядок тот же, что у "для x в ..." (generateIRForEachStmt).
+var toListLoops = map[string][2]string{
+	"stack":      {"for (long long i = this_->len - 1; i >= 0; i--) {", "this_->data[i]"},
+	"queue":      {"for (long long i = 0; i < this_->len; i++) {", "this_->data[i]"},
+	"dictKeys":   {"for (long long i = 0; i < this_->len; i++) {\n        if (this_->slots[i].state != 1) { continue; }", "this_->slots[i].key"},
+	"dictValues": {"for (long long i = 0; i < this_->len; i++) {\n        if (this_->slots[i].state != 1) { continue; }", "this_->slots[i].value"},
+}
+
+// ToListCode строит C-текст метода "ключи()"/"значения()" (fn) коллекции
+// structC - новый Список (listStructC, его конструктор listCtor и
+// "добавить" listAdd) с элементами в порядке обхода. kind - ключ
+// toListLoops. Эмитится после всех generic-коллекций (нужен готовый
+// Список<T> результата, который может идти в тексте позже самой
+// коллекции).
+func ToListCode(kind, structC, fn, listStructC, listCtor, listAdd string) string {
+	loop := toListLoops[kind]
+	return fmt.Sprintf(`static %[3]s *%[2]s(%[1]s *this_) {
+    %[3]s *r = %[4]s();
+    %[6]s
+        %[5]s(r, %[7]s);
+    }
+    return r;
+}
+
+`, structC, fn, listStructC, listCtor, listAdd, loop[0], loop[1])
 }

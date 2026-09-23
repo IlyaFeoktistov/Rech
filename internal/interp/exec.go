@@ -243,22 +243,10 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 		if err != nil {
 			return ctrl{}, err
 		}
-		if collV.Type.Kind == ir.KindFile {
+		if s.Kind == ir.ForEachFile {
 			return in.execForEachFileLine(collV.File, s, env, cc)
 		}
-		elems := collV.Obj.coll.elems
-		for _, elem := range elems {
-			loopEnv := newEnv(env)
-			loopEnv.declare(s.Var, in.cloneValue(elem))
-			c, err := in.execBlock(s.Body, loopEnv, cc)
-			if err != nil {
-				return ctrl{}, err
-			}
-			if out, ok := handleLoopCtrl(c); !ok {
-				return out, nil
-			}
-		}
-		return ctrl{}, nil
+		return in.execForEachCollection(collV.Obj.coll, s, env, cc)
 
 	case *ir.CStyleForStmt:
 		loopEnv := newEnv(env)

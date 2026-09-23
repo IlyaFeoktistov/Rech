@@ -392,52 +392,7 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 		return generateIRTryStmt(sb, ctx, s, depth)
 
 	case *ir.ForEachStmt:
-		collCode, collType, err := generateIRExpr(ctx, s.Collection)
-		if err != nil {
-			return err
-		}
-		// "для <строка> в <Файл>" - потоковое построчное чтение, отдельная
-		// форма от индексированного Список<T> ниже - файл не известной
-		// заранее длины (тот же принцип, что и в cbackend.generateStmt,
-		// AST-путь).
-		if collType == typeFile {
-			ctx.usesFileIO = true
-			ctx.usesPanic = true
-			varC := mangleVar(s.Var)
-			okC := "rech_fe_ok_" + varC
-			fmt.Fprintf(sb, "%sfor (;;) {\n", ind)
-			fmt.Fprintf(sb, "%sbool %s = false;\n", indent(depth+1), okC)
-			fmt.Fprintf(sb, "%sconst char *%s = rech_read_line_from_file(%s, &%s);\n", indent(depth+1), varC, collCode, okC)
-			fmt.Fprintf(sb, "%sif (!%s) { break; }\n", indent(depth+1), okC)
-			lf := ctx.pushLoop()
-			for _, st := range s.Body {
-				if err := generateIRStmt(sb, ctx, st, depth+1); err != nil {
-					ctx.popLoop()
-					return err
-				}
-			}
-			ctx.popLoop()
-			fmt.Fprintf(sb, "%s%s: ;\n", indent(depth+1), lf.continueTarget)
-			fmt.Fprintf(sb, "%s}\n", ind)
-			fmt.Fprintf(sb, "%s%s: ;\n", ind, lf.breakTarget)
-			return nil
-		}
-		varC := mangleVar(s.Var)
-		idxC := "rech_fe_i_" + varC
-		fmt.Fprintf(sb, "%sfor (long long %s = 0; %s < %s->len; %s++) {\n", ind, idxC, idxC, collCode, idxC)
-		fmt.Fprintf(sb, "%s%s %s = %s->data[%s];\n", indent(depth+1), fromIRType(s.ElemType).cType(ctx), varC, collCode, idxC)
-		lf := ctx.pushLoop()
-		for _, st := range s.Body {
-			if err := generateIRStmt(sb, ctx, st, depth+1); err != nil {
-				ctx.popLoop()
-				return err
-			}
-		}
-		ctx.popLoop()
-		fmt.Fprintf(sb, "%s%s: ;\n", indent(depth+1), lf.continueTarget)
-		fmt.Fprintf(sb, "%s}\n", ind)
-		fmt.Fprintf(sb, "%s%s: ;\n", ind, lf.breakTarget)
-		return nil
+		return generateIRForEachStmt(sb, ctx, s, depth)
 
 	default:
 		return fmt.Errorf("генерация C из IR: инструкция %T пока не поддерживается", s)

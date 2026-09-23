@@ -58,9 +58,9 @@ func listEqualCCode(ctx *irGenCtx, g ir.GenericInstantiation) string {
 }
 
 // dictEqualCCode строит C-текст метода "равен" для конкретной инстанциации
-// "Словарь<К, В>" g - Словарь неупорядочен (открытая адресация,
-// dictCollectionCCode), поэтому сравнение идёт по КЛЮЧАМ: для каждого
-// занятого слота this_ ищет тот же ключ в other через её собственную
+// "Словарь<К, В>" g - порядок вставки на равенство не влияет, поэтому
+// сравнение идёт по КЛЮЧАМ: для каждой живой записи this_ ищет тот же
+// ключ в other через её собственную
 // "<structName>_find" (уже определена dictCollectionCCode тем же именем,
 // пересчитывать не нужно - тот же файл трансляции) и сравнивает значения.
 func dictEqualCCode(ctx *irGenCtx, g ir.GenericInstantiation) string {
@@ -72,7 +72,7 @@ func dictEqualCCode(ctx *irGenCtx, g ir.GenericInstantiation) string {
     if (this_->count != other->count) {
         return false;
     }
-    for (long long i = 0; i < this_->cap; i++) {
+    for (long long i = 0; i < this_->len; i++) {
         if (this_->slots[i].state != 1) {
             continue;
         }

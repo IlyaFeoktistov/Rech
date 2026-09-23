@@ -497,6 +497,9 @@ func analyzeMethodCallExpr(sc *ctx, e *ast.MethodCallExpr) (ir.Expr, error) {
 		if err := checkMethodVisibility(sc, typ.Entity, e.Method, sig.Visibility, e.Line); err != nil {
 			return nil, err
 		}
+		if err := registerCollectionResultType(sc, typ, sig); err != nil {
+			return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "метод %q", e.Method)
+		}
 	case ir.KindAny:
 		var ok bool
 		sig, ok = anyMethodSigs[e.Method]

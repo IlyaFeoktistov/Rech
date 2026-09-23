@@ -279,6 +279,12 @@ type Token struct {
 	Value string
 	Line  int
 	Col   int
+
+	// SpaceBefore - перед токеном в исходнике стоял пробел/комментарий
+	// (не NEWLINE - он сам токен). Нужен там, где пробел различает два
+	// прочтения: "Тип[]" (список) и "Тип []" (пустой список захвата
+	// лямбды, parseTypeName).
+	SpaceBefore bool
 }
 
 func (t TokenType) String() string {

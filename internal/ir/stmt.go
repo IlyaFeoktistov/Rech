@@ -223,11 +223,35 @@ type ForStmt struct {
 
 func (*ForStmt) stmt() {}
 
-// ForEachStmt соответствует "для <имя> в <коллекция> { <тело> }" - цикл по
-// Список<T> - Collection уже проверен как переменная-Список<T> семантическим
-// анализом, ElemType - тип её элемента (нужен backend'у для C-типа
-// переменной цикла, чтобы не искать сигнатуру коллекции заново).
+// ForEachKind - вид коллекции, по которой идёт ForEachStmt: определяет
+// порядок обхода и представление коллекции в backend'е.
+type ForEachKind int
+
+const (
+	// ForEachList - Список<T>, от первого элемента к последнему.
+	ForEachList ForEachKind = iota
+	// ForEachStack - Стопка<T>, сверху вниз (в порядке "снять").
+	ForEachStack
+	// ForEachQueue - Очередь<T>, от первого к последнему (в порядке
+	// "извлечь").
+	ForEachQueue
+	// ForEachDict - Словарь<К, В>, в порядке вставки ключей.
+	ForEachDict
+	// ForEachFile - Файл, построчно до конца файла.
+	ForEachFile
+)
+
+// ForEachStmt соответствует "для [<ключ>,] <имя> в <коллекция> { <тело> }" -
+// цикл по коллекции вида Kind. Collection уже проверен семантическим
+// анализом, ElemType - тип элемента (значения у Словаря), нужен backend'у
+// для C-типа переменной цикла, чтобы не искать сигнатуру коллекции заново.
+// KeyVar (пусто у формы с одной переменной) - ключ у Словаря (тип KeyType),
+// порядковый номер элемента в обходе с 0 у остальных видов (KeyType -
+// Целое).
 type ForEachStmt struct {
+	Kind       ForEachKind
+	KeyVar     string
+	KeyType    Type
 	Var        string
 	Collection Expr
 	ElemType   Type

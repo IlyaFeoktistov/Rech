@@ -504,7 +504,7 @@ func (d *Debugger) formatValue(v Value) string {
 		if v.Obj.coll != nil {
 			n := len(v.Obj.coll.elems)
 			if v.Obj.coll.template == "Словарь" {
-				n = len(v.Obj.coll.pairs)
+				n = v.Obj.coll.pairs.size()
 			}
 			return fmt.Sprintf("%s (%d)", v.Obj.typeName, n)
 		}
@@ -548,9 +548,9 @@ func (d *Debugger) valueChildren(v Value) []Variable {
 	}
 	if v.Obj.coll != nil {
 		if v.Obj.coll.template == "Словарь" {
-			out := make([]Variable, 0, len(v.Obj.coll.pairs))
-			for key, val := range v.Obj.coll.pairs {
-				out = append(out, d.describeVariable("["+d.formatValue(key)+"]", val))
+			out := make([]Variable, 0, v.Obj.coll.pairs.size())
+			for i, key := range v.Obj.coll.pairs.keys {
+				out = append(out, d.describeVariable("["+d.formatValue(key)+"]", v.Obj.coll.pairs.vals[i]))
 			}
 			return out
 		}

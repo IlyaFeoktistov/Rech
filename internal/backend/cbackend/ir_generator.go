@@ -866,7 +866,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// группа обязана видеть заранее - ВСЕ typedefs/typedefsAfterCallables
 	// (обе группы сущностей) - см. её появление в sb ниже, сразу после
 	// typedefsAfterCallables.
-	var genericsCode, genericsCodeAfterCallables, genericsCodeAfterEntities, indexSafeGetCode strings.Builder
+	var genericsCode, genericsCodeAfterCallables, genericsCodeAfterEntities, indexSafeGetCode, toListCode strings.Builder
 	usesGenerics := len(prog.Generics) > 0
 	// hasStructTargets - вычислена здесь (не там, где раньше использовалась
 	// единственный раз, ниже), потому что теперь нужна РАНЬШЕ - см. package
@@ -915,12 +915,14 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 				mangleMethod(g.Name, "положить"), mangleMethod(g.Name, "снять"), mangleMethod(g.Name, "верх"),
 				mangleMethod(g.Name, "длина"), mangleMethod(g.Name, "пусто"), escapeCString(rtmsg.EmptyStackOp(g.Name))))
 			dest.WriteString(collections.GenericCtorCode(structC, mangleCtor(g.Name)))
+			writeToListCode(&toListCode, generics, "stack", g, "значения", g.ElemType)
 		case "Очередь":
 			structC := mangleType(g.Name)
 			dest.WriteString(collections.QueueCollectionCode(elemC, structC,
 				mangleMethod(g.Name, "добавить"), mangleMethod(g.Name, "извлечь"), mangleMethod(g.Name, "первый"),
 				mangleMethod(g.Name, "длина"), mangleMethod(g.Name, "пусто"), escapeCString(rtmsg.EmptyQueueOp(g.Name))))
 			dest.WriteString(collections.GenericCtorCode(structC, mangleCtor(g.Name)))
+			writeToListCode(&toListCode, generics, "queue", g, "значения", g.ElemType)
 		case "Словарь":
 			keyC := fromIRType(g.KeyType).cType(ctx)
 			isStringKey := g.KeyType.Kind == ir.KindString
@@ -933,6 +935,8 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 				mangleMethod(g.Name, "удалить"), mangleMethod(g.Name, "длина"), mangleMethod(g.Name, "пусто"),
 				escapeCString(rtmsg.DictKeyNotFound(g.Name)), isStringKey))
 			dest.WriteString(collections.GenericCtorCode(structC, mangleCtor(g.Name)))
+			writeToListCode(&toListCode, generics, "dictKeys", g, "ключи", g.KeyType)
+			writeToListCode(&toListCode, generics, "dictValues", g, "значения", g.ElemType)
 			if g.Equatable {
 				dest.WriteString(dictEqualCCode(ctx, g))
 			}
@@ -1766,6 +1770,9 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// выше. До showFuncs ниже - её третий проход зовёт rech_show_<такая
 	// коллекция>, функция должна быть уже объявлена.
 	appendCodeIf(&sb, genericsCodeAfterEntities.Len() > 0, genericsCodeAfterEntities.String())
+	// После ВСЕХ групп generic-коллекций - "ключи()"/"значения()" собирают
+	// Список<T>, который может стоять в любой из них (см. writeToListCode).
+	appendCodeIf(&sb, toListCode.Len() > 0, toListCode.String())
 	// После genericsCodeAfterEntities - см. package doc callableTypedefsAfterEntities выше.
 	appendCodeIf(&sb, callableTypedefsAfterEntities.Len() > 0, callableTypedefsAfterEntities.String())
 	appendCodeIf(&sb, showProtos.Len() > 0, showProtos.String())

@@ -7,8 +7,8 @@ import (
 
 // DeclensionClass - класс склонения существительного. Фаза A (см.
 // docs/MORPHOLOGY_DESIGN.md) покрывает шесть самых частых для словаря программы
-// классов; менее частые (женский род на "-ь", "-мя"-исключения,
-// несклоняемые слова) - Фаза B.
+// классов плюс женский род на "-ь" (ClassThirdSoft); менее частые
+// ("-мя"-исключения, несклоняемые слова) - Фаза B.
 type DeclensionClass int
 
 const (
@@ -21,6 +21,7 @@ const (
 	ClassSecondSoftPlain                        // земля (жен., мягкая, голое "-я", без предшествующей "и")
 	ClassAdjHardFeminine                        // прямая (субстантивированное прилагательное, жен., твёрдая, "-ая")
 	ClassAdjSoftFeminine                        // синяя (субстантивированное прилагательное, жен., мягкая, "-яя")
+	ClassThirdSoft                              // очередь (жен., "-ь", третье склонение)
 
 	// ClassIrregular - слово зарегистрировано по готовой парадигме
 	// (nounFullExceptions в exceptions.go), не generic-классом склонения -
@@ -54,6 +55,11 @@ type classInfo struct {
 	// числе правило по одушевлённости работает одинаково для всех родов,
 	// accSg на него не влияет.
 	accSg string
+
+	// hushingPlural - после шипящей основы (ж/ш/ч/щ) окончания мн.ч.
+	// дательного/творительного/предложного пишутся через "а", не "я"
+	// ("вещь" -> "вещам"/"вещами"/"вещах", но "дверь" -> "дверям").
+	hushingPlural bool
 }
 
 var classTable = map[DeclensionClass]classInfo{
@@ -196,6 +202,51 @@ var classTable = map[DeclensionClass]classInfo{
 		},
 		accSg: "юю",
 	},
+	// ClassThirdSoft - женский род на "-ь" ("очередь", "дверь", "запись",
+	// "вещь") - род по одному окончанию неотличим от ClassFirstSoft
+	// (муж. "пользователь"), поэтому ClassifyByEnding его не выбирает -
+	// решает gomorphy (Dictionary.RegisterNoun). Вин.п. ед.ч. всегда равен
+	// именительному, в т. ч. у одушевлённых ("вижу мышь").
+	ClassThirdSoft: {
+		strip:  "ь",
+		gender: Feminine,
+		endings: endings{
+			nom:   [2]string{"ь", "и"},
+			gen:   [2]string{"и", "ей"},
+			dat:   [2]string{"и", "ям"},
+			instr: [2]string{"ью", "ями"},
+			prep:  [2]string{"и", "ях"},
+		},
+		accSg:         "ь",
+		hushingPlural: true,
+	},
+}
+
+// hushingConsonants - шипящие, после которых "я" в окончании мн.ч. у
+// classInfo.hushingPlural заменяется на "а".
+const hushingConsonants = "жшчщ"
+
+// noYConsonants - после этих согласных "ы" не пишется, только "и"
+// ("ключ" -> "ключи", "книга" -> "книги", "нож" -> "ножи").
+const noYConsonants = "гкхжшчщ"
+
+// endsWithAny - последняя буква stem входит в letters.
+func endsWithAny(stem, letters string) bool {
+	r := []rune(stem)
+	return len(r) > 0 && strings.ContainsRune(letters, r[len(r)-1])
+}
+
+// spellEnding применяет к окончанию правила правописания после основы
+// stem: "ы" -> "и" после г/к/х/ж/ш/ч/щ, и (при hushing) "я" -> "а" после
+// шипящей.
+func spellEnding(stem, ending string, hushing bool) string {
+	if strings.HasPrefix(ending, "ы") && endsWithAny(stem, noYConsonants) {
+		return "и" + strings.TrimPrefix(ending, "ы")
+	}
+	if hushing && strings.HasPrefix(ending, "я") {
+		return "а" + strings.TrimPrefix(ending, "я")
+	}
+	return ending
 }
 
 // GenderOf возвращает род, закреплённый за классом склонения.
@@ -284,9 +335,10 @@ func BuildNounParadigm(nomSg string, class DeclensionClass, animacy Animacy) (Pa
 	}
 
 	p := Paradigm{}
+	hushing := info.hushingPlural && endsWithAny(stem, hushingConsonants)
 	fill := func(c Case, e [2]string) {
-		p[Tag{c, Singular}] = stem + e[0]
-		p[Tag{c, Plural}] = stem + e[1]
+		p[Tag{c, Singular}] = stem + spellEnding(stem, e[0], false)
+		p[Tag{c, Plural}] = stem + spellEnding(stem, e[1], hushing)
 	}
 	fill(Nominative, info.endings.nom)
 	fill(Genitive, info.endings.gen)

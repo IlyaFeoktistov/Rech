@@ -496,6 +496,9 @@ func (r *rewriter) rewriteStmt(s ast.Stmt) error {
 		}
 		return r.rewriteStmts(s.Body)
 	case *ast.ForEachStmt:
+		if s.KeyVar != "" {
+			r.addLocal(s.KeyVar)
+		}
 		r.addLocal(s.Var)
 		if err := r.rewriteExpr(s.Collection); err != nil {
 			return err

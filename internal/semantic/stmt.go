@@ -71,20 +71,26 @@ func analyzeBlock(sc *ctx, stmts []ast.Stmt) ([]ir.Stmt, error) {
 	return body, nil
 }
 
+// loopVar - переменная, которую цикл объявляет в области видимости тела
+// (analyzeLoopBody).
+type loopVar struct {
+	name string
+	typ  ir.Type
+}
+
 // analyzeLoopBody запускает тело цикла (пока/для/для-в) в новой области
 // видимости и откатывает established к состоянию ДО цикла после выхода -
 // цикл может не выполниться ни разу, поэтому established, доказанное
 // только внутри тела, не гарантировано после цикла (см. package doc
-// ctx.established). declareVar == "" - без объявления переменной цикла
-// (у "пока" её нет), иначе объявляет declareVar:declareType в той же новой
-// области ДО анализа тела. Общая для WhileStmt/ForStmt/ForEachStmt (обе
-// ветки - Файл и Список<T>).
-func analyzeLoopBody(sc *ctx, declareVar string, declareType ir.Type, body []ast.Stmt, line int) ([]ir.Stmt, error) {
+// ctx.established). vars - переменные цикла (у "пока" их нет, у "для x в"
+// одна, у "для к, з в" две), объявляются в той же новой области ДО
+// анализа тела. Общая для WhileStmt/ForStmt/ForEachStmt.
+func analyzeLoopBody(sc *ctx, body []ast.Stmt, line int, vars ...loopVar) ([]ir.Stmt, error) {
 	preLoop := snapshotEstablished(sc.established)
 	sc.push()
 	sc.loopDepth++
-	if declareVar != "" {
-		if err := sc.declare(declareVar, declareType); err != nil {
+	for _, v := range vars {
+		if err := sc.declare(v.name, v.typ); err != nil {
 			sc.loopDepth--
 			sc.pop()
 			return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: line})
@@ -365,7 +371,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		// самого тела, в пределах одного прохода, накопленные по ходу
 		// established всё ещё видны (обычный sc.push/analyzeBlock/sc.pop,
 		// см. analyzeLoopBody).
-		body, err := analyzeLoopBody(sc, "", ir.Type{}, s.Body, s.Line)
+		body, err := analyzeLoopBody(sc, s.Body, s.Line)
 		sc.established = preWhile
 		if err != nil {
 			return nil, err
@@ -387,38 +393,14 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if typ := ir.TypeOf(to); typ != ir.TypeInt {
 			return nil, errAtLine(s.Line, CodeStmtCheck, "граница диапазона после \"до\" должна быть целым числом, получено %s", typ)
 		}
-		body, err := analyzeLoopBody(sc, s.Var, ir.TypeInt, s.Body, s.Line)
+		body, err := analyzeLoopBody(sc, s.Body, s.Line, loopVar{s.Var, ir.TypeInt})
 		if err != nil {
 			return nil, err
 		}
 		return &ir.ForStmt{Var: s.Var, From: from, To: to, Body: body, Line: s.Line}, nil
 
 	case *ast.ForEachStmt:
-		collection, err := analyzeExpr(sc, s.Collection)
-		if err != nil {
-			return nil, err
-		}
-		typ := ir.TypeOf(collection)
-		// "для <строка> в <Файл>" - потоковое построчное чтение (шаг 8), а
-		// не индексированный доступ, как у Список<T> ниже - файл не
-		// известной заранее длины. ElemType всегда Строка (сама строка
-		// файла), сигнатуры Список<T> здесь ни при чём.
-		if typ.Kind == ir.KindFile {
-			body, err := analyzeLoopBody(sc, s.Var, ir.TypeString, s.Body, s.Line)
-			if err != nil {
-				return nil, err
-			}
-			return &ir.ForEachStmt{Var: s.Var, Collection: collection, ElemType: ir.TypeString, Body: body, Line: s.Line}, nil
-		}
-		sig := sc.entities[typ.Entity]
-		if typ.Kind != ir.KindEntity || !sig.IsList {
-			return nil, errAtLine(s.Line, CodeStmtCheck, "цикл \"для %s в ...\" ожидает переменную-Список<T> или Файл, получен тип %s", s.Var, typ)
-		}
-		body, err := analyzeLoopBody(sc, s.Var, sig.ElemType, s.Body, s.Line)
-		if err != nil {
-			return nil, err
-		}
-		return &ir.ForEachStmt{Var: s.Var, Collection: collection, ElemType: sig.ElemType, Body: body, Line: s.Line}, nil
+		return analyzeForEachStmt(sc, s)
 
 	case *ast.CStyleForStmt:
 		// Своя область видимости (не analyzeLoopBody - переменной цикла

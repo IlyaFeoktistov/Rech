@@ -35,7 +35,7 @@ func (in *Interp) evalDictIndexExpr(e *ir.DictIndexExpr, env *Env, cc *callCtx) 
 	if err != nil {
 		return Value{}, err
 	}
-	v, ok := recv.Obj.coll.pairs[key]
+	v, ok := recv.Obj.coll.pairs.get(key)
 	if !ok {
 		return Value{Type: e.Type}, nil
 	}

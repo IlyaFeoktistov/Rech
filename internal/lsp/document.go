@@ -361,6 +361,9 @@ func collectVarDecls(stmts []ir.Stmt, maxLine int, out map[string]ir.Type) {
 			out[s.Var] = ir.TypeInt
 			collectVarDecls(s.Body, maxLine, out)
 		case *ir.ForEachStmt:
+			if s.KeyVar != "" {
+				out[s.KeyVar] = s.KeyType
+			}
 			out[s.Var] = s.ElemType
 			collectVarDecls(s.Body, maxLine, out)
 		case *ir.CStyleForStmt:

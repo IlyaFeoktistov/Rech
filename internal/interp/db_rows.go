@@ -64,7 +64,7 @@ func (in *Interp) dbRowToEntity(row Value, ent *ir.Entity) (Value, error) {
 	fields := make(map[string]Value, len(ent.Fields))
 	for _, f := range ent.Fields {
 		key := stringValue(f.SQLKey())
-		boxed, ok := row.Obj.coll.pairs[key]
+		boxed, ok := row.Obj.coll.pairs.get(key)
 		if !ok {
 			panicRuntime("%s", rtmsg.DictKeyNotFound(row.Type.String()))
 		}

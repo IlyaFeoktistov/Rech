@@ -171,6 +171,11 @@ func checkBlockManglingIn(scope map[string]string, body []ir.Stmt) error {
 			}
 		case *ir.ForEachStmt:
 			loopScope := map[string]string{}
+			if s.KeyVar != "" {
+				if err := declareMangledVar(loopScope, s.KeyVar); err != nil {
+					return err
+				}
+			}
 			if err := declareMangledVar(loopScope, s.Var); err != nil {
 				return err
 			}

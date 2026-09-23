@@ -243,18 +243,18 @@ func (in *Interp) evalAstCollectionMethod(obj *entityObj, method string, args []
 	if obj.coll.template == "Словарь" {
 		switch method {
 		case "получить":
-			v, ok := obj.coll.pairs[args[0]]
+			v, ok := obj.coll.pairs.get(args[0])
 			if !ok {
 				return Value{}, fmt.Errorf("ключ не найден в %s", obj.typeName)
 			}
 			return v, nil
 		case "содержит":
-			_, ok := obj.coll.pairs[args[0]]
+			ok := obj.coll.pairs.has(args[0])
 			return boolValue(ok), nil
 		case "длина":
-			return intValue(int64(len(obj.coll.pairs))), nil
+			return intValue(int64(obj.coll.pairs.size())), nil
 		case "пусто":
-			return boolValue(len(obj.coll.pairs) == 0), nil
+			return boolValue(obj.coll.pairs.size() == 0), nil
 		default:
 			return Value{}, fmt.Errorf("%q в Debug Console не поддерживается (изменяет словарь)", method)
 		}

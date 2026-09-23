@@ -27,7 +27,7 @@ const queryParamsDictType = "Словарь<Строка, Строка>"
 // процент-декодированием (urlDecode) - тот же алгоритм, что и
 // cbackend.rech_query_params (httpserver.go).
 func queryParams(path string) Value {
-	pairs := map[Value]Value{}
+	pairs := newDictPairs()
 	_, query, found := strings.Cut(path, "?")
 	if found {
 		for pair := range strings.SplitSeq(query, "&") {
@@ -39,7 +39,7 @@ func queryParams(path string) Value {
 			if key == "" {
 				continue
 			}
-			pairs[stringValue(key)] = stringValue(urlDecode(value))
+			pairs.set(stringValue(key), stringValue(urlDecode(value)))
 		}
 	}
 	return Value{Type: ir.EntityType(queryParamsDictType), Obj: &entityObj{typeName: queryParamsDictType, coll: &collection{template: "Словарь", pairs: pairs}}}

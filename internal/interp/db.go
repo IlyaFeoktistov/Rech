@@ -196,9 +196,9 @@ func (in *Interp) dbQuery(db *sql.DB, sqlText string, params []Value) Value {
 		if err := rows.Scan(scanTargets...); err != nil {
 			panicRuntime("%s", rtmsg.DBQueryFailedFormat(sqlText))
 		}
-		pairs := make(map[Value]Value, len(cols))
+		pairs := newDictPairs()
 		for i, col := range cols {
-			pairs[stringValue(col)] = dbBoxColumnValue(scanValues[i])
+			pairs.set(stringValue(col), dbBoxColumnValue(scanValues[i]))
 		}
 		rowElems = append(rowElems, Value{
 			Type: ir.EntityType(dbRowType),

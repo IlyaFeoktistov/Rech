@@ -18,6 +18,10 @@ type Lexer struct {
 	pos  int
 	line int
 	col  int
+
+	// skipped - next() пропустил пробелы/комментарии перед последним
+	// токеном (Token.SpaceBefore).
+	skipped bool
 }
 
 // New строит Lexer над src. Ведущий UTF-8 BOM (U+FEFF - типичный результат
@@ -64,6 +68,7 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 		if err != nil {
 			return nil, err
 		}
+		tok.SpaceBefore = l.skipped
 		tokens = append(tokens, tok)
 		if tok.Type == EOF {
 			break
@@ -73,9 +78,11 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 }
 
 func (l *Lexer) next() (Token, error) {
+	start := l.pos
 	if err := l.skipInsignificantWhitespaceAndComments(); err != nil {
 		return Token{}, err
 	}
+	l.skipped = l.pos > start
 
 	line, col := l.line, l.col
 

@@ -1638,7 +1638,7 @@ func TestAnalyzeForEachNonListFails(t *testing.T) {
 		t.Fatalf("парсер: %v", err)
 	}
 	_, err = Analyze(prog)
-	if err == nil || !strings.Contains(err.Error(), "ожидает переменную-Список<T>") {
+	if err == nil || !strings.Contains(err.Error(), "ожидает переменную-Список/Стопку/Очередь/Словарь") {
 		t.Fatalf("ожидалась ошибка про несоответствие типа коллекции, получено: %v", err)
 	}
 }

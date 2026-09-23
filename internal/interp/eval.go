@@ -498,7 +498,7 @@ func (in *Interp) evalNewExpr(e *ir.NewExpr, env *Env, cc *callCtx) (Value, erro
 func (in *Interp) newEmptyCollection(entName string, g ir.GenericInstantiation) Value {
 	coll := &collection{template: g.Template}
 	if g.Template == "Словарь" {
-		coll.pairs = map[Value]Value{}
+		coll.pairs = newDictPairs()
 	}
 	return Value{Type: ir.EntityType(entName), Obj: &entityObj{typeName: entName, coll: coll}}
 }
@@ -693,6 +693,12 @@ func (in *Interp) evalCollectionMethod(obj *entityObj, e *ir.MethodCallExpr, env
 		obj.coll.elems = obj.coll.elems[:n-1]
 		return v, nil
 
+	case "значения":
+		if obj.coll.template == "Стопка" {
+			return in.listResult(ir.TypeOf(e), reversedValues(obj.coll.elems)), nil
+		}
+		return in.listResult(ir.TypeOf(e), obj.coll.elems), nil
+
 	case "верх":
 		n := len(obj.coll.elems)
 		if n == 0 {
@@ -744,7 +750,7 @@ func (in *Interp) evalCollectionMethod(obj *entityObj, e *ir.MethodCallExpr, env
 
 // evalDictMethod - встроенные методы "Словарь<К, В>" - отдельная от
 // evalCollectionMethod функция (не общий switch), потому что хранилище
-// (obj.coll.pairs, Go map) и семантика операций (по ключу, не по индексу)
+// (obj.coll.pairs, dictPairs) и семантика операций (по ключу, не по индексу)
 // не совпадают со списочными Список/Стопка/Очередь, хотя часть имён
 // методов повторяется ("длина"/"пусто" - тот же смысл, разное хранилище).
 func (in *Interp) evalDictMethod(obj *entityObj, e *ir.MethodCallExpr, env *Env, cc *callCtx) (Value, error) {
@@ -758,32 +764,38 @@ func (in *Interp) evalDictMethod(obj *entityObj, e *ir.MethodCallExpr, env *Env,
 	}
 	switch e.Method {
 	case "установить":
-		obj.coll.pairs[args[0]] = in.cloneValue(args[1])
+		obj.coll.pairs.set(args[0], in.cloneValue(args[1]))
 		return Value{}, nil
 
 	case "получить":
-		v, ok := obj.coll.pairs[args[0]]
+		v, ok := obj.coll.pairs.get(args[0])
 		if !ok {
 			panicRuntime("%s", rtmsg.DictKeyNotFound(obj.typeName))
 		}
 		return in.cloneValue(v), nil
 
 	case "содержит":
-		_, ok := obj.coll.pairs[args[0]]
+		ok := obj.coll.pairs.has(args[0])
 		return boolValue(ok), nil
 
 	case "удалить":
-		delete(obj.coll.pairs, args[0])
+		obj.coll.pairs.del(args[0])
 		return Value{}, nil
 
 	case "длина":
-		return intValue(int64(len(obj.coll.pairs))), nil
+		return intValue(int64(obj.coll.pairs.size())), nil
 
 	case "пусто":
-		return boolValue(len(obj.coll.pairs) == 0), nil
+		return boolValue(obj.coll.pairs.size() == 0), nil
 
 	case "равен":
 		return boolValue(in.collectionsDeepEqual(obj.coll, args[0].Obj.coll)), nil
+
+	case "ключи":
+		return in.listResult(ir.TypeOf(e), obj.coll.pairs.keys), nil
+
+	case "значения":
+		return in.listResult(ir.TypeOf(e), obj.coll.pairs.vals), nil
 
 	default:
 		return Value{}, fmt.Errorf("встроенный словарь %q: неизвестный метод %q", obj.typeName, e.Method)
@@ -797,19 +809,19 @@ func (in *Interp) evalDictMethod(obj *entityObj, e *ir.MethodCallExpr, env *Env,
 // раньше - см. её package doc, l.Obj == r.Obj в общем случае KindEntity):
 // смешивать их означало бы незаметно поменять семантику уже
 // существовавшего "==" для Список/Словарь, чего не просили. a.pairs != nil
-// отличает Словарь (сравнение по ключам - хеш-таблица неупорядочена) от
+// отличает Словарь (сравнение по ключам - порядок вставки не влияет) от
 // Список/Стопка/Очередь (a.elems, поэлементно по индексу - упорядоченная
 // коллекция) - internal/semantic регистрирует "равен" только у Список и
 // Словарь (entitySig.Equatable), но сама проверка здесь годится для любого
 // collection-хранилища одинаково.
 func (in *Interp) collectionsDeepEqual(a, b *collection) bool {
 	if a.pairs != nil || b.pairs != nil {
-		if len(a.pairs) != len(b.pairs) {
+		if a.pairs.size() != b.pairs.size() {
 			return false
 		}
-		for k, v := range a.pairs {
-			bv, ok := b.pairs[k]
-			if !ok || !in.valueDeepEqual(v, bv) {
+		for i, k := range a.pairs.keys {
+			bv, ok := b.pairs.get(k)
+			if !ok || !in.valueDeepEqual(a.pairs.vals[i], bv) {
 				return false
 			}
 		}
@@ -956,9 +968,9 @@ func (in *Interp) showValue(v Value) string {
 	case ir.KindEntity:
 		if v.Obj.coll != nil {
 			if v.Obj.coll.template == "Словарь" {
-				parts := make([]string, 0, len(v.Obj.coll.pairs))
-				for key, val := range v.Obj.coll.pairs {
-					parts = append(parts, fmt.Sprintf("%s: %s", in.showValue(key), in.showValue(val)))
+				parts := make([]string, 0, v.Obj.coll.pairs.size())
+				for i, key := range v.Obj.coll.pairs.keys {
+					parts = append(parts, fmt.Sprintf("%s: %s", in.showValue(key), in.showValue(v.Obj.coll.pairs.vals[i])))
 				}
 				return fmt.Sprintf("%s {%s}", v.Obj.typeName, strings.Join(parts, ", "))
 			}
