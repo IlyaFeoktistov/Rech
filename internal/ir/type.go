@@ -308,6 +308,9 @@ func (t Type) String() string {
 		return t.Entity
 	}
 	if t.Kind == KindTask || t.Kind == KindCoroTask {
+		if t.Entity == "" {
+			return "Задача"
+		}
 		return "Задача<" + t.Entity + ">"
 	}
 	switch t.Kind {

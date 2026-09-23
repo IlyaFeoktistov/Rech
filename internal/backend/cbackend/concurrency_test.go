@@ -31,7 +31,8 @@ func TestGenerateFromIRLaunchAwaitEmitsThreadWrapper(t *testing.T) {
 	}
 	for _, want := range []string{
 		"#define GC_THREADS", "#include <gc.h>",
-		"typedef struct {\n    long long arg_a;\n    long long arg_b;\n    long long result;\n    void *exc;\n#ifdef _WIN32\n    HANDLE done_event;\n#else\n    pthread_mutex_t mutex;\n    pthread_cond_t cond;\n    int done;\n#endif\n} rech_TASK_poschitat;",
+		"typedef struct rech_TASK_poschitat rech_TASK_poschitat;",
+		"typedef struct rech_TASK_poschitat {\n    long long arg_a;\n    long long arg_b;\n    long long result;\n    void *exc;\n#ifdef _WIN32\n    HANDLE done_event;\n#else\n    pthread_mutex_t mutex;\n    pthread_cond_t cond;\n    int done;\n#endif\n} rech_TASK_poschitat;",
 		"static rech_TASK_poschitat *rech_launch_poschitat(long long arg_a, long long arg_b) {",
 		"static long long rech_await_poschitat(rech_TASK_poschitat *t) {",
 		"rech_TASK_poschitat * v_zadacha_INIT = rech_launch_poschitat(2LL, 3LL);",
@@ -61,8 +62,8 @@ func TestGenerateFromIRLaunchAwaitEmitsThreadWrapper(t *testing.T) {
 	if strings.Contains(out, "t->thread") {
 		t.Fatalf("задача не должна нести дескриптор потока - только сигнал завершения (см. package doc), получено:\n%s", out)
 	}
-	if strings.Count(out, "rech_TASK_poschitat;") != 1 {
-		t.Fatalf("структура задачи должна эмититься ровно один раз, получено:\n%s", out)
+	if strings.Count(out, "rech_TASK_poschitat;") != 2 {
+		t.Fatalf("структура задачи должна иметь ровно один полный typedef и один forward declaration, получено:\n%s", out)
 	}
 }
 
@@ -107,5 +108,42 @@ func TestGenerateFromIRAwaitRethrowsUncaughtExceptionFromTask(t *testing.T) {
 	}
 	if !strings.Contains(out, `rech_throw(t->exc, "Исключение");`) {
 		t.Fatalf("ожидался rech_throw(t->exc, \"Исключение\") (нет наследников - без rech_isa), получено:\n%s", out)
+	}
+}
+
+// TestGenerateFromIRAbstractTaskListElementUsesVoidPointer - РЕГРЕССИЯ
+// найденной при живом прогоне ошибки: абстрактная "Задача" (Entity == "",
+// internal/semantic допускает её как элемент "Список<Задача>" - разные
+// запущенные функции несут РАЗНЫЕ, несовместимые C-структуры задачи, общего
+// C-типа-предка у них нет, см. package doc valueType.cType) раньше давала
+// mangleTaskType("") == "rech_TASK_" - несуществующее имя C-типа
+// ("unknown type name" у cc, найдено на "Список<Задача>().добавить(запустить
+// ...)"). Элемент такой коллекции обязан быть "void *", не "rech_TASK_ *".
+func TestGenerateFromIRAbstractTaskListElementUsesVoidPointer(t *testing.T) {
+	fn := &ir.Function{
+		Name: "посчитать", ReturnType: ir.TypeInt, HasReturn: true,
+		Body: []ir.Stmt{&ir.ReturnStmt{Value: &ir.IntLiteral{Value: 42}}},
+	}
+	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
+		&ir.VarDecl{Name: "задачи", Value: &ir.NewExpr{Entity: "Список<Задача>"}},
+		&ir.ExprStmt{MethodCall: &ir.MethodCallExpr{
+			Receiver: &ir.Identifier{Name: "задачи", Type: ir.EntityType("Список<Задача>")},
+			Entity:   "Список<Задача>", Method: "добавить",
+			Args: []ir.Expr{&ir.LaunchExpr{Callee: "посчитать"}},
+		}},
+	}}
+	prog := &ir.Program{
+		Functions: []*ir.Function{fn, main},
+		Generics:  []ir.GenericInstantiation{{Name: "Список<Задача>", Template: "Список", ElemType: ir.TaskType("")}},
+	}
+	out, err := GenerateFromIR(prog)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if strings.Contains(out, "rech_TASK_ ") {
+		t.Fatalf("абстрактная \"Задача\" не должна порождать несуществующий C-тип \"rech_TASK_\", получено:\n%s", out)
+	}
+	if !strings.Contains(out, "static void rech_M_spisok_of_zadacha_dobavit(rech_T_spisok_of_zadacha *this_, void * value) {") {
+		t.Fatalf("ожидался элемент коллекции типа \"void *\" (общий знаменатель разных конкретных \"Задача<функция>\"), получено:\n%s", out)
 	}
 }

@@ -9,6 +9,7 @@ package semantic
 
 import (
 	"fmt"
+	"regexp"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/builtins"
@@ -109,7 +110,13 @@ func analyzeAwaitExpr(sc *ctx, e *ast.AwaitExpr) (*ir.AwaitExpr, error) {
 	if t.Kind != ir.KindTask && t.Kind != ir.KindCoroTask {
 		return nil, errAtLine(e.Line, CodeSemanticOther, "\"дождаться\" ожидает значение задачи (результат \"запустить\"/\"поручить\" или вызов \"асинхронная функция\"), получено %s", t)
 	}
-	sig := sc.funcs[t.Entity]
+	if t.Entity == "" {
+		return nil, errAtLine(e.Line, CodeSemanticOther, "\"дождаться\" ожидает конкретное значение задачи, получен абстрактный тип \"Задача\" - дождаться можно только результат \"запустить\"/\"поручить\" или вызов \"асинхронная функция\"; значение-список или nullable-\"?Задача\" нужно развернуть до конкретной задачи до ожидания")
+	}
+	sig, ok := sc.funcs[t.Entity]
+	if !ok {
+		return nil, errAtLine(e.Line, CodeNameResolution, "функция %q не объявлена", t.Entity)
+	}
 	return &ir.AwaitExpr{Task: task, Callee: t.Entity, Type: sig.ReturnType, HasReturn: sig.HasReturn}, nil
 }
 
@@ -149,4 +156,36 @@ func analyzeAwaitTask(sc *ctx, e *ast.AwaitExpr) (ir.Expr, error) {
 		}
 	}
 	return analyzeExpr(sc, e.Task)
+}
+
+// taskAnnotationRef - "Задача<T>" внутри произвольной строки type_name
+// (голая "Задача<T>", "Список<Задача<T>>", "?Задача<T>", ...) - "T" внутри
+// НИКОГДА не несёт собственных "<...>" (resolveGenericTypeName берёт его
+// как голое имя функции, не парсит рекурсивно как тип), поэтому регулярка
+// без вложенности достаточна и не путается с ЛЮБЫМ другим generic-типом.
+var taskAnnotationRef = regexp.MustCompile(`Задача<([^<>,\s]+)>`)
+
+// overloadedTaskAnnotationCallee ищет в typeName ПЕРВОЕ вхождение
+// "Задача<T>", чей T - имя функции, перегруженной (2+ объявления) в этой
+// программе (funcOverloads), "" если такого нет.
+//
+// Нужна, потому что "Задача<T>"/"Список<Задача<T>>" в АННОТАЦИИ типа несёт
+// ГОЛОЕ имя T как есть (resolveGenericTypeName, case "Задача" - без
+// разрешения перегрузки вовсе), а настоящий "запустить T(...)"/"поручить
+// T(...)" (analyzeLaunchExpr) сам резолвит перегрузку по типам аргументов
+// вызова и несёт в ir.LaunchExpr.Callee/ir.TaskType УЖЕ манглированное имя
+// ("T(Целое,Целое)", package doc funcSig.MangledName) - для перегруженного
+// T аннотация и настоящее значение никогда не совпадут (isAssignable
+// сравнивает Entity как есть), а спеллинг манглированного имени как типа
+// ("Задача<T(Целое,Целое)>") не входит в грамматику type_name вовсе
+// (скобки внутри "<...>" не парсятся). Явная, ранняя ошибка здесь - вместо
+// путающего "объявлена типом Задача<T>, но инициализирована значением типа
+// Задача<T(Целое,Целое)>" ниже по течению (isAssignable).
+func overloadedTaskAnnotationCallee(typeName string, funcOverloads map[string][]funcSig) string {
+	for _, m := range taskAnnotationRef.FindAllStringSubmatch(typeName, -1) {
+		if len(funcOverloads[m[1]]) > 0 {
+			return m[1]
+		}
+	}
+	return ""
 }

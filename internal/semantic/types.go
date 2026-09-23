@@ -153,6 +153,8 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 			}
 			registerHTTPEntity(entities, "Совпадение", MatchFields)
 			return ir.EntityType("Совпадение"), nil
+		case "Задача":
+			return ir.Type{Kind: ir.KindTask, Entity: ""}, nil
 		}
 	}
 	if _, ok := interfaces[name]; ok {
@@ -603,6 +605,12 @@ func resolveGenericTypeName(entities map[string]entitySig, methods map[string]ma
 	template, argName, ok := parseGenericTypeName(name)
 	if !ok {
 		return ir.TypeUnknown, errNoPos(CodeNameResolution, "неизвестный тип %q", name)
+	}
+	if template == "Задача" {
+		if argName == "" {
+			return ir.TypeUnknown, errNoPos(CodeTypeResolution, "%q: для \"Задача\" нужен конкретный callee (например, \"Задача<посчитать>\")", name)
+		}
+		return ir.TaskType(argName), nil
 	}
 	if template == "Словарь" {
 		return resolveDictTypeName(entities, methods, aliases, interfaces, enums, name)

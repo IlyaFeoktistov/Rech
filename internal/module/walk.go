@@ -64,6 +64,7 @@ var builtinTypeBases = map[string]bool{
 	"HTTP2Поток":          true,
 	"Запрос":              true,
 	"Ответ":               true,
+	"Задача":              true,
 	"Исключение":          true,
 	"Список":              true,
 	"Стопка":              true,

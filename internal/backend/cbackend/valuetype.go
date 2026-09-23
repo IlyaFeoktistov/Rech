@@ -213,9 +213,23 @@ func (t valueType) cType(ctx *irGenCtx) string {
 		return entityCName(ctx, t.entity)
 	}
 	if t.kind == kindTask {
+		// entity == "" - абстрактная "Задача" (isAssignable ослаблен под
+		// значение ЛЮБОЙ конкретной "Задача<функция>", см. package doc
+		// isAssignable, internal/semantic/inheritance.go): конкретные
+		// "rech_TASK_<функция>" - разные, несовместимые C-структуры, общего
+		// C-типа-предка у них нет - opaque "void *" достаточно для
+		// хранения/передачи, "дождаться" на абстрактной "Задача" запрещено
+		// на уровне semantic (см. analyzeAwaitExpr), значит разыменование
+		// этого указателя сюда никогда не доходит.
+		if t.entity == "" {
+			return "void *"
+		}
 		return mangleTaskType(t.entity) + " *"
 	}
 	if t.kind == kindCoroTask {
+		if t.entity == "" {
+			return "void *"
+		}
 		return mangleCoroTaskType(t.entity) + " *"
 	}
 	if t.kind == kindCallable {

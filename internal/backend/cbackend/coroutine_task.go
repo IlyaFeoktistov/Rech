@@ -63,7 +63,7 @@ func ensureCoroTaskWrapper(ctx *irGenCtx, funcName string) {
 	// голый int, не mutex/cond/event - вся работа на ОДНОМ И ТОМ ЖЕ потоке
 	// ОС по очереди, а не параллельно - примитив синхронизации между
 	// потоками не нужен вовсе.
-	fmt.Fprintf(&sb, "typedef struct {\n")
+	fmt.Fprintf(&sb, "typedef struct %s {\n", taskType)
 	for _, f := range argFields {
 		sb.WriteString(f)
 	}

@@ -78,7 +78,7 @@ func ensureTaskWrapper(ctx *irGenCtx, funcName string) {
 	// дескриптор потока ОС (задача не привязана к КОНКРЕТНОМУ потоку -
 	// см. package doc выше, её обслуживает пул воркеров, дескриптор
 	// исполнившего её потока структуре задачи не нужен вовсе).
-	fmt.Fprintf(&sb, "typedef struct {\n")
+	fmt.Fprintf(&sb, "typedef struct %s {\n", taskType)
 	for _, f := range argFields {
 		sb.WriteString(f)
 	}

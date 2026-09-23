@@ -422,6 +422,31 @@ func TestLinkResolvesInterfaceMethodEntityParamInNonEntryModule(t *testing.T) {
 // используется КАК ТИП в ТОМ ЖЕ файле, где объявлен, импорт не нужен) -
 // здесь именно entry-файл ссылается на интерфейс, объявленный в другом
 // файле, и должен его импортировать явно, как обычную сущность/функцию.
+func TestLinkBuiltinTaskTypeRecognized(t *testing.T) {
+	dir := t.TempDir()
+	entry := writeFile(t, dir, "главный.rech", `
+функция посчитать(): Целое
+{
+    вернуть 42
+}
+
+функция главная
+{
+    переменная задачи = новый Список<Задача>()
+    задачи.добавить(запустить посчитать())
+    вывести "ok"
+}
+`)
+
+	prog, err := Load(entry, testFrontend{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, err := prog.Link(); err != nil {
+		t.Fatalf("Link: %v", err)
+	}
+}
+
 func TestLinkImportsInterfaceByName(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "звук.rech", `интерфейс Звучащий

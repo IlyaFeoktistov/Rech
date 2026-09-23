@@ -454,6 +454,13 @@ func (c *Compiler) compileProgram(prog *ast.Program, base string, keepC bool, ex
 		return "", fmt.Errorf("генерация C: %w", err)
 	}
 
+	if keepC {
+		cPath := base + ".c"
+		if err := os.WriteFile(cPath, []byte(cSource), 0o644); err != nil {
+			return "", fmt.Errorf("не удалось записать %s: %w", cPath, err)
+		}
+	}
+
 	// Сам системный компилятор C (Toolchain.CompileC) вызывается только с
 	// ASCII-путями во временном каталоге, а не там, где на самом деле лежит
 	// исходник/должен оказаться бинарник (base может содержать кириллицу -
@@ -500,12 +507,6 @@ func (c *Compiler) compileProgram(prog *ast.Program, base string, keepC bool, ex
 		return "", fmt.Errorf("не удалось перенести собранный бинарник в %s: %w", binPath, err)
 	}
 
-	if keepC {
-		cPath := base + ".c"
-		if err := os.WriteFile(cPath, []byte(cSource), 0o644); err != nil {
-			return "", fmt.Errorf("не удалось записать %s: %w", cPath, err)
-		}
-	}
 	return binPath, nil
 }
 

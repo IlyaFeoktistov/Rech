@@ -58,8 +58,8 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		if !await.HasReturn {
-			return nil, errAtLine(e.Line, CodeExprCheck, "функция %q не имеет объявленного типа результата - \"дождаться\" здесь нельзя использовать как выражение", await.Callee)
+		if await.Callee == "" || !await.HasReturn {
+			return nil, errAtLine(e.Line, CodeExprCheck, "\"дождаться\" ожидает конкретное значение задачи, получен абстрактный тип \"Задача\" - дождаться можно только результат \"запустить\"/\"поручить\" или вызов \"асинхронная функция\"; значение-список или nullable-\"?Задача\" нужно развернуть до конкретной задачи до ожидания")
 		}
 		return await, nil
 

@@ -1609,6 +1609,39 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		sb.WriteString(http2.CallbacksCode(ctx.usesTLS))
 	}
 
+	// taskForwardDecl - "typedef struct rech_TASK_... rech_TASK_..." для
+	// всех задач, реально используемых в этой программе. Типы задач всегда
+	// представлены указателем на C-структуру, поэтому достаточно opaque
+	// forward declaration раньше, чем generic/nullable/field typedefs, где
+	// они могут встречаться как элемент коллекции или nullable-обёртки.
+	//
+	// Полное определение само по себе остаётся в ctx.taskCode/ctx.coroTaskCode
+	// позднее по файлу, но на момент первого использования C уже видит имя
+	// типа и не падает на "unknown type name".
+	var taskForwardDecl strings.Builder
+
+	for funcName := range ctx.launchedFuncs {
+		taskType := mangleTaskType(funcName)
+		fmt.Fprintf(
+			&taskForwardDecl,
+			"typedef struct %s %s;\n",
+			taskType,
+			taskType,
+		)
+	}
+
+	for funcName := range ctx.coroutineFuncs {
+		taskType := mangleCoroTaskType(funcName)
+		fmt.Fprintf(
+			&taskForwardDecl,
+			"typedef struct %s %s;\n",
+			taskType,
+			taskType,
+		)
+	}
+
+	appendCodeIf(&sb, taskForwardDecl.Len() > 0, taskForwardDecl.String())
+
 	// genericForwardDecl - "typedef struct rech_T_... rech_T_...;" для
 	// КАЖДОЙ generic-инстанциации программы (Список/Стопка/Очередь/Словарь) -
 	// опережает ЛЮБОЙ typedef ниже (genericsCode/typedefs/

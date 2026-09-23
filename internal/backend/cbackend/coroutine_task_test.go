@@ -37,7 +37,8 @@ func TestGenerateFromIRCoroAwaitEmitsCoroutineWrapper(t *testing.T) {
 		"static void rech_coro_spawn(void (*fn)(void *), void *arg) {",
 		"GC_add_roots(a->base, a->base + arena_bytes);",
 		"static void rech_coro_wait_done(int *done) {",
-		"typedef struct {\n    long long arg_a;\n    long long arg_b;\n    long long result;\n    void *exc;\n    int done;\n} rech_CORO_TASK_poschitat;",
+		"typedef struct rech_CORO_TASK_poschitat rech_CORO_TASK_poschitat;",
+		"typedef struct rech_CORO_TASK_poschitat {\n    long long arg_a;\n    long long arg_b;\n    long long result;\n    void *exc;\n    int done;\n} rech_CORO_TASK_poschitat;",
 		"static void rech_coro_entry_poschitat(void *rech_arg) {",
 		"static rech_CORO_TASK_poschitat *rech_coro_launch_poschitat(long long arg_a, long long arg_b) {",
 		"static long long rech_coro_join_poschitat(rech_CORO_TASK_poschitat *t) {",
@@ -51,8 +52,8 @@ func TestGenerateFromIRCoroAwaitEmitsCoroutineWrapper(t *testing.T) {
 	if strings.Contains(out, "rech_launch_poschitat") || strings.Contains(out, "rech_await_poschitat(") {
 		t.Fatalf("сахар \"дождаться <асинхронная функция>()\" не должен эмитить обёртку потока ОС, получено:\n%s", out)
 	}
-	if strings.Count(out, "rech_CORO_TASK_poschitat;") != 1 {
-		t.Fatalf("структура задачи корутины должна эмититься ровно один раз, получено:\n%s", out)
+	if strings.Count(out, "rech_CORO_TASK_poschitat;") != 2 {
+		t.Fatalf("структура задачи корутины должна иметь ровно один полный typedef и один forward declaration, получено:\n%s", out)
 	}
 }
 

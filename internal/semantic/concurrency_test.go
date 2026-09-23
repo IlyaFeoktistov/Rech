@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
@@ -48,6 +49,45 @@ func TestAnalyzeLaunchAwaitRoundTripsReturnType(t *testing.T) {
 	}
 }
 
+func TestAnalyzeBareTaskTypeIsRecognizedInCollections(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция посчитать(): Целое
+{
+    вернуть 42
+}
+функция главная
+{
+    переменная задачи = новый Список<Задача>()
+    задачи.добавить(запустить посчитать())
+}
+`)
+	if err != nil {
+		t.Fatalf("ожидалось, что тип Задача распознаётся в коллекции, получено: %v", err)
+	}
+}
+
+func TestAnalyzeConcreteTaskTypeIsRecognizedInCollectionsAndAwaited(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция посчитать(): Целое
+{
+    вернуть 42
+}
+функция главная
+{
+    переменная задачи = новый Список<Задача<посчитать>>()
+    задачи.добавить(запустить посчитать())
+
+    для задача в задачи {
+        переменная результат = дождаться задача
+        вывести результат
+    }
+}
+`)
+	if err != nil {
+		t.Fatalf("ожидалось, что тип Задача<посчитать> распознаётся в коллекции и дожидается, получено: %v", err)
+	}
+}
+
 func TestAnalyzeAwaitWithoutReturnUsableOnlyAsStatement(t *testing.T) {
 	prog := parseProgram(t, `
 функция вывести_привет()
@@ -77,8 +117,8 @@ func TestAnalyzeAwaitWithoutReturnUsableOnlyAsStatement(t *testing.T) {
     переменная х = дождаться задача
 }
 `)
-	if err == nil || !strings.Contains(err.Error(), "нельзя использовать как выражение") {
-		t.Fatalf("ожидалась ошибка - дождаться без результата нельзя как значение, получено: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "абстрактный тип \"Задача\"") {
+		t.Fatalf("ожидалась ошибка про абстрактный тип Задача при использовании дождаться как значения, получено: %v", err)
 	}
 }
 
@@ -94,6 +134,16 @@ func TestAnalyzeLaunchRejectsBuiltinFunction(t *testing.T) {
 	}
 }
 
+func TestAnalyzeAwaitRejectsAbstractTaskHandle(t *testing.T) {
+	sc := newCtx(nil, map[string]funcSig{}, map[string]entitySig{}, map[string]map[string]funcSig{}, map[string]string{}, map[string]interfaceSig{}, map[string]map[string]int64{}, "", ir.TypeUnknown, false, map[string]ir.Expr{}, map[string]bool{})
+	sc.scopes[0]["задача"] = ir.TaskType("")
+
+	_, err := analyzeAwaitExpr(sc, &ast.AwaitExpr{Task: &ast.Identifier{Name: "задача"}, Line: 1})
+	if err == nil || !strings.Contains(err.Error(), "абстрактный тип \"Задача\"") {
+		t.Fatalf("ожидалась ошибка про абстрактный тип Задача, получено: %v", err)
+	}
+}
+
 func TestAnalyzeAwaitRejectsNonTaskValue(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 функция главная
@@ -104,6 +154,80 @@ func TestAnalyzeAwaitRejectsNonTaskValue(t *testing.T) {
 `)
 	if err == nil || !strings.Contains(err.Error(), "ожидает значение задачи") {
 		t.Fatalf("ожидалась ошибка о том, что дождаться ожидает задачу, получено: %v", err)
+	}
+}
+
+func TestAnalyzeAwaitRejectsBareTaskTypeFromCollection(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция посчитать(): Целое
+{
+    вернуть 42
+}
+функция главная
+{
+    переменная задачи = новый Список<Задача>()
+    задачи.добавить(запустить посчитать())
+    переменная r = дождаться задачи[0]
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "ожидает значение задачи") {
+		t.Fatalf("ожидалась ошибка про абстрактный тип Задача, получено: %v", err)
+	}
+}
+
+// TestAnalyzeExplicitTaskAnnotationRejectsOverloadedCallee - РЕГРЕССИЯ
+// найденной при живом прогоне путаницы: "Задача<T>" в явной аннотации
+// несёт ГОЛОЕ имя T, а настоящий "запустить T(...)" перегруженной функции
+// сам резолвит нужную перегрузку по аргументам вызова и несёт УЖЕ
+// манглированное имя ("T(Целое,Целое)") - до этой проверки итог был не
+// "неизвестное имя", а путающее "объявлена типом Задача<T>, но
+// инициализирована значением типа Задача<T(Целое,Целое)>". Спеллинга для
+// манглированного имени как типа не существует вовсе (скобки внутри
+// "<...>" не входят в грамматику type_name) - явная аннотация для
+// перегруженной функции сейчас в принципе невозможна, ошибка должна
+// сказать это прямо, а не изображать несовпадение типов.
+func TestAnalyzeExplicitTaskAnnotationRejectsOverloadedCallee(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция посчитать(a: Целое, b: Целое): Целое
+{
+    вернуть a + b
+}
+функция посчитать(a: Строка): Целое
+{
+    вернуть 0
+}
+функция главная
+{
+    переменная x: Задача<посчитать> = запустить посчитать(1, 2)
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "перегружена") {
+		t.Fatalf("ожидалась ошибка о запрете явной аннотации для перегруженной функции, получено: %v", err)
+	}
+}
+
+// TestAnalyzeExplicitTaskAnnotationRejectsOverloadedCalleeInsideList -
+// тот же запрет, что и TestAnalyzeExplicitTaskAnnotationRejectsOverloadedCallee
+// выше, но T встречается ВЛОЖЕННО ("Список<Задача<T>>", не голая "Задача<T>"
+// напрямую) - проверяет, что overloadedTaskAnnotationCallee ищет "Задача<T>"
+// ГДЕ УГОДНО в строке аннотации, не только как annotation целиком.
+func TestAnalyzeExplicitTaskAnnotationRejectsOverloadedCalleeInsideList(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция посчитать(a: Целое, b: Целое): Целое
+{
+    вернуть a + b
+}
+функция посчитать(a: Строка): Целое
+{
+    вернуть 0
+}
+функция главная
+{
+    переменная задачи: Список<Задача<посчитать>> = новый Список<Задача<посчитать>>()
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "перегружена") {
+		t.Fatalf("ожидалась ошибка о запрете явной аннотации для перегруженной функции, получено: %v", err)
 	}
 }
 
