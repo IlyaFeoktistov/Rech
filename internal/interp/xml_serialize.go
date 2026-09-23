@@ -43,16 +43,8 @@ func (in *Interp) evalXMLSerializeExpr(v Value) Value {
 // дополнительной обёртки - см. package doc, "Список<T> как поле").
 func (in *Interp) xmlSerializeTagged(sb *strings.Builder, v Value, tag string) {
 	switch v.Type.Kind {
-	case ir.KindInt:
-		fmt.Fprintf(sb, "<%s>%d</%s>", tag, v.I, tag)
-	case ir.KindFloat32, ir.KindFloat:
-		fmt.Fprintf(sb, "<%s>%s</%s>", tag, strconv.FormatFloat(v.F, 'g', -1, 64), tag)
-	case ir.KindBool:
-		b := "false"
-		if v.B {
-			b = "true"
-		}
-		fmt.Fprintf(sb, "<%s>%s</%s>", tag, b, tag)
+	case ir.KindInt, ir.KindFloat32, ir.KindFloat, ir.KindBool:
+		fmt.Fprintf(sb, "<%s>%s</%s>", tag, xmlPrimitiveText(v), tag)
 	case ir.KindString:
 		sb.WriteByte('<')
 		sb.WriteString(tag)
@@ -62,19 +54,32 @@ func (in *Interp) xmlSerializeTagged(sb *strings.Builder, v Value, tag string) {
 		sb.WriteString(tag)
 		sb.WriteByte('>')
 	case ir.KindEntity:
+		ent := in.entities[v.Obj.typeName]
 		sb.WriteByte('<')
 		sb.WriteString(tag)
-		sb.WriteByte('>')
-		ent := in.entities[v.Obj.typeName]
 		for _, f := range ent.Fields {
+			if name, attr := f.XMLName(); attr {
+				sb.WriteByte(' ')
+				sb.WriteString(name)
+				sb.WriteString(`="`)
+				xmlWriteEscapedAttr(sb, xmlPrimitiveText(v.Obj.getField(f.Name)))
+				sb.WriteByte('"')
+			}
+		}
+		sb.WriteByte('>')
+		for _, f := range ent.Fields {
+			name, attr := f.XMLName()
+			if attr {
+				continue
+			}
 			fv := v.Obj.getField(f.Name)
 			if fv.Obj != nil && fv.Obj.coll != nil {
 				for _, elem := range fv.Obj.coll.elems {
-					in.xmlSerializeTagged(sb, elem, f.Name)
+					in.xmlSerializeTagged(sb, elem, name)
 				}
 				continue
 			}
-			in.xmlSerializeTagged(sb, fv, f.Name)
+			in.xmlSerializeTagged(sb, fv, name)
 		}
 		sb.WriteString("</")
 		sb.WriteString(tag)
@@ -97,5 +102,36 @@ func xmlWriteEscapedText(sb *strings.Builder, s string) {
 		default:
 			sb.WriteRune(r)
 		}
+	}
+}
+
+// xmlPrimitiveText - текстовое представление примитива в XML (содержимое
+// элемента или значение атрибута), без экранирования.
+func xmlPrimitiveText(v Value) string {
+	switch v.Type.Kind {
+	case ir.KindInt:
+		return strconv.FormatInt(v.I, 10)
+	case ir.KindFloat32, ir.KindFloat:
+		return strconv.FormatFloat(v.F, 'g', -1, 64)
+	case ir.KindBool:
+		if v.B {
+			return "true"
+		}
+		return "false"
+	default:
+		return v.S
+	}
+}
+
+// xmlWriteEscapedAttr - xmlWriteEscapedText плюс "\"" (значение атрибута
+// всегда в двойных кавычках) - согласовано с
+// cbackend.rech_xml_write_escaped_attr.
+func xmlWriteEscapedAttr(sb *strings.Builder, s string) {
+	for _, r := range s {
+		if r == '"' {
+			sb.WriteString("&quot;")
+			continue
+		}
+		xmlWriteEscapedText(sb, string(r))
 	}
 }

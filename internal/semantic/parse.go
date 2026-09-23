@@ -186,6 +186,11 @@ func structCompatible(entities map[string]entitySig, t ir.Type, seen map[string]
 				return diagnostics.Wrap(err, "%s", t)
 			}
 		}
+		if format == "XML" {
+			if err := checkXMLFieldNames(sig); err != nil {
+				return diagnostics.Wrap(err, "%s", t)
+			}
+		}
 		next := make(map[string]bool, len(seen)+1)
 		for k := range seen {
 			next[k] = true

@@ -3,8 +3,10 @@
 // Rech-типа на XML (примитив - текст элемента; сущность - дочерние
 // элементы по имени поля; Список<T> как поле - все дочерние элементы с
 // именем поля без обёртки; Список<T> как цель разбора целиком - ВСЕ
-// дочерние элементы корня, имя тега не проверяется). Без атрибутов, без
-// пролога/DOCTYPE/комментариев - известные ограничения этого срезa.
+// дочерние элементы корня, имя тега не проверяется; тег "xml:имя"
+// переименовывает элемент, "xml:@имя"/"xml:@" делает поле-примитив
+// атрибутом - ir.Field.XMLName). Без пролога/DOCTYPE/комментариев -
+// известные ограничения этого среза.
 //
 // C-представление разобранного текста - "rech_xn" (дерево: текст +
 // дочерние элементы с именами, в порядке документа), построенное ручным
@@ -169,11 +171,21 @@ func (g *xmlExtractorGen) xmlEntityExtractorCode(ent *ir.Entity) string {
 	args := make([]string, len(ent.Fields))
 	for i, f := range ent.Fields {
 		fieldC := fromIRType(f.Type).cType(g.ctx)
+		xmlName, attr := f.XMLName()
+		if attr {
+			attrVar := fmt.Sprintf("a%d", i)
+			fmt.Fprintf(&decls, "    const char *%s = rech_xn_attr(&v, \"%s\");\n", attrVar, escapeCString(xmlName))
+			fmt.Fprintf(&decls, "    if (%s == NULL) { rech_struct_throw(\"%s\"); }\n", attrVar, escapeCString(rtmsg.XMLFieldMissing(xmlName)))
+			fmt.Fprintf(&decls, "    rech_xn av%d = {0};\n    av%d.text = (char *)%s;\n", i, i, attrVar)
+			fmt.Fprintf(&decls, "    %s f%d = %s(av%d);\n", fieldC, i, xmlExtractorNameFor(f.Type), i)
+			args[i] = fmt.Sprintf("f%d", i)
+			continue
+		}
 		matchesVar := fmt.Sprintf("m%d", i)
 		countVar := fmt.Sprintf("n%d", i)
 		fmt.Fprintf(&decls, "    rech_xn *%s;\n", matchesVar)
 		fmt.Fprintf(&decls, "    long long %s = rech_xn_children_named(&v, \"%s\", &%s);\n",
-			countVar, escapeCString(f.Name), matchesVar)
+			countVar, escapeCString(xmlName), matchesVar)
 
 		if gi, ok := g.generics[f.Type.Entity]; f.Type.Kind == ir.KindEntity && ok && gi.Template == "Список" {
 			addFn := mangleMethod(gi.Name, "добавить")
@@ -186,8 +198,8 @@ func (g *xmlExtractorGen) xmlEntityExtractorCode(ent *ir.Entity) string {
 		}
 
 		extractor := xmlExtractorNameFor(f.Type)
-		missing := fmt.Sprintf("rech_struct_throw(\"%s\");", escapeCString(rtmsg.XMLFieldMissing(f.Name)))
-		duplicated := fmt.Sprintf("rech_struct_throw(\"%s\");", escapeCString(rtmsg.XMLFieldDuplicated(f.Name)))
+		missing := fmt.Sprintf("rech_struct_throw(\"%s\");", escapeCString(rtmsg.XMLFieldMissing(xmlName)))
+		duplicated := fmt.Sprintf("rech_struct_throw(\"%s\");", escapeCString(rtmsg.XMLFieldDuplicated(xmlName)))
 		fmt.Fprintf(&decls, "    if (%s == 0) { %s }\n", countVar, missing)
 		fmt.Fprintf(&decls, "    if (%s > 1) { %s }\n", countVar, duplicated)
 		fmt.Fprintf(&decls, "    %s f%d = %s(%s[0]);\n", fieldC, i, extractor, matchesVar)
@@ -290,9 +302,9 @@ static void rech_xml_sb_utf8(rech_xml_sb *sb, unsigned int cp) {
 
 // xmlParserCode - "rech_xn" (текст + дочерние элементы, каждый с именем
 // тега, в порядке документа) и ручной рекурсивный XML-парсер: имя тега/
-// атрибута (unicode-буквы, включая кириллицу, "_"/":"/"-"/"."), атрибуты
-// синтаксически разбираются и отбрасываются (значений не несут в этом
-// срезе), текст - с раскрытием "&amp;"/"&lt;"/"&gt;"/"&quot;"/"&apos;" и
+// атрибута (unicode-буквы, включая кириллицу, "_"/":"/"-"/"."), атрибуты -
+// в attr_names/attr_values узла (значение - с тем же раскрытием сущностей,
+// что и текст), текст - с раскрытием "&amp;"/"&lt;"/"&gt;"/"&quot;"/"&apos;" и
 // числовых ссылок "&#NNN;"/"&#xHHH;" - использует rech_xml_sb (xmlSbCode,
 // эмитится раньше, см. ir_generator.go). Без пролога/DOCTYPE/комментариев.
 const xmlParserCode = `typedef struct rech_xn {
@@ -301,6 +313,10 @@ const xmlParserCode = `typedef struct rech_xn {
     struct rech_xn *children;
     long long child_count;
     long long child_cap;
+    char **attr_names;
+    char **attr_values;
+    long long attr_count;
+    long long attr_cap;
 } rech_xn;
 
 typedef struct { const char *cur; } rech_xmlp;
@@ -333,17 +349,6 @@ static char *rech_xml_parse_name(rech_xmlp *p) {
     memcpy(out, start, (size_t)len);
     out[len] = '\0';
     return out;
-}
-
-static void rech_xml_skip_attr_value(rech_xmlp *p) {
-    char q = *p->cur;
-    if (q != '"' && q != '\'') rech_struct_throw(RECH_XML_PARSE_ERR);
-    p->cur++;
-    while (*p->cur && *p->cur != q) {
-        p->cur++;
-    }
-    if (*p->cur != q) rech_struct_throw(RECH_XML_PARSE_ERR);
-    p->cur++;
 }
 
 static void rech_xml_append_text_char(rech_xmlp *p, rech_xml_sb *sb) {
@@ -382,6 +387,42 @@ static void rech_xml_append_text_char(rech_xmlp *p, rech_xml_sb *sb) {
         rech_struct_throw(RECH_XML_PARSE_ERR);
     }
     p->cur = semi + 1;
+}
+
+static char *rech_xml_parse_attr_value(rech_xmlp *p) {
+    char q = *p->cur;
+    if (q != '"' && q != '\'') rech_struct_throw(RECH_XML_PARSE_ERR);
+    p->cur++;
+    rech_xml_sb sb;
+    rech_xml_sb_init(&sb);
+    while (*p->cur && *p->cur != q) {
+        if (*p->cur == '<') rech_struct_throw(RECH_XML_PARSE_ERR);
+        rech_xml_append_text_char(p, &sb);
+    }
+    if (*p->cur != q) rech_struct_throw(RECH_XML_PARSE_ERR);
+    p->cur++;
+    return rech_xml_sb_finish(&sb);
+}
+
+static const char *rech_xn_attr(rech_xn *n, const char *name) {
+    for (long long i = 0; i < n->attr_count; i++) {
+        if (strcmp(n->attr_names[i], name) == 0) {
+            return n->attr_values[i];
+        }
+    }
+    return NULL;
+}
+
+static void rech_xn_add_attr(rech_xn *n, char *name, char *value) {
+    if (rech_xn_attr(n, name) != NULL) rech_struct_throw(RECH_XML_PARSE_ERR);
+    if (n->attr_count >= n->attr_cap) {
+        n->attr_cap = n->attr_cap == 0 ? 4 : n->attr_cap * 2;
+        n->attr_names = realloc(n->attr_names, sizeof(char *) * (size_t)n->attr_cap);
+        n->attr_values = realloc(n->attr_values, sizeof(char *) * (size_t)n->attr_cap);
+    }
+    n->attr_names[n->attr_count] = name;
+    n->attr_values[n->attr_count] = value;
+    n->attr_count++;
 }
 
 static char *rech_xml_trim(char *s) {
@@ -433,6 +474,7 @@ static rech_xn rech_xml_parse_element(rech_xmlp *p, char **out_name) {
     p->cur++;
     char *name = rech_xml_parse_name(p);
     *out_name = name;
+    rech_xn node = {0};
     for (;;) {
         rech_xml_skip_ws(p);
         if (*p->cur == '\0') rech_struct_throw(RECH_XML_PARSE_ERR);
@@ -440,33 +482,22 @@ static rech_xn rech_xml_parse_element(rech_xmlp *p, char **out_name) {
             p->cur++;
             if (*p->cur != '>') rech_struct_throw(RECH_XML_PARSE_ERR);
             p->cur++;
-            rech_xn empty;
-            empty.text = malloc(1);
-            empty.text[0] = '\0';
-            empty.child_names = NULL;
-            empty.children = NULL;
-            empty.child_count = 0;
-            empty.child_cap = 0;
-            return empty;
+            node.text = malloc(1);
+            node.text[0] = '\0';
+            return node;
         }
         if (*p->cur == '>') {
             p->cur++;
             break;
         }
-        rech_xml_parse_name(p);
+        char *attr_name = rech_xml_parse_name(p);
         rech_xml_skip_ws(p);
         if (*p->cur != '=') rech_struct_throw(RECH_XML_PARSE_ERR);
         p->cur++;
         rech_xml_skip_ws(p);
-        rech_xml_skip_attr_value(p);
+        rech_xn_add_attr(&node, attr_name, rech_xml_parse_attr_value(p));
     }
 
-    rech_xn node;
-    node.text = NULL;
-    node.child_names = NULL;
-    node.children = NULL;
-    node.child_count = 0;
-    node.child_cap = 0;
     rech_xml_sb text_sb;
     rech_xml_sb_init(&text_sb);
     for (;;) {

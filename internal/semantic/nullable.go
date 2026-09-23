@@ -161,6 +161,11 @@ func coerceExpr(sc *ctx, e ast.Expr, target ir.Type) (ir.Expr, error) {
 			return analyzeListLiteralExpr(sc, ll, sig.ElemType, true)
 		}
 	}
+	if fr, ok := e.(*ast.FuncRefExpr); ok {
+		if ref, handled, err := analyzeOverloadedFuncRef(sc, fr, target); handled {
+			return ref, err
+		}
+	}
 	value, err := analyzeExpr(sc, e)
 	if err != nil {
 		return nil, err

@@ -49,6 +49,12 @@ func registerTransactionEntity(entities map[string]entitySig, methods map[string
 			HasReturn:     true,
 		},
 		"откатить": {},
+		// "вложенная" - SAVEPOINT на том же соединении: штатный возврат
+		// колбэка - RELEASE, исключение/паника/"откатить()" - ROLLBACK TO,
+		// внешняя транзакция продолжается.
+		"вложенная": {
+			Params: []ir.Type{ir.CallableType([]ir.Type{ir.EntityType(transactionEntityName)}, nil)},
+		},
 	}
 }
 

@@ -29,15 +29,17 @@ const dbtxCbackendTestSrc = `
 func TestGenerateFromIRDBTransactionEmitsRuntimeAndTwoCatchFrames(t *testing.T) {
 	out := generateFromSrc(t, dbtxCbackendTestSrc)
 	for _, want := range []string{
-		"typedef struct {\n    rech_db_t mini;",
+		"typedef struct rech_T_tranzakciya_s {\n    rech_db_t mini;",
 		"static void rech_db_run_transaction(rech_db_t *db,",
 		"frame_panic.catch_panics = true;",
 		"callback.fn(callback.env, tx);",
 		"rech_tx_run_simple(tx->mini.kind, conn, \"BEGIN\");",
-		"rech_tx_run_simple(tx->mini.kind, tx->mini.conns[0], \"COMMIT\");",
-		"rech_tx_run_simple(tx->mini.kind, tx->mini.conns[0], \"ROLLBACK\");",
-		"return rech_db_query(&this_->mini, sql, params);",
-		"return rech_db_exec(&this_->mini, sql, params);",
+		"rech_tx_run_simple(kind, conn, commit ? \"COMMIT\" : \"ROLLBACK\");",
+		"\"ROLLBACK TO SAVEPOINT %s\"",
+		"\"RELEASE SAVEPOINT %s\"",
+		"return rech_db_query(this_->conn_db, sql, params);",
+		"return rech_db_exec(this_->conn_db, sql, params);",
+		"rech_M_tranzakciya_vlozhennaya(",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("ожидался фрагмент %q, получено:\n%s", want, out)

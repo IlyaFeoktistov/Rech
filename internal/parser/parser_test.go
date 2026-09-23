@@ -1076,7 +1076,7 @@ func TestParseForEachOverListResolvesPrepositionalCase(t *testing.T) {
 }
 
 // TestParseForEachUnrecognizedWordformFallsBackToLiteral - словарь (даже
-// вместе с tryDepluralizeMasculine, dictionary.go) не знает АБСОЛЮТНО
+// вместе с tryDepluralize, dictionary.go) не знает АБСОЛЮТНО
 // каждое существительное - без словоформы вообще проверить падеж
 // невозможно, поэтому парсер принимает голое имя КАК ЕСТЬ вместо ошибки
 // (найденная находка - падежный словарь не распознавал

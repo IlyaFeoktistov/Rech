@@ -33,18 +33,26 @@ func transactionCallableSig() ir.Type {
 }
 
 // dbtxTypedefCode - C-структура "Транзакция": mini - собственный "мини-пул"
-// (rech_db_t, см. package doc выше) с единственным уже занятым слотом;
-// real_db/real_idx - откуда это соединение взято НА САМОМ ДЕЛЕ, чтобы
-// вернуть его в НАСТОЯЩИЙ пул по завершении (rech_db_checkin); resolved -
-// транзакция уже зафиксирована/откачена (явным "откатить()" или
-// автоматически) - не позволяет откатить/зафиксировать её дважды.
+// (rech_db_t, см. package doc выше) с единственным уже занятым слотом -
+// заполнен только у корневой транзакции; conn_db - мини-пул, через который
+// идут запросы (&mini у корневой, conn_db родителя у вложенной - одно и то
+// же соединение на всю цепочку); real_db/real_idx - откуда соединение взято
+// НА САМОМ ДЕЛЕ, чтобы вернуть его в НАСТОЯЩИЙ пул по завершении корневой
+// (rech_db_checkin); resolved - транзакция уже зафиксирована/откачена (явным
+// "откатить()" или автоматически) - не позволяет откатить/зафиксировать её
+// дважды; parent/depth/savepoint - только у вложенной ("тр.вложенная"):
+// родитель, глубина вложенности и имя SAVEPOINT.
 func dbtxTypedefCode() string {
-	return fmt.Sprintf(`typedef struct {
+	return fmt.Sprintf(`typedef struct %[1]s_s {
     rech_db_t mini;
+    rech_db_t *conn_db;
     rech_db_t *real_db;
     int real_idx;
     bool resolved;
-} %s;
+    struct %[1]s_s *parent;
+    int depth;
+    char savepoint[32];
+} %[1]s;
 
 `, mangleType(transactionEntityName))
 }
@@ -53,7 +61,7 @@ func dbtxTypedefCode() string {
 // "начать_транзакцию" (см. builtinCallCode, builtins_shared.go).
 const dbRunTransactionFunc = "rech_db_run_transaction"
 
-// dbtxPrototypes - прототипы трёх методов "Транзакция" и самой
+// dbtxPrototypes - прототипы четырёх методов "Транзакция" и самой
 // rech_db_run_transaction - эмитятся в общий "protos" builder
 // (ir_generator.go), тем же принципом, что и mutexPrototypes/
 // semaphorePrototypes (могут понадобиться раньше их определения по тексту
@@ -64,7 +72,7 @@ func dbtxPrototypes() string {
 	txC := mangleType(transactionEntityName)
 	callableC := mangleCallableType(transactionCallableSig().Entity)
 	return fmt.Sprintf(
-		"static %[1]s *%[2]s(%[3]s *this_, const char *sql, %[4]s *params);\nstatic long long %[5]s(%[3]s *this_, const char *sql, %[4]s *params);\nstatic void %[6]s(%[3]s *this_);\nstatic void %[7]s(rech_db_t *db, %[8]s callback);\n",
+		"static %[1]s *%[2]s(%[3]s *this_, const char *sql, %[4]s *params);\nstatic long long %[5]s(%[3]s *this_, const char *sql, %[4]s *params);\nstatic void %[6]s(%[3]s *this_);\nstatic void %[9]s(%[3]s *this_, %[8]s callback);\nstatic void %[7]s(rech_db_t *db, %[8]s callback);\n",
 		resultListC,
 		mangleMethod(transactionEntityName, "запросить"),
 		txC,
@@ -73,6 +81,7 @@ func dbtxPrototypes() string {
 		mangleMethod(transactionEntityName, "откатить"),
 		dbRunTransactionFunc,
 		callableC,
+		mangleMethod(transactionEntityName, "вложенная"),
 	)
 }
 
@@ -119,22 +128,23 @@ func dbtxRunSimpleCode(backends dbscheme.Set) string {
 	return sb.String()
 }
 
-// dbtxRuntimeCode - "начать_транзакцию" + все три метода "Транзакция" -
+// dbtxRuntimeCode - "начать_транзакцию" + все четыре метода "Транзакция" -
 // эмитится безусловно, ровно один раз, только если ctx.usesDBTransaction.
 //
-// rech_db_run_transaction - открывает транзакцию (checkout РЕАЛЬНОГО
-// соединения + "BEGIN"), исполняет колбэк ПОД ДВУМЯ вложенными кадрами
-// перехвата (тот же catchFrameType/catchTopVar, что использует и
+// rech_tx_run - общее тело корневой ("начать_транзакцию") и вложенной
+// ("тр.вложенная") транзакции: исполняет колбэк ПОД ДВУМЯ вложенными
+// кадрами перехвата (тот же catchFrameType/catchTopVar, что использует и
 // rech_throw, и rech_panic - каждый ищет в нём свой маркер, пропуская чужие
 // кадры, exceptions.go): внешний - catch_panics (ловит панику, в т.ч. от
 // самих "запросить"/"выполнить" внутри колбэка), внутренний - обычный кадр
 // без диспетчеризации по типу (тип не проверяется - единственная цель
 // кадра поймать ЛЮБОЕ "выбросить", раз всё наследует "Исключение", см. её
-// package doc). Оба при срабатывании: откатывают (если ещё не откачено
-// явно "откатить()"), возвращают соединение в реальный пул, пробрасывают
-// исходную ошибку тем же способом дальше. Штатное завершение колбэка (ни
-// один из двух кадров не сработал) - фиксирует (если ещё не откачено
-// явно) и тоже возвращает соединение в пул.
+// package doc). Оба при срабатывании: откатывают (rech_tx_finish -
+// ROLLBACK у корневой, ROLLBACK TO SAVEPOINT у вложенной; ничего, если уже
+// откачено явно "откатить()"), возвращают соединение в реальный пул (только
+// корневая), пробрасывают исходную ошибку тем же способом дальше. Штатное
+// завершение колбэка - фиксирует (COMMIT/RELEASE SAVEPOINT) и тоже
+// возвращает соединение в пул.
 func dbtxRuntimeCode(ctx *irGenCtx) string {
 	resultListC := mangleType(dbResultType)
 	paramsListC := reflectAnyListCType()
@@ -143,6 +153,7 @@ func dbtxRuntimeCode(ctx *irGenCtx) string {
 	zaprosit := mangleMethod(transactionEntityName, "запросить")
 	vypolnit := mangleMethod(transactionEntityName, "выполнить")
 	otkatit := mangleMethod(transactionEntityName, "откатить")
+	vlozhennaya := mangleMethod(transactionEntityName, "вложенная")
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb, `static %[1]s *rech_db_begin_transaction(rech_db_t *db) {
@@ -160,30 +171,65 @@ func dbtxRuntimeCode(ctx *irGenCtx) string {
     pthread_mutex_init(&tx->mini.mutex, NULL);
     pthread_cond_init(&tx->mini.cond, NULL);
 #endif
+    tx->conn_db = &tx->mini;
     tx->resolved = false;
+    tx->parent = NULL;
+    tx->depth = 0;
     rech_tx_run_simple(tx->mini.kind, conn, "BEGIN");
     return tx;
 }
 
+static bool rech_tx_alive(%[1]s *tx) {
+    for (; tx != NULL; tx = tx->parent) {
+        if (tx->resolved) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void rech_tx_finish(%[1]s *tx, bool commit) {
+    bool alive = rech_tx_alive(tx);
+    tx->resolved = true;
+    if (!alive) {
+        return;
+    }
+    rech_db_kind kind = tx->conn_db->kind;
+    void *conn = tx->conn_db->conns[0];
+    if (tx->parent == NULL) {
+        rech_tx_run_simple(kind, conn, commit ? "COMMIT" : "ROLLBACK");
+        return;
+    }
+    char sql[64];
+    if (!commit) {
+        snprintf(sql, sizeof(sql), "ROLLBACK TO SAVEPOINT %%s", tx->savepoint);
+        rech_tx_run_simple(kind, conn, sql);
+    }
+    snprintf(sql, sizeof(sql), "RELEASE SAVEPOINT %%s", tx->savepoint);
+    rech_tx_run_simple(kind, conn, sql);
+}
+
+static void rech_tx_release_conn(%[1]s *tx) {
+    if (tx->parent == NULL) {
+        rech_db_checkin(tx->real_db, tx->real_idx);
+    }
+}
+
 static %[2]s *%[3]s(%[1]s *this_, const char *sql, %[4]s *params) {
-    return rech_db_query(&this_->mini, sql, params);
+    return rech_db_query(this_->conn_db, sql, params);
 }
 
 static long long %[5]s(%[1]s *this_, const char *sql, %[4]s *params) {
-    return rech_db_exec(&this_->mini, sql, params);
+    return rech_db_exec(this_->conn_db, sql, params);
 }
 
 static void %[6]s(%[1]s *this_) {
-    if (!this_->resolved) {
-        rech_tx_run_simple(this_->mini.kind, this_->mini.conns[0], "ROLLBACK");
-        this_->resolved = true;
-    }
+    rech_tx_finish(this_, false);
 }
 
 `, txC, resultListC, zaprosit, paramsListC, vypolnit, otkatit)
 
-	fmt.Fprintf(&sb, `static void %[1]s(rech_db_t *db, %[2]s callback) {
-    %[3]s *tx = rech_db_begin_transaction(db);
+	fmt.Fprintf(&sb, `static void rech_tx_run(%[3]s *tx, %[2]s callback) {
     %[4]s frame_panic = {0};
     frame_panic.prev = %[5]s;
     frame_panic.catch_panics = true;
@@ -198,33 +244,46 @@ static void %[6]s(%[1]s *this_) {
         } else {
             %[5]s = frame_exc.prev;
             void *exc = frame_exc.exc;
-            if (!tx->resolved) {
-                rech_tx_run_simple(tx->mini.kind, tx->mini.conns[0], "ROLLBACK");
-                tx->resolved = true;
-            }
-            rech_db_checkin(db, tx->real_idx);
+            rech_tx_finish(tx, false);
+            rech_tx_release_conn(tx);
             %[6]s(exc, %[7]s);
         }
         %[5]s = frame_panic.prev;
     } else {
         %[5]s = frame_panic.prev;
         const char *msg = frame_panic.panic_msg;
-        if (!tx->resolved) {
-            rech_tx_run_simple(tx->mini.kind, tx->mini.conns[0], "ROLLBACK");
-            tx->resolved = true;
-        }
-        rech_db_checkin(db, tx->real_idx);
+        rech_tx_finish(tx, false);
+        rech_tx_release_conn(tx);
         rech_panic(msg);
     }
-    if (!tx->resolved) {
-        rech_tx_run_simple(tx->mini.kind, tx->mini.conns[0], "COMMIT");
-        tx->resolved = true;
+    rech_tx_finish(tx, true);
+    rech_tx_release_conn(tx);
+}
+
+static void %[1]s(rech_db_t *db, %[2]s callback) {
+    rech_tx_run(rech_db_begin_transaction(db), callback);
+}
+
+static void %[8]s(%[3]s *this_, %[2]s callback) {
+    if (!rech_tx_alive(this_)) {
+        rech_panic("%[9]s");
     }
-    rech_db_checkin(db, tx->real_idx);
+    %[3]s *tx = GC_MALLOC(sizeof(%[3]s));
+    tx->conn_db = this_->conn_db;
+    tx->real_db = this_->real_db;
+    tx->real_idx = this_->real_idx;
+    tx->resolved = false;
+    tx->parent = this_;
+    tx->depth = this_->depth + 1;
+    snprintf(tx->savepoint, sizeof(tx->savepoint), "rech_sp_%%d", tx->depth);
+    char sql[64];
+    snprintf(sql, sizeof(sql), "SAVEPOINT %%s", tx->savepoint);
+    rech_tx_run_simple(tx->conn_db->kind, tx->conn_db->conns[0], sql);
+    rech_tx_run(tx, callback);
 }
 
 `, dbRunTransactionFunc, callableC, txC, catchFrameType, catchTopVar, throwFunc,
-		throwTypeNameExpr(ctx, "exc", systemExceptionEntity))
+		throwTypeNameExpr(ctx, "exc", systemExceptionEntity), vlozhennaya, escapeCString(rtmsg.DBTxResolved))
 
 	return sb.String()
 }

@@ -42,3 +42,18 @@ func Parse(raw string) Tag {
 func (t Tag) Get(key string) string {
 	return t[key]
 }
+
+// XMLName - внешнее имя поля fieldName в XML по ключу "xml" тега raw и
+// признак атрибута: "xml:имя" - дочерний элемент с этим именем,
+// "xml:@имя" - атрибут элемента сущности с этим именем, "xml:@" - атрибут
+// с именем самого поля; без ключа "xml" - дочерний элемент с именем поля.
+func XMLName(raw, fieldName string) (name string, attr bool) {
+	name = Parse(raw).Get("xml")
+	if rest, ok := strings.CutPrefix(name, "@"); ok {
+		name, attr = rest, true
+	}
+	if name == "" {
+		name = fieldName
+	}
+	return name, attr
+}

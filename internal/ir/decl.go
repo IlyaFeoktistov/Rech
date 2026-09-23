@@ -538,6 +538,13 @@ func (f Field) JSONKey() string {
 	return f.Name
 }
 
+// XMLName - внешнее имя поля в XML и признак атрибута (тег "xml:имя"/
+// "xml:@имя"/"xml:@", см. structtag.XMLName) - тот же принцип, что JSONKey
+// выше: и разбор, и сериализация обоих backend'ов берут имя отсюда.
+func (f Field) XMLName() (name string, attr bool) {
+	return structtag.XMLName(f.Tag, f.Name)
+}
+
 // SQLKey - внешнее имя поля как имя колонки результата запроса: значение
 // ключа "sql" тега, если оно задано, иначе - само имя поля - тот же
 // принцип, что JSONKey выше, для "запросить(...) как Список<Тип>"

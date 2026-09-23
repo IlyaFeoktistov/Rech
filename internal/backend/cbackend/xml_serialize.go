@@ -26,6 +26,10 @@ type xmlSerializerGen struct {
 	generics  map[string]ir.GenericInstantiation
 	generated map[string]bool
 	code      strings.Builder
+
+	// usesAttrEscape - хоть одно поле-атрибут типа Строка: только тогда
+	// эмитится rech_xml_write_escaped_attr.
+	usesAttrEscape bool
 }
 
 func xmlSerializeRuntimeCode(ctx *irGenCtx, prog *ir.Program, targets []ir.Type) (string, error) {
@@ -41,6 +45,9 @@ func xmlSerializeRuntimeCode(ctx *irGenCtx, prog *ir.Program, targets []ir.Type)
 	}
 	var sb strings.Builder
 	sb.WriteString(xmlWriteEscapedHelper)
+	if g.usesAttrEscape {
+		sb.WriteString(xmlWriteEscapedAttrHelper)
+	}
 	sb.WriteString(g.code.String())
 	wrapped := map[string]bool{}
 	for _, t := range targets {
@@ -226,9 +233,19 @@ func (g *xmlSerializerGen) xmlEntitySerializerCode(ent *ir.Entity) string {
 		access = "v->"
 	}
 	var body strings.Builder
-	body.WriteString("    rech_xml_sb_putc(sb, '<');\n    rech_xml_sb_puts(sb, tag);\n    rech_xml_sb_putc(sb, '>');\n")
+	body.WriteString("    rech_xml_sb_putc(sb, '<');\n    rech_xml_sb_puts(sb, tag);\n")
 	for _, f := range ent.Fields {
-		fieldTag := escapeCString(f.Name)
+		if name, attr := f.XMLName(); attr {
+			body.WriteString(g.xmlAttrWriteCode(name, f.Type, access+mangleField(f.Name)))
+		}
+	}
+	body.WriteString("    rech_xml_sb_putc(sb, '>');\n")
+	for _, f := range ent.Fields {
+		xmlName, attr := f.XMLName()
+		if attr {
+			continue
+		}
+		fieldTag := escapeCString(xmlName)
 		if gi, ok := g.generics[f.Type.Entity]; f.Type.Kind == ir.KindEntity && ok && gi.Template == "Список" {
 			elemSerializer := xmlSerializerNameFor(gi.ElemType)
 			fmt.Fprintf(&body, "    for (long long i = 0; i < %s%s->len; i++) {\n", access, mangleField(f.Name))
@@ -246,21 +263,58 @@ func (g *xmlSerializerGen) xmlEntitySerializerCode(ent *ir.Entity) string {
 `, "rech_xml_serialize_"+transliterate(ent.Name), valueC, body.String())
 }
 
+// xmlAttrWriteCode - C-код, дописывающий " имя=\"значение\"" поля-примитива
+// value в открывающий тег элемента сущности.
+func (g *xmlSerializerGen) xmlAttrWriteCode(name string, t ir.Type, value string) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "    rech_xml_sb_puts(sb, \" %s=\\\"\");\n", escapeCString(name))
+	switch t.Kind {
+	case ir.KindInt:
+		fmt.Fprintf(&sb, "    { char buf[32]; snprintf(buf, sizeof buf, \"%%lld\", %s); rech_xml_sb_puts(sb, buf); }\n", value)
+	case ir.KindFloat32, ir.KindFloat:
+		fmt.Fprintf(&sb, "    { char buf[64]; snprintf(buf, sizeof buf, \"%%g\", (double)%s); rech_xml_sb_puts(sb, buf); }\n", value)
+	case ir.KindBool:
+		fmt.Fprintf(&sb, "    rech_xml_sb_puts(sb, %s ? \"true\" : \"false\");\n", value)
+	default: // ir.KindString
+		g.usesAttrEscape = true
+		fmt.Fprintf(&sb, "    rech_xml_write_escaped_attr(sb, %s);\n", value)
+	}
+	sb.WriteString("    rech_xml_sb_putc(sb, '\"');\n")
+	return sb.String()
+}
+
 // generateIRSerializeExpr (json_serialize.go) диспетчеризует сюда через
 // xmlToStringWrapperName при e.Format == "XML".
 
 // xmlWriteEscapedHelper - rech_xml_write_escaped, разделяемый всеми
 // примитивными сериализаторами строки - экранирует "&"/"<"/">" (тот же
 // набор, что internal/interp/xml_serialize.go, xmlWriteEscapedText;
-// достаточно этих трёх - "\""/"'" нужны только внутри значений атрибутов,
-// которых у сериализованного текста нет вообще, атрибуты не
-// поддерживаются, см. package doc xml_extract.go).
+// в тексте элемента кавычки экранировать не нужно - для значения атрибута
+// есть xmlWriteEscapedAttrHelper).
 const xmlWriteEscapedHelper = `static void rech_xml_write_escaped(rech_xml_sb *sb, const char *s) {
     for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
         switch (*p) {
             case '&': rech_xml_sb_puts(sb, "&amp;"); break;
             case '<': rech_xml_sb_puts(sb, "&lt;"); break;
             case '>': rech_xml_sb_puts(sb, "&gt;"); break;
+            default: rech_xml_sb_putc(sb, (char)*p);
+        }
+    }
+}
+
+`
+
+// xmlWriteEscapedAttrHelper - rech_xml_write_escaped_attr: то же, что
+// rech_xml_write_escaped, плюс "\"" (значение атрибута всегда в двойных
+// кавычках) - согласовано с internal/interp/xml_serialize.go,
+// xmlWriteEscapedAttr.
+const xmlWriteEscapedAttrHelper = `static void rech_xml_write_escaped_attr(rech_xml_sb *sb, const char *s) {
+    for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
+        switch (*p) {
+            case '&': rech_xml_sb_puts(sb, "&amp;"); break;
+            case '<': rech_xml_sb_puts(sb, "&lt;"); break;
+            case '>': rech_xml_sb_puts(sb, "&gt;"); break;
+            case '"': rech_xml_sb_puts(sb, "&quot;"); break;
             default: rech_xml_sb_putc(sb, (char)*p);
         }
     }

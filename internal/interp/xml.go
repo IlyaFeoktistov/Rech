@@ -1,7 +1,7 @@
 // "разобрать XML <выражение> как <Тип>" (internal/ir.ParseExpr, Format ==
-// "XML") - собственный рекурсивный XML-парсер (без атрибутов, без
-// пролога/комментариев - известные ограничения этого срезa, см. package
-// doc internal/backend/cbackend/xml_extract.go) в универсальное дерево
+// "XML") - собственный рекурсивный XML-парсер (без пролога/комментариев -
+// известные ограничения этого среза, см. package doc
+// internal/backend/cbackend/xml_extract.go) в универсальное дерево
 // (xmlNode), затем структурное извлечение по целевому ir.Type (xmlExtract) -
 // тот же принцип, что и json.go, но для формата, у которого нет
 // готового "any"-разбора в стандартной библиотеке Go.
@@ -11,7 +11,9 @@
 // одинаково):
 //   - Примитив - текстовое содержимое элемента.
 //   - Сущность/структура - дочерние элементы, найденные по имени поля
-//     (без учёта регистра НЕ ведётся - точное совпадение, как и в JSON).
+//     (без учёта регистра НЕ ведётся - точное совпадение, как и в JSON);
+//     тег "xml:имя" переименовывает элемент, "xml:@имя"/"xml:@" делает
+//     поле-примитив атрибутом элемента сущности (ir.Field.XMLName).
 //   - Список<T> как ПОЛЕ сущности - все дочерние элементы с именем поля
 //     (без обёртки), каждый - один элемент списка.
 //   - Список<T> как ЦЕЛЬ РАЗБОРА целиком (не поле) - ВСЕ дочерние элементы
@@ -40,6 +42,7 @@ import (
 type xmlNode struct {
 	text     string
 	children []xmlChild
+	attrs    map[string]string
 }
 
 type xmlChild struct {
@@ -130,7 +133,20 @@ func (in *Interp) xmlExtract(node xmlNode, target ir.Type) (Value, error) {
 		}
 		fields := make(map[string]Value, len(ent.Fields))
 		for _, f := range ent.Fields {
-			matches := node.childrenNamed(f.Name)
+			xmlName, attr := f.XMLName()
+			if attr {
+				raw, present := node.attrs[xmlName]
+				if !present {
+					return Value{}, in.xmlParseFail(rtmsg.XMLFieldMissing(xmlName))
+				}
+				v, err := in.xmlExtract(xmlNode{text: raw}, f.Type)
+				if err != nil {
+					return Value{}, err
+				}
+				fields[f.Name] = v
+				continue
+			}
+			matches := node.childrenNamed(xmlName)
 			if g, ok := in.generics[f.Type.Entity]; f.Type.Kind == ir.KindEntity && ok && g.Template == "Список" {
 				elems := make([]Value, 0, len(matches))
 				for _, m := range matches {
@@ -145,7 +161,7 @@ func (in *Interp) xmlExtract(node xmlNode, target ir.Type) (Value, error) {
 			}
 			switch len(matches) {
 			case 0:
-				return Value{}, in.xmlParseFail(rtmsg.XMLFieldMissing(f.Name))
+				return Value{}, in.xmlParseFail(rtmsg.XMLFieldMissing(xmlName))
 			case 1:
 				v, err := in.xmlExtract(matches[0], f.Type)
 				if err != nil {
@@ -153,7 +169,7 @@ func (in *Interp) xmlExtract(node xmlNode, target ir.Type) (Value, error) {
 				}
 				fields[f.Name] = v
 			default:
-				return Value{}, in.xmlParseFail(rtmsg.XMLFieldDuplicated(f.Name))
+				return Value{}, in.xmlParseFail(rtmsg.XMLFieldDuplicated(xmlName))
 			}
 		}
 		return Value{Type: target, Obj: &entityObj{typeName: target.Entity, fields: fields}}, nil
@@ -173,9 +189,7 @@ func (p *xmlRawParser) skipWS() {
 }
 
 // parseElement разбирает "<имя [атрибуты]>...</имя>" или самозакрывающийся
-// "<имя [атрибуты]/>" - атрибуты синтаксически разбираются (и
-// отбрасываются) ради совместимости с реальным XML, значений не несут в
-// этом срезе (см. package doc).
+// "<имя [атрибуты]/>" - атрибуты сохраняются в xmlNode.attrs.
 func (p *xmlRawParser) parseElement() (string, xmlNode, error) {
 	if p.pos >= len(p.s) || p.s[p.pos] != '<' {
 		return "", xmlNode{}, errXMLSyntax
@@ -185,6 +199,7 @@ func (p *xmlRawParser) parseElement() (string, xmlNode, error) {
 	if err != nil {
 		return "", xmlNode{}, err
 	}
+	var node xmlNode
 	for {
 		p.skipWS()
 		if p.pos >= len(p.s) {
@@ -196,13 +211,14 @@ func (p *xmlRawParser) parseElement() (string, xmlNode, error) {
 				return "", xmlNode{}, errXMLSyntax
 			}
 			p.pos++
-			return name, xmlNode{}, nil
+			return name, node, nil
 		}
 		if p.s[p.pos] == '>' {
 			p.pos++
 			break
 		}
-		if _, err := p.parseName(); err != nil {
+		attrName, err := p.parseName()
+		if err != nil {
 			return "", xmlNode{}, err
 		}
 		p.skipWS()
@@ -211,12 +227,19 @@ func (p *xmlRawParser) parseElement() (string, xmlNode, error) {
 		}
 		p.pos++
 		p.skipWS()
-		if _, err := p.parseAttrValue(); err != nil {
+		value, err := p.parseAttrValue()
+		if err != nil {
 			return "", xmlNode{}, err
 		}
+		if node.attrs == nil {
+			node.attrs = map[string]string{}
+		}
+		if _, dup := node.attrs[attrName]; dup {
+			return "", xmlNode{}, errXMLSyntax
+		}
+		node.attrs[attrName] = value
 	}
 
-	var node xmlNode
 	var text strings.Builder
 	for {
 		if p.pos >= len(p.s) {
@@ -276,22 +299,30 @@ func isXMLNameRune(r rune, first bool) bool {
 	return !first && (unicode.IsDigit(r) || r == '-' || r == '.')
 }
 
+// parseAttrValue читает значение атрибута в кавычках (двойных или
+// одинарных) с тем же раскрытием сущностей, что и у текста (parseTextRune).
 func (p *xmlRawParser) parseAttrValue() (string, error) {
 	if p.pos >= len(p.s) || (p.s[p.pos] != '"' && p.s[p.pos] != '\'') {
 		return "", errXMLSyntax
 	}
 	quote := p.s[p.pos]
 	p.pos++
-	start := p.pos
+	var val strings.Builder
 	for p.pos < len(p.s) && p.s[p.pos] != quote {
-		p.pos++
+		if p.s[p.pos] == '<' {
+			return "", errXMLSyntax
+		}
+		r, err := p.parseTextRune()
+		if err != nil {
+			return "", err
+		}
+		val.WriteRune(r)
 	}
 	if p.pos >= len(p.s) {
 		return "", errXMLSyntax
 	}
-	val := p.s[start:p.pos]
 	p.pos++
-	return val, nil
+	return val.String(), nil
 }
 
 // parseTextRune читает один символ текстового содержимого, разворачивая

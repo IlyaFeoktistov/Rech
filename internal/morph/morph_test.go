@@ -319,10 +319,10 @@ func TestDictionaryRegisterNoun(t *testing.T) {
 // "-и" - не окончание единственного числа ни одного класса), пробует
 // восстановить единственное число и зарегистрировать по НЕМУ, но под
 // исходным (множественным) ключом - см. package doc RegisterNoun/
-// tryDepluralizeMasculine.
+// tryDepluralize.
 func TestDictionaryRegisterNounPluralForm(t *testing.T) {
 	d := NewDictionary()
-	for _, plural := range []string{"сервисы", "элементы", "пользователи", "коты"} {
+	for _, plural := range []string{"сервисы", "элементы", "пользователи", "коты", "задачи", "комнаты", "книги", "сессии", "недели", "тетради", "ножницы", "брюки", "сани", "часы", "очки"} {
 		if err := d.RegisterNoun(plural, Inanimate); err != nil {
 			t.Fatalf("RegisterNoun(%q): %v", plural, err)
 		}
@@ -332,6 +332,17 @@ func TestDictionaryRegisterNounPluralForm(t *testing.T) {
 		{"элементах", "элементы"},
 		{"пользователях", "пользователи"},
 		{"котах", "коты"},
+		{"задачах", "задачи"},
+		{"комнатах", "комнаты"},
+		{"книгах", "книги"},
+		{"сессиях", "сессии"},
+		{"неделях", "недели"},
+		{"тетрадях", "тетради"},
+		{"ножницах", "ножницы"},
+		{"брюках", "брюки"},
+		{"санях", "сани"},
+		{"часах", "часы"},
+		{"очках", "очки"},
 	}
 	for _, tt := range tests {
 		got := d.Analyze(tt.prepositional)
@@ -568,6 +579,37 @@ func TestSpellingNoYAfterVelarsAndHushing(t *testing.T) {
 		}
 		if got := p[c.tag]; got != c.want {
 			t.Errorf("%s %v = %q, ожидалось %q", c.word, c.tag, got, c.want)
+		}
+	}
+}
+
+// TestBuildPluraleTantumParadigm - у pluralia tantum нет единственного
+// числа; родительный падеж не выводится правилом и подтверждается словарём.
+func TestBuildPluraleTantumParadigm(t *testing.T) {
+	tests := []struct{ nom, gen, dat, prep string }{
+		{"ножницы", "ножниц", "ножницам", "ножницах"},
+		{"брюки", "брюк", "брюкам", "брюках"},
+		{"сани", "саней", "саням", "санях"},
+		{"часы", "часов", "часам", "часах"},
+	}
+	for _, tt := range tests {
+		p, ok := BuildPluraleTantumParadigm(tt.nom, Inanimate)
+		if !ok {
+			t.Fatalf("BuildPluraleTantumParadigm(%q) не построила парадигму", tt.nom)
+		}
+		want := map[Tag]string{
+			{Genitive, Plural}:      tt.gen,
+			{Dative, Plural}:        tt.dat,
+			{Prepositional, Plural}: tt.prep,
+			{Accusative, Plural}:    tt.nom,
+		}
+		for tag, form := range want {
+			if p[tag] != form {
+				t.Errorf("%s: %v = %q, ожидалось %q", tt.nom, tag, p[tag], form)
+			}
+		}
+		if _, has := p[Tag{Nominative, Singular}]; has {
+			t.Errorf("%s: у pluralia tantum не должно быть форм единственного числа", tt.nom)
 		}
 	}
 }

@@ -24,3 +24,24 @@ func TestParseUnknownKeyLookup(t *testing.T) {
 		t.Fatalf("отсутствующий ключ должен вернуть \"\", получено %q", got)
 	}
 }
+
+func TestXMLName(t *testing.T) {
+	tests := []struct {
+		raw, field string
+		name       string
+		attr       bool
+	}{
+		{"", "имя", "имя", false},
+		{"json:name", "имя", "имя", false},
+		{"xml:title", "имя", "title", false},
+		{"xml:@id", "ид", "id", true},
+		{"xml:@", "валюта", "валюта", true},
+		{"json:x, xml:@y", "поле", "y", true},
+	}
+	for _, tt := range tests {
+		name, attr := XMLName(tt.raw, tt.field)
+		if name != tt.name || attr != tt.attr {
+			t.Errorf("XMLName(%q, %q) = (%q, %v), ожидалось (%q, %v)", tt.raw, tt.field, name, attr, tt.name, tt.attr)
+		}
+	}
+}

@@ -59,3 +59,38 @@ func TestGenerateFromIRXMLSerializeAndParseShareSb(t *testing.T) {
 		t.Fatalf("rech_xml_sb_init должен быть определён ровно один раз, получено %d раз:\n%s", n, out)
 	}
 }
+
+// TestGenerateFromIRXMLAttributes - поле-атрибут ("xml:@...") пишется в
+// открывающий тег и читается через rech_xn_attr, переименованный элемент -
+// под именем из тега.
+func TestGenerateFromIRXMLAttributes(t *testing.T) {
+	prog := &ir.Program{
+		Entities: []*ir.Entity{
+			{Name: "Товар", Fields: []ir.Field{
+				{Name: "ид", Type: ir.TypeInt, Tag: "xml:@id"},
+				{Name: "валюта", Type: ir.TypeString, Tag: "xml:@"},
+				{Name: "название", Type: ir.TypeString, Tag: "xml:title"},
+			}},
+		},
+		XMLSerializeTargets: []ir.Type{ir.EntityType("Товар")},
+		XMLParseTargets:     []ir.Type{ir.EntityType("Товар")},
+		Functions:           []*ir.Function{{Name: "главная"}},
+	}
+	out, err := GenerateFromIR(prog)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	for _, want := range []string{
+		`rech_xml_sb_puts(sb, " id=\"");`,
+		`rech_xml_sb_puts(sb, " валюта=\"");`,
+		"static void rech_xml_write_escaped_attr(",
+		`rech_xn_attr(&v, "id")`,
+		`rech_xn_attr(&v, "валюта")`,
+		`rech_xn_children_named(&v, "title",`,
+		`"title", sb);`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ожидалось вхождение %q, получено:\n%s", want, out)
+		}
+	}
+}

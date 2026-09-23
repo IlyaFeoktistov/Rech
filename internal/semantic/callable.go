@@ -155,7 +155,7 @@ func analyzeFuncRefExpr(sc *ctx, e *ast.FuncRefExpr) (ir.Expr, error) {
 		return nil, errAtLine(e.Line, CodeCallable, "\"&%s\" не поддерживает встроенные функции - только обычные функции программы", e.Name)
 	}
 	if _, overloaded := sc.a.funcOverloads[e.Name]; overloaded {
-		return nil, errAtLine(e.Line, CodeCallable, "функция %q перегружена - \"&\" не поддерживает перегрузку в этой версии, снимать адрес можно только с неперегруженной функции", e.Name)
+		return nil, errAtLine(e.Line, CodeCallable, "функция %q перегружена - \"&%s\" без известного типа \"Вызываемый(...)\" неоднозначен: укажите тип явно (переменная/параметр/поле/результат типа \"Вызываемый(...)\"), по нему выбирается перегрузка", e.Name, e.Name)
 	}
 	sig, ok := sc.funcs[e.Name]
 	if !ok {
@@ -180,16 +180,50 @@ func analyzeFuncRefExpr(sc *ctx, e *ast.FuncRefExpr) (ir.Expr, error) {
 	if sig.IsExtern {
 		return nil, errAtLine(e.Line, CodeCallable, "\"&%s\" не поддерживает внешние функции (\"внешняя функция\")", e.Name)
 	}
+	return funcRefFromSig(sc, e.Name, sig, e.Line)
+}
+
+// funcSigCallableType - тип "Вызываемый(...)" значения "&имя" для функции
+// с сигнатурой sig.
+func funcSigCallableType(sig funcSig) ir.Type {
 	var result *ir.Type
 	if sig.HasReturn {
 		rt := sig.ReturnType
 		result = &rt
 	}
-	t := ir.CallableType(sig.Params, result)
+	return ir.CallableType(sig.Params, result)
+}
+
+// funcRefFromSig строит "&имя" для уже выбранной сигнатуры: funcName - имя,
+// под которым функция известна backend'ам (голое имя или MangledName
+// перегрузки).
+func funcRefFromSig(sc *ctx, funcName string, sig funcSig, line int) (ir.Expr, error) {
+	t := funcSigCallableType(sig)
 	if err := sc.a.registerCallable(t); err != nil {
-		return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: e.Line})
+		return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: line})
 	}
-	return &ir.FuncRefExpr{FuncName: e.Name, Type: t}, nil
+	return &ir.FuncRefExpr{FuncName: funcName, Type: t}, nil
+}
+
+// analyzeOverloadedFuncRef - "&имя" перегруженной функции там, где известен
+// ожидаемый тип target ("Вызываемый(...)" переменной/параметра/поля/
+// результата, coerceExpr): выбирается перегрузка, у которой типы параметров
+// и результата совпадают с target в точности (без неявных преобразований -
+// значение "Вызываемый" не приводится к другой сигнатуре и при обычном
+// присваивании). ok == false - имя не перегружено или target не
+// "Вызываемый": вызывающий код идёт обычным путём analyzeExpr.
+func analyzeOverloadedFuncRef(sc *ctx, e *ast.FuncRefExpr, target ir.Type) (ir.Expr, bool, error) {
+	group, overloaded := sc.a.funcOverloads[e.Name]
+	if !overloaded || target.Kind != ir.KindCallable {
+		return nil, false, nil
+	}
+	for _, sig := range group {
+		if funcSigCallableType(sig) == target {
+			ref, err := funcRefFromSig(sc, sig.MangledName, sig, e.Line)
+			return ref, true, err
+		}
+	}
+	return nil, true, errAtLine(e.Line, CodeCallable, "ни одна перегрузка функции %q не подходит под тип %s", e.Name, target)
 }
 
 // analyzeLambdaExpr анализирует "функция(<парам>: <Тип>, ...): <ТипРезультата>

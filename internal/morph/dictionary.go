@@ -80,7 +80,9 @@ func (d *Dictionary) addReverse(form string, a Analysis) {
 // использование") -> для слов на "-ы"/"-и" (переменная объявлена сразу во
 // множественном числе, как обычно и называют коллекции - "сервисы",
 // "элементы") - попытка восстановить единственное число и проверить его
-// через тот же словарь (tryDepluralizeMasculine). Одушевлённость всегда
+// через тот же словарь (tryDepluralize), а если словарь помечает слово как
+// pluralia tantum ("ножницы", "брюки") - парадигма из одного
+// множественного числа (BuildPluraleTantumParadigm). Одушевлённость всегда
 // передаётся явно - она не следует из формы слова вообще, ни один из
 // источников её не определяет.
 func (d *Dictionary) RegisterNoun(nomSg string, animacy Animacy) error {
@@ -101,17 +103,23 @@ func (d *Dictionary) RegisterNoun(nomSg string, animacy Animacy) error {
 			return d.RegisterNounExplicit(nomSg, ClassThirdSoft, Feminine, animacy)
 		}
 	}
+	if hasPluralEnding(nomSg) && isPluraleTantumViaGomorphy(nomSg) {
+		if paradigm, ok := BuildPluraleTantumParadigm(nomSg, animacy); ok {
+			return d.registerPluraleTantum(nomSg, animacy, paradigm)
+		}
+	}
 	if hasPluralEnding(nomSg) {
-		if singular, ok := tryDepluralizeMasculine(nomSg); ok {
-			// ClassifyByEnding сама отказывается от "-ь" (см. её package doc -
-			// окончание само по себе не определяет род/класс, разбирается
-			// отдельной веткой чуть выше) - tryDepluralizeMasculine уже
-			// подтвердила gomorphy'ем, что singular - именно мужского рода
-			// (иначе не вернула бы true для кандидата на "-ь"), поэтому здесь
-			// он однозначно ClassFirstSoft, тем же принципом, что и в ветке
-			// "-ь" самого nomSg выше.
+		if singular, gender, ok := tryDepluralize(nomSg); ok {
+			// ClassifyByEnding сама отказывается от "-ь" (окончание само по
+			// себе не определяет род/класс) - tryDepluralize уже подтвердила
+			// род gomorphy'ем, поэтому класс "-ь" выбирается по нему, тем же
+			// принципом, что и в ветке "-ь" самого nomSg выше.
 			if strings.HasSuffix(singular, "ь") {
-				return d.registerNounFromSingular(nomSg, singular, ClassFirstSoft, Masculine, animacy)
+				class := ClassFirstSoft
+				if gender == Feminine {
+					class = ClassThirdSoft
+				}
+				return d.registerNounFromSingular(nomSg, singular, class, gender, animacy)
 			}
 			if class, ok := ClassifyByEnding(singular); ok {
 				return d.registerNounFromSingular(nomSg, singular, class, GenderOf(class), animacy)
@@ -133,7 +141,7 @@ func (d *Dictionary) RegisterNounExplicit(nomSg string, class DeclensionClass, g
 // парадигму ИЗ singularForm (именительный падеж единственного числа -
 // BuildNounParadigm умеет работать только с ним), но регистрирует лемму и
 // обратный индекс под lemmaKey - отдельным параметром ради
-// tryDepluralizeMasculine ниже (там lemmaKey - буквальное имя переменной,
+// tryDepluralize (там lemmaKey - буквальное имя переменной,
 // написанное программистом во множественном числе, "сервисы", а
 // singularForm - восстановленная по нему форма "сервис", по которой только
 // и можно построить парадигму).
@@ -215,7 +223,7 @@ func (d *Dictionary) Lookup(lemma string) (*Lemma, bool) {
 }
 
 // FormOf возвращает словоформу lemma (существительного) в падеже c,
-// единственного числа - нужен там, где известна лемма и нужна ИМЕННО эта
+// единственного числа (у pluralia tantum - множественного) - нужен там, где известна лемма и нужна ИМЕННО эта
 // форма (например, чтобы показать её в сообщении об ошибке "ожидался
 // винительный падеж - %q"), в отличие от Analyze, который идёт в обратную
 // сторону (от словоформы к лемме). false - lemma не существительное или не
@@ -225,7 +233,11 @@ func (d *Dictionary) FormOf(lemma string, c Case) (string, bool) {
 	if !ok || l.Forms == nil {
 		return "", false
 	}
-	form, ok := l.Forms[Tag{Case: c, Number: Singular}]
+	if form, ok := l.Forms[Tag{Case: c, Number: Singular}]; ok {
+		return form, true
+	}
+	// Pluralia tantum ("ножницы") - единственного числа нет вовсе.
+	form, ok := l.Forms[Tag{Case: c, Number: Plural}]
 	return form, ok
 }
 

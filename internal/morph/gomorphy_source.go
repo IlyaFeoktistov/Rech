@@ -128,60 +128,70 @@ func lookupGenderNumberViaGomorphy(nomSg string) (Gender, Number, bool) {
 // одно слово), а для любого существительного, которое знает словарь
 // OpenCorpora - "сотрудник"/"админ"/"гость" и т.п. без необходимости
 // перечислять каждое вручную.
-// tryDepluralizeMasculine пытается восстановить именительный падеж
-// единственного числа существительного мужского рода твёрдого/мягкого
-// склонения по его форме на "-ы"/"-и" (переменные-коллекции обычно
-// называют во множественном числе - "сервисы", "элементы" - а
+// tryDepluralize пытается восстановить именительный падеж единственного
+// числа существительного по его форме на "-ы"/"-и" (переменные-коллекции
+// обычно называют во множественном числе - "сервисы", "задачи" - а
 // BuildNounParadigm умеет строить парадигму только из формы единственного
-// числа, см. package doc RegisterNoun). "-ы"/"-и" - продуктивное окончание
-// множественного числа ТОЛЬКО у существительных мужского рода (женский/
-// средний род на "-а"/"-я"/"-о"/"-ие"/"-ия" уже перехвачен ClassifyByEnding
-// раньше в RegisterNoun) - двух кандидатов достаточно: "-ы" -> голая
-// твёрдая согласная основа ("серви+сы" -> "сервис"), "-и" -> либо мягкий
-// знак после основы ("пользовател+и" -> "пользователь"), либо голая
-// основа (шипящая/заднеязычная согласная перед "-и" по правилу русской
-// орфографии, "нож+и" -> "нож"). Кандидат принимается, только если
-// gomorphy РЕАЛЬНО подтверждает его как существительное мужского рода
-// единственного числа - не угадывание вслепую, а проверка по словарю
+// числа, см. package doc RegisterNoun). Кандидаты по окончанию:
+//   - "-ы" -> голая твёрдая основа ("серви+сы" -> "сервис", мужской род) или
+//     основа + "-а" ("комнат+ы" -> "комната", женский род);
+//   - "-и" -> основа + "-ь" ("пользовател+и" -> "пользователь", мужской;
+//     "тетрад+и" -> "тетрадь", женский), голая основа (шипящая/заднеязычная
+//     перед "-и" по правилу орфографии, "нож+и" -> "нож"), основа + "-я"
+//     ("сесси+и" -> "сессия", "недел+и" -> "неделя") или основа + "-а"
+//     после шипящей/заднеязычной ("задач+и" -> "задача", "книг+и" -> "книга").
+//
+// Средний род сюда не попадает: его множественное число оканчивается на
+// "-а"/"-я" и уже перехвачено ClassifyByEnding как единственное число
+// женского рода раньше в RegisterNoun. Кандидат принимается, только если
+// gomorphy РЕАЛЬНО подтверждает его как существительное единственного числа
+// мужского или женского рода в именительном падеже - не угадывание вслепую, а проверка по словарю
 // OpenCorpora (тот же принцип узкого использования gomorphy, что и у
-// lookupGenderViaGomorphy выше - не источник парадигмы, только факт
-// "такое слово есть и оно такое").
-func tryDepluralizeMasculine(plural string) (string, bool) {
+// lookupGenderViaGomorphy выше - не источник парадигмы, только факт "такое
+// слово есть и оно такое"). Первый подтверждённый кандидат в порядке выше
+// побеждает.
+func tryDepluralize(plural string) (string, Gender, bool) {
 	if sharedGomorphy == nil {
-		return "", false
+		return "", 0, false
 	}
 	var candidates []string
 	switch {
 	case strings.HasSuffix(plural, "ы"):
-		candidates = []string{strings.TrimSuffix(plural, "ы")}
+		stem := strings.TrimSuffix(plural, "ы")
+		candidates = []string{stem, stem + "а"}
 	case strings.HasSuffix(plural, "и"):
 		stem := strings.TrimSuffix(plural, "и")
-		candidates = []string{stem + "ь", stem}
+		candidates = []string{stem + "ь", stem, stem + "я", stem + "а"}
 	default:
-		return "", false
+		return "", 0, false
 	}
 	for _, cand := range candidates {
-		if cand == "" {
+		if cand == "" || cand == "а" || cand == "я" || cand == "ь" {
 			continue
 		}
 		tag := sharedGomorphy.Tag(cand)
 		if !strings.HasPrefix(tag, "NOUN") {
 			continue
 		}
-		isMasc, isSing := false, false
+		var gender Gender
+		hasGender, isSing, isNom := false, false, false
 		for _, tok := range tagFields(tag) {
 			switch tok {
 			case "masc":
-				isMasc = true
+				gender, hasGender = Masculine, true
+			case "femn":
+				gender, hasGender = Feminine, true
 			case "sing":
 				isSing = true
+			case "nomn":
+				isNom = true
 			}
 		}
-		if isMasc && isSing {
-			return cand, true
+		if hasGender && isSing && isNom {
+			return cand, gender, true
 		}
 	}
-	return "", false
+	return "", 0, false
 }
 
 func lookupAnimacyViaGomorphy(nomSg string) (Animacy, bool) {

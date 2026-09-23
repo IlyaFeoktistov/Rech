@@ -170,7 +170,9 @@ func TestOverloadExactMatchBeatsAssignableSubtype(t *testing.T) {
 	}
 }
 
-func TestOverloadFuncRefRejectsOverloadedName(t *testing.T) {
+// TestOverloadFuncRefRejectsUntypedOverloadedName - без ожидаемого типа
+// "Вызываемый(...)" перегрузку выбрать не из чего.
+func TestOverloadFuncRefRejectsUntypedOverloadedName(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 функция сложить(а: Целое, б: Целое): Целое
 {
@@ -186,7 +188,57 @@ func TestOverloadFuncRefRejectsOverloadedName(t *testing.T) {
 }
 `)
 	if err == nil || !strings.Contains(err.Error(), "перегружена") {
-		t.Fatalf("ожидалась ошибка - \"&\" не поддерживает перегрузку, получено: %v", err)
+		t.Fatalf("ожидалась ошибка - \"&\" перегруженной функции без ожидаемого типа, получено: %v", err)
+	}
+}
+
+// TestOverloadFuncRefResolvesByExpectedType - "&имя" перегруженной функции
+// выбирает перегрузку по объявленному типу "Вызываемый(...)".
+func TestOverloadFuncRefResolvesByExpectedType(t *testing.T) {
+	irProg := parseProgram(t, `
+функция сложить(а: Целое, б: Целое): Целое
+{
+    вернуть а + б
+}
+функция сложить(а: Строка, б: Строка): Строка
+{
+    вернуть а + б
+}
+функция главная
+{
+    переменная ф: Вызываемый(Строка, Строка): Строка = &сложить
+}
+`)
+	var main *ir.Function
+	for _, fn := range irProg.Functions {
+		if fn.Name == "главная" {
+			main = fn
+		}
+	}
+	decl := main.Body[0].(*ir.VarDecl)
+	ref := decl.Value.(*ir.FuncRefExpr)
+	if ref.FuncName != "сложить(Строка,Строка)" {
+		t.Fatalf("ожидалась перегрузка сложить(Строка,Строка), получено %q", ref.FuncName)
+	}
+}
+
+func TestOverloadFuncRefRejectsMismatchedExpectedType(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция сложить(а: Целое, б: Целое): Целое
+{
+    вернуть а + б
+}
+функция сложить(а: Строка, б: Строка): Строка
+{
+    вернуть а + б
+}
+функция главная
+{
+    переменная ф: Вызываемый(Логическое, Логическое): Логическое = &сложить
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "ни одна перегрузка") {
+		t.Fatalf("ожидалась ошибка - нет подходящей перегрузки, получено: %v", err)
 	}
 }
 
