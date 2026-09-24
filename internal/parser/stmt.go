@@ -1,6 +1,8 @@
 package parser
 
 import (
+	"slices"
+
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
@@ -943,15 +945,31 @@ func (p *Parser) resolvePrepositionalNoun(tok lexer.Token) (string, error) {
 	if len(analyses) == 0 {
 		return tok.Value, nil
 	}
-	lemma := ""
+	var lemmas []string
 	for _, a := range analyses {
-		if a.POS != morph.Noun || a.Tag.Case != morph.Prepositional {
+		if a.POS != morph.Noun || a.Tag.Case != morph.Prepositional || slices.Contains(lemmas, a.Lemma) {
 			continue
 		}
-		if lemma != "" && lemma != a.Lemma {
+		lemmas = append(lemmas, a.Lemma)
+	}
+	if len(lemmas) > 1 {
+		// Словарь общий на файл - оставляем имена ТЕКУЩЕЙ функции/метода
+		// (см. Parser.declGen): "числах" в функции с параметром "числа" -
+		// не переменная "число" из соседней функции.
+		var own []string
+		for _, l := range lemmas {
+			if gen, ok := p.nounDecl[l]; ok && gen == p.declGen {
+				own = append(own, l)
+			}
+		}
+		if len(own) != 1 {
 			return "", errAt(tok.Line, tok.Col, CodeNaturalCall, "словоформа %q неоднозначна как коллекция цикла - подходит нескольким переменным", tok.Value)
 		}
-		lemma = a.Lemma
+		lemmas = own
+	}
+	lemma := ""
+	if len(lemmas) == 1 {
+		lemma = lemmas[0]
 	}
 	if lemma == "" {
 		// Словоформа известна, но не как предложный падеж ("задачи" -

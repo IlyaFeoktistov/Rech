@@ -21,4 +21,7 @@ func StampFile(prog *Program, path string) {
 	for _, c := range prog.Consts {
 		c.File = path
 	}
+	for _, s := range prog.Synonyms {
+		s.File = path
+	}
 }

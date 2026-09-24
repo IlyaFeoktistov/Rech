@@ -89,6 +89,11 @@ func unmangledCategoryName(prog *ast.Program, name string) bool {
 			return true
 		}
 	}
+	for _, s := range prog.Synonyms {
+		if s.Name == name {
+			return true
+		}
+	}
 	return false
 }
 
@@ -222,6 +227,17 @@ func (p *Program) Link() (*ast.Program, error) {
 			}
 			ext.ReturnType = resolved
 		}
+		// Цель синонима - обычная ссылка на тип в этом файле; параметры
+		// generic-синонима - локальные заглушки, как у generic-функции.
+		for _, syn := range m.AST.Synonyms {
+			r.typeParams = stringSet(syn.TypeParams)
+			resolved, err := r.resolveType(syn.Target)
+			r.typeParams = nil
+			if err != nil {
+				return nil, fmt.Errorf("%s: синоним %q: %w", m.Path, syn.Name, err)
+			}
+			syn.Target = resolved
+		}
 		// ExternEntityDecl ("внешняя сущность") не несёт ссылок на другие
 		// типы (нет полей/параметров) - только собственное имя, поэтому
 		// здесь нет rewrite-вызова, только переименование Alias ниже.
@@ -281,6 +297,7 @@ func (p *Program) Link() (*ast.Program, error) {
 		merged.Enums = append(merged.Enums, m.AST.Enums...)
 		merged.Interfaces = append(merged.Interfaces, m.AST.Interfaces...)
 		merged.Consts = append(merged.Consts, m.AST.Consts...)
+		merged.Synonyms = append(merged.Synonyms, m.AST.Synonyms...)
 	}
 	return merged, nil
 }

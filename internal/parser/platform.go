@@ -126,5 +126,6 @@ func (p *Parser) parsePlatformArmBody() (ast.PlatformArm, error) {
 		Enums:          armProg.Enums,
 		Interfaces:     armProg.Interfaces,
 		Consts:         armProg.Consts,
+		Synonyms:       armProg.Synonyms,
 	}, nil
 }

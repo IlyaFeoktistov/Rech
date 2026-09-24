@@ -251,6 +251,11 @@ func resolveTypeRef(typeName string, names map[string]string, typeParams map[str
 			}
 			resolvedArgs[i] = resolved
 		}
+		// Шаблон - имя из names (импортированный под другим именем
+		// generic-синоним), иначе как есть (встроенные коллекции).
+		if resolved, ok := names[template]; ok {
+			template = resolved
+		}
 		return template + "<" + strings.Join(resolvedArgs, ", ") + ">", nil
 	}
 	if strings.Contains(typeName, "<") {
@@ -822,4 +827,16 @@ func (r *rewriter) rewriteExpr(e ast.Expr) error {
 	default:
 		return fmt.Errorf("внутренняя ошибка: неизвестное выражение %T", e)
 	}
+}
+
+// stringSet - множество из среза имён (nil для пустого).
+func stringSet(names []string) map[string]bool {
+	if len(names) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(names))
+	for _, n := range names {
+		set[n] = true
+	}
+	return set
 }

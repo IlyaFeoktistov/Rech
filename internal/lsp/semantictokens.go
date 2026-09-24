@@ -148,6 +148,9 @@ func (d *doc) classifyBareName(name string, line int) (tokenType, mods int, ok b
 	if _, ok := d.hoverEnumType(name); ok {
 		return stType, 0, true
 	}
+	if _, ok := d.astSynonyms[name]; ok {
+		return stType, 0, true
+	}
 	if _, ok := d.hoverModuleConst(name); ok {
 		return stVariable, modReadonly, true
 	}

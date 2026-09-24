@@ -212,6 +212,7 @@ func (p *Parser) parseEnumDecl() (*ast.EnumDecl, error) {
 // запасного варианта - производному типу нужно какое-то одно конкретное имя.
 
 func (p *Parser) parseFunction(isAsync bool) (*ast.FunctionDecl, error) {
+	p.enterDecl()
 	kw, err := p.expect(lexer.KwFunction)
 	if err != nil {
 		return nil, err

@@ -27,8 +27,11 @@ var topLevelStarters = map[lexer.TokenType]bool{
 	lexer.KwEnum:      true,
 	lexer.KwInterface: true,
 	lexer.KwConst:     true,
+	lexer.KwSynonym:   true,
 	lexer.KwPrivate:   true,
 	lexer.KwPublic:    true,
+	lexer.KwInternal:  true,
+	lexer.KwAsync:     true,
 	lexer.DOC_COMMENT: true,
 }
 
@@ -45,6 +48,12 @@ var topLevelStarters = map[lexer.TokenType]bool{
 // объявления, зациклилась бы на нём же).
 func (p *Parser) recoverToNextTopLevel() {
 	p.advance()
+	// Остаток заголовка ТОГО ЖЕ объявления ("публичная функция",
+	// "экспортировать абстрактная сущность") - тоже начала объявлений, без
+	// пропуска разбор вернулся бы к нему же и повторил ту же ошибку.
+	for topLevelStarters[p.cur().Type] && p.cur().Type != lexer.DOC_COMMENT && p.cur().Type != lexer.EOF {
+		p.advance()
+	}
 	depth := 0
 	for {
 		switch p.cur().Type {

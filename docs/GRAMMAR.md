@@ -20,7 +20,7 @@
 
 ```
 program        := { sep } { top_decl { sep } }
-top_decl       := function | entity | interface_decl | extern_decl | enum | import_decl
+top_decl       := function | entity | interface_decl | extern_decl | enum | synonym_decl | import_decl
                 | platform_block | statement
                                              (* "константа"/"перечисление" верхнего уровня файла - те же
                                                 const_decl/enum, что и внутри функции - место в файле только
@@ -56,6 +56,11 @@ callable_type  := "Вызываемый" [ "<" IDENT { "," IDENT } ">" ] "(" [ t
                                                 самого значения, той же грамматикой, что у generic-функции *)
 type_params    := "<" type_param { "," type_param } ">"
 type_param     := IDENT [ "как" type_name { "|" type_name } ]
+
+synonym_decl   := { modifier } "синоним" [ "?" ] IDENT [ "<" IDENT { "," IDENT } ">" ] "=" type_name
+                                             (* раздел 29 - другое имя того же типа; "?" перед IDENT -
+                                                синоним nullable-типа, обязателен тогда и только тогда,
+                                                когда type_name начинается с "?" *)
 
 entity         := { modifier } ( "сущность" | "класс" | "структура" ) IDENT [ type_params ]
                    [ "наследует" IDENT { "," IDENT } ] [ "реализует" IDENT { "," IDENT } ] [ TAG ] { sep }

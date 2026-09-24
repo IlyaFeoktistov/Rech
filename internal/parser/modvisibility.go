@@ -56,12 +56,12 @@ func moduleVisibilityWordFor(vis ast.Visibility, governing lexer.TokenType) (str
 	switch governing {
 	case lexer.KwFunction, lexer.KwEntity, lexer.KwStruct, lexer.KwConst:
 		return visibilityKeywordFor(vis, morph.Feminine, morph.Singular), nil
-	case lexer.KwClass:
+	case lexer.KwClass, lexer.KwSynonym:
 		return visibilityKeywordFor(vis, morph.Masculine, morph.Singular), nil
 	case lexer.KwEnum:
 		return visibilityKeywordFor(vis, morph.Neuter, morph.Singular), nil
 	default:
-		return "", diagnostics.New(CodeModifierAgree, diagnostics.Position{}, "модификатор видимости здесь неуместен - ожидалась \"функция\", \"сущность\", \"класс\", \"структура\", \"перечисление\" или \"константа\"")
+		return "", diagnostics.New(CodeModifierAgree, diagnostics.Position{}, "модификатор видимости здесь неуместен - ожидалась \"функция\", \"сущность\", \"класс\", \"структура\", \"перечисление\", \"константа\" или \"синоним\"")
 	}
 }
 

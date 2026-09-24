@@ -159,6 +159,7 @@ func (p *Parser) parseBecomeStmt() (ast.Stmt, error) {
 // уже готовый статический метод по синтетическому имени, не знает про
 // операторный синтаксис вообще).
 func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
+	p.enterDecl()
 	isStatic := false
 	if p.cur().Type == lexer.KwStatic {
 		tok := p.advance()
@@ -303,6 +304,7 @@ func (p *Parser) resolveDeclinedTypeRef(tok lexer.Token, verb string) (string, e
 // тела включаются оба inMethodBody (нужен для "этот") и inConstructorBody
 // (нужен для "родитель(...)", parseParentCallStmt).
 func (p *Parser) parseConstructor() (*ast.ConstructorDecl, error) {
+	p.enterDecl()
 	kw, err := p.expect(lexer.KwConstructor)
 	if err != nil {
 		return nil, err

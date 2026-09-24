@@ -115,6 +115,9 @@ func (d *doc) bareNameDeclPos(name string, line int, scope *funcScope) (definiti
 	if ed, ok := d.astEntities[name]; ok {
 		return d.declPosInFile(ed.File, ed.Line, name)
 	}
+	if sd, ok := d.astSynonyms[name]; ok {
+		return d.declPosInFile(sd.File, sd.Line, name)
+	}
 	if scope != nil {
 		if lemma, ok := d.localWordform(scope, line, name); ok {
 			return d.bareNameDeclPos(lemma, line, scope)

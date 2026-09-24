@@ -107,6 +107,7 @@ const (
 	KwExternal    // внешняя (внешняя функция, FFI)
 	KwConst       // константа (неизменяемое значение)
 	KwEnum        // перечисление (именованный набор целочисленных значений)
+	KwSynonym     // синоним (другое имя уже существующего типа)
 	KwInterface   // интерфейс (контракт на набор методов без реализации)
 	KwInherits    // наследует (наследование сущности/класса)
 	KwImplements  // реализует (соответствие интерфейсу)
@@ -217,6 +218,7 @@ var keywords = map[string]TokenType{
 	"внешняя":        KwExternal,
 	"константа":      KwConst,
 	"перечисление":   KwEnum,
+	"синоним":        KwSynonym,
 	"интерфейс":      KwInterface,
 	"наследует":      KwInherits,
 	"реализует":      KwImplements,
@@ -465,6 +467,8 @@ func (t TokenType) String() string {
 		return "константа"
 	case KwEnum:
 		return "перечисление"
+	case KwSynonym:
+		return "синоним"
 	case KwInterface:
 		return "интерфейс"
 	case KwInherits:

@@ -22,6 +22,13 @@ func Analyze(prog *ast.Program) (*ir.Program, error) {
 	// module (например, тестовые хелперы вроде internal/interp.runSrc).
 	ast.ResolvePlatformBlocks(prog, ast.CurrentPlatform())
 
+	// Синонимы типов - раньше generic'ов: цель синонима может быть
+	// generic-инстанциацией ("синоним Ящик = Коробка<Целое>"), её обязана
+	// увидеть instantiateGenerics (см. package doc synonyms.go).
+	if err := expandSynonyms(prog); err != nil {
+		return nil, err
+	}
+
 	// Пользовательские generic-сущности/функции ("Коробка<T>") - раскрыты
 	// в обычные объявления ДО всего остального: дальше по конвейеру ничего
 	// не знает, что они когда-то были generic (см. package doc
@@ -33,8 +40,12 @@ func Analyze(prog *ast.Program) (*ir.Program, error) {
 	prog = instantiated
 
 	// Строчный - до collectInterfaces (см. package doc stringer.go): дальше
-	// ведёт себя как обычный объявленный интерфейс программы.
-	injectStringerInterface(prog)
+	// ведёт себя как обычный объявленный интерфейс программы. В копию, не
+	// в prog вызывающего: повторный Analyze того же AST (LSP, частичный
+	// анализ) иначе видит "Строчный" объявленным дважды.
+	withStringer := *prog
+	injectStringerInterface(&withStringer)
+	prog = &withStringer
 
 	a := &Analyzer{
 		resolvedConsts:        map[string]ir.Expr{},

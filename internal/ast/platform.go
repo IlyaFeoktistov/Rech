@@ -49,6 +49,7 @@ type PlatformArm struct {
 	Enums          []*EnumDecl
 	Interfaces     []*InterfaceDecl
 	Consts         []*ConstDecl
+	Synonyms       []*SynonymDecl
 }
 
 // ResolvePlatformBlocks сплющивает prog.PlatformBlocks в обычные
@@ -74,6 +75,7 @@ func ResolvePlatformBlocks(prog *Program, current string) {
 			prog.Enums = append(prog.Enums, arm.Enums...)
 			prog.Interfaces = append(prog.Interfaces, arm.Interfaces...)
 			prog.Consts = append(prog.Consts, arm.Consts...)
+			prog.Synonyms = append(prog.Synonyms, arm.Synonyms...)
 			break
 		}
 	}

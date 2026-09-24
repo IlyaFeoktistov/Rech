@@ -28,6 +28,7 @@ var (
 	CodeFlow           = diagnostics.Register("RECH3700", "анализ потока управления (недостижимый код/вернуть)")
 	CodeGenerics       = diagnostics.Register("RECH3401", "generics")
 	CodeCallable       = diagnostics.Register("RECH3430", "тип \"Вызываемый(...)\"")
+	CodeSynonym        = diagnostics.Register("RECH3440", "синоним типа (\"синоним Имя = Тип\")")
 	CodeException      = diagnostics.Register("RECH3510", "исключения (попытаться/поймать/выбросить)")
 	CodeExportSemantic = diagnostics.Register("RECH3610", "семантика \"экспортировать\"/внешних объявлений")
 	CodeBuiltinTarget  = diagnostics.Register("RECH3801", "цель JSON/XML/YAML/PROTOBUF/строки БД (разобрать/сериализовать/сканировать)")

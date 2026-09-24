@@ -35,6 +35,8 @@ type Program struct {
 	// модификатора публичная, доступна через "использовать" из другого
 	// файла; приватная - видна только внутри своего файла.
 	Consts []*ConstDecl
+	// Synonyms - "синоним <Имя> = <тип>" уровня модуля, см. SynonymDecl.
+	Synonyms []*SynonymDecl
 	// PlatformBlocks - "#если ОС.<Член> { ... }" верхнего уровня (см.
 	// platform.go, package doc PlatformBlockDecl) - разрешаются В обычные
 	// списки выше ДО семантического анализа (internal/module,
@@ -511,3 +513,30 @@ type Param struct {
 }
 
 // Stmt - инструкция внутри тела функции.
+
+// SynonymDecl соответствует объявлению верхнего уровня:
+//
+//	синоним <Имя> = <тип>
+//	синоним <Имя><T, ...> = <тип, использующий T>
+//	синоним ?<Имя> = ?<тип>
+//
+// Синоним - другое имя того же самого типа, не новый тип: значения
+// присваиваются в обе стороны без приведения. Раскрывается в Target до
+// семантического анализа (internal/semantic/synonyms.go) - дальше по
+// конвейеру синонимов нет. TypeParams - имена параметров generic-синонима
+// (без ограничений), nil у обычного. Nullable - объявлен как "синоним
+// ?Имя": цель обязана быть nullable-типом, и сам синоним везде пишется с
+// "?" ("?Имя") - nullable-тип не прячется за именем без "?".
+type SynonymDecl struct {
+	Name       string
+	Nullable   bool
+	TypeParams []string
+	Target     string
+	Visibility Visibility
+	Line       int
+	// File - см. EntityDecl.File.
+	File string
+	Doc  string
+}
+
+func (*SynonymDecl) node() {}

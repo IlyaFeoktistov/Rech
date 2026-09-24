@@ -66,6 +66,15 @@ type Parser struct {
 	// "пользователь".
 	dict *morph.Dictionary
 
+	// declGen - номер текущего объявления функции/метода/конструктора
+	// (растёт с каждым новым), nounDecl - в каком из них имя последний раз
+	// зарегистрировано (registerNoun). Словарь dict общий на файл, поэтому
+	// переменная из соседней функции тоже в нём есть - при неоднозначной
+	// словоформе побеждает имя текущего объявления (см.
+	// resolvePrepositionalNoun).
+	declGen  int
+	nounDecl map[string]int
+
 	// funcParams - параметры всех функций программы по имени, собранные
 	// предварительным проходом (collectFunctionSignatures) до разбора
 	// любого тела. Нужен, чтобы отличить, разбирая начало инструкции,
@@ -183,6 +192,16 @@ func (p *Parser) Dict() *morph.Dictionary {
 // "реализует", см. resolveDeclinedTypeRef) - это не ошибка компиляции.
 func (p *Parser) registerNoun(name string) {
 	_ = p.dict.RegisterNoun(name, morph.AnimacyOf(name))
+	if p.nounDecl == nil {
+		p.nounDecl = map[string]int{}
+	}
+	p.nounDecl[name] = p.declGen
+}
+
+// enterDecl - начало нового объявления функции/метода/конструктора (см.
+// Parser.declGen).
+func (p *Parser) enterDecl() {
+	p.declGen++
 }
 
 // cur/advance учитывают pendingGT (расщеплённая вторая половина ">>" -
@@ -766,6 +785,14 @@ func (p *Parser) parseTopLevelItem(prog *ast.Program, topLevelStmts *[]ast.Stmt,
 		c.Doc = doc
 		c.Visibility = vis
 		prog.Consts = append(prog.Consts, c)
+	case lexer.KwSynonym:
+		syn, err := p.parseSynonymDecl()
+		if err != nil {
+			return false, err
+		}
+		syn.Doc = doc
+		syn.Visibility = vis
+		prog.Synonyms = append(prog.Synonyms, syn)
 	default:
 		stmt, err := p.parseStatement()
 		if err != nil {

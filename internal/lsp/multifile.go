@@ -218,8 +218,15 @@ func (d *doc) applyLink(res linkResult) {
 	for _, c := range res.ast.Consts {
 		d.astConsts[c.Name] = c
 	}
+	d.astSynonyms = map[string]*ast.SynonymDecl{}
+	for _, s := range res.ast.Synonyms {
+		d.astSynonyms[s.Name] = s
+	}
 	d.displayName = map[string]string{}
 	d.localNames = map[string]bool{}
+	for _, s := range d.astProg.Synonyms {
+		d.localNames[s.Name] = true
+	}
 	for _, e := range res.ast.Entities {
 		if d.isCurrentFile(e.File) {
 			d.localNames[e.Name] = true

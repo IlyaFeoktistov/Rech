@@ -86,6 +86,12 @@ type doc struct {
 	// AST-значение напрямую (constanthover.go, literalTextAST).
 	astConsts map[string]*ast.ConstDecl
 
+	// astSynonyms - синонимы типов документа (плюс импортированные через
+	// multifile.go - не манглятся при линковке, как и astEnums). Цель в
+	// SynonymDecl.Target уже раскрыта семантикой, поэтому hover берёт текст
+	// объявления из токенов исходника (synonymhover.go).
+	astSynonyms map[string]*ast.SynonymDecl
+
 	// dict - морфологический словарь, накопленный ЭТИМ проходом разбора
 	// (parser.Parser.Dict, тот же самый экземпляр, что разбирал astProg
 	// ниже) - нужен references.go/highlight.go, чтобы опознавать
@@ -160,10 +166,18 @@ type doc struct {
 func (d *doc) update(text string) {
 	d.text = text
 	lines := strings.Split(text, "\n")
-	toks, err := lexer.New(text).Tokenize()
-	if err != nil {
-		d.setDiagnostic(err)
-		return
+	toks, lexErr := lexer.New(text).Tokenize()
+	if lexErr != nil {
+		// Ошибка лексера - диагностика по ней, а разбор дальше идёт по
+		// тексту, где место ошибки забито пробелами (partial_analysis.go).
+		// Диагностика - только сама ошибка лексера: ошибки разбора/семантики
+		// забитого текста - её следствие, не отдельные проблемы.
+		defer d.setDiagnostic(lexErr)
+		salvaged, ok := tokenizeSalvaging(text)
+		if !ok {
+			return
+		}
+		toks = salvaged
 	}
 	prs := parser.New(toks)
 	astProg, parseErrs := prs.ParseProgramLenient()
@@ -188,9 +202,18 @@ func (d *doc) update(text string) {
 		} else {
 			d.setDiagnostics(append(parseDiagnostics(parseErrs, lines), semanticDiagnosticsFor(semErr, lines)...))
 		}
-		return
+		// Частичный IR без объявлений с ошибками (partial_analysis.go) -
+		// точнее старого "последнего удачного" состояния: строки совпадают
+		// с текущим текстом, и он есть даже у файла, открытого сразу с
+		// ошибкой.
+		salvaged, ok := analyzeSalvaging(astProg)
+		if !ok {
+			return
+		}
+		irProg = salvaged
+	} else {
+		d.setDiagnostics(parseDiagnostics(parseErrs, lines))
 	}
-	d.setDiagnostics(parseDiagnostics(parseErrs, lines))
 	d.goodText = text
 
 	if linkOK {
@@ -226,6 +249,10 @@ func (d *doc) update(text string) {
 		for _, c := range astProg.Consts {
 			d.astConsts[c.Name] = c
 		}
+		d.astSynonyms = map[string]*ast.SynonymDecl{}
+		for _, s := range astProg.Synonyms {
+			d.astSynonyms[s.Name] = s
+		}
 		d.localNames = map[string]bool{}
 		for _, e := range astProg.Entities {
 			d.localNames[e.Name] = true
@@ -235,6 +262,9 @@ func (d *doc) update(text string) {
 		}
 		for _, iface := range astProg.Interfaces {
 			d.localNames[iface.Name] = true
+		}
+		for _, s := range astProg.Synonyms {
+			d.localNames[s.Name] = true
 		}
 	}
 	d.scopes = buildScopes(astProg, d.irProg)
