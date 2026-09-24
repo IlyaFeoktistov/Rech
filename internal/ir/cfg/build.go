@@ -169,6 +169,7 @@ func isAlwaysTrue(cond ir.Expr) bool {
 func (b *builder) emitLoop(cur *Block, self ir.Stmt, cond ir.Expr, body []ir.Stmt) *Block {
 	cur.Stmts = append(cur.Stmts, self)
 	header := b.newBlock()
+	header.Loop = self
 	cur.Succs = append(cur.Succs, header.ID)
 
 	bodyEntry := b.newBlock()
@@ -194,6 +195,7 @@ func (b *builder) emitLoop(cur *Block, self ir.Stmt, cond ir.Expr, body []ir.Stm
 func (b *builder) emitUnconditionalLoop(cur *Block, self ir.Stmt, body []ir.Stmt) *Block {
 	cur.Stmts = append(cur.Stmts, self)
 	header := b.newBlock()
+	header.Loop = self
 	cur.Succs = append(cur.Succs, header.ID)
 
 	bodyEntry := b.newBlock()
@@ -219,6 +221,7 @@ func (b *builder) emitCStyleFor(cur *Block, s *ir.CStyleForStmt) *Block {
 		cur.Stmts = append(cur.Stmts, s.Init)
 	}
 	header := b.newBlock()
+	header.Loop = s
 	cur.Succs = append(cur.Succs, header.ID)
 
 	bodyEntry := b.newBlock()
@@ -278,11 +281,19 @@ func (b *builder) emitTry(cur *Block, s *ir.TryStmt) *Block {
 		cur.Succs = append(cur.Succs, catchEntry.ID)
 	}
 
+	bodyFirst := len(b.g.Blocks)
 	bodyExit := b.emitBlock(bodyEntry, s.Body)
+	bodyBlocks := append([]*Block{bodyEntry}, b.g.Blocks[bodyFirst:]...)
+	if catchEntry != nil {
+		b.linkAll(bodyBlocks, catchEntry)
+	}
 
 	var catchExit *Block
+	var catchBlocks []*Block
 	if !s.NoCatch {
+		catchFirst := len(b.g.Blocks)
 		catchExit = b.emitBlock(catchEntry, s.CatchBody)
+		catchBlocks = append([]*Block{catchEntry}, b.g.Blocks[catchFirst:]...)
 	}
 
 	join := b.newBlock()
@@ -319,7 +330,20 @@ func (b *builder) emitTry(cur *Block, s *ir.TryStmt) *Block {
 
 	soundnessFinallyEntry := b.newBlock()
 	cur.Succs = append(cur.Succs, soundnessFinallyEntry.ID)
+	b.linkAll(bodyBlocks, soundnessFinallyEntry)
+	b.linkAll(catchBlocks, soundnessFinallyEntry)
 	b.emitBlock(soundnessFinallyEntry, s.Finally)
 
 	return normalFinallyExit
+}
+
+// linkAll - ребро из каждого блока from в to: исключение может вылететь
+// посреди любого блока тела попытки, поэтому "поймать"/"окончательно"
+// видят состояние после любого из них, а не только в начале попытки.
+// Достижимость (Reachable/UnreachableLine/FallsThrough) эти рёбра не
+// меняют - to и так достижим напрямую из начала попытки.
+func (b *builder) linkAll(from []*Block, to *Block) {
+	for _, blk := range from {
+		blk.Succs = append(blk.Succs, to.ID)
+	}
 }

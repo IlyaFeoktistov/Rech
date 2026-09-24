@@ -8,7 +8,8 @@ import (
 // analyzeFlow строит граф потока управления (internal/ir/cfg) тела функции/
 // метода/лямбды body ОДИН раз и возвращает обе проверки, которые из него
 // следуют: unreachable - ошибка "недостижимый код" на первую (по номеру
-// строки) физически недостижимую инструкцию, nil если таких нет;
+// строки) физически недостижимую инструкцию, иначе - ошибка адреса
+// элемента списка (list_element_pointer.go), nil если нет ни той, ни другой;
 // fallsThrough - true, если хотя бы один живой путь тела проваливается в
 // конец без "вернуть"/"выбросить" - решение о том, ошибка ли это (у функции/
 // метода/лямбды с объявленным типом результата - да), и КАКОЙ именно текст
@@ -26,6 +27,8 @@ func analyzeFlow(body []ir.Stmt) (unreachable error, fallsThrough bool) {
 	g := cfg.Build(body)
 	if line, ok := g.UnreachableLine(); ok {
 		unreachable = errAtLine(line, CodeFlow, "недостижимый код")
+	} else if err := checkListElementPointers(g, body); err != nil {
+		unreachable = err
 	}
 	fallsThrough = g.FallsThrough()
 	return
