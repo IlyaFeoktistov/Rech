@@ -360,12 +360,12 @@ func arithmetic(op string, l, r Value) (Value, error) {
 		return intValue(l.I * r.I), nil
 	case "/":
 		if r.I == 0 {
-			return Value{}, newSystemException(divByZeroExceptionEntity, rtmsg.DivisionByZero)
+			panicRuntime("%s", rtmsg.DivisionByZero)
 		}
 		return intValue(l.I / r.I), nil
 	case "%":
 		if r.I == 0 {
-			return Value{}, newSystemException(divByZeroExceptionEntity, rtmsg.DivisionByZero)
+			panicRuntime("%s", rtmsg.DivisionByZero)
 		}
 		return intValue(l.I % r.I), nil
 	}

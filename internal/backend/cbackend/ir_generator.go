@@ -1528,7 +1528,8 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// "Строка - валидный UTF-8 без NUL", internal/textutf8) - раньше
 	// любого хелпера, читающего внешние данные.
 	appendCodeIf(&sb, ctx.usesText, strutil.TextCode)
-	panicGate := usesGenerics || usesNullables || ctx.usesPanic || ctx.usesCast || prog.UsesReflection || ctx.usesPanicCatch
+	panicGate := usesGenerics || usesNullables || ctx.usesPanic || ctx.usesCast || prog.UsesReflection || ctx.usesPanicCatch ||
+		ctx.intDivMod.any() || ctx.uintDivMod.any()
 	if ctx.usesPanicCatch {
 		appendCodeIf(&sb, panicGate, "static void rech_panic(const char *msg);\n")
 	} else {
@@ -1561,15 +1562,6 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	appendCodeIf(&sb, ctx.usesClamp, rechClampHelper)
 	appendCodeIf(&sb, ctx.usesIntPow, rechIntPowHelper)
 
-	if ctx.intDivMod.any() || ctx.uintDivMod.any() {
-		// Прототип - ДО текста хелперов ниже (они уже вызывают
-		// rech_divzero_throw): определение (divZeroThrowHelperCode) эмитится
-		// сильно позже, вместе с structParseThrowHelperCode (нужны и
-		// rech_throw, и прототип rech_new_<ОшибкаДеленияНаНоль> из
-		// protos, оба готовы только там) - без прототипа здесь был бы
-		// неявный вызов необъявленной функции (ошибка в C99+).
-		sb.WriteString("static void rech_divzero_throw(const char *msg);\n")
-	}
 	sb.WriteString(intDivModHelperCode(ctx.intDivMod, true))
 	sb.WriteString(intDivModHelperCode(ctx.uintDivMod, false))
 	appendCodeIf(&sb, ctx.usesConsoleInput, readHelpers)
@@ -2058,7 +2050,6 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// rech_struct_throw/rech_throw (exceptionRuntimeCode выше) - общий
 	// для обоих форматов, эмитится один раз.
 	appendCodeIf(&sb, len(prog.ParseTargets) > 0 || len(prog.XMLParseTargets) > 0 || len(prog.YAMLParseTargets) > 0 || len(prog.ProtobufParseTargets) > 0, structParseThrowHelperCode())
-	appendCodeIf(&sb, ctx.intDivMod.any() || ctx.uintDivMod.any(), divZeroThrowHelperCode())
 	appendCodeIf(&sb, ctx.usesStateFlags, requireStateHelperCode())
 	appendCodeIf(&sb, ctx.usesStateFlags, revokeStatesHelperCode())
 

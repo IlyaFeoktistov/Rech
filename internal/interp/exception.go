@@ -26,14 +26,10 @@ type thrownException struct {
 	trace []traceFrame
 }
 
-// divByZeroExceptionEntity - см. internal/semantic/exception.go, тот же
-// принцип общего идентификатора константы, что и parseErrorEntity (json.go).
-const divByZeroExceptionEntity = "ОшибкаДеленияНаНоль"
-
 // newSystemException строит thrownException для системного исключения
-// (typeName - "ОшибкаРазбора"/"ОшибкаДеленияНаНоль"/...), выброшенного
+// (typeName - "ОшибкаРазбора"/...), выброшенного
 // напрямую рантаймом интерпретатора, не пользовательским "выбросить" -
-// общий для json.go/xml.go/eval.go (деление на ноль), чтобы поля не
+// общий для json.go/xml.go/..., чтобы поля не
 // расходились: "код" всегда явно "Ничто" (zeroValue нужного nullable-типа),
 // а не отсутствующий ключ map - getField на отсутствующем ключе тоже
 // вернул бы нулевое Value, которое СЛУЧАЙНО читается как "Ничто", но

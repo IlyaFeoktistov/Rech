@@ -1214,9 +1214,7 @@ var unsignedDivModWidths = []intWidthHelperSpec{
 // настоящий C-тип своей ширины на входе/выходе (int8_t/.../uint64_t), не
 // общий "продвинуть до 64 бит и усечь обратно". Оба - с проверкой делителя
 // на ноль (без него UB в C - обычно SIGFPE, а не понятная ошибка) -
-// выбрасывают перехватываемое "ОшибкаДеленияНаНоль" через
-// rech_divzero_throw (divZeroThrowHelperCode, json_extract.go), не
-// rech_panic.
+// rech_panic: деление на ноль - ошибка программы, как выход за границы.
 //
 // Знаковое деление/остаток дополнительно проверяет "a == MIN && b == -1" -
 // единственный случай, где ЗНАКОВОЕ деление целочисленного типа - тоже UB в
@@ -1251,7 +1249,7 @@ func intDivHelperText(prefix string, w intWidthHelperSpec) string {
 	if w.min == "" {
 		return fmt.Sprintf(`static %[1]s rech_%[2]s_div%[3]d(%[1]s a, %[1]s b) {
     if (b == 0) {
-        rech_divzero_throw("%[4]s");
+        rech_panic("%[4]s");
     }
     return a / b;
 }
@@ -1259,7 +1257,7 @@ func intDivHelperText(prefix string, w intWidthHelperSpec) string {
 	}
 	return fmt.Sprintf(`static %[1]s rech_%[2]s_div%[3]d(%[1]s a, %[1]s b) {
     if (b == 0) {
-        rech_divzero_throw("%[4]s");
+        rech_panic("%[4]s");
     }
     if (a == %[5]s && b == -1) {
         return %[5]s;
@@ -1273,7 +1271,7 @@ func intModHelperText(prefix string, w intWidthHelperSpec) string {
 	if w.min == "" {
 		return fmt.Sprintf(`static %[1]s rech_%[2]s_mod%[3]d(%[1]s a, %[1]s b) {
     if (b == 0) {
-        rech_divzero_throw("%[4]s");
+        rech_panic("%[4]s");
     }
     return a %% b;
 }
@@ -1281,7 +1279,7 @@ func intModHelperText(prefix string, w intWidthHelperSpec) string {
 	}
 	return fmt.Sprintf(`static %[1]s rech_%[2]s_mod%[3]d(%[1]s a, %[1]s b) {
     if (b == 0) {
-        rech_divzero_throw("%[4]s");
+        rech_panic("%[4]s");
     }
     if (a == %[5]s && b == -1) {
         return 0;

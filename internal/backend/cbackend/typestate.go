@@ -28,7 +28,7 @@ import (
 const requireStateFunc = "rech_require_state"
 
 // requireStateHelperCode - см. package doc. Возвращает obj без изменений
-// при успехе (тот же приём, что и rech_struct_throw/rech_divzero_throw -
+// при успехе (тот же приём, что и rech_struct_throw -
 // свой маленький рантайм-хелпер вместо raw кода на каждом месте вызова),
 // чтобы вызывающая сторона могла подставить сам вызов прямо на место
 // исходного выражения (generateIRStateCheckExpr) - obj вычисляется РОВНО

@@ -155,6 +155,12 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 			return ir.EntityType("Совпадение"), nil
 		case "Задача":
 			return ir.Type{Kind: ir.KindTask, Entity: ""}, nil
+		case parseErrorEntity:
+			// Встроенное исключение регистрируется лениво, при первом
+			// "разобрать", - но ловить его по имени можно в любом месте
+			// программы, в том числе раньше первого "разобрать".
+			registerParseErrorEntity(entities)
+			return ir.EntityType(parseErrorEntity), nil
 		}
 	}
 	if _, ok := interfaces[name]; ok {

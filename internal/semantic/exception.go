@@ -18,7 +18,7 @@ const systemExceptionEntity = "Исключение"
 // systemExceptionFields - поля базовой "Исключение" ("сообщение",
 // "код" - необязательный целочисленный код, "Ничто" по умолчанию,
 // docs/SPEC.md) - общая для ir.Entity "Исключение" самой и для КАЖДОГО
-// системного наследника (ОшибкаРазбора/ОшибкаДеленияНаНоль/...),
+// системного наследника (ОшибкаРазбора/...),
 // который не проходит через applyInheritance (см. package doc там) и
 // поэтому обязан сам флаттенить унаследованные поля в собственный
 // ir.Entity.Fields - единственное место, которое их перечисляет, чтобы не
@@ -63,32 +63,6 @@ func systemExceptionCtor() *ir.Method {
 				Value:    &ir.Identifier{Name: "сообщение", Type: ir.TypeString},
 			},
 		},
-	}
-}
-
-// divByZeroExceptionEntity - встроенное исключение, выбрасываемое целочисленным
-// делением на ноль ("/") - наследник systemExceptionEntity. Регистрируется
-// НЕ безусловно (тем же принципом, что и parseErrorEntity, см. package doc
-// parse.go, registerParseErrorEntity) - только если программа хоть раз
-// использовала целочисленное деление (analyzeArithmetic), иначе любая
-// программа без единого "/" платила бы за участие "Исключение" в
-// диспетчеризации без всякой причины.
-const divByZeroExceptionEntity = "ОшибкаДеленияНаНоль"
-
-// registerDivByZeroException - см. package doc divByZeroExceptionEntity.
-func registerDivByZeroException(entities map[string]entitySig) {
-	if _, exists := entities[divByZeroExceptionEntity]; exists {
-		return
-	}
-	names, types, vis := systemExceptionSigFields()
-	entities[divByZeroExceptionEntity] = entitySig{
-		BaseName:        systemExceptionEntity,
-		FieldNames:      names,
-		FieldTypes:      types,
-		FieldVisibility: vis,
-		HasCtor:         true,
-		CtorParams:      []ir.Type{ir.TypeString},
-		CtorParamNames:  []string{"сообщение"},
 	}
 }
 

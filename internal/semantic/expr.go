@@ -1076,19 +1076,7 @@ func analyzeBinaryExpr(sc *ctx, e *ast.BinaryExpr) (ir.Expr, error) {
 		return analyzeArithmetic(e, left, lt, right, rt)
 
 	case "-", "*", "/", "%":
-		result, err := analyzeArithmetic(e, left, lt, right, rt)
-		if err != nil {
-			return nil, err
-		}
-		if (e.Op == "/" || e.Op == "%") && isIntegerArithmeticType(ir.TypeOf(result)) {
-			// Целочисленное "/"/"%" на ноль - рантайм-ошибка (в отличие от
-			// Дробное/Действительное, где "/0" - обычный IEEE 754 бесконечность/
-			// NaN, "%0" - NaN через fmod/fmodf, не паника) - выбрасывает
-			// перехватываемое ОшибкаДеленияНаНоль (см. package doc
-			// divByZeroExceptionEntity), не безусловный rech_panic.
-			registerDivByZeroException(sc.entities)
-		}
-		return result, nil
+		return analyzeArithmetic(e, left, lt, right, rt)
 
 	case "==", "!=":
 		if lt == ir.TypeString && rt == ir.TypeString {

@@ -1415,23 +1415,8 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 			Ctor: systemExceptionCtor(),
 		})
 	}
-	// "ОшибкаДеленияНаНоль" - тот же принцип лениво-условной регистрации,
-	// что и "ОшибкаРазбора" выше (см. package doc divByZeroExceptionEntity,
-	// registerDivByZeroException).
-	if _, ok := a.entities[divByZeroExceptionEntity]; ok {
-		out.Entities = append(out.Entities, &ir.Entity{
-			Name: divByZeroExceptionEntity, BaseName: systemExceptionEntity,
-			Fields: systemExceptionFields(),
-			// Ctor - тот же принцип, что и у "ОшибкаРазбора" выше -
-			// internal/backend/cbackend/builtins_shared.go
-			// (rech_int_div<N>/rech_uint_div<N>/...mod<N>, через
-			// rech_divzero_throw) вызывает mangleCtor(divByZeroExceptionEntity)
-			// с одним аргументом (сообщением) напрямую.
-			Ctor: systemExceptionCtor(),
-		})
-	}
 	// "Совпадение" - тот же принцип лениво-условной регистрации, что и
-	// "ОшибкаРазбора"/"ОшибкаДеленияНаНоль" выше - добавлена в out.Entities,
+	// "ОшибкаРазбора" выше - добавлена в out.Entities,
 	// только если программа хоть раз упомянула "Совпадение" (вызовом
 	// "регулярное" или явной аннотацией типа, см. её case в
 	// resolveTypeName). Её собственное поле "группы" (Список<Строка>) не

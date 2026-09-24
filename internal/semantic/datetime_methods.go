@@ -132,14 +132,6 @@ func maybeDesugarDateTimeMethod(sc *ctx, e *ast.MethodCallExpr) (result ir.Expr,
 		diffNeg := &ir.BinaryExpr{Op: "-", Left: b, Right: a, Type: ir.TypeInt}
 		cond := &ir.BinaryExpr{Op: ">", Left: a, Right: b, Type: ir.TypeBool}
 		absDiff := &ir.TernaryExpr{Cond: cond, Then: diffPos, Else: diffNeg, Type: ir.TypeInt}
-		// Целочисленное "/" - registerDivByZeroException, тем же принципом,
-		// что и обычное "/" через analyzeBinaryExpr (expr.go) - desugaring
-		// строит ir.BinaryExpr напрямую, в обход того пути, значит повторяет
-		// его побочный эффект здесь явно (делитель здесь - буквальная
-		// константа 86400/3600/1, никогда не 0, но C-рантайм всё равно
-		// защищается общей проверкой rech_int_div - без регистрации entity
-		// "ОшибкаДеленияНаНоль" её конструктор не был бы эмитирован).
-		registerDivByZeroException(sc.entities)
 		return &ir.BinaryExpr{Op: "/", Left: absDiff, Right: &ir.IntLiteral{Value: unitSeconds}, Type: ir.TypeInt}, true, nil
 	}
 
