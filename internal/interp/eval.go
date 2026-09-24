@@ -102,7 +102,9 @@ func (in *Interp) evalExpr(e ir.Expr, env *Env, cc *callCtx) (Value, error) {
 		if err != nil {
 			return Value{}, err
 		}
-		return recv.Obj.getField(e.Field), nil
+		v := recv.Obj.getField(e.Field)
+		in.checkFFIFuncField(recv, e.Field, v)
+		return v, nil
 
 	case *ir.ThisExpr:
 		return Value{Type: ir.EntityType(e.Entity), Obj: cc.this}, nil

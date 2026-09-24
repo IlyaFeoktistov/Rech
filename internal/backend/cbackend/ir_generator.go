@@ -317,6 +317,13 @@ type irGenCtx struct {
 	// что funcRefTrampolines/lambdaFuncsEmitted выше.
 	callableSigs               map[string]ir.CallableSig
 	callbackTrampolinesEmitted map[string]bool
+	// rawThunksEmitted/rawThunksOptEmitted/toCallbackEmitted/
+	// toCallbackOptEmitted - дедупликация FFI-преобразований "указатель на
+	// функцию <-> Вызываемый" (ffi_callback.go), по сигнатуре.
+	rawThunksEmitted     map[string]bool
+	rawThunksOptEmitted  map[string]bool
+	toCallbackEmitted    map[string]bool
+	toCallbackOptEmitted map[string]bool
 	// usesMemcpy - лямбда с хотя бы одним захватом реально встретилась в
 	// программе (окружение замыкания строится через memcpy, см.
 	// generateIRLambdaExpr) - гейтит "#include <string.h>", как и
@@ -778,7 +785,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 			// в отличие от ОБЫЧНОЙ сущности с таким полем, не нуждается в
 			// том, чтобы typedef колбэка был объявлен раньше.
 			for _, f := range ent.Fields {
-				if f.Type.Kind == ir.KindCallable || callableCollections[f.Type.Entity] {
+				if f.Type.Kind == ir.KindCallable || callableCollections[f.Type.Entity] || (f.Type.Kind == ir.KindNullable && ctx.nullableInner[f.Type.Entity].Kind == ir.KindCallable) {
 					dest = &typedefsAfterCallables
 					break
 				}
@@ -951,12 +958,18 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// сущности, mangleType(entity), который ещё не объявлен раньше
 	// typedefs). Использует rech_panic (usesNullables ниже участвует в
 	// условии panicHelper).
-	var nullablesCode, nullablesAfterTypedefs strings.Builder
+	//
+	// nullablesAfterCallables - третья группа, "?Вызываемый(...)": обёртка
+	// хранит {fn, env} по значению, typedef сигнатуры обязан быть раньше
+	// (callableTypedefs).
+	var nullablesCode, nullablesAfterTypedefs, nullablesAfterCallables strings.Builder
 	usesNullables := len(prog.Nullables) > 0
 	for _, n := range prog.Nullables {
 		elemC := fromIRType(n.Inner).cType(ctx)
 		code := collections.NullableCode(mangleType(n.Name), elemC, escapeCString(rtmsg.NullAccess))
-		if n.Inner.Kind == ir.KindEntity && entities[n.Inner.Entity] != nil {
+		if n.Inner.Kind == ir.KindCallable {
+			nullablesAfterCallables.WriteString(code)
+		} else if n.Inner.Kind == ir.KindEntity && entities[n.Inner.Entity] != nil {
 			nullablesAfterTypedefs.WriteString(code)
 		} else {
 			nullablesCode.WriteString(code)
@@ -1738,6 +1751,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// rech_catch_top, определённые там.
 	appendCodeIf(&sb, ctx.usesPanicCatch, panicCatchHelperCode())
 	appendCodeIf(&sb, callableTypedefs.Len() > 0, callableTypedefs.String())
+	appendCodeIf(&sb, nullablesAfterCallables.Len() > 0, nullablesAfterCallables.String())
 	// После callableTypedefs - см. её package doc выше (genericsCode).
 	appendCodeIf(&sb, genericsCodeAfterCallables.Len() > 0, genericsCodeAfterCallables.String())
 	// После ОБЕИХ групп typedefs/typedefsAfterCallables (rech_struct_eq_...

@@ -381,3 +381,13 @@ func analyzeCaptureList(sc *ctx, lc *ctx, specs []ast.CaptureSpec) ([]ir.Capture
 	}
 	return captures, nil
 }
+
+// ffiCallableInner - "Вызываемый" внутри "?Вызываемый(...)" (иначе t как
+// есть) - сигнатура, которую надо зарегистрировать для указателя на
+// функцию, пришедшего от C.
+func (a *Analyzer) ffiCallableInner(t ir.Type) ir.Type {
+	if t.Kind == ir.KindNullable && a.entities[t.Entity].IsNullable {
+		return a.entities[t.Entity].ElemType
+	}
+	return t
+}

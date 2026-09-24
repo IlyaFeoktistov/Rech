@@ -766,6 +766,17 @@ func isFFIScalar(t ir.Type) bool {
 // функцию, ожидаемого вида. methods/aliases/interfaces нужны только для
 // этого случая - resolveCallableTypeName резолвит собственные параметры/
 // результат сигнатуры t.Entity.
+// ffiCallableResult - t допустим как указатель на функцию, пришедший ОТ C
+// (результат внешней функции, поле внешней структуры): "Вызываемый(...)"
+// или "?Вызываемый(...)" с FFI-совместимой сигнатурой. Демаршалинг -
+// internal/backend/cbackend/ffi_callback.go, internal/interp/ffi_callback.go.
+func ffiCallableResult(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64, t ir.Type) bool {
+	if t.Kind == ir.KindNullable && entities[t.Entity].IsNullable {
+		t = entities[t.Entity].ElemType
+	}
+	return t.Kind == ir.KindCallable && isFFIType(entities, methods, aliases, interfaces, enums, t)
+}
+
 func isFFIType(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64, t ir.Type) bool {
 	if isFFIScalar(t) || t.Kind == ir.KindExternEntity {
 		return true

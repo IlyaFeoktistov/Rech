@@ -44,6 +44,8 @@ var externSymbolHeader = map[string]string{
 	"GetCurrentProcessId": "windows.h", "GetTickCount": "windows.h",
 	"GetLastError": "windows.h", "GetCurrentThreadId": "windows.h",
 	"Sleep": "windows.h",
+	// examples/основы/функция_из_c.rech: указатель на функцию по имени.
+	"GetModuleHandleA": "windows.h", "GetProcAddress": "windows.h", "LoadLibraryA": "windows.h",
 	// Более широкий WinAPI (окна/сообщения и т. п.) сюда специально НЕ
 	// добавляется по одной функции за раз - у проекта, которому это нужно
 	// (examples/проекты/windows_окна), есть "сборка.заголовки: windows.h" -

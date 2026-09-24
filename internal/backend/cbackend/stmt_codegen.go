@@ -234,7 +234,7 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 		if err != nil {
 			return err
 		}
-		if valType := ir.TypeOf(s.Value); valType.Kind == ir.KindCallable {
+		if valType := ir.TypeOf(s.Value); valType.Kind == ir.KindCallable || valType.Kind == ir.KindNullable {
 			// "объект.поле = замыкание" - то же самое, что и поле у "новый
 			// Тип(...)" (generateIRNewExpr) - если поле принадлежит
 			// "внешняя структура", {fn, env} по значению не то, что

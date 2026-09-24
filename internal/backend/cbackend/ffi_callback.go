@@ -166,7 +166,8 @@ func ffiParamCType(ctx *irGenCtx, t ir.Type) (string, error) {
 // нужно вовсе). См. generateIREntityStruct (ir_generator.go),
 // codegen.StructDecl.FieldDeclarator.
 func ffiFieldDeclarator(ctx *irGenCtx, t ir.Type, fieldName string) (string, error) {
-	resultC, paramList, err := ffiCallableCParts(ctx, t.Entity)
+	sigName, _, _ := ctx.ffiFuncPointerSig(t)
+	resultC, paramList, err := ffiCallableCParts(ctx, sigName)
 	if err != nil {
 		return "", err
 	}
@@ -183,23 +184,188 @@ func ffiFieldDeclarator(ctx *irGenCtx, t ir.Type, fieldName string) (string, err
 // СВОЕГО, ни с кем не разделяемого трамплина) - именно оно и должно
 // попасть в итоговый C-вызов/инициализатор поля.
 func (ctx *irGenCtx) marshalCallbackArg(argType ir.Type, code string) (string, error) {
-	if err := ensureCallbackPool(ctx, argType.Entity); err != nil {
+	sigName, nullable, ok := ctx.ffiFuncPointerSig(argType)
+	if !ok {
+		return code, nil
+	}
+	if err := ensureToCallback(ctx, sigName); err != nil {
 		return "", err
 	}
-	callableC := mangleCallableType(argType.Entity)
-	ctx.chainTmpCounter++
-	tmp := fmt.Sprintf("rech_cbarg_tmp%d", ctx.chainTmpCounter)
-	idx := fmt.Sprintf("rech_cbidx_tmp%d", ctx.chainTmpCounter)
-	usedVar := mangleCallbackUsedVar(argType.Entity)
-	fnSlot := mangleCallbackSlotFn(argType.Entity)
-	envSlot := mangleCallbackSlotEnv(argType.Entity)
-	poolExhaustedMsg := fmt.Sprintf(rtmsg.FFICallbackPoolExhaustedTemplate, argType.Entity, ir.FFICallbackPoolSize)
-	ctx.chainTmpPreamble = append(ctx.chainTmpPreamble,
-		fmt.Sprintf("%s%s %s = %s;\n", ctx.curIndent, callableC, tmp, code),
-		fmt.Sprintf("%sint %s = %s++;\n", ctx.curIndent, idx, usedVar),
-		fmt.Sprintf("%sif (%s >= %d) { rech_panic(\"%s\"); }\n", ctx.curIndent, idx, ir.FFICallbackPoolSize, escapeCString(poolExhaustedMsg)),
-		fmt.Sprintf("%s%s[%s] = %s.fn;\n", ctx.curIndent, fnSlot, idx, tmp),
-		fmt.Sprintf("%s%s[%s] = %s.env;\n", ctx.curIndent, envSlot, idx, tmp),
-	)
-	return fmt.Sprintf("%s[%s]", mangleCallbackTrampolinePtrs(argType.Entity), idx), nil
+	if nullable {
+		if err := ensureToCallbackOpt(ctx, sigName, argType.Entity); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%s(%s)", mangleToCallbackOpt(sigName), code), nil
+	}
+	return fmt.Sprintf("%s(%s)", mangleToCallback(sigName), code), nil
+}
+
+func mangleToCallback(sigName string) string    { return "rech_tocb_" + transliterate(sigName) }
+func mangleToCallbackOpt(sigName string) string { return "rech_tocb_opt_" + transliterate(sigName) }
+
+// ensureToCallback эмитит rech_tocb_... - Вызываемый -> голый указатель
+// на функцию для C: значение, само пришедшее от C (fn - thunk сырого
+// указателя, ensureRawThunk), уходит тем же сырым указателем, остальные
+// занимают слот пула и получают его трамплин.
+func ensureToCallback(ctx *irGenCtx, sigName string) error {
+	if ctx.toCallbackEmitted == nil {
+		ctx.toCallbackEmitted = map[string]bool{}
+	}
+	if ctx.toCallbackEmitted[sigName] {
+		return nil
+	}
+	if err := ensureCallbackPool(ctx, sigName); err != nil {
+		return err
+	}
+	if err := ensureRawThunk(ctx, sigName); err != nil {
+		return err
+	}
+	ctx.toCallbackEmitted[sigName] = true
+	ctx.usesPanic = true
+	rawFn := mangleRawFnType(sigName)
+	usedVar := mangleCallbackUsedVar(sigName)
+	poolExhaustedMsg := fmt.Sprintf(rtmsg.FFICallbackPoolExhaustedTemplate, sigName, ir.FFICallbackPoolSize)
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "static %s %s(%s c) {\n", rawFn, mangleToCallback(sigName), mangleCallableType(sigName))
+	fmt.Fprintf(&sb, "    if (c.fn == %s) {\n        return (%s)c.env;\n    }\n", mangleRawThunk(sigName), rawFn)
+	fmt.Fprintf(&sb, "    int idx = %s++;\n", usedVar)
+	fmt.Fprintf(&sb, "    if (idx >= %d) {\n        rech_panic(\"%s\");\n    }\n", ir.FFICallbackPoolSize, escapeCString(poolExhaustedMsg))
+	fmt.Fprintf(&sb, "    %s[idx] = c.fn;\n", mangleCallbackSlotFn(sigName))
+	fmt.Fprintf(&sb, "    %s[idx] = c.env;\n", mangleCallbackSlotEnv(sigName))
+	fmt.Fprintf(&sb, "    return %s[idx];\n}\n\n", mangleCallbackTrampolinePtrs(sigName))
+	ctx.callableCode.WriteString(sb.String())
+	return nil
+}
+
+// ensureToCallbackOpt - rech_tocb_opt_...: "?Вызываемый" -> указатель, Ничто
+// - NULL.
+func ensureToCallbackOpt(ctx *irGenCtx, sigName, nullableName string) error {
+	if ctx.toCallbackOptEmitted == nil {
+		ctx.toCallbackOptEmitted = map[string]bool{}
+	}
+	if ctx.toCallbackOptEmitted[sigName] {
+		return nil
+	}
+	ctx.toCallbackOptEmitted[sigName] = true
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "static %s %s(%s v) {\n", mangleRawFnType(sigName), mangleToCallbackOpt(sigName), mangleType(nullableName))
+	fmt.Fprintf(&sb, "    return v.has ? %s(v.value) : NULL;\n}\n\n", mangleToCallback(sigName))
+	ctx.callableCode.WriteString(sb.String())
+	return nil
+}
+
+// Обратное направление - сырой указатель на функцию, пришедший ОТ C
+// (результат внешней функции, поле внешней структуры), становится
+// значением Вызываемый: fn - thunk сигнатуры (rech_rawcb_...), который
+// зовёт сырой указатель, лежащий в env. Такое значение, переданное обратно
+// в C (marshalCallbackArg), уходит тем же сырым указателем, без слота
+// пула - поэтому и особые значения вроде SIG_DFL/SIG_IGN возвращаются в C
+// без искажений.
+
+func mangleRawFnType(sigName string) string { return "rech_rawfn_" + transliterate(sigName) }
+func mangleRawThunk(sigName string) string  { return "rech_rawcb_" + transliterate(sigName) }
+func mangleFromRaw(sigName string) string   { return "rech_fromraw_" + transliterate(sigName) }
+func mangleFromRawOpt(sigName string) string {
+	return "rech_fromraw_opt_" + transliterate(sigName)
+}
+
+// ffiFuncPointerSig - сигнатура указателя на функцию типа t: "Вызываемый"
+// (nullable == false) или "?Вызываемый" (nullable == true); ok == false -
+// t не такой.
+func (ctx *irGenCtx) ffiFuncPointerSig(t ir.Type) (sigName string, nullable, ok bool) {
+	if t.Kind == ir.KindCallable {
+		return t.Entity, false, true
+	}
+	if t.Kind == ir.KindNullable {
+		if inner := ctx.nullableInner[t.Entity]; inner.Kind == ir.KindCallable {
+			return inner.Entity, true, true
+		}
+	}
+	return "", false, false
+}
+
+// ensureRawThunk эмитит (один раз на сигнатуру) thunk и rech_fromraw_...
+// (NULL - паника с переданным текстом).
+func ensureRawThunk(ctx *irGenCtx, sigName string) error {
+	if ctx.rawThunksEmitted == nil {
+		ctx.rawThunksEmitted = map[string]bool{}
+	}
+	if ctx.rawThunksEmitted[sigName] {
+		return nil
+	}
+	sig, ok := ctx.callableSigs[sigName]
+	if !ok {
+		return fmt.Errorf("генерация C из IR: сигнатура %q не найдена среди \"Вызываемый\" программы", sigName)
+	}
+	ctx.rawThunksEmitted[sigName] = true
+	ctx.usesPanic = true
+
+	resultC := callableResultCType(ctx, sig.Result)
+	params := []string{"void *rech_env"}
+	args := make([]string, len(sig.Params))
+	for i, p := range sig.Params {
+		args[i] = fmt.Sprintf("rech_a%d", i)
+		params = append(params, fmt.Sprintf("%s %s", fromIRType(p).cType(ctx), args[i]))
+	}
+	rawFn := mangleRawFnType(sigName)
+	call := fmt.Sprintf("((%s)rech_env)(%s)", rawFn, strings.Join(args, ", "))
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "static %s %s(%s) {\n", resultC, mangleRawThunk(sigName), strings.Join(params, ", "))
+	if sig.Result != nil {
+		fmt.Fprintf(&sb, "    return %s;\n", call)
+	} else {
+		fmt.Fprintf(&sb, "    %s;\n", call)
+	}
+	sb.WriteString("}\n")
+	callableC := mangleCallableType(sigName)
+	fmt.Fprintf(&sb, "static %s %s(%s raw, const char *null_msg) {\n", callableC, mangleFromRaw(sigName), rawFn)
+	sb.WriteString("    if (raw == NULL) {\n        rech_panic(null_msg);\n    }\n")
+	fmt.Fprintf(&sb, "    return (%s){.fn = %s, .env = (void *)raw};\n", callableC, mangleRawThunk(sigName))
+	sb.WriteString("}\n\n")
+	ctx.callableCode.WriteString(sb.String())
+	return nil
+}
+
+// ensureRawThunkOpt - rech_fromraw_opt_...: NULL - "Ничто" (nullableName -
+// каноническое имя "?Вызываемый(...)").
+func ensureRawThunkOpt(ctx *irGenCtx, sigName, nullableName string) error {
+	if err := ensureRawThunk(ctx, sigName); err != nil {
+		return err
+	}
+	if ctx.rawThunksOptEmitted == nil {
+		ctx.rawThunksOptEmitted = map[string]bool{}
+	}
+	if ctx.rawThunksOptEmitted[sigName] {
+		return nil
+	}
+	ctx.rawThunksOptEmitted[sigName] = true
+	n := mangleType(nullableName)
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "static %s %s(%s raw) {\n", n, mangleFromRawOpt(sigName), mangleRawFnType(sigName))
+	fmt.Fprintf(&sb, "    if (raw == NULL) {\n        return %s_empty();\n    }\n", n)
+	fmt.Fprintf(&sb, "    return %s_wrap(%s(raw, \"\"));\n", n, mangleFromRaw(sigName))
+	sb.WriteString("}\n\n")
+	ctx.callableCode.WriteString(sb.String())
+	return nil
+}
+
+// unmarshalFuncPointer - C-выражение значения типа t ("Вызываемый"/
+// "?Вызываемый") из сырого указателя raw; nullMsg - текст паники на NULL у
+// "Вызываемый" без "?".
+func (ctx *irGenCtx) unmarshalFuncPointer(t ir.Type, raw, nullMsg string) (string, error) {
+	sigName, nullable, ok := ctx.ffiFuncPointerSig(t)
+	if !ok {
+		return raw, nil
+	}
+	rawFn := mangleRawFnType(sigName)
+	if nullable {
+		if err := ensureRawThunkOpt(ctx, sigName, t.Entity); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%s((%s)(%s))", mangleFromRawOpt(sigName), rawFn, raw), nil
+	}
+	if err := ensureRawThunk(ctx, sigName); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s((%s)(%s), \"%s\")", mangleFromRaw(sigName), rawFn, raw, escapeCString(nullMsg)), nil
 }

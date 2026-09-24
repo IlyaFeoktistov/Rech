@@ -65,9 +65,16 @@ func callableStructTypedef(ctx *irGenCtx, sig ir.CallableSig) string {
 	for _, p := range sig.Params {
 		parts = append(parts, fromIRType(p).cType(ctx))
 	}
+	bare := "void"
+	if len(parts) > 1 {
+		bare = strings.Join(parts[1:], ", ")
+	}
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "typedef struct {\n    %s (*fn)(%s);\n    void *env;\n} %s;\n\n",
+	fmt.Fprintf(&sb, "typedef struct {\n    %s (*fn)(%s);\n    void *env;\n} %s;\n",
 		callableResultCType(ctx, sig.Result), strings.Join(parts, ", "), mangleCallableType(sig.Name))
+	// Голый C-указатель на функцию той же сигнатуры (без env) - FFI:
+	// результат внешней функции/поле внешней структуры (ffi_callback.go).
+	fmt.Fprintf(&sb, "typedef %s (*%s)(%s);\n\n", callableResultCType(ctx, sig.Result), mangleRawFnType(sig.Name), bare)
 	return sb.String()
 }
 

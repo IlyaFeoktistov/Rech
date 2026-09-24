@@ -434,7 +434,7 @@ func (a *Analyzer) collectOneEntity(entities map[string]entitySig, methods map[s
 		if err != nil {
 			return diagnostics.Wrap(err, "сущность %q: поле %q", ent.Name, f.Name)
 		}
-		if ent.IsExternStruct && !isFFIType(entities, methods, aliases, a.interfaces, enums, typ) {
+		if ent.IsExternStruct && !isFFIType(entities, methods, aliases, a.interfaces, enums, typ) && !ffiCallableResult(entities, methods, aliases, a.interfaces, enums, typ) {
 			return errNoPos(CodeEntityDecl, "внешняя структура %q: поле %q имеет тип %s - допустимы только примитивы (Целое/Целое8/16/32/64/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\") и \"Указатель<T>\" над FFI-совместимым T - иначе реальный размер C-структуры был бы искажён", ent.Name, f.Name, typ)
 		}
 		if f.IsStatic {
@@ -867,22 +867,11 @@ func (a *Analyzer) collectExternFuncSigs(bag *diagnostics.Bag, funcs map[string]
 				funcs[ext.Alias] = sig
 				continue
 			}
-			if typ.Kind == ir.KindCallable {
-				// "Вызываемый(...)" ТИПОМ РЕЗУЛЬТАТА внешней функции (сырой
-				// C-указатель на функцию, приходящий ОТ C, например возврат
-				// прежнего обработчика у signal()) - НЕ реализовано (docs/
-				// "FFI: маршалинг колбэков") - обратное
-				// направление ("превратить чужой сырой указатель в
-				// вызываемое Rech-значение") нуждается в отдельном,
-				// анмаршалинг-trampoline, не в том же регистрационном
-				// механизме, что и параметр (marshalCallbackArg,
-				// ffi_callback.go) - сознательно отложено, параметром
-				// "Вызываемый(...)" уже поддержана (ниже).
-				bag.AddErr(errNoPos(CodeEntityDecl, "%s: тип результата - \"Вызываемый(...)\" пока допустима только ПАРАМЕТРОМ внешней функции, не типом результата", label))
-				funcs[ext.Alias] = sig
-				continue
-			}
-			if !isFFIType(entities, methods, aliases, a.interfaces, enums, typ) {
+			// "Вызываемый(...)"/"?Вызываемый(...)" результатом - сырой
+			// указатель на функцию от C (прежний обработчик у signal())
+			// превращается в вызываемое Rech-значение (демаршалинг,
+			// ffi_callback.go обоих backend'ов).
+			if !ffiCallableResult(entities, methods, aliases, a.interfaces, enums, typ) && !isFFIType(entities, methods, aliases, a.interfaces, enums, typ) {
 				bag.AddErr(errNoPos(CodeEntityDecl, "%s: тип результата %s не поддерживается - у внешней функции допустимы только примитивы (Целое/Целое8/16/32/64/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\") и \"Указатель<T>\" над FFI-совместимым T", label, typ))
 				funcs[ext.Alias] = sig
 				continue
@@ -1610,6 +1599,23 @@ func (a *Analyzer) collectCallables(prog *ir.Program) error {
 	for _, ext := range prog.ExternFuncs {
 		for _, p := range ext.Params {
 			if err := a.registerCallable(p); err != nil {
+				return err
+			}
+		}
+		if ext.HasReturn {
+			if err := a.registerCallable(a.ffiCallableInner(ext.ReturnType)); err != nil {
+				return err
+			}
+		}
+	}
+	// Поле "Вызываемый"/"?Вызываемый" внешней структуры - C-typedef поля
+	// объявляет голый указатель на функцию этой сигнатуры.
+	for _, ent := range prog.Entities {
+		if !ent.IsExternStruct {
+			continue
+		}
+		for _, f := range ent.Fields {
+			if err := a.registerCallable(a.ffiCallableInner(f.Type)); err != nil {
 				return err
 			}
 		}

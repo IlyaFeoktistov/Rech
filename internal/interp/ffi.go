@@ -42,6 +42,7 @@ import (
 	"unsafe"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
+	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 	"github.com/ebitengine/purego"
 )
 
@@ -135,9 +136,10 @@ func (in *Interp) ffiGoType(t ir.Type) (reflect.Type, error) {
 		}
 		return reflect.PointerTo(elemGoType), nil
 	}
-	if t.Kind == ir.KindCallable {
-		// "Вызываемый(...)" - на границе FFI это голый C-указатель на
-		// функцию (трамплин), не {fn, env} по значению - см. ffi_callback.go.
+	if _, _, ok := in.ffiFuncPointerSig(t); ok {
+		// "Вызываемый(...)"/"?Вызываемый(...)" - на границе FFI это голый
+		// C-указатель на функцию, не {fn, env} по значению - см.
+		// ffi_callback.go.
 		return reflect.TypeFor[uintptr](), nil
 	}
 	if t.Kind == ir.KindEntity {
@@ -207,8 +209,8 @@ func (in *Interp) setFFIValue(rv reflect.Value, v Value) {
 		rv.Set(reflect.NewAt(rv.Type().Elem(), v.Ptr.raw))
 		return
 	}
-	if v.Type.Kind == ir.KindCallable {
-		addr, err := in.registerCallbackArg(v.Type.Entity, v)
+	if _, _, ok := in.ffiFuncPointerSig(v.Type); ok {
+		addr, err := in.funcPointerArg(v)
 		if err != nil {
 			panicRuntime("%v", err)
 		}
@@ -240,6 +242,15 @@ func (in *Interp) readFFIValue(rv reflect.Value, irType ir.Type) Value {
 			obj.fields[f.Name] = in.readFFIValue(rv.Field(i), f.Type)
 		}
 		return Value{Type: irType, Obj: obj}
+	}
+	if _, _, ok := in.ffiFuncPointerSig(irType); ok {
+		// Поле внешней структуры: NULL у "Вызываемый" без "?" -
+		// паника при чтении поля (checkFFIFuncField), не здесь.
+		v, err := in.ffiFuncPointerValue(irType, uintptr(rv.Uint()), "")
+		if err != nil {
+			panicRuntime("%v", err)
+		}
+		return v
 	}
 	if irType.Kind == ir.KindPointer {
 		addr := rv.UnsafePointer()
@@ -480,7 +491,7 @@ func (in *Interp) callExternFunc(decl *ir.ExternFuncDecl, args []Value) (Value, 
 			argVals[i] = arg
 			writebacks = append(writebacks, writeback)
 		case ir.KindCallable:
-			addr, err := in.registerCallbackArg(decl.Params[i].Entity, a)
+			addr, err := in.funcPointerArg(a)
 			if err != nil {
 				return Value{}, fmt.Errorf("внешняя функция %q: параметр %d: %w", decl.Alias, i+1, err)
 			}
@@ -495,6 +506,9 @@ func (in *Interp) callExternFunc(decl *ir.ExternFuncDecl, args []Value) (Value, 
 	}
 	if !decl.HasReturn {
 		return Value{}, nil
+	}
+	if _, _, ok := in.ffiFuncPointerSig(decl.ReturnType); ok {
+		return in.ffiFuncPointerValue(decl.ReturnType, uintptr(results[0].Uint()), fmt.Sprintf(rtmsg.FFINullFuncPointerResultTemplate, decl.CName))
 	}
 	return in.readFFIValue(results[0], decl.ReturnType), nil
 }

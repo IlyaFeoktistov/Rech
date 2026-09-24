@@ -488,6 +488,9 @@ type Interp struct {
 	// Целое>Целое") - нужно только ffi_callback.go, чтобы узнать
 	// параметры/результат "Вызываемый(...)" параметра внешней функции.
 	callableSigs map[string]ir.CallableSig
+	// nullableInner - ir.Program.Nullables по имени ("?Тип" -> Тип) -
+	// нужно FFI, чтобы узнать сигнатуру "?Вызываемый(...)" (ffi_callback.go).
+	nullableInner map[string]ir.Type
 	// ffiLibraries/ffiLibraryPaths - ir.Program.FFILibraries/
 	// FFILibraryPaths ("сборка.библиотеки"/"путь_библиотек" .rechproj,
 	// если он есть) - нужно только ffi.go (resolveFFISymbol).
@@ -615,6 +618,10 @@ func newInterp(prog *ir.Program, out io.Writer, stdin io.Reader) (*Interp, *ir.F
 		},
 		pointerElemTypes: map[string]ir.Type{},
 		callableSigs:     map[string]ir.CallableSig{},
+		nullableInner:    map[string]ir.Type{},
+	}
+	for _, n := range prog.Nullables {
+		in.nullableInner[n.Name] = n.Inner
 	}
 	for _, fn := range prog.Functions {
 		in.funcs[fn.Name] = fn

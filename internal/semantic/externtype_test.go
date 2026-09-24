@@ -123,14 +123,24 @@ func TestAnalyzeExternFuncAcceptsCallableParam(t *testing.T) {
 	}
 }
 
-// TestAnalyzeExternFuncRejectsCallableResult - обратное направление (сырой
-// C-указатель на функцию, пришедший ОТ C, нужно превратить в вызываемое
-// Rech-значение) не реализовано - "Вызываемый(...)" типом результата
-// внешней функции отклоняется явной ошибкой, не тихой генерацией {fn, env}
-// поверх сырого указателя.
-func TestAnalyzeExternFuncRejectsCallableResult(t *testing.T) {
+// "Вызываемый(...)"/"?Вызываемый(...)" результатом внешней функции -
+// указатель на функцию от C, демаршалится backend'ами.
+func TestAnalyzeExternFuncAcceptsCallableResult(t *testing.T) {
 	_, err := AnalyzeSource(t, `
-внешняя функция signal(sig: Целое, h: Вызываемый(Целое)): Вызываемый(Целое)
+внешняя функция signal(sig: Целое, h: Вызываемый(Целое)): ?Вызываемый(Целое)
+внешняя функция dlsym(м: Указатель<Байт>, имя: Строка): Вызываемый(Целое): Целое
+функция главная { вывести 1 }
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
+// Сигнатура указателя на функцию обязана быть FFI-совместимой, как и
+// у параметра-колбэка.
+func TestAnalyzeExternFuncRejectsNonFFICallableResult(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+внешняя функция f(): Вызываемый(Список<Целое>)
 функция главная { вывести 1 }
 `)
 	if err == nil || !strings.Contains(err.Error(), "тип результата") {

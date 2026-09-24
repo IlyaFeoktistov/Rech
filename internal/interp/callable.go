@@ -18,6 +18,10 @@ import (
 // через границу вызова.
 type callableValue struct {
 	call func(args []Value, dbg *dbgThread) (Value, error)
+	// raw - адрес C-функции, если значение пришло от C (результат внешней
+	// функции, поле внешней структуры) - обратно в C уходит этот же адрес,
+	// без слота пула (ffi_callback.go).
+	raw uintptr
 }
 
 func callableTypeValue(t ir.Type, call func(args []Value, dbg *dbgThread) (Value, error)) Value {

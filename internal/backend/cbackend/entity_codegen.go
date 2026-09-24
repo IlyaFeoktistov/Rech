@@ -52,7 +52,7 @@ func generateIREntityStruct(ctx *irGenCtx, ent *ir.Entity) (string, error) {
 		s.Field("char", "_rech_empty")
 	}
 	for _, f := range ent.Fields {
-		if ent.IsExternStruct && f.Type.Kind == ir.KindCallable {
+		if _, _, isFn := ctx.ffiFuncPointerSig(f.Type); ent.IsExternStruct && isFn {
 			// "Вызываемый(...)" полем "внешняя структура" (WNDCLASS.
 			// lpfnWndProc-стиль) - реальный C API читает/пишет ГОЛЫЙ
 			// указатель на функцию в самой typedef-структуре, не {fn, env}
@@ -304,10 +304,12 @@ func externPrototypeOfIR(ctx *irGenCtx, ext *ir.ExternFuncDecl) (string, error) 
 	}
 	cReturnType := "void"
 	if ext.HasReturn {
-		// ext.ReturnType никогда KindCallable (semantic отклоняет - см.
-		// collectExternFuncSigs) - ffiParamCType здесь ведёт себя как
-		// обычный fromIRType(...).cType(ctx).
 		cReturnType = fromIRType(ext.ReturnType).cType(ctx)
+		// "Вызываемый"/"?Вызываемый" результатом - голый указатель на
+		// функцию (демаршалинг в месте вызова, ffi_callback.go).
+		if sigName, _, ok := ctx.ffiFuncPointerSig(ext.ReturnType); ok {
+			cReturnType = mangleRawFnType(sigName)
+		}
 	}
 	types := make([]string, len(ext.Params))
 	for i, p := range ext.Params {

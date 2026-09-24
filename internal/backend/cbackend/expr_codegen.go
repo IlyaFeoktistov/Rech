@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
+	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
 func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
@@ -117,6 +118,13 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 			return fmt.Sprintf("%s(rech_argc, rech_argv)", callee), fromIRType(e.Type), nil
 		}
 		callCode := fmt.Sprintf("%s(%s)", callee, strings.Join(argCodes, ", "))
+		if _, _, isFn := ctx.ffiFuncPointerSig(e.Type); isExtern && e.HasReturn && isFn {
+			code, err := ctx.unmarshalFuncPointer(e.Type, callCode, fmt.Sprintf(rtmsg.FFINullFuncPointerResultTemplate, cName))
+			if err != nil {
+				return "", typeUnknown, err
+			}
+			return code, fromIRType(e.Type), nil
+		}
 		if isExtern && e.HasReturn && externPrototypeAlreadyProvided(ctx, cName) {
 			callCode = bridgeExternHeaderReturnCode(ctx, e.Type, callCode)
 		}
@@ -134,7 +142,19 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 		if ctx.receiverIsPointer(e.Receiver) {
 			op = "->"
 		}
-		return fmt.Sprintf("(%s)%s%s", code, op, mangleField(e.Field)), fromIRType(e.Type), nil
+		access := fmt.Sprintf("(%s)%s%s", code, op, mangleField(e.Field))
+		// Поле-колбэк внешней структуры хранит голый указатель на функцию.
+		recvName := ir.TypeOf(e.Receiver).Entity
+		if ent, ok := ctx.entities[recvName]; ok && ent.IsExternStruct {
+			if _, _, isFn := ctx.ffiFuncPointerSig(e.Type); isFn {
+				unmarshaled, err := ctx.unmarshalFuncPointer(e.Type, access, fmt.Sprintf(rtmsg.FFINullFuncPointerFieldTemplate, e.Field, ent.ExternCName))
+				if err != nil {
+					return "", typeUnknown, err
+				}
+				return unmarshaled, fromIRType(e.Type), nil
+			}
+		}
+		return access, fromIRType(e.Type), nil
 
 	case *ir.ThisExpr:
 		// this_ - параметр метода, указатель всегда, вне зависимости от
@@ -650,7 +670,7 @@ func generateIRNewExpr(ctx *irGenCtx, e *ir.NewExpr) (string, valueType, error) 
 	}
 	parts := make([]string, len(argCodes))
 	for i, code := range argCodes {
-		if ent.IsExternStruct && ent.Fields[i].Type.Kind == ir.KindCallable {
+		if _, _, isFn := ctx.ffiFuncPointerSig(ent.Fields[i].Type); ent.IsExternStruct && isFn {
 			// "Вызываемый(...)" полем "внешняя структура" (WNDCLASS.
 			// lpfnWndProc-стиль) - тот же приём, что и у аргумента внешней
 			// функции (case *ir.CallExpr выше) - {fn, env} по значению не
