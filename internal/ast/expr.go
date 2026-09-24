@@ -66,6 +66,10 @@ type CallExpr struct {
 	// обычной (не generic) функции.
 	TypeArgs []string
 	Line     int
+	// ID - номер узла в программе (semantic, generic_infer.go) - ключ
+	// выведенных аргументов типа; копия тела generic-шаблона сохраняет ID
+	// своего узла.
+	ID int
 }
 
 func (*CallExpr) node() {}
@@ -90,6 +94,8 @@ type NewExpr struct {
 	Args       []Expr
 	FieldNames []string
 	Line       int
+	// ID - см. CallExpr.ID.
+	ID int
 }
 
 func (*NewExpr) node() {}

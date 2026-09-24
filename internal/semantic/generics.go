@@ -12,6 +12,7 @@ package semantic
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
@@ -260,9 +261,9 @@ func substExpr(e ast.Expr, subst map[string]string) ast.Expr {
 				typeArgs[i] = substituteTypeString(t, subst)
 			}
 		}
-		return &ast.CallExpr{Callee: e.Callee, Args: substExprs(e.Args, subst), TypeArgs: typeArgs, Line: e.Line}
+		return &ast.CallExpr{Callee: e.Callee, Args: substExprs(e.Args, subst), TypeArgs: typeArgs, Line: e.Line, ID: e.ID}
 	case *ast.NewExpr:
-		return &ast.NewExpr{Type: substituteTypeString(e.Type, subst), Args: substExprs(e.Args, subst), FieldNames: e.FieldNames, Line: e.Line}
+		return &ast.NewExpr{Type: substituteTypeString(e.Type, subst), Args: substExprs(e.Args, subst), FieldNames: e.FieldNames, Line: e.Line, ID: e.ID}
 	case *ast.FieldAccess:
 		return &ast.FieldAccess{Receiver: substExpr(e.Receiver, subst), Field: e.Field, Static: e.Static, Line: e.Line}
 	case *ast.MethodCallExpr:
@@ -378,6 +379,10 @@ type instantiator struct {
 	entityOrder     []string
 	funcOrder       []string
 	constraints     map[string][]constraintCheck
+	// inference/scope - выведенные аргументы типа (generic_infer.go) и
+	// объявление, тело которого сейчас сканируется (часть ключа таблицы).
+	inference *genericInference
+	scope     string
 }
 
 func newInstantiator(prog *ast.Program) *instantiator {
@@ -501,6 +506,9 @@ func (inst *instantiator) ensureFunc(name string, line int) error {
 }
 
 func (inst *instantiator) scanEntity(ent *ast.EntityDecl) error {
+	prevScope := inst.scope
+	defer func() { inst.scope = prevScope }()
+	inst.scope = ent.Name
 	for _, f := range ent.Fields {
 		if err := inst.ensureEntity(f.Type, f.Line); err != nil {
 			return err
@@ -522,6 +530,7 @@ func (inst *instantiator) scanEntity(ent *ast.EntityDecl) error {
 				return err
 			}
 		}
+		inst.scope = ent.Name + "." + m.Name
 		if err := inst.scanStmts(m.Body); err != nil {
 			return err
 		}
@@ -532,6 +541,7 @@ func (inst *instantiator) scanEntity(ent *ast.EntityDecl) error {
 				return err
 			}
 		}
+		inst.scope = ent.Name + ".конструктор"
 		if err := inst.scanStmts(ent.Ctor.Body); err != nil {
 			return err
 		}
@@ -540,6 +550,9 @@ func (inst *instantiator) scanEntity(ent *ast.EntityDecl) error {
 }
 
 func (inst *instantiator) scanFunc(fn *ast.FunctionDecl) error {
+	prevScope := inst.scope
+	defer func() { inst.scope = prevScope }()
+	inst.scope = fn.Name
 	for _, p := range fn.Params {
 		if err := inst.ensureEntity(p.Type, fn.Line); err != nil {
 			return err
@@ -701,10 +714,23 @@ func (inst *instantiator) scanExpr(e ast.Expr) error {
 		if len(e.TypeArgs) > 0 {
 			return inst.ensureFunc(mangleGenericCallName(e.Callee, e.TypeArgs), e.Line)
 		}
+		if typeArgs, ok := inst.inferred(e.ID); ok {
+			for _, t := range typeArgs {
+				if err := inst.ensureEntity(t, e.Line); err != nil {
+					return err
+				}
+			}
+			return inst.ensureFunc(mangleGenericCallName(e.Callee, typeArgs), e.Line)
+		}
 		return nil
 	case *ast.NewExpr:
 		if err := inst.ensureEntity(e.Type, e.Line); err != nil {
 			return err
+		}
+		if typeArgs, ok := inst.inferred(e.ID); ok {
+			if err := inst.ensureEntity(mangleGenericCallName(e.Type, typeArgs), e.Line); err != nil {
+				return err
+			}
 		}
 		for _, a := range e.Args {
 			if err := inst.scanExpr(a); err != nil {
@@ -761,9 +787,52 @@ func (inst *instantiator) scanExpr(e ast.Expr) error {
 			}
 		}
 		return inst.scanStmts(e.Body)
+	case *ast.CastExpr:
+		if err := inst.ensureEntity(e.Type, e.Line); err != nil {
+			return err
+		}
+		return inst.scanExpr(e.Value)
+	case *ast.ParseExpr:
+		if err := inst.ensureEntity(e.TypeName, e.Line); err != nil {
+			return err
+		}
+		return inst.scanExpr(e.Source)
 	default:
+		return inst.scanChildExprs(e)
+	}
+}
+
+// scanChildExprs - прочие узлы выражений (тернарный, индекс, литерал
+// списка, адрес/разыменование, сериализация, ...): обход всех дочерних
+// выражений, чтобы generic-вызов внутри них не остался без инстанциации.
+func (inst *instantiator) scanChildExprs(e ast.Expr) error {
+	v := reflect.ValueOf(e)
+	if !v.IsValid() || v.Kind() != reflect.Pointer || v.IsNil() || v.Elem().Kind() != reflect.Struct {
 		return nil
 	}
+	exprType := reflect.TypeFor[ast.Expr]()
+	v = v.Elem()
+	for i := range v.NumField() {
+		f := v.Field(i)
+		if !v.Type().Field(i).IsExported() {
+			continue
+		}
+		switch {
+		case f.Type() == exprType && !f.IsNil():
+			if err := inst.scanExpr(f.Interface().(ast.Expr)); err != nil {
+				return err
+			}
+		case f.Kind() == reflect.Slice && f.Type().Elem() == exprType:
+			for j := range f.Len() {
+				if el := f.Index(j); !el.IsNil() {
+					if err := inst.scanExpr(el.Interface().(ast.Expr)); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // checkGenericConstraints - если name (сущность или функция) - инстанциация
@@ -811,8 +880,11 @@ func (a *Analyzer) checkGenericConstraints(entities map[string]entitySig, method
 // для отложенной проверки (см. collectEntities/collectFuncSigs) - там, где
 // entities/interfaces уже известны, а здесь - ещё нет. prog без единого
 // generic-объявления возвращается как есть, без всякой работы.
-func instantiateGenerics(prog *ast.Program) (*ast.Program, map[string][]constraintCheck, error) {
+func instantiateGenerics(prog *ast.Program, inf *genericInference) (*ast.Program, map[string][]constraintCheck, error) {
 	inst := newInstantiator(prog)
+	inst.inference = inf
+	inf.funcTemplates = inst.funcTemplates
+	inf.entityTemplates = inst.entityTemplates
 	if len(inst.entityTemplates) == 0 && len(inst.funcTemplates) == 0 {
 		return prog, nil, nil
 	}
@@ -852,4 +924,14 @@ func instantiateGenerics(prog *ast.Program) (*ast.Program, map[string][]constrai
 		out.Functions = append(out.Functions, inst.funcs[name])
 	}
 	return out, inst.constraints, nil
+}
+
+// inferred - аргументы типа, выведенные анализом для узла id в текущем
+// объявлении (generic_infer.go).
+func (inst *instantiator) inferred(id int) ([]string, bool) {
+	if inst.inference == nil {
+		return nil, false
+	}
+	typeArgs, ok := inst.inference.table[inferKey(inst.scope, id)]
+	return typeArgs, ok
 }

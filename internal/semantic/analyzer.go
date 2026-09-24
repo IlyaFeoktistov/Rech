@@ -16,9 +16,12 @@ import (
 
 // Analyzer инкапсулирует состояние семантического анализа.
 type Analyzer struct {
-	entities map[string]entitySig
-	methods  map[string]map[string]funcSig
-	funcs    map[string]funcSig
+	// inference - вывод аргументов типа (generic_infer.go), общий для всех
+	// проходов анализа одной программы.
+	inference *genericInference
+	entities  map[string]entitySig
+	methods   map[string]map[string]funcSig
+	funcs     map[string]funcSig
 	// funcOverloads - имя перегруженной свободной функции -> её сигнатуры
 	// (funcSig.MangledName у каждой уже заполнено) - пусто (nil-запись) для
 	// любого имени без перегрузки, funcs хранит его сигнатуру напрямую под
@@ -1001,6 +1004,7 @@ func (a *Analyzer) analyzeEntity(ent *ast.EntityDecl) (*ir.Entity, error) {
 	sig := a.entities[ent.Name]
 	fields := make([]ir.Field, len(sig.FieldNames))
 	fsc := newCtx(a, a.funcs, a.entities, a.methods, a.aliases, a.interfaces, a.enums, "", ir.Type{}, false, a.resolvedConsts, a.resolvingConsts)
+	fsc.inferScope = ent.Name
 	for i, name := range sig.FieldNames {
 		var doc string
 		if i < len(sig.FieldDocs) {
@@ -1039,6 +1043,7 @@ func (a *Analyzer) analyzeEntity(ent *ast.EntityDecl) (*ir.Entity, error) {
 	constants := make([]ir.Constant, 0, len(sig.ConstNames))
 	if len(sig.ConstNames) > 0 {
 		sc := newCtx(a, a.funcs, a.entities, a.methods, a.aliases, a.interfaces, a.enums, "", ir.Type{}, false, a.resolvedConsts, a.resolvingConsts)
+		sc.inferScope = ent.Name
 		for i, cname := range sig.ConstNames {
 			val, err := resolveEntityConstant(sc, ent.Name, cname, ent.Line)
 			if err != nil {
@@ -1099,6 +1104,7 @@ func (a *Analyzer) analyzeConstructor(ent *ast.EntityDecl) (*ir.Method, error) {
 	c := ent.Ctor
 	sig := a.entities[ent.Name]
 	sc := newCtx(a, a.funcs, a.entities, a.methods, a.aliases, a.interfaces, a.enums, ent.Name, ir.Type{}, false, a.resolvedConsts, a.resolvingConsts)
+	sc.inferScope = ent.Name + ".конструктор"
 	params := make([]ir.Param, len(c.Params))
 	for i, p := range c.Params {
 		params[i] = ir.Param{Name: p.Name, Type: sig.CtorParams[i]}
@@ -1126,6 +1132,7 @@ func (a *Analyzer) analyzeMethod(ent *ast.EntityDecl, m *ast.MethodDecl) (*ir.Me
 	name := a.methodDeclNames[m]
 	sig := a.methods[ent.Name][name]
 	sc := newCtx(a, a.funcs, a.entities, a.methods, a.aliases, a.interfaces, a.enums, ent.Name, sig.ReturnType, sig.HasReturn, a.resolvedConsts, a.resolvingConsts)
+	sc.inferScope = ent.Name + "." + m.Name
 	params, body, sig, err := a.analyzeParamsAndBody(sc, m.Params, sig, m.Body)
 	if err != nil {
 		return nil, err
@@ -1165,6 +1172,7 @@ func (a *Analyzer) analyzeFunction(fn *ast.FunctionDecl) (*ir.Function, error) {
 	name := a.funcDeclNames[fn]
 	sig := a.funcs[name]
 	sc := newCtx(a, a.funcs, a.entities, a.methods, a.aliases, a.interfaces, a.enums, "", sig.ReturnType, sig.HasReturn, a.resolvedConsts, a.resolvingConsts)
+	sc.inferScope = fn.Name
 	params, body, sig, err := a.analyzeParamsAndBody(sc, fn.Params, sig, fn.Body)
 	if err != nil {
 		return nil, err

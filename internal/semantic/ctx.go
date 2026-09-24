@@ -18,6 +18,10 @@ type scope map[string]ir.Type
 // парсер уже это гарантирует). Аналог genCtx в cbackend, только на уровне
 // IR/семантики, не C.
 type ctx struct {
+	// inferScope - объявление, в теле которого идёт анализ ("функция",
+	// "Сущность.метод") - часть ключа выведенных аргументов типа
+	// (generic_infer.go); лямбда наследует его у объемлющего.
+	inferScope string
 	funcs      map[string]funcSig
 	entities   map[string]entitySig
 	methods    map[string]map[string]funcSig
@@ -170,6 +174,7 @@ func newCtx(a *Analyzer, funcs map[string]funcSig, entities map[string]entitySig
 func newLambdaCtx(sc *ctx, returnType ir.Type, hasReturn bool) *ctx {
 	c := newCtx(sc.a, sc.funcs, sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, "", returnType, hasReturn, sc.resolvedConsts, sc.resolvingConsts)
 	c.parent = sc
+	c.inferScope = sc.inferScope
 	return c
 }
 

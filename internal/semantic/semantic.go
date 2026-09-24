@@ -29,11 +29,28 @@ func Analyze(prog *ast.Program) (*ir.Program, error) {
 		return nil, err
 	}
 
+	// Вывод аргументов типа (generic_infer.go) - перезапуском анализа, пока
+	// анализ находит новые выводы.
+	numberCallNodes(prog)
+	inf := &genericInference{table: map[string][]string{}}
+	for range maxInferencePasses {
+		inf.found = false
+		irProg, err := analyzeOnce(prog, inf)
+		if !inf.found {
+			return irProg, err
+		}
+	}
+	return nil, errNoPos(CodeGenerics, "вывод аргументов типа не сошёлся за %d проходов - укажите аргументы типа явно (\"имя<Тип>(...)\")", maxInferencePasses)
+}
+
+// analyzeOnce - один проход анализа (см. Analyze) с уже известными
+// выводами аргументов типа inf.
+func analyzeOnce(prog *ast.Program, inf *genericInference) (*ir.Program, error) {
 	// Пользовательские generic-сущности/функции ("Коробка<T>") - раскрыты
 	// в обычные объявления ДО всего остального: дальше по конвейеру ничего
 	// не знает, что они когда-то были generic (см. package doc
 	// internal/semantic/generics.go).
-	instantiated, constraints, err := instantiateGenerics(prog)
+	instantiated, constraints, err := instantiateGenerics(prog, inf)
 	if err != nil {
 		return nil, err
 	}
@@ -52,6 +69,7 @@ func Analyze(prog *ast.Program) (*ir.Program, error) {
 		resolvingConsts:       map[string]bool{},
 		resolvedFieldDefaults: map[string]ir.Expr{},
 		genericConstraints:    constraints,
+		inference:             inf,
 		callablesSeen:         map[string]bool{},
 	}
 

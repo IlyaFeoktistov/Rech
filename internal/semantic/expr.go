@@ -1,6 +1,7 @@
 package semantic
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
@@ -246,6 +247,13 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 // package doc ir.NewExpr) - backend'у после этого не нужно знать, какой
 // формой был написан конструктор в исходнике.
 func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
+	if inferred, ok, err := inferredNewType(sc, e); err != nil {
+		return nil, err
+	} else if ok {
+		withType := *e
+		withType.Type = inferred
+		e = &withType
+	}
 	if _, ok := sc.interfaces[e.Type]; ok {
 		return nil, errAtLine(e.Line, CodeExprCheck, "%q - интерфейс, у него нет реализации - создать можно только сущность, которая его \"реализует\"", e.Type)
 	}
@@ -594,6 +602,14 @@ func analyzeCallExpr(sc *ctx, e *ast.CallExpr) (ir.Expr, error) {
 	callee := e.Callee
 	if len(e.TypeArgs) > 0 {
 		callee = mangleGenericCallName(e.Callee, e.TypeArgs)
+	} else if inferred, ok, err := inferredCallee(sc, e); err != nil {
+		var ph placeholderCall
+		if errors.As(err, &ph) {
+			return ph.call, nil
+		}
+		return nil, err
+	} else if ok {
+		callee = inferred
 	}
 	// Перегруженное имя (funcOverloads[callee] != nil) резолвится ДО
 	// обычной ветки sc.funcs[callee] ниже - под голым именем в sc.funcs нет
