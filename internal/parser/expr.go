@@ -296,21 +296,19 @@ func (p *Parser) parseUnary() (ast.Expr, error) {
 		}
 		return &ast.UnaryExpr{Op: "~", Operand: operand, Line: op.Line}, nil
 	case lexer.BANG:
-		// "!x" - НЕ отдельный узел AST, а прямой сахар над "x == Ничто"
-		// (BinaryExpr, тот же вид, что при явном написании) - переиспользует
-		// ВСЮ существующую семантику "==" с "Ничто" целиком бесплатно:
-		// analyzeNullCheck (internal/semantic/nullable.go), сужение
-		// nullable-типа внутри "если !x {...}"/после guard clause "если !x {
-		// вернуть }" (internal/semantic/stmt.go, established) - без единой
-		// новой строчки в семантическом анализе. Для НЕ-nullable операнда
-		// ошибка получится оттуда же ("сравнение с \"Ничто\" применимо
-		// только к значению nullable-типа"), не отдельным путём здесь.
+		// "!x" - НЕ отдельный узел AST, а сахар над "x == Ничто"
+		// (BinaryExpr, тот же вид, что при явном написании, с Bang) -
+		// переиспользует семантику "==" с "Ничто": analyzeNullCheck
+		// (internal/semantic/nullable.go), сужение nullable-типа внутри
+		// "если !x {...}"/после guard clause "если !x { вернуть }"
+		// (internal/semantic/stmt.go). Операнд Логическое семантика
+		// превращает в "не x" (analyzeBang).
 		op := p.advance()
 		operand, err := p.parseUnary()
 		if err != nil {
 			return nil, err
 		}
-		return &ast.BinaryExpr{Op: "==", Left: operand, Right: &ast.NullLiteral{Line: op.Line}, Line: op.Line}, nil
+		return &ast.BinaryExpr{Op: "==", Left: operand, Right: &ast.NullLiteral{Line: op.Line}, Line: op.Line, Bang: true}, nil
 	case lexer.INCR, lexer.DECR:
 		return p.parsePrefixIncDec()
 	case lexer.BITAND:

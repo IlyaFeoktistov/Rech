@@ -853,6 +853,12 @@ func (in *Interp) collectionsDeepEqual(a, b *collection) bool {
 // "равен" завели. Не подменяет valuesEqual саму - только
 // используется РЯДОМ с ней, из collectionsDeepEqual выше.
 func (in *Interp) valueDeepEqual(l, r Value) bool {
+	if l.Type.Kind == ir.KindNullable {
+		if l.Nullable == nil || r.Nullable == nil {
+			return l.Nullable == nil && r.Nullable == nil
+		}
+		return in.valueDeepEqual(*l.Nullable, *r.Nullable)
+	}
 	if l.Type.Kind == ir.KindEntity && l.Obj != nil && l.Obj.coll != nil {
 		if r.Obj == nil || r.Obj.coll == nil {
 			return false

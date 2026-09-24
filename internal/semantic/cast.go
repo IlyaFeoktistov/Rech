@@ -120,6 +120,10 @@ func elemEquatable(entities map[string]entitySig, t ir.Type) bool {
 	if t == ir.TypeString || equatableTypes[t] {
 		return true
 	}
+	if t.Kind == ir.KindNullable {
+		// "?T" - Ничто равно только Ничто, иначе сравнивается T.
+		return elemEquatable(entities, entities[t.Entity].ElemType)
+	}
 	if t.Kind != ir.KindEntity {
 		return false
 	}

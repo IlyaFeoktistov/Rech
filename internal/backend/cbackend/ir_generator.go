@@ -866,10 +866,17 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	hasStructTargets := len(prog.ParseTargets) > 0 || len(prog.SerializeTargets) > 0 || len(prog.XMLParseTargets) > 0 || len(prog.XMLSerializeTargets) > 0 || len(prog.YAMLParseTargets) > 0 || len(prog.YAMLSerializeTargets) > 0 || len(prog.ProtobufParseTargets) > 0 || len(prog.ProtobufSerializeTargets) > 0
 	for _, g := range prog.Generics {
 		dest := &genericsCode
+		// Элемент "?Тип" ждёт свою обёртку, а та - то же, что и сам Тип
+		// (группы nullablesCode/nullablesAfterTypedefs/nullablesAfterCallables
+		// ниже) - бакет выбирается по внутреннему типу.
+		elemOrder := g.ElemType
+		if elemOrder.Kind == ir.KindNullable {
+			elemOrder = ctx.nullableInner[elemOrder.Entity]
+		}
 		switch {
-		case g.ElemType.Kind == ir.KindCallable || g.KeyType.Kind == ir.KindCallable:
+		case elemOrder.Kind == ir.KindCallable || g.KeyType.Kind == ir.KindCallable:
 			dest = &genericsCodeAfterCallables
-		case g.ElemType.Kind == ir.KindEntity && entities[g.ElemType.Entity] != nil:
+		case elemOrder.Kind == ir.KindEntity && entities[elemOrder.Entity] != nil:
 			dest = &genericsCodeAfterEntities
 		}
 		elemC := fromIRType(g.ElemType).cType(ctx)
@@ -896,7 +903,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 				dest.WriteString(listEqualCCode(ctx, g))
 			}
 			if g.NeedsSafeIndex {
-				indexSafeGetCode.WriteString(collections.ListIndexSafeGetCode(mangleType(g.Name), mangleType("?"+g.ElemType.String())))
+				indexSafeGetCode.WriteString(collections.ListIndexSafeGetCode(mangleType(g.Name), mangleType(ir.NullableOf(g.ElemType).String()), g.ElemType.Kind == ir.KindNullable))
 			}
 			if g.NeedsListLiteral {
 				dest.WriteString(collections.ListLiteralCode(mangleType(g.Name), elemC, mangleCtor(g.Name)))
@@ -933,7 +940,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 				dest.WriteString(dictEqualCCode(ctx, g))
 			}
 			if g.NeedsSafeIndex {
-				indexSafeGetCode.WriteString(collections.DictIndexSafeGetCode(mangleType(g.Name), keyC, mangleType("?"+g.ElemType.String())))
+				indexSafeGetCode.WriteString(collections.DictIndexSafeGetCode(mangleType(g.Name), keyC, mangleType(ir.NullableOf(g.ElemType).String()), g.ElemType.Kind == ir.KindNullable))
 			}
 		default:
 			return "", fmt.Errorf("неизвестный generic-шаблон %q", g.Template)
@@ -1670,13 +1677,12 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	}
 	appendCodeIf(&sb, entityForwardDecl.Len() > 0, entityForwardDecl.String())
 
-	appendCodeIf(&sb, genericsCode.Len() > 0, genericsCode.String())
-
-	// После genericsCode (внутренний тип "?Тип" может сам быть Список/
-	// Словарь) и перед typedefs (сущность может нести nullable-поле по
-	// значению) - тот же класс проблемы упорядочивания, что и у
-	// genericsCode/typedefs ниже.
+	// До genericsCode (элемент "Список<?Целое>" хранится по значению -
+	// обёртка нужна раньше тела коллекции; внутренний тип "?Список<T>" -
+	// всего лишь указатель, ему хватает genericForwardDecl выше) и перед
+	// typedefs (сущность может нести nullable-поле по значению).
 	appendCodeIf(&sb, nullablesCode.Len() > 0, nullablesCode.String())
+	appendCodeIf(&sb, genericsCode.Len() > 0, genericsCode.String())
 	if prog.UsesReflection {
 		hasReflectAnyList := false
 		for _, g := range prog.Generics {

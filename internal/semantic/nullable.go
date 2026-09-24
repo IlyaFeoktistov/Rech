@@ -196,6 +196,26 @@ func analyzeNullCheck(sc *ctx, other ast.Expr, isNot bool, line int) (ir.Expr, e
 	if err != nil {
 		return nil, err
 	}
+	return nullCheckOf(value, isNot, line)
+}
+
+// analyzeBang - "!x": у Логическое - отрицание ("не x"), иначе - "x ==
+// Ничто" (nullable/Указатель<T>).
+func analyzeBang(sc *ctx, operand ast.Expr, line int) (ir.Expr, error) {
+	value, err := analyzeExpr(sc, operand)
+	if err != nil {
+		return nil, err
+	}
+	if typ := ir.TypeOf(value); typ == ir.TypeBool {
+		return &ir.UnaryExpr{Op: "не", Operand: value, Type: ir.TypeBool}, nil
+	} else if typ.Kind != ir.KindNullable && typ.Kind != ir.KindPointer {
+		return nil, errAtLine(line, CodeExprCheck, "\"!\" применим к Логическое (отрицание) или к nullable-значению/\"Указатель<T>\" (проверка на Ничто), получен %s", typ)
+	}
+	return nullCheckOf(value, false, line)
+}
+
+// nullCheckOf - уже разобранное value, сравниваемое с "Ничто".
+func nullCheckOf(value ir.Expr, isNot bool, line int) (ir.Expr, error) {
 	// "Указатель<T> == Ничто" - тот же нулевой указатель, что и у coerceExpr
 	// выше, не has/value nullable-обёртка - оба бэкенда сами решают по
 	// ir.TypeOf(e.Value).Kind, как сравнивать (package doc там же).

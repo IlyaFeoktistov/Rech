@@ -20,6 +20,11 @@ import (
 // (elemEquatable, cast.go), что у вложенной инстанциации он существует,
 // прежде чем разрешить внешней "равен" вообще появиться.
 func elemCompareExpr(ctx *irGenCtx, t ir.Type, aExpr, bExpr string) string {
+	if t.Kind == ir.KindNullable {
+		// "?T": оба Ничто - равны, иначе оба заняты и равны их значения.
+		inner := elemCompareExpr(ctx, ctx.nullableInner[t.Entity], aExpr+".value", bExpr+".value")
+		return fmt.Sprintf("(%[1]s.has == %[2]s.has && (!%[1]s.has || (%[3]s)))", aExpr, bExpr, inner)
+	}
 	switch {
 	case t == ir.TypeString:
 		ctx.usesStrCmp = true

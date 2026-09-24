@@ -19,8 +19,7 @@ func (in *Interp) evalListIndexExpr(e *ir.ListIndexExpr, env *Env, cc *callCtx) 
 	if i < 0 || i >= int64(len(elems)) {
 		return Value{Type: e.Type}, nil
 	}
-	wrapped := in.cloneValue(elems[i])
-	return Value{Type: e.Type, Nullable: &wrapped}, nil
+	return in.safeIndexResult(e.Type, elems[i]), nil
 }
 
 // evalDictIndexExpr - "словарь[ключ]" - тот же принцип, что
@@ -39,6 +38,16 @@ func (in *Interp) evalDictIndexExpr(e *ir.DictIndexExpr, env *Env, cc *callCtx) 
 	if !ok {
 		return Value{Type: e.Type}, nil
 	}
-	wrapped := in.cloneValue(v)
-	return Value{Type: e.Type, Nullable: &wrapped}, nil
+	return in.safeIndexResult(e.Type, v), nil
+}
+
+// safeIndexResult - найденный элемент как результат "[]" типа typ ("?T"):
+// обёрнутый, либо как есть, если элемент коллекции сам уже "?T".
+func (in *Interp) safeIndexResult(typ ir.Type, elem Value) Value {
+	wrapped := in.cloneValue(elem)
+	if elem.Type.Kind == ir.KindNullable {
+		wrapped.Type = typ
+		return wrapped
+	}
+	return Value{Type: typ, Nullable: &wrapped}
 }

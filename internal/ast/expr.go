@@ -160,6 +160,9 @@ type BinaryExpr struct {
 	Left  Expr
 	Right Expr
 	Line  int
+	// Bang - узел написан как "!x" (парсер десахаривает в "x == Ничто"):
+	// у Логическое операнда это отрицание, как "не x".
+	Bang bool
 }
 
 func (*BinaryExpr) node() {}

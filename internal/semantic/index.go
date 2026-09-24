@@ -11,7 +11,9 @@ import (
 // по ключу К - результат всегда "?T"/"?В" (Ничто при промахе/выходе за
 // границу), не паника, в отличие от ".получить(...)". Отдельно от них -
 // РЯДОМ, не вместо: ".получить"/".установить" продолжают паниковать как
-// раньше, "[]" - новый безопасный путь.
+// раньше, "[]" - новый безопасный путь. Элемент, уже сам nullable
+// ("Список<?Целое>"), не оборачивается повторно - результат тот же "?T", и
+// Ничто означает либо промах, либо сохранённое Ничто.
 func analyzeIndexExpr(sc *ctx, e *ast.IndexExpr) (ir.Expr, error) {
 	if !receiverAddressable(e.Receiver) {
 		return nil, errAtLine(e.Line, CodeSemanticOther, "получателем индексации \"[]\" может быть только переменная, поле или \"этот\"")
@@ -27,9 +29,12 @@ func analyzeIndexExpr(sc *ctx, e *ast.IndexExpr) (ir.Expr, error) {
 		return nil, errAtLine(e.Line, CodeSemanticOther, "индексация \"[]\" применима только к Список<T>/Словарь<К, В>, получен %s", typ)
 	}
 
-	resultType, err := resolveNullableTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, "?"+sig.ElemType.String())
-	if err != nil {
-		return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: e.Line})
+	resultType := sig.ElemType
+	if resultType.Kind != ir.KindNullable {
+		resultType, err = resolveNullableTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, "?"+sig.ElemType.String())
+		if err != nil {
+			return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: e.Line})
+		}
 	}
 
 	if sig.IsList {

@@ -11,24 +11,34 @@ import "fmt"
 // doc generateSource, ensureIndexSafeGetHelpers). structC/nullableStructC -
 // уже вычисленные вызывающей стороной (mangleType - внутренняя,
 // неэкспортированная инфраструктура cbackend, этот пакет от неё не
-// зависит).
-func ListIndexSafeGetCode(structC, nullableStructC string) string {
+// зависит). elemNullable - элемент сам "?T" ("Список<?Целое>"): он уже
+// nullableStructC и возвращается как есть, без повторной обёртки.
+func ListIndexSafeGetCode(structC, nullableStructC string, elemNullable bool) string {
 	fn := structC + "_get_safe"
 	return fmt.Sprintf(`static %[1]s %[2]s(%[3]s *this_, long long index) {
     if (index < 0 || index >= this_->len) {
         return %[1]s_empty();
     }
-    return %[1]s_wrap(this_->data[index]);
+    return %[4]s;
 }
 
-`, nullableStructC, fn, structC)
+`, nullableStructC, fn, structC, safeGetResult(nullableStructC, "this_->data[index]", elemNullable))
+}
+
+// safeGetResult - найденный элемент как результат "[]": обёрнутый в "?T",
+// либо как есть, если он уже "?T".
+func safeGetResult(nullableStructC, elem string, elemNullable bool) string {
+	if elemNullable {
+		return elem
+	}
+	return nullableStructC + "_wrap(" + elem + ")"
 }
 
 // DictIndexSafeGetCode - тот же принцип, что ListIndexSafeGetCode, но для
 // Словарь<К, В> - переиспользует уже сгенерированную dictCollectionCCode
 // функцию поиска слота по ключу (structC+"_find", та же, что использует
 // ".получить"/".содержит") вместо дублирования логики хеш-таблицы.
-func DictIndexSafeGetCode(structC, keyC, nullableStructC string) string {
+func DictIndexSafeGetCode(structC, keyC, nullableStructC string, elemNullable bool) string {
 	findFn := structC + "_find"
 	fn := structC + "_get_safe"
 	return fmt.Sprintf(`static %[1]s %[2]s(%[3]s *this_, %[4]s key) {
@@ -36,8 +46,8 @@ func DictIndexSafeGetCode(structC, keyC, nullableStructC string) string {
     if (idx < 0) {
         return %[1]s_empty();
     }
-    return %[1]s_wrap(this_->slots[idx].value);
+    return %[6]s;
 }
 
-`, nullableStructC, fn, structC, keyC, findFn)
+`, nullableStructC, fn, structC, keyC, findFn, safeGetResult(nullableStructC, "this_->slots[idx].value", elemNullable))
 }

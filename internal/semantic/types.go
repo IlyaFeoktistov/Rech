@@ -627,9 +627,6 @@ func resolveGenericTypeName(entities map[string]entitySig, methods map[string]ma
 	if err != nil {
 		return ir.TypeUnknown, diagnostics.Wrap(err, "тип элемента %q в %q", argName, name)
 	}
-	if elem.Kind == ir.KindNullable {
-		return ir.TypeUnknown, errNoPos(CodeTypeResolution, "%q: элементы встроенных коллекций пока не поддерживают nullable-типы", name)
-	}
 	sigs, ok := genericMethodSigs(template, elem)
 	if !ok {
 		return ir.TypeUnknown, errNoPos(CodeTypeResolution, "неизвестный generic-тип %q", template)
@@ -680,9 +677,6 @@ func resolveDictTypeName(entities map[string]entitySig, methods map[string]map[s
 	val, err := resolveTypeName(entities, methods, aliases, interfaces, enums, args[1])
 	if err != nil {
 		return ir.TypeUnknown, diagnostics.Wrap(err, "тип значения %q в %q", args[1], name)
-	}
-	if val.Kind == ir.KindNullable {
-		return ir.TypeUnknown, errNoPos(CodeTypeResolution, "%q: значения встроенного словаря пока не поддерживают nullable-типы", name)
 	}
 	if _, exists := entities[name]; !exists {
 		eq := elemEquatable(entities, val)

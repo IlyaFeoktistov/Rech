@@ -1002,6 +1002,9 @@ func analyzeBinaryExpr(sc *ctx, e *ast.BinaryExpr) (ir.Expr, error) {
 	// "== Ничто"/"!= Ничто" - особый случай, перехватывается ДО обычного
 	// анализа обеих сторон: "Ничто" само по себе не разбирается analyzeExpr
 	// (нет контекста типа), см. analyzeNullCheck.
+	if e.Bang {
+		return analyzeBang(sc, e.Left, e.Line)
+	}
 	if e.Op == "==" || e.Op == "!=" {
 		if _, ok := e.Left.(*ast.NullLiteral); ok {
 			return analyzeNullCheck(sc, e.Right, e.Op == "!=", e.Line)

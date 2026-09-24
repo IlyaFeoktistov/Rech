@@ -253,6 +253,15 @@ func NullableType(inner Type) Type {
 	return Type{Kind: KindNullable, Entity: "?" + inner.String()}
 }
 
+// NullableOf - "?t", либо сам t, если он уже nullable (схлопывание вместо
+// "??Тип" - безопасная индексация "[]" коллекции с элементом "?T").
+func NullableOf(t Type) Type {
+	if t.Kind == KindNullable {
+		return t
+	}
+	return NullableType(t)
+}
+
 // CallableTypeName - зарезервированное имя типа "функция как значение".
 const CallableTypeName = "Вызываемый"
 

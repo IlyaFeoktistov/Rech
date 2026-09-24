@@ -305,14 +305,46 @@ func TestAnalyzeSerializeJSONUnwrapsNarrowedNullable(t *testing.T) {
 	}
 }
 
-func TestAnalyzeNullableListElementRejected(t *testing.T) {
+// TestAnalyzeNullableCollectionElementAllowed - "?Тип" элементом
+// коллекции/значением словаря; "[]" не оборачивает повторно.
+func TestAnalyzeNullableCollectionElementAllowed(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 функция главная {
-    переменная а: Список<?Целое> = Ничто
+    переменная а: Список<?Целое> = [1, Ничто]
+    переменная б: ?Целое = а[0]
+    переменная сл = новый Словарь<Строка, ?Строка>()
+    сл.установить("к", Ничто)
+    переменная зн: ?Строка = сл["к"]
 }
 `)
-	if err == nil || !strings.Contains(err.Error(), "nullable-типы") {
-		t.Fatalf("ожидалась ошибка компиляции для \"Список<?Целое>\", получено: %v", err)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
+// TestAnalyzeListLiteralOnlyNichtoRejected - литерал только из "Ничто" без
+// аннотации - типу элемента неоткуда взяться.
+func TestAnalyzeListLiteralOnlyNichtoRejected(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция главная {
+    переменная а = [Ничто, Ничто]
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "только из") {
+		t.Fatalf("ожидалась ошибка литерала только из Ничто, получено: %v", err)
+	}
+}
+
+// TestAnalyzeBangRejectsNonBoolNonNullable - "!" у Целое - ошибка.
+func TestAnalyzeBangRejectsNonBoolNonNullable(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция главная {
+    переменная а = 1
+    переменная б = !а
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "применим к Логическое") {
+		t.Fatalf("ожидалась ошибка \"!\" у Целое, получено: %v", err)
 	}
 }
 
