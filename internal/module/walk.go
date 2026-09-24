@@ -202,7 +202,9 @@ func resolveTypeRef(typeName string, names map[string]string, typeParams map[str
 	if typeName == "" {
 		return typeName, nil
 	}
-	if typeParams[typeName] {
+	if typeParams[typeName] || typeName == callableTypeName {
+		// Голое "Вызываемый" - только "Вызываемый фн = значение", сигнатура
+		// из значения (internal/semantic/bare_callable_decl.go).
 		return typeName, nil
 	}
 	if strings.HasPrefix(typeName, "?") {

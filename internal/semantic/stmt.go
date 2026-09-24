@@ -149,6 +149,9 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 	case *ast.VarDecl:
 		var declared ir.Type
 		var hasAnnotation bool
+		if s.Type == bareCallableType {
+			return analyzeBareCallableVarDecl(sc, s)
+		}
 		if s.Type != "" {
 			t, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, s.Type)
 			if err != nil {

@@ -30,8 +30,17 @@ import (
 // разделителя между инструкциями) - новая форма только придаёт смысл
 // прежде невалидной последовательности токенов, ни одна существующая ветка
 // разбора своего случая не теряет.
+//
+// "Вызываемый имя = значение" без "(...)" - сигнатура берётся из значения
+// (лямбды/ссылки на функцию); Type остаётся голым "Вызываемый", его
+// разбирает семантика (bareCallableType).
 func (p *Parser) tryParseTypedVarDecl() (ast.Stmt, bool, error) {
 	saved := p.pos
+	if p.cur().Type == lexer.IDENT && p.cur().Value == callableTypeName &&
+		p.peekAt(1).Type == lexer.IDENT && p.peekAt(2).Type == lexer.ASSIGN {
+		p.advance() // "Вызываемый"
+		return p.finishTypedVarDecl(callableTypeName)
+	}
 	typeName, err := p.parseTypeName()
 	if err != nil {
 		p.pos = saved
@@ -41,6 +50,11 @@ func (p *Parser) tryParseTypedVarDecl() (ast.Stmt, bool, error) {
 		p.pos = saved
 		return nil, false, nil
 	}
+	return p.finishTypedVarDecl(typeName)
+}
+
+// finishTypedVarDecl - "<имя> = <выражение>" после уже разобранного типа.
+func (p *Parser) finishTypedVarDecl(typeName string) (ast.Stmt, bool, error) {
 	name := p.advance()
 	p.advance() // "="
 	value, err := p.parseExpr()
