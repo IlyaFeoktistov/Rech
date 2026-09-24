@@ -304,7 +304,9 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 
 	case *ir.ParentCallStmt:
 		argCodes := make([]string, len(s.Args)+1)
-		argCodes[0] = "this_"
+		// Явное приведение к указателю на родителя: у потомка своя
+		// C-структура, GCC 14+ считает неявное приведение ошибкой.
+		argCodes[0] = fmt.Sprintf("(%s *)this_", entityCName(ctx, s.BaseEntity))
 		for i, a := range s.Args {
 			code, _, err := generateIRExpr(ctx, a)
 			if err != nil {

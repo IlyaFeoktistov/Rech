@@ -162,7 +162,7 @@ func TestGenerateFromIRParentCallStmtCallsBaseInit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, "rech_init_polzovatel(this_, v_imya);") {
+	if !strings.Contains(out, "rech_init_polzovatel((rech_T_polzovatel *)this_, v_imya);") {
 		t.Fatalf("ожидался вызов rech_init_polzovatel(this_, ...) внутри rech_init_sotrudnik, получено:\n%s", out)
 	}
 	initSotrudnik := out[strings.Index(out, "static void rech_init_sotrudnik"):strings.Index(out, "static rech_T_sotrudnik *rech_new_sotrudnik")]

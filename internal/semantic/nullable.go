@@ -177,7 +177,14 @@ func coerceExpr(sc *ctx, e ast.Expr, target ir.Type) (ir.Expr, error) {
 	if target.Kind == ir.KindNullable && nullableInner(sc, target) == typ {
 		return &ir.NullWrapExpr{Value: value, Type: target}, nil
 	}
-	return maybeUnwrapNarrowed(sc, value), nil
+	value = maybeUnwrapNarrowed(sc, value)
+	if typ := ir.TypeOf(value); typ.Kind == ir.KindEntity && target.Kind == ir.KindEntity && typ.Entity != target.Entity &&
+		entityIsOrExtends(sc.entities, typ.Entity, target.Entity) {
+		// Потомок там, где ожидается предок - явный upcast (см.
+		// ir.UpcastExpr).
+		return &ir.UpcastExpr{Value: value, Type: target}, nil
+	}
+	return value, nil
 }
 
 // analyzeNullCheck - "<other> == Ничто"/"<other> != Ничто" (isNot=true у
