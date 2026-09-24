@@ -1,6 +1,10 @@
 package interp
 
-import "github.com/IlyaFeoktistov/Rech/internal/ir"
+import (
+	"fmt"
+
+	"github.com/IlyaFeoktistov/Rech/internal/ir"
+)
 
 // taskValue - состояние задачи, запущенной "запустить <имя>(...)" -
 // исполняется в отдельной Go-горутине (модель - потоки ОС, шаг 15,
@@ -37,13 +41,20 @@ type taskValue struct {
 	done     chan struct{}
 }
 
-// evalLaunchExpr - "запустить <имя>(<арг>, ...)": аргументы вычисляются и
-// клонируются (та же значение-копирующая семантика "структура", что и у
-// обычного вызова) ДО запуска горутины - сама горутина не имеет доступа к
-// env вызывающей стороны, только к своим собственным args/callCtx (новый,
-// без получателя - "запустить" не поддерживает методы).
+// evalLaunchExpr - "запустить"/"поручить": запускаемое значение (типа
+// Вызываемый) и аргументы вычисляются и клонируются (та же
+// значение-копирующая семантика, что и у обычного вызова) ДО запуска
+// горутины - сама горутина не имеет доступа к env вызывающей стороны.
+// e.Coroutine не читается: горутина обслуживает оба вида (см. package doc
+// taskValue).
 func (in *Interp) evalLaunchExpr(e *ir.LaunchExpr, env *Env, cc *callCtx) (Value, error) {
-	fn := in.funcs[e.Callee]
+	fv, err := in.evalExpr(e.Value, env, cc)
+	if err != nil {
+		return Value{}, err
+	}
+	if fv.Callable == nil {
+		return Value{}, fmt.Errorf("значение типа %s не является вызываемым во время исполнения", fv.Type)
+	}
 	args := make([]Value, len(e.Args))
 	for i, a := range e.Args {
 		v, err := in.evalExpr(a, env, cc)
@@ -54,15 +65,14 @@ func (in *Interp) evalLaunchExpr(e *ir.LaunchExpr, env *Env, cc *callCtx) (Value
 	}
 	t := &taskValue{done: make(chan struct{})}
 	activeTasksInc()
-	// thread - под отладчиком (in.debugger != nil, "rech debug") "запустить"
+	// thread - под отладчиком (in.debugger != nil, "rech debug") задача
 	// заводит НОВЫЙ поток DAP (см. internal/interp/debugger.go) - новая
 	// горутина Go ведёт собственный, независимый стек кадров/собственные
 	// точки останова/шаги, а не продолжает cc.dbg вызывающей стороны (та
-	// исполняется в другой горутине). nil в обычном Run/rech test -
-	// callFunction/panicRuntime дальше с ним ничего не делают.
+	// исполняется в другой горутине). nil в обычном Run/rech test.
 	var thread *dbgThread
 	if in.debugger != nil {
-		thread = in.debugger.newThread("запустить " + e.Callee)
+		thread = in.debugger.newThread("запустить")
 	}
 	go func() {
 		defer close(t.done)
@@ -75,14 +85,14 @@ func (in *Interp) evalLaunchExpr(e *ir.LaunchExpr, env *Env, cc *callCtx) (Value
 				t.panicVal = r
 			}
 		}()
-		v, err := in.callFunction(fn, args, thread)
+		v, err := fv.Callable.call(args, thread)
 		if err != nil {
 			t.err = err
 			return
 		}
 		t.result = v
 	}()
-	return Value{Type: ir.TaskType(e.Callee), Task: t}, nil
+	return Value{Type: ir.TypeOf(e), Task: t}, nil
 }
 
 // evalAwaitExpr - "дождаться <выражение>" - см. package doc taskValue.

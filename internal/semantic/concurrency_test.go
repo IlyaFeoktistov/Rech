@@ -30,11 +30,11 @@ func TestAnalyzeLaunchAwaitRoundTripsReturnType(t *testing.T) {
 	if !ok {
 		t.Fatalf("ожидался LaunchExpr, получено %T", decl.Value)
 	}
-	if launch.Callee != "посчитать" {
-		t.Fatalf("ожидался callee \"посчитать\", получено %q", launch.Callee)
+	if ref, ok := launch.Value.(*ir.FuncRefExpr); !ok || ref.FuncName != "посчитать" {
+		t.Fatalf("ожидался запуск &посчитать, получено %#v", launch.Value)
 	}
-	if typ := ir.TypeOf(launch); typ != ir.TaskType("посчитать") {
-		t.Fatalf("ожидался тип Задача<посчитать>, получено %s", typ)
+	if typ := ir.TypeOf(launch); typ != ir.TaskType("Вызываемый<>Целое") {
+		t.Fatalf("ожидался тип задачи сигнатуры \"Вызываемый<>Целое\", получено %s", typ)
 	}
 	result, ok := fn.Body[1].(*ir.VarDecl)
 	if !ok {
@@ -74,7 +74,7 @@ func TestAnalyzeConcreteTaskTypeIsRecognizedInCollectionsAndAwaited(t *testing.T
 }
 функция главная
 {
-    переменная задачи = новый Список<Задача<посчитать>>()
+    переменная задачи = новый Список<Задача<Вызываемый(): Целое>>()
     задачи.добавить(запустить посчитать())
 
     для задача в задачи {
@@ -84,7 +84,7 @@ func TestAnalyzeConcreteTaskTypeIsRecognizedInCollectionsAndAwaited(t *testing.T
 }
 `)
 	if err != nil {
-		t.Fatalf("ожидалось, что тип Задача<посчитать> распознаётся в коллекции и дожидается, получено: %v", err)
+		t.Fatalf("ожидалось, что тип Задача<Вызываемый(): Целое> распознаётся в коллекции и дожидается, получено: %v", err)
 	}
 }
 
@@ -117,8 +117,8 @@ func TestAnalyzeAwaitWithoutReturnUsableOnlyAsStatement(t *testing.T) {
     переменная х = дождаться задача
 }
 `)
-	if err == nil || !strings.Contains(err.Error(), "абстрактный тип \"Задача\"") {
-		t.Fatalf("ожидалась ошибка про абстрактный тип Задача при использовании дождаться как значения, получено: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "у задачи нет результата") {
+		t.Fatalf("ожидалась ошибка про задачу без результата при использовании дождаться как значения, получено: %v", err)
 	}
 }
 
@@ -175,18 +175,10 @@ func TestAnalyzeAwaitRejectsBareTaskTypeFromCollection(t *testing.T) {
 	}
 }
 
-// TestAnalyzeExplicitTaskAnnotationRejectsOverloadedCallee - РЕГРЕССИЯ
-// найденной при живом прогоне путаницы: "Задача<T>" в явной аннотации
-// несёт ГОЛОЕ имя T, а настоящий "запустить T(...)" перегруженной функции
-// сам резолвит нужную перегрузку по аргументам вызова и несёт УЖЕ
-// манглированное имя ("T(Целое,Целое)") - до этой проверки итог был не
-// "неизвестное имя", а путающее "объявлена типом Задача<T>, но
-// инициализирована значением типа Задача<T(Целое,Целое)>". Спеллинга для
-// манглированного имени как типа не существует вовсе (скобки внутри
-// "<...>" не входят в грамматику type_name) - явная аннотация для
-// перегруженной функции сейчас в принципе невозможна, ошибка должна
-// сказать это прямо, а не изображать несовпадение типов.
-func TestAnalyzeExplicitTaskAnnotationRejectsOverloadedCallee(t *testing.T) {
+// Тип задачи - сигнатура запущенного, поэтому перегруженная функция
+// аннотируется так же, как любая другая: нужная перегрузка выбирается по
+// аргументам, её сигнатура совпадает с аннотацией.
+func TestAnalyzeTaskAnnotationOfOverloadedFunction(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 функция посчитать(a: Целое, b: Целое): Целое
 {
@@ -198,36 +190,103 @@ func TestAnalyzeExplicitTaskAnnotationRejectsOverloadedCallee(t *testing.T) {
 }
 функция главная
 {
-    переменная x: Задача<посчитать> = запустить посчитать(1, 2)
+    переменная задачи: Список<Задача<Вызываемый(Целое, Целое): Целое>> = []
+    задачи.добавить(запустить посчитать(1, 2))
+    переменная другая: Задача<Вызываемый(Строка): Целое> = запустить посчитать("х")
 }
 `)
-	if err == nil || !strings.Contains(err.Error(), "перегружена") {
-		t.Fatalf("ожидалась ошибка о запрете явной аннотации для перегруженной функции, получено: %v", err)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 }
 
-// TestAnalyzeExplicitTaskAnnotationRejectsOverloadedCalleeInsideList -
-// тот же запрет, что и TestAnalyzeExplicitTaskAnnotationRejectsOverloadedCallee
-// выше, но T встречается ВЛОЖЕННО ("Список<Задача<T>>", не голая "Задача<T>"
-// напрямую) - проверяет, что overloadedTaskAnnotationCallee ищет "Задача<T>"
-// ГДЕ УГОДНО в строке аннотации, не только как annotation целиком.
-func TestAnalyzeExplicitTaskAnnotationRejectsOverloadedCalleeInsideList(t *testing.T) {
+func TestAnalyzeTaskAnnotationRejectsFunctionName(t *testing.T) {
 	_, err := AnalyzeSource(t, `
-функция посчитать(a: Целое, b: Целое): Целое
+функция посчитать(): Целое
 {
-    вернуть a + b
-}
-функция посчитать(a: Строка): Целое
-{
-    вернуть 0
+    вернуть 1
 }
 функция главная
 {
-    переменная задачи: Список<Задача<посчитать>> = новый Список<Задача<посчитать>>()
+    переменная з: Задача<посчитать> = запустить посчитать()
 }
 `)
-	if err == nil || !strings.Contains(err.Error(), "перегружена") {
-		t.Fatalf("ожидалась ошибка о запрете явной аннотации для перегруженной функции, получено: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "пишется сигнатура запущенного") {
+		t.Fatalf("ожидалась ошибка про старую форму Задача<имя_функции>, получено: %v", err)
+	}
+}
+
+// Задачи функции, лямбды из переменной, метода и корутины одной
+// сигнатуры - один тип, одна коллекция.
+func TestAnalyzeTasksOfOneSignatureShareType(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+синоним Работа = Вызываемый(Целое): Целое
+
+сущность Счётчик
+{
+    имеет:
+        шаг: Целое
+
+    прибавить(число: Целое): Целое
+    {
+        вернуть число + этот.шаг
+    }
+}
+
+функция удвоить(х: Целое): Целое
+{
+    вернуть х * 2
+}
+
+асинхронная функция утроить(х: Целое): Целое
+{
+    вернуть х * 3
+}
+
+функция главная
+{
+    переменная квадрат: Работа = функция(х: Целое): Целое { вернуть х * х }
+    переменная счётчик = новый Счётчик()
+    переменная задачи: Список<Задача<Работа>> = []
+    задачи.добавить(запустить удвоить(1))
+    задачи.добавить(запустить квадрат(2))
+    задачи.добавить(запустить счётчик.прибавить(3))
+    задачи.добавить(поручить утроить(4))
+    для задача в задачах {
+        переменная р: Целое = дождаться задача
+    }
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
+func TestAnalyzeLaunchMethodCapturesReceiver(t *testing.T) {
+	prog := parseProgram(t, `
+сущность Журнал
+{
+    имеет:
+        записи: Целое
+
+    записать()
+    {
+        этот.записи++
+    }
+}
+
+функция главная
+{
+    переменная журнал = новый Журнал()
+    переменная з = запустить журнал.записать()
+    дождаться з
+}
+`)
+	fn := findFunc(prog, "главная")
+	launch := fn.Body[1].(*ir.VarDecl).Value.(*ir.LaunchExpr)
+	lambda, ok := launch.Value.(*ir.LambdaExpr)
+	if !ok || len(lambda.Captures) != 1 || lambda.Captures[0].Init == nil {
+		t.Fatalf("метод должен запускаться обёрткой с инициализирующим захватом получателя, получено %#v", launch.Value)
 	}
 }
 
@@ -256,8 +315,8 @@ func TestAnalyzeAwaitOfAsyncFunctionDesugarsToLaunch(t *testing.T) {
 	if !ok {
 		t.Fatalf("\"дождаться <асинхронный вызов>()\" должен десугариться в LaunchExpr, получено %T", await.Task)
 	}
-	if launch.Callee != "получить_данные" {
-		t.Fatalf("ожидался callee \"получить_данные\", получено %q", launch.Callee)
+	if ref, ok := launch.Value.(*ir.FuncRefExpr); !ok || ref.FuncName != "получить_данные" {
+		t.Fatalf("ожидался запуск &получить_данные, получено %#v", launch.Value)
 	}
 	if !launch.Coroutine {
 		t.Fatalf("сахар \"дождаться <асинхронная функция>()\" должен давать LaunchExpr.Coroutine == true")
@@ -397,12 +456,10 @@ func TestAnalyzeCoroLaunchRejectsNonAsyncFunction(t *testing.T) {
 	}
 }
 
-// TestAnalyzeCoroLaunchGivesCoroTaskType - "поручить <асинхронная
-// функция>()" даёт ir.LaunchExpr{Coroutine: true} (тот же узел, что и
-// сахар "дождаться", см. ir.KindCoroTask) - тип результата отличим от
-// обычного ir.KindTask (потока ОС), хотя строковое имя ("Задача<...>")
-// то же самое (невидимо для Rech-кода).
-func TestAnalyzeCoroLaunchGivesCoroTaskType(t *testing.T) {
+// TestAnalyzeCoroLaunchGivesSameTaskType - "поручить <асинхронная
+// функция>()" даёт ir.LaunchExpr{Coroutine: true} с тем же типом задачи,
+// что и "запустить" той же функции.
+func TestAnalyzeCoroLaunchGivesSameTaskType(t *testing.T) {
 	prog := parseProgram(t, `
 асинхронная функция получить_данные(): Целое
 {
@@ -427,12 +484,11 @@ func TestAnalyzeCoroLaunchGivesCoroTaskType(t *testing.T) {
 	if !launch.Coroutine {
 		t.Fatalf("\"поручить\" должен давать LaunchExpr.Coroutine == true")
 	}
-	if typ := ir.TypeOf(launch); typ.Kind != ir.KindCoroTask {
-		t.Fatalf("ожидался ir.KindCoroTask, получено %s (Kind=%v)", typ, typ.Kind)
+	if typ := ir.TypeOf(launch); typ != ir.TaskType("Вызываемый<>Целое") {
+		t.Fatalf("ожидался тип задачи сигнатуры \"Вызываемый<>Целое\", получено %s", typ)
 	}
-	// "дождаться задача" - Task здесь ПЕРЕМЕННАЯ (не прямой вызов), должен
-	// разрешиться через тот же общий путь (KindCoroTask), не через сахар
-	// analyzeAwaitTask - см. её package doc.
+	// "дождаться задача" - Task здесь ПЕРЕМЕННАЯ (не прямой вызов) - общий
+	// путь, не сахар analyzeAwaitTask.
 	result, ok := fn.Body[1].(*ir.VarDecl)
 	if !ok {
 		t.Fatalf("ожидался VarDecl, получено %T", fn.Body[1])

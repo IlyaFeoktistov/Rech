@@ -101,6 +101,11 @@ func (a *Analyzer) resolveCallableSig(name string) (ir.CallableSig, error) {
 // построенного где-либо в программе - без этого обхода backend не узнал бы,
 // что структуру для него вообще нужно сгенерировать).
 func (a *Analyzer) registerCallable(t ir.Type) error {
+	// Задача - сигнатурой того, что запущено (ir.TaskType): backend'ам
+	// нужна эта сигнатура, чтобы построить структуру задачи.
+	if t.Kind == ir.KindTask && t.Entity != "" {
+		t = ir.Type{Kind: ir.KindCallable, Entity: t.Entity}
+	}
 	if t.Kind != ir.KindCallable || a.callablesSeen[t.Entity] {
 		return nil
 	}

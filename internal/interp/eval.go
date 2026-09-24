@@ -120,7 +120,7 @@ func (in *Interp) evalExpr(e ir.Expr, env *Env, cc *callCtx) (Value, error) {
 		return in.evalFuncRefExpr(e)
 
 	case *ir.LambdaExpr:
-		return in.evalLambdaExpr(e, env)
+		return in.evalLambdaExpr(e, env, cc)
 
 	case *ir.CallValueExpr:
 		return in.evalCallValueExpr(e, env, cc)
@@ -157,6 +157,11 @@ func (in *Interp) evalExpr(e ir.Expr, env *Env, cc *callCtx) (Value, error) {
 
 	case *ir.NullLiteral:
 		return evalNullLiteral(e), nil
+
+	case *ir.UpcastExpr:
+		// Фактический тип значения во время исполнения не меняется
+		// (виртуальные вызовы, "относится к").
+		return in.evalExpr(e.Value, env, cc)
 
 	case *ir.NullWrapExpr:
 		return in.evalNullWrapExpr(e, env, cc)

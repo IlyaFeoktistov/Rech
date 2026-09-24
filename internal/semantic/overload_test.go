@@ -272,8 +272,8 @@ func TestOverloadLaunchAndAwaitResolveMangledName(t *testing.T) {
 	if !ok {
 		t.Fatalf("ожидался ir.LaunchExpr, получено %T", decl.Value)
 	}
-	if launch.Callee != "сложить(Целое,Целое)" {
-		t.Fatalf("ожидался мангл-Callee сложить(Целое,Целое), получено %q", launch.Callee)
+	if ref, ok := launch.Value.(*ir.FuncRefExpr); !ok || ref.FuncName != "сложить(Целое,Целое)" {
+		t.Fatalf("ожидался запуск &сложить(Целое,Целое), получено %#v", launch.Value)
 	}
 }
 

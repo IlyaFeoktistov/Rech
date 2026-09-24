@@ -49,9 +49,10 @@ var topLevelStarters = map[lexer.TokenType]bool{
 func (p *Parser) recoverToNextTopLevel() {
 	p.advance()
 	// Остаток заголовка ТОГО ЖЕ объявления ("публичная функция",
-	// "экспортировать абстрактная сущность") - тоже начала объявлений, без
-	// пропуска разбор вернулся бы к нему же и повторил ту же ошибку.
-	for topLevelStarters[p.cur().Type] && p.cur().Type != lexer.DOC_COMMENT && p.cur().Type != lexer.EOF {
+	// "экспортировать абстрактная сущность", перевод строки после его
+	// doc-комментария) - тоже начала объявлений, без пропуска разбор
+	// вернулся бы к нему же и повторил ту же ошибку.
+	for p.cur().Type == lexer.NEWLINE || (topLevelStarters[p.cur().Type] && p.cur().Type != lexer.DOC_COMMENT && p.cur().Type != lexer.EOF) {
 		p.advance()
 	}
 	depth := 0

@@ -22,7 +22,7 @@ func TestGenerateFromIRUserGenericEntityGetsOwnStruct(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, "typedef struct {\n    long long f_soderzhimoe;\n} rech_T_korobka_of_celoe;") {
+	if !strings.Contains(out, "typedef struct rech_T_korobka_of_celoe {\n    long long f_soderzhimoe;\n} rech_T_korobka_of_celoe;") {
 		t.Fatalf("ожидался typedef структуры инстанциации, получено:\n%s", out)
 	}
 	if !strings.Contains(out, "rech_new_korobka_of_celoe(") {

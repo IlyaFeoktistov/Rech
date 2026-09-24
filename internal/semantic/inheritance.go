@@ -182,7 +182,7 @@ func isAssignable(entities map[string]entitySig, interfaces map[string]interface
 	if from == to {
 		return true
 	}
-	if (from.Kind == ir.KindTask || from.Kind == ir.KindCoroTask) && (to.Kind == ir.KindTask || to.Kind == ir.KindCoroTask) {
+	if from.Kind == ir.KindTask && to.Kind == ir.KindTask {
 		return from.Entity == "" || to.Entity == ""
 	}
 	if to.Kind == ir.KindInterface && from.Kind == ir.KindEntity {

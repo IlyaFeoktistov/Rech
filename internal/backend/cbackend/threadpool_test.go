@@ -49,10 +49,11 @@ func TestThreadPoolCodeShrinkEnabled(t *testing.T) {
 func TestGenerateFromIRWiresPoolShrinkSettings(t *testing.T) {
 	fn := &ir.Function{Name: "поработать", Body: []ir.Stmt{&ir.PrintStmt{Value: &ir.StringLiteral{Value: "работаю"}}}}
 	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
-		&ir.VarDecl{Name: "задача", Value: &ir.LaunchExpr{Callee: "поработать"}},
+		&ir.VarDecl{Name: "задача", Value: &ir.LaunchExpr{Value: &ir.FuncRefExpr{FuncName: "поработать", Type: ir.CallableType(nil, nil)}}},
 	}}
+	callables := []ir.CallableSig{{Name: ir.CallableType(nil, nil).Entity}}
 
-	outDisabled, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{fn, main}, PoolIdleTimeoutMs: 30000})
+	outDisabled, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{fn, main}, Callables: callables, PoolIdleTimeoutMs: 30000})
 	if err != nil {
 		t.Fatalf("неожиданная ошибка (выключено): %v", err)
 	}
@@ -60,7 +61,7 @@ func TestGenerateFromIRWiresPoolShrinkSettings(t *testing.T) {
 		t.Fatalf("ожидался RECH_POOL_SHRINK_ENABLED 0 по умолчанию, получено:\n%s", outDisabled)
 	}
 
-	outEnabled, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{fn, main}, PoolShrinkEnabled: true, PoolIdleTimeoutMs: 777})
+	outEnabled, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{fn, main}, Callables: callables, PoolShrinkEnabled: true, PoolIdleTimeoutMs: 777})
 	if err != nil {
 		t.Fatalf("неожиданная ошибка (включено): %v", err)
 	}

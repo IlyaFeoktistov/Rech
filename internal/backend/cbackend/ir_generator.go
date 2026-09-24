@@ -243,35 +243,23 @@ type irGenCtx struct {
 	// чтобы найти параметры/тип результата обёрнутой функции - см.
 	// internal/backend/cbackend/concurrency.go, ensureTaskWrapper).
 	irFuncs map[string]*ir.Function
-	// launchedFuncs/taskCode - какие функции уже когда-либо "запускались"
-	// в этой программе (ensureTaskWrapper эмитит C-обёртку один раз на
-	// функцию, при первой встрече) и сам накопленный текст этих обёрток -
-	// тот же принцип, что и showFuncs/vtables (отдельный builder,
-	// заполняемый по ходу генерации тела, вставляется в файл в нужном
-	// текстовом месте в конце). usesThreads - "запустить" реально
-	// встретилось в программе - гейтит #include <pthread.h>/поточные
-	// заголовки Windows и сам этот блок целиком.
-	launchedFuncs map[string]bool
-	taskCode      strings.Builder
-	usesThreads   bool
-
-	// coroutineFuncs/coroTaskCode/usesCoroutines - тот же принцип, что и
-	// launchedFuncs/taskCode/usesThreads выше, но для "дождаться
-	// <асинхронная функция>(...)" (ir.LaunchExpr.Coroutine == true, см.
-	// internal/backend/cbackend/coroutine_task.go, ensureCoroTaskWrapper) -
-	// отдельная дедупликация/накопление: одна и та же функция может быть
-	// ОДНОВРЕМЕННО и явно "запущена" (usesThreads/launchedFuncs), и
-	// вызвана через сахар (usesCoroutines/coroutineFuncs) в разных местах
-	// программы - это два независимых пути кодогенерации на одну и ту же
-	// Rech-функцию, не взаимоисключающие. usesCoroutines (ИЛИ usesSockets -
-	// Шаг 132, plainSocketOpsCode теперь тоже опирается на планировщик
-	// корутин) гейтит concurrency.CoroutineRuntimeCode (runtime/concurrency/
-	// coroutine.go) целиком -
-	// программа без обоих вовсе не платит за ucontext/epoll/kqueue
-	// рантайм.
-	coroutineFuncs map[string]bool
-	coroTaskCode   strings.Builder
-	usesCoroutines bool
+	// taskCode - обёртки задач (concurrency.go): структура задачи и
+	// rech_await_... - один раз на сигнатуру (taskSigsEmitted), запуск на
+	// потоке ОС (threadLaunchEmitted) и на корутине (coroLaunchEmitted) -
+	// отдельно, по первой встрече каждого вида; taskSyncEmitted - общая для
+	// всех сигнатур синхронизация потока. Заполняется по ходу генерации
+	// тела, вставляется в файл в нужном месте в конце. usesThreads -
+	// гейтит #include <pthread.h>/поточные заголовки Windows и пул
+	// воркеров; usesCoroutines (ИЛИ usesSockets - сетевые builtin'ы
+	// опираются на планировщик) - рантайм корутин (runtime/concurrency/
+	// coroutine.go) целиком.
+	taskCode            strings.Builder
+	taskSigsEmitted     map[string]bool
+	threadLaunchEmitted map[string]bool
+	coroLaunchEmitted   map[string]bool
+	taskSyncEmitted     bool
+	usesThreads         bool
+	usesCoroutines      bool
 
 	// usesMutex - хотя бы одна "Блокировка" реально встретилась в
 	// программе (см. internal/backend/cbackend/mutex.go) - гейтит
@@ -701,12 +689,13 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// поле vt в своей C-структуре (см. generateIREntityStruct), значит
 		// rech_vtable/rech_vtable_header обязаны быть объявлены, даже если
 		// slots в итоге пуст.
-		usesVtable:     len(participants) > 0,
-		excTypeIDs:     excTypeIDs,
-		excTypeNames:   excTypeNames,
-		excIsaTable:    excIsaTable,
-		launchedFuncs:  map[string]bool{},
-		coroutineFuncs: map[string]bool{},
+		usesVtable:          len(participants) > 0,
+		excTypeIDs:          excTypeIDs,
+		excTypeNames:        excTypeNames,
+		excIsaTable:         excIsaTable,
+		taskSigsEmitted:     map[string]bool{},
+		threadLaunchEmitted: map[string]bool{},
+		coroLaunchEmitted:   map[string]bool{},
 	}
 	ctx.irFuncs = map[string]*ir.Function{}
 	for _, fn := range prog.Functions {
@@ -1624,24 +1613,9 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// типа и не падает на "unknown type name".
 	var taskForwardDecl strings.Builder
 
-	for funcName := range ctx.launchedFuncs {
-		taskType := mangleTaskType(funcName)
-		fmt.Fprintf(
-			&taskForwardDecl,
-			"typedef struct %s %s;\n",
-			taskType,
-			taskType,
-		)
-	}
-
-	for funcName := range ctx.coroutineFuncs {
-		taskType := mangleCoroTaskType(funcName)
-		fmt.Fprintf(
-			&taskForwardDecl,
-			"typedef struct %s %s;\n",
-			taskType,
-			taskType,
-		)
+	for _, sig := range prog.Callables {
+		taskType := mangleTaskType(sig.Name)
+		fmt.Fprintf(&taskForwardDecl, "typedef struct %s %s;\n", taskType, taskType)
 	}
 
 	appendCodeIf(&sb, taskForwardDecl.Len() > 0, taskForwardDecl.String())
@@ -1673,6 +1647,19 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		fmt.Fprintf(&genericForwardDecl, "typedef struct %[1]s %[1]s;\n", structName)
 	}
 	appendCodeIf(&sb, genericForwardDecl.Len() > 0, genericForwardDecl.String())
+
+	// entityForwardDecl - то же для ссылочных сущностей программы (тег
+	// структуры - generateIREntityStruct): typedef сигнатуры Вызываемый/
+	// задачи с указателем на сущность не зависит от того, в какой группе
+	// typedefs (до или после Вызываемых) оказалась сама сущность.
+	var entityForwardDecl strings.Builder
+	for _, ent := range prog.Entities {
+		if ent.IsStruct || ent.IsExternStruct || ent.IsMutex || ent.IsSemaphore || ent.IsTransaction {
+			continue
+		}
+		fmt.Fprintf(&entityForwardDecl, "typedef struct %[1]s %[1]s;\n", entityCName(ctx, ent.Name))
+	}
+	appendCodeIf(&sb, entityForwardDecl.Len() > 0, entityForwardDecl.String())
 
 	appendCodeIf(&sb, genericsCode.Len() > 0, genericsCode.String())
 
@@ -2163,20 +2150,6 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// заполняется как побочный эффект генерации body ниже, поэтому текст
 	// уже готов к этому моменту, хотя размещается в файле раньше него.
 	appendCodeIf(&sb, ctx.taskCode.Len() > 0, ctx.taskCode.String())
-
-	// concurrency.CoroutineRuntimeCode (runtime/concurrency/coroutine.go) -
-	// эмитится СИЛЬНО РАНЬШЕ этого
-	// места (сразу после rech_panic, до socketHelpers - Шаг 132, см. её
-	// собственный appendCodeIf выше по файлу) - rech_accept/rech_send_raw/
-	// rech_socket_read_raw (plainSocketOpsCode) теперь тоже ссылаются на
-	// rech_coro_current/rech_coro_wait_readable/writable текстом, а
-	// socketHelpers эмитируется задолго до этой точки (protos выше).
-	// coroTaskCode остаётся здесь - обёртки "дождаться <асинхронная
-	// функция>(...)" (тот же принцип, что и taskCode выше: заполняется как
-	// побочный эффект генерации тела ниже, текст уже готов к этому
-	// моменту) ссылаются на &rech_<имя> обёрнутых функций программы (нужны
-	// protos выше), не на socketHelpers - раньше им сюда не нужно.
-	appendCodeIf(&sb, ctx.coroTaskCode.Len() > 0, ctx.coroTaskCode.String())
 
 	// callableCode - обёртки "&имя"/тела лямбд (internal/backend/cbackend/
 	// callable.go) - тот же принцип, что и taskCode выше: заполняется как

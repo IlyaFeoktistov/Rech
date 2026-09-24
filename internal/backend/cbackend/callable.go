@@ -236,7 +236,13 @@ func generateIRLambdaExpr(ctx *irGenCtx, e *ir.LambdaExpr) (string, valueType, e
 			// ровно то же самое, что и генерирует AddressOfExpr для
 			// обычного "&имя".
 			ref := varRef(ctx, c.Name)
-			if c.ByRef {
+			if c.Init != nil {
+				code, _, err := generateIRExpr(ctx, c.Init)
+				if err != nil {
+					return "", typeUnknown, err
+				}
+				ref = code
+			} else if c.ByRef {
 				ref = "&" + ref
 			}
 			fields[i] = fmt.Sprintf(".%s = %s", mangleField(c.Name), ref)

@@ -397,9 +397,7 @@ func walkLambdaBodies(e ast.Expr, onLambda func([]ast.Stmt)) {
 	case *ast.AwaitExpr:
 		walkLambdaBodies(v.Task, onLambda)
 	case *ast.LaunchExpr:
-		if v.Call != nil {
-			walkLambdaBodies(v.Call, onLambda)
-		}
+		walkLambdaBodies(v.Operand(), onLambda)
 	case *ast.CoroLaunchExpr:
 		if v.Call != nil {
 			walkLambdaBodies(v.Call, onLambda)
@@ -459,10 +457,7 @@ func exprContainsThis(e ast.Expr) bool {
 	case *ast.AwaitExpr:
 		return exprContainsThis(v.Task)
 	case *ast.LaunchExpr:
-		if v.Call == nil {
-			return false
-		}
-		return exprContainsThis(v.Call)
+		return exprContainsThis(v.Operand())
 	case *ast.CoroLaunchExpr:
 		if v.Call == nil {
 			return false

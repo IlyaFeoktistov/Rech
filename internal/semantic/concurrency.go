@@ -9,10 +9,10 @@ package semantic
 
 import (
 	"fmt"
-	"regexp"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/builtins"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
@@ -26,24 +26,31 @@ import (
 // привязано к нему напрямую.
 const DefaultPoolIdleTimeoutMs = 30000
 
-// analyzeLaunchExpr - "запустить <имя>(<арг>, ...)": Callee обязан быть
-// обычной, объявленной в программе функцией - не встроенной (нет гарантии
-// потокобезопасности библиотечного C-кода) и не "внешняя функция" (та же
-// причина - произвольный C-символ). Метод сюда попасть не может вовсе -
-// парсер разбирает операнд "запустить" ровно как строгий вызов функции
-// (IDENT "(" ... ")"), синтаксически той же формы, что и MethodCallExpr
-// (".") достичь не может (см. ast.LaunchExpr).
-func analyzeLaunchExpr(sc *ctx, e *ast.LaunchExpr) (ir.Expr, error) {
-	name := e.Call.Callee
-	if builtins.IsReservedName(name) {
-		return nil, errAtLine(e.Line, CodeSemanticOther, "\"запустить\" не поддерживает встроенные функции - только обычные функции программы")
+// analyzeLaunchExpr - "запустить <вызов>": три формы операнда (см. package
+// doc ast.LaunchExpr), все сводятся к одному ir.LaunchExpr - запуску
+// значения типа Вызываемый с аргументами:
+//   - функция программы -> &функция (перегрузка выбирается по аргументам);
+//   - переменная/параметр типа Вызываемый -> само значение;
+//   - метод -> синтезированная лямбда, вызывающая метод на получателе,
+//     захваченном в момент запуска (launchMethodLambda).
+//
+// Встроенные и внешние функции не запускаются - нет гарантии
+// потокобезопасности библиотечного C-кода.
+func analyzeLaunchExpr(sc *ctx, e *ast.LaunchExpr) (*ir.LaunchExpr, error) {
+	if e.MethodCall != nil {
+		return analyzeLaunchMethod(sc, e)
 	}
-	// callee - имя, которое реально попадёт в ir.LaunchExpr.Callee (и, через
-	// ir.TaskType(Callee), в тип результата "запустить") - мангл-имя у
-	// перегруженной функции, голое имя иначе (см. package doc
-	// funcSig.MangledName, resolveFuncSigForCall). analyzeAwaitExpr находит
-	// сигнатуру заново по этому же имени (sc.funcs[t.Entity]) - оба места
-	// автоматически согласованы.
+	name := e.Call.Callee
+	if typ, ok := sc.lookup(name); ok && typ.Kind == ir.KindCallable {
+		call, err := analyzeCallValueExpr(sc, &ir.Identifier{Name: name, Type: typ}, e.Call)
+		if err != nil {
+			return nil, err
+		}
+		return newLaunch(sc, call.Value, call.Args, e.Line)
+	}
+	if builtins.IsReservedName(name) {
+		return nil, errAtLine(e.Line, CodeSemanticOther, "\"запустить\" не поддерживает встроенные функции - только функции программы, значения типа \"Вызываемый\" и методы")
+	}
 	callee := name
 	sig, mangled, overloaded, err := resolveFuncSigForCall(sc, name, sc.a.funcOverloads[name], e.Call.Args, e.Line)
 	if overloaded {
@@ -65,127 +72,159 @@ func analyzeLaunchExpr(sc *ctx, e *ast.LaunchExpr) (ir.Expr, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ir.LaunchExpr{Callee: callee, Args: args}, nil
+	ref, err := funcRefFromSig(sc, callee, sig, e.Line)
+	if err != nil {
+		return nil, err
+	}
+	return newLaunch(sc, ref, args, e.Line)
+}
+
+// newLaunch - ir.LaunchExpr над value с уже проверенными args; тип задачи
+// (сигнатура value) регистрируется для backend'ов тем же registerCallable,
+// что и сама сигнатура.
+func newLaunch(sc *ctx, value ir.Expr, args []ir.Expr, line int) (*ir.LaunchExpr, error) {
+	if err := sc.a.registerCallable(ir.TypeOf(value)); err != nil {
+		return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: line})
+	}
+	return &ir.LaunchExpr{Value: value, Args: args}, nil
+}
+
+// launchReceiverCapture - имя захвата получателя в лямбде, синтезированной
+// для "запустить объект.метод(...)" - не идентификатор Rech (пробел), так
+// что не совпадёт ни с одним параметром/переменной.
+const launchReceiverCapture = "получатель задачи"
+
+// analyzeLaunchMethod - "запустить <получатель>.<метод>(<арг>, ...)":
+// вызов метода анализируется как обычный, затем оборачивается в лямбду
+//
+//	функция(а1: Т1, ...): Р { вернуть <получатель>.<метод>(а1, ...) }
+//
+// где получатель - инициализирующий захват (ir.CaptureVar.Init) значения
+// получателя в момент запуска: сущность разделяется с потоком по ссылке,
+// структура копируется - то же правило, что у передачи аргумента.
+func analyzeLaunchMethod(sc *ctx, e *ast.LaunchExpr) (*ir.LaunchExpr, error) {
+	if e.MethodCall.Static {
+		return nil, errAtLine(e.Line, CodeSemanticOther, "\"запустить\" поддерживает только методы экземпляра (\"объект.метод(...)\"), не статические")
+	}
+	analyzed, err := analyzeMethodCallExpr(sc, e.MethodCall)
+	if err != nil {
+		return nil, err
+	}
+	if cv, isField := analyzed.(*ir.CallValueExpr); isField {
+		// "объект.поле(...)", где поле - Вызываемый: запускается само поле.
+		return newLaunch(sc, cv.Value, cv.Args, e.Line)
+	}
+	mc, ok := analyzed.(*ir.MethodCallExpr)
+	if !ok {
+		return nil, errAtLine(e.Line, CodeSemanticOther, "\"запустить\" поддерживает только методы экземпляра (\"объект.метод(...)\")")
+	}
+	recvType := ir.TypeOf(mc.Receiver)
+	params := make([]ir.Param, len(mc.Args))
+	paramTypes := make([]ir.Type, len(mc.Args))
+	callArgs := make([]ir.Expr, len(mc.Args))
+	for i, a := range mc.Args {
+		t := ir.TypeOf(a)
+		name := fmt.Sprintf("аргумент задачи %d", i+1)
+		params[i] = ir.Param{Name: name, Type: t}
+		paramTypes[i] = t
+		callArgs[i] = &ir.Identifier{Name: name, Type: t}
+	}
+	call := *mc
+	call.Receiver = &ir.Identifier{Name: launchReceiverCapture, Type: recvType}
+	call.Args = callArgs
+	var result *ir.Type
+	var body ir.Stmt
+	if mc.HasReturn {
+		rt := mc.Type
+		result = &rt
+		body = &ir.ReturnStmt{Value: &call, Line: e.Line}
+	} else {
+		body = &ir.ExprStmt{MethodCall: &call, Line: e.Line}
+	}
+	sc.a.lambdaCounter++
+	lambda := &ir.LambdaExpr{
+		Name:       fmt.Sprintf("__лямбда_%d", sc.a.lambdaCounter),
+		Params:     params,
+		ReturnType: mc.Type,
+		HasReturn:  mc.HasReturn,
+		Captures:   []ir.CaptureVar{{Name: launchReceiverCapture, Type: recvType, Init: mc.Receiver}},
+		Body:       []ir.Stmt{body},
+		Type:       ir.CallableType(paramTypes, result),
+	}
+	return newLaunch(sc, lambda, mc.Args, e.Line)
 }
 
 // analyzeCoroLaunchExpr - "поручить <асинхронная функция>(<арг>, ...)"
-// (см. package doc ast.CoroLaunchExpr) - резолюция вызова та же самая, что
-// у "запустить" (analyzeLaunchExpr, не копия её кода), ДОПОЛНИТЕЛЬНО
-// требует funcSig.IsAsync - "поручить" (в отличие от "запустить")
-// поддерживает ТОЛЬКО функции, объявленные "асинхронная" (фоновый запуск
-// на планировщике корутин имеет смысл только для них - обычная функция
-// исполнялась бы синхронно на СВОЁМ ЖЕ вызывающем контексте, никакого
-// "фона" не было бы вовсе). Результат - тот же ir.LaunchExpr, что и у
-// сахара "дождаться <асинхронная функция>()" (analyzeAwaitTask), с
-// Coroutine == true - разница только в том, что "поручить" НЕ оборачивает
-// результат в AwaitExpr сразу же (не блокирует), "дождаться" делает это
-// потом, отдельно, над уже сохранённым в переменную значением.
+// (см. package doc ast.CoroLaunchExpr) - резолюция вызова та же, что у
+// "запустить" (analyzeLaunchExpr), дополнительно требует функцию,
+// объявленную "асинхронная": лямбды/методы/переменные на планировщик
+// корутин не поручаются. Результат - тот же ir.LaunchExpr с
+// Coroutine == true и тот же тип задачи, что у "запустить".
 func analyzeCoroLaunchExpr(sc *ctx, e *ast.CoroLaunchExpr) (ir.Expr, error) {
 	launch, err := analyzeLaunchExpr(sc, &ast.LaunchExpr{Call: e.Call, Line: e.Line})
 	if err != nil {
 		return nil, err
 	}
-	l := launch.(*ir.LaunchExpr)
-	if sig, ok := sc.funcs[l.Callee]; !ok || !sig.IsAsync {
+	ref, ok := launch.Value.(*ir.FuncRefExpr)
+	if sig, exists := sc.funcs[refName(ref, ok)]; !ok || !exists || !sig.IsAsync {
 		return nil, errAtLine(e.Line, CodeNameResolution, "\"поручить\" поддерживает только \"асинхронная функция\" - %q не объявлена асинхронной", e.Call.Callee)
 	}
-	l.Coroutine = true
-	return l, nil
+	launch.Coroutine = true
+	return launch, nil
+}
+
+func refName(ref *ir.FuncRefExpr, ok bool) string {
+	if !ok {
+		return ""
+	}
+	return ref.FuncName
 }
 
 // analyzeAwaitExpr - "дождаться <выражение>": Task обязан быть значением
-// задачи (TypeOf.Kind == KindTask/KindCoroTask, т. е. результатом
-// LaunchExpr/CoroLaunchExpr, включая проведённое через переменную/поле,
-// или прямым вызовом "асинхронная функция" - см. analyzeAwaitTask).
-// Callee уже несёт имя обёрнутой функции (LaunchExpr.Callee, ir.TaskType/
-// CoroTaskType) - сигнатура берётся из sc.funcs заново, а не переносится
-// откуда-то ещё, тем же принципом, что и везде в этом пакете (символьная
-// таблица одна на всю программу).
+// задачи конкретной сигнатуры (не абстрактной "Задача") - результат
+// дождаться - результат этой сигнатуры.
 func analyzeAwaitExpr(sc *ctx, e *ast.AwaitExpr) (*ir.AwaitExpr, error) {
 	task, err := analyzeAwaitTask(sc, e)
 	if err != nil {
 		return nil, err
 	}
 	t := ir.TypeOf(task)
-	if t.Kind != ir.KindTask && t.Kind != ir.KindCoroTask {
+	if t.Kind != ir.KindTask {
 		return nil, errAtLine(e.Line, CodeSemanticOther, "\"дождаться\" ожидает значение задачи (результат \"запустить\"/\"поручить\" или вызов \"асинхронная функция\"), получено %s", t)
 	}
 	if t.Entity == "" {
-		return nil, errAtLine(e.Line, CodeSemanticOther, "\"дождаться\" ожидает конкретное значение задачи, получен абстрактный тип \"Задача\" - дождаться можно только результат \"запустить\"/\"поручить\" или вызов \"асинхронная функция\"; значение-список или nullable-\"?Задача\" нужно развернуть до конкретной задачи до ожидания")
+		return nil, errAtLine(e.Line, CodeSemanticOther, "\"дождаться\" ожидает конкретное значение задачи, получен абстрактный тип \"Задача\" - дождаться можно только задачу с известной сигнатурой (\"Задача<Вызываемый(...): Тип>\"); значение-список или nullable-\"?Задача\" нужно развернуть до конкретной задачи до ожидания")
 	}
-	sig, ok := sc.funcs[t.Entity]
-	if !ok {
-		return nil, errAtLine(e.Line, CodeNameResolution, "функция %q не объявлена", t.Entity)
+	sig, err := sc.a.resolveCallableSig(t.Entity)
+	if err != nil {
+		return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: e.Line})
 	}
-	return &ir.AwaitExpr{Task: task, Callee: t.Entity, Type: sig.ReturnType, HasReturn: sig.HasReturn}, nil
+	await := &ir.AwaitExpr{Task: task}
+	if sig.Result != nil {
+		await.Type = *sig.Result
+		await.HasReturn = true
+	}
+	return await, nil
 }
 
 // analyzeAwaitTask разбирает операнд "дождаться". Обычный случай -
-// произвольное выражение задачи (переменная/поле, несущие результат
-// "запустить"), анализируется как есть - идёт на поток ОС из общего пула,
-// как и раньше (ir.LaunchExpr.Coroutine остаётся false по умолчанию).
-// Особый случай - Task синтаксически ПРЯМОЙ вызов функции (не через
-// "запустить"), объявленной "асинхронная" (funcSig.IsAsync): "дождаться
-// получить_данные()" тогда десугарится в LaunchExpr здесь же, через
-// analyzeLaunchExpr (единый путь резолюции перегрузки/проверки аргументов
-// с обычным "запустить", не копия его кода), но с Coroutine == true -
-// backend (internal/backend/cbackend/coroutine.go, Шаги 128-130) эмитит
-// вызов на лёгком планировщике вместо потока ОС. Явный "запустить
-// получить_данные()" (не через эту функцию) по-прежнему даёт
-// Coroutine == false - модель под ним не меняется никогда (docs/SPEC.md,
-// раздел 15).
-//
-// НЕТ статической проверки на вложенный сахар (асинхронная функция,
-// изнутри вызывающая "дождаться <другая асинхронная функция>()") - НЕ
-// НУЖНА (Шаг 132/133 - вложенность ПОДДЕРЖАНА на уровне планировщика,
-// cbackend/coroutine.go, rech_coro_step - каждый вложенный вызов получает
-// собственную точку возврата). Раньше здесь была бы уместна заметка о
-// том, что статическая проверка в принципе невозможна (реальное условие
-// "сейчас исполняется код на корутине" динамическое, не от объявления
-// "асинхронная" - см. package doc ast.FunctionDecl.IsAsync) - теперь
-// не актуально вовсе, проверять нечего.
+// произвольное выражение задачи (переменная/поле). Особый случай -
+// ПРЯМОЙ вызов функции, объявленной "асинхронная": "дождаться
+// получить_данные()" - сахар, запуск на планировщике корутин и сразу
+// ожидание (тот же путь резолюции, что у "запустить", с Coroutine ==
+// true). Явный "запустить получить_данные()" остаётся потоком ОС.
 func analyzeAwaitTask(sc *ctx, e *ast.AwaitExpr) (ir.Expr, error) {
 	if call, ok := e.Task.(*ast.CallExpr); ok {
-		if sig, exists := sc.funcs[call.Callee]; exists && sig.IsAsync {
-			launch, err := analyzeLaunchExpr(sc, &ast.LaunchExpr{Call: call, Line: e.Line})
-			if err != nil {
-				return nil, err
+		if _, isVar := sc.lookup(call.Callee); !isVar {
+			if sig, exists := sc.funcs[call.Callee]; exists && sig.IsAsync {
+				launch, err := analyzeLaunchExpr(sc, &ast.LaunchExpr{Call: call, Line: e.Line})
+				if err != nil {
+					return nil, err
+				}
+				launch.Coroutine = true
+				return launch, nil
 			}
-			launch.(*ir.LaunchExpr).Coroutine = true
-			return launch, nil
 		}
 	}
 	return analyzeExpr(sc, e.Task)
-}
-
-// taskAnnotationRef - "Задача<T>" внутри произвольной строки type_name
-// (голая "Задача<T>", "Список<Задача<T>>", "?Задача<T>", ...) - "T" внутри
-// НИКОГДА не несёт собственных "<...>" (resolveGenericTypeName берёт его
-// как голое имя функции, не парсит рекурсивно как тип), поэтому регулярка
-// без вложенности достаточна и не путается с ЛЮБЫМ другим generic-типом.
-var taskAnnotationRef = regexp.MustCompile(`Задача<([^<>,\s]+)>`)
-
-// overloadedTaskAnnotationCallee ищет в typeName ПЕРВОЕ вхождение
-// "Задача<T>", чей T - имя функции, перегруженной (2+ объявления) в этой
-// программе (funcOverloads), "" если такого нет.
-//
-// Нужна, потому что "Задача<T>"/"Список<Задача<T>>" в АННОТАЦИИ типа несёт
-// ГОЛОЕ имя T как есть (resolveGenericTypeName, case "Задача" - без
-// разрешения перегрузки вовсе), а настоящий "запустить T(...)"/"поручить
-// T(...)" (analyzeLaunchExpr) сам резолвит перегрузку по типам аргументов
-// вызова и несёт в ir.LaunchExpr.Callee/ir.TaskType УЖЕ манглированное имя
-// ("T(Целое,Целое)", package doc funcSig.MangledName) - для перегруженного
-// T аннотация и настоящее значение никогда не совпадут (isAssignable
-// сравнивает Entity как есть), а спеллинг манглированного имени как типа
-// ("Задача<T(Целое,Целое)>") не входит в грамматику type_name вовсе
-// (скобки внутри "<...>" не парсятся). Явная, ранняя ошибка здесь - вместо
-// путающего "объявлена типом Задача<T>, но инициализирована значением типа
-// Задача<T(Целое,Целое)>" ниже по течению (isAssignable).
-func overloadedTaskAnnotationCallee(typeName string, funcOverloads map[string][]funcSig) string {
-	for _, m := range taskAnnotationRef.FindAllStringSubmatch(typeName, -1) {
-		if len(funcOverloads[m[1]]) > 0 {
-			return m[1]
-		}
-	}
-	return ""
 }

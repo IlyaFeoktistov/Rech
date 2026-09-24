@@ -609,10 +609,13 @@ func resolveGenericTypeName(entities map[string]entitySig, methods map[string]ma
 		return ir.TypeUnknown, errNoPos(CodeNameResolution, "неизвестный тип %q", name)
 	}
 	if template == "Задача" {
-		if argName == "" {
-			return ir.TypeUnknown, errNoPos(CodeTypeResolution, "%q: для \"Задача\" нужен конкретный callee (например, \"Задача<посчитать>\")", name)
+		// Задача называется сигнатурой того, что запущено (синоним уже
+		// раскрыт, см. synonyms.go), - не именем функции.
+		inner, err := resolveTypeName(entities, methods, aliases, interfaces, enums, argName)
+		if err != nil || inner.Kind != ir.KindCallable {
+			return ir.TypeUnknown, errNoPos(CodeTypeResolution, "%q: в \"Задача<...>\" пишется сигнатура запущенного - тип \"Вызываемый(...)\" или его синоним, например \"Задача<Вызываемый(Целое): Строка>\"", name)
 		}
-		return ir.TaskType(argName), nil
+		return ir.TaskType(inner.Entity), nil
 	}
 	if template == "Словарь" {
 		return resolveDictTypeName(entities, methods, aliases, interfaces, enums, name)

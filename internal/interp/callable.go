@@ -51,9 +51,19 @@ func (in *Interp) evalFuncRefExpr(e *ir.FuncRefExpr) (Value, error) {
 // мутация захваченной переменной внутри тела копится МЕЖДУ вызовами ОДНОГО
 // И ТОГО ЖЕ значения лямбды (типичный сценарий - счётчик, растущий от
 // вызова к вызову), а не теряется к следующему вызову.
-func (in *Interp) evalLambdaExpr(e *ir.LambdaExpr, env *Env) (Value, error) {
+func (in *Interp) evalLambdaExpr(e *ir.LambdaExpr, env *Env, cc *callCtx) (Value, error) {
 	capturedEnv := newEnv(nil)
 	for _, c := range e.Captures {
+		if c.Init != nil {
+			// Инициализирующий захват (ir.CaptureVar.Init) - значение
+			// выражения в момент создания, не переменная окружения.
+			v, err := in.evalExpr(c.Init, env, cc)
+			if err != nil {
+				return Value{}, err
+			}
+			capturedEnv.declare(c.Name, in.cloneValue(v))
+			continue
+		}
 		if _, ok := env.get(c.Name); !ok {
 			return Value{}, fmt.Errorf("захваченная переменная %q не найдена во время исполнения", c.Name)
 		}

@@ -27,6 +27,10 @@ func generateIREntityStruct(ctx *irGenCtx, ent *ir.Entity) (string, error) {
 		return dbtxTypedefCode(), nil
 	}
 	s := codegen.Struct(entityCName(ctx, ent.Name))
+	// Тег - для forward declaration ссылочных сущностей (entityForwardDecl,
+	// ir_generator.go): сигнатура Вызываемый/задача может принимать
+	// указатель на сущность, чей typedef по порядку идёт позже.
+	s.Tagged = !ent.IsExternStruct
 	participates := ctx.dispatchParticipants[ent.Name]
 	if participates {
 		// "vt" - первым полем и всегда (не только у собственно

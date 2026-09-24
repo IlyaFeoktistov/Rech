@@ -6,19 +6,27 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 )
 
-// parseLaunchExpr разбирает "запустить <имя>(<арг>, ...)" - операнд
-// ограничен ровно строгим вызовом обычной функции (не методом, не
-// естественным вызовом) - см. package doc ast.LaunchExpr.
+// parseLaunchExpr разбирает "запустить <имя>(<арг>, ...)" (функция или
+// переменная типа Вызываемый) либо "запустить <получатель>.<метод>(...)" -
+// строгий вызов, не естественный - см. package doc ast.LaunchExpr.
 func (p *Parser) parseLaunchExpr() (ast.Expr, error) {
 	kw := p.advance() // "запустить"
-	if p.cur().Type != lexer.IDENT || p.peekAt(1).Type != lexer.LPAREN {
-		return nil, errAt(p.cur().Line, p.cur().Col, CodeUnexpectedToken, "после \"запустить\" ожидался вызов функции (\"имя(...)\")")
+	if p.cur().Type == lexer.IDENT && p.peekAt(1).Type == lexer.LPAREN {
+		call, err := p.parseCallExpr()
+		if err != nil {
+			return nil, err
+		}
+		return &ast.LaunchExpr{Call: call, Line: kw.Line}, nil
 	}
-	call, err := p.parseCallExpr()
+	start := p.cur()
+	operand, err := p.parsePostfix()
 	if err != nil {
-		return nil, err
+		return nil, diagnostics.Wrap(err, "после \"запустить\"")
 	}
-	return &ast.LaunchExpr{Call: call, Line: kw.Line}, nil
+	if mc, ok := operand.(*ast.MethodCallExpr); ok && !mc.Static {
+		return &ast.LaunchExpr{MethodCall: mc, Line: kw.Line}, nil
+	}
+	return nil, errAt(start.Line, start.Col, CodeUnexpectedToken, "после \"запустить\" ожидался вызов функции или метода (\"имя(...)\", \"объект.метод(...)\")")
 }
 
 // parseCoroLaunchExpr разбирает "поручить <имя>(<арг>, ...)" - та же

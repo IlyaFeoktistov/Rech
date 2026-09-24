@@ -150,9 +150,6 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		var declared ir.Type
 		var hasAnnotation bool
 		if s.Type != "" {
-			if callee := overloadedTaskAnnotationCallee(s.Type, sc.a.funcOverloads); callee != "" {
-				return nil, errAtLine(s.Line, CodeTypeResolution, "переменная %q: \"Задача<%s>\" - %q перегружена (несколько объявлений с этим именем) - явный тип задачи для перегруженной функции сейчас не поддерживается (\"запустить\"/\"поручить\" сами выбирают нужную перегрузку по аргументам вызова); объявите переменную без явной аннотации типа - тип задачи выведется из значения", s.Name, callee, callee)
-			}
 			t, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, s.Type)
 			if err != nil {
 				return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: s.Line})

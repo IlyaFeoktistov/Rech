@@ -250,10 +250,7 @@ func TypeOf(e Expr) Type {
 	case *HasStateExpr:
 		return TypeBool
 	case *LaunchExpr:
-		if e.Coroutine {
-			return CoroTaskType(e.Callee)
-		}
-		return TaskType(e.Callee)
+		return TaskType(TypeOf(e.Value).Entity)
 	case *AwaitExpr:
 		return e.Type
 	case *FuncRefExpr:
@@ -271,6 +268,8 @@ func TypeOf(e Expr) Type {
 	case *NullLiteral:
 		return e.Type
 	case *NullWrapExpr:
+		return e.Type
+	case *UpcastExpr:
 		return e.Type
 	case *NullUnwrapExpr:
 		return e.Type
@@ -296,3 +295,15 @@ func TypeOf(e Expr) Type {
 		return TypeUnknown
 	}
 }
+
+// UpcastExpr - неявное приведение значения сущности-потомка к типу
+// сущности-предка (Type) там, где ожидается предок: аргумент, переменная,
+// поле, результат. Вставляется семантическим анализом (coerceExpr);
+// cbackend эмитит явное приведение указателя, интерпретатор возвращает
+// значение как есть (фактический тип во время исполнения не меняется).
+type UpcastExpr struct {
+	Value Expr
+	Type  Type
+}
+
+func (*UpcastExpr) expr() {}

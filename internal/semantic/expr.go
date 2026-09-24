@@ -48,7 +48,11 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 		return analyzeIsExpr(sc, e)
 
 	case *ast.LaunchExpr:
-		return analyzeLaunchExpr(sc, e)
+		launch, err := analyzeLaunchExpr(sc, e)
+		if err != nil {
+			return nil, err
+		}
+		return launch, nil
 
 	case *ast.CoroLaunchExpr:
 		return analyzeCoroLaunchExpr(sc, e)
@@ -58,8 +62,8 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		if await.Callee == "" || !await.HasReturn {
-			return nil, errAtLine(e.Line, CodeExprCheck, "\"дождаться\" ожидает конкретное значение задачи, получен абстрактный тип \"Задача\" - дождаться можно только результат \"запустить\"/\"поручить\" или вызов \"асинхронная функция\"; значение-список или nullable-\"?Задача\" нужно развернуть до конкретной задачи до ожидания")
+		if !await.HasReturn {
+			return nil, errAtLine(e.Line, CodeExprCheck, "у задачи нет результата (сигнатура без типа результата) - \"дождаться\" можно только отдельной инструкцией, не как выражение")
 		}
 		return await, nil
 

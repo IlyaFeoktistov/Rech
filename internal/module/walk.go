@@ -769,7 +769,7 @@ func (r *rewriter) rewriteExpr(e ast.Expr) error {
 		e.Target = resolved
 		return r.rewriteExpr(e.Value)
 	case *ast.LaunchExpr:
-		return r.rewriteExpr(e.Call)
+		return r.rewriteExpr(e.Operand())
 	case *ast.CoroLaunchExpr:
 		return r.rewriteExpr(e.Call)
 	case *ast.AwaitExpr:

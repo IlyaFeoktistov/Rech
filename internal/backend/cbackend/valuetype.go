@@ -34,19 +34,10 @@ const (
 	// собственную структуру-обёртку над nghttp2-сессией, см. typedef
 	// rech_http2_session_t в internal/backend/cbackend/http2.go.
 	kindHTTP2Session
-	// kindTask - значение-дескриптор задачи ("запустить <имя>(...)") -
-	// entity несёт имя ОБЁРНУТОЙ ФУНКЦИИ, не тип результата (см.
-	// package doc internal/backend/cbackend/concurrency.go) - всегда
-	// указатель на собственную C-структуру этой функции.
+	// kindTask - значение-дескриптор задачи - entity несёт сигнатуру
+	// запущенного Вызываемого (см. package doc concurrency.go) - всегда
+	// указатель на C-структуру задачи этой сигнатуры.
 	kindTask
-	// kindCoroTask - значение-дескриптор задачи, запущенной ФОНОВО на
-	// планировщике корутин ("поручить <асинхронная функция>(...)", Шаг
-	// 132) - см. package doc ir.KindCoroTask: отдельный от kindTask вид
-	// ТОЛЬКО потому, что "дождаться" должен различить пару обёрток
-	// (rech_await_<имя> vs rech_coro_join_<имя>) уже после того, как
-	// значение прошло через переменную, entity несёт то же самое - имя
-	// обёрнутой функции.
-	kindCoroTask
 	// kindCallable - значение типа "Вызываемый" (&имя/лямбда) -
 	// entity несёт каноническую строку сигнатуры (та же строка, что и
 	// ir.Type.Entity/ir.CallableSig.Name, см. internal/backend/cbackend/
@@ -138,15 +129,10 @@ func entityType(name string) valueType {
 	return valueType{kind: kindEntity, entity: name}
 }
 
-// taskType возвращает valueType, соответствующий значению-дескриптору
-// задачи, обёртывающей функцию funcName.
-func taskType(funcName string) valueType {
-	return valueType{kind: kindTask, entity: funcName}
-}
-
-// coroTaskType - см. package doc kindCoroTask.
-func coroTaskType(funcName string) valueType {
-	return valueType{kind: kindCoroTask, entity: funcName}
+// taskType возвращает valueType задачи сигнатуры sig (см. package doc
+// kindTask).
+func taskType(sig string) valueType {
+	return valueType{kind: kindTask, entity: sig}
 }
 
 // callableType возвращает valueType, соответствующий значению типа
@@ -214,9 +200,9 @@ func (t valueType) cType(ctx *irGenCtx) string {
 	}
 	if t.kind == kindTask {
 		// entity == "" - абстрактная "Задача" (isAssignable ослаблен под
-		// значение ЛЮБОЙ конкретной "Задача<функция>", см. package doc
+		// значение ЛЮБОЙ конкретной "Задача<...>", см. package doc
 		// isAssignable, internal/semantic/inheritance.go): конкретные
-		// "rech_TASK_<функция>" - разные, несовместимые C-структуры, общего
+		// "rech_TASK_<сигнатура>" - разные, несовместимые C-структуры, общего
 		// C-типа-предка у них нет - opaque "void *" достаточно для
 		// хранения/передачи, "дождаться" на абстрактной "Задача" запрещено
 		// на уровне semantic (см. analyzeAwaitExpr), значит разыменование
@@ -225,12 +211,6 @@ func (t valueType) cType(ctx *irGenCtx) string {
 			return "void *"
 		}
 		return mangleTaskType(t.entity) + " *"
-	}
-	if t.kind == kindCoroTask {
-		if t.entity == "" {
-			return "void *"
-		}
-		return mangleCoroTaskType(t.entity) + " *"
 	}
 	if t.kind == kindCallable {
 		return mangleCallableType(t.entity)

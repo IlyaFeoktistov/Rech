@@ -280,6 +280,9 @@ func substExpr(e ast.Expr, subst map[string]string) ast.Expr {
 	case *ast.SerializeExpr:
 		return &ast.SerializeExpr{Format: e.Format, Value: substExpr(e.Value, subst), Line: e.Line}
 	case *ast.LaunchExpr:
+		if e.MethodCall != nil {
+			return &ast.LaunchExpr{MethodCall: substExpr(e.MethodCall, subst).(*ast.MethodCallExpr), Line: e.Line}
+		}
 		return &ast.LaunchExpr{Call: substExpr(e.Call, subst).(*ast.CallExpr), Line: e.Line}
 	case *ast.CoroLaunchExpr:
 		return &ast.CoroLaunchExpr{Call: substExpr(e.Call, subst).(*ast.CallExpr), Line: e.Line}
@@ -729,7 +732,7 @@ func (inst *instantiator) scanExpr(e ast.Expr) error {
 	case *ast.UnaryExpr:
 		return inst.scanExpr(e.Operand)
 	case *ast.LaunchExpr:
-		return inst.scanExpr(e.Call)
+		return inst.scanExpr(e.Operand())
 	case *ast.CoroLaunchExpr:
 		return inst.scanExpr(e.Call)
 	case *ast.AwaitExpr:

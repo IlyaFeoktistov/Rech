@@ -2,10 +2,13 @@ package codegen
 
 // StructDecl - "typedef struct { ... } Name;" - список типизированных полей
 // (Param переиспользуется, поле структуры - та же пара "тип, имя", что и
-// параметр функции).
+// параметр функции). Tagged - "typedef struct Name { ... } Name;": у
+// структуры есть тег, её можно объявить заранее ("typedef struct Name
+// Name;") и сослаться на указатель до полного определения.
 type StructDecl struct {
 	Name   string
 	Fields []Param
+	Tagged bool
 }
 
 func Struct(name string) *StructDecl {
@@ -27,7 +30,11 @@ func (s *StructDecl) FieldDeclarator(declarator string) *StructDecl {
 }
 
 func (s *StructDecl) write(w *Writer) {
-	w.Line("typedef struct {")
+	if s.Tagged {
+		w.Line("typedef struct %s {", s.Name)
+	} else {
+		w.Line("typedef struct {")
+	}
 	w.indent++
 	for _, f := range s.Fields {
 		w.writeIndent()

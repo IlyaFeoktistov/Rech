@@ -218,6 +218,14 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 		}
 		return fmt.Sprintf("%s_empty()", mangleType(t.entity)), t, nil
 
+	case *ir.UpcastExpr:
+		code, _, err := generateIRExpr(ctx, e.Value)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		t := fromIRType(e.Type)
+		return fmt.Sprintf("((%s)(%s))", t.cType(ctx), code), t, nil
+
 	case *ir.NullWrapExpr:
 		code, _, err := generateIRExpr(ctx, e.Value)
 		if err != nil {
@@ -785,9 +793,6 @@ func fromIRType(t ir.Type) valueType {
 	}
 	if t.Kind == ir.KindTask {
 		return taskType(t.Entity)
-	}
-	if t.Kind == ir.KindCoroTask {
-		return coroTaskType(t.Entity)
 	}
 	if t.Kind == ir.KindCallable {
 		return callableType(t.Entity)

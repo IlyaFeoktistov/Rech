@@ -47,12 +47,14 @@ func TestParseSynonymVisibilityAgreesMasculine(t *testing.T) {
 // Ошибка в объявлении с модификатором ("публичная функция") - одна
 // диагностика, а не по одной на каждое слово заголовка.
 func TestLenientRecoveryAfterModifierReportsOnce(t *testing.T) {
-	n, errs := lenientParse(t, "публичная функция сломанная(\n{\n}\n\nпубличная функция хорошая\n{\n}\n")
-	if len(errs) != 1 {
-		t.Fatalf("ожидалась одна ошибка, получено %d: %v", len(errs), errs)
-	}
-	if n != 1 {
-		t.Fatalf("исправная функция после сломанной должна разобраться, получено %d функций", n)
+	for _, head := range []string{"публичная функция", "/** Док. */\nфункция", "/** Док. */\nпубличная функция"} {
+		n, errs := lenientParse(t, head+" сломанная(\n{\n}\n\nпубличная функция хорошая\n{\n}\n")
+		if len(errs) != 1 {
+			t.Fatalf("%q: ожидалась одна ошибка, получено %d: %v", head, len(errs), errs)
+		}
+		if n != 1 {
+			t.Fatalf("%q: исправная функция после сломанной должна разобраться, получено %d функций", head, n)
+		}
 	}
 }
 
