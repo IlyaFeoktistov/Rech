@@ -573,6 +573,9 @@ func (a *Analyzer) collectOneEntity(entities map[string]entitySig, methods map[s
 	// internal/semantic/inheritance.go. methodOverloads - ТРАНЗИТИВНО
 	// сплющенные (своя группа + унаследованные от базовой) перегрузки
 	// методов этой сущности, см. package doc Analyzer.methodOverloads.
+	if err := a.alignOverloadsWithBase(methods, ent, byMethodName, ownMethods, ownOverloads); err != nil {
+		return err
+	}
 	flatSig, flatMethods, methodOverloads, err := a.applyInheritance(entities, methods, ent, sig, ownMethods, ownOverloads)
 	if err != nil {
 		return err

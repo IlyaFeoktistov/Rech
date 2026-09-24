@@ -3,6 +3,7 @@ package lsp
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -212,6 +213,51 @@ func TestCodeLensCountsOverridesFromOtherFiles(t *testing.T) {
 			if len(cl.Refs) != 1 || cl.Refs[0].File != filepath.Join(circleDir, "круг.rech") {
 				t.Fatalf("ожидалась 1 позиция переопределения в круг.rech, получено: %+v", cl.Refs)
 			}
+		}
+	}
+}
+
+// TestCodeLensOverrideCountMatchesParamTypes - у потомка одноимённый метод
+// с другим списком параметров - перегрузка, не переопределение: каждому
+// базовому варианту засчитывается только вариант с тем же списком.
+func TestCodeLensOverrideCountMatchesParamTypes(t *testing.T) {
+	src := `
+сущность Фигура
+{
+    публичный описать(): Строка // без параметров
+    {
+        вернуть "фигура"
+    }
+
+    публичный описать(имя: Строка): Строка // со строкой
+    {
+        вернуть имя
+    }
+}
+
+сущность Круг наследует Фигуру
+{
+    публичный описать(): Строка
+    {
+        вернуть "круг"
+    }
+
+    публичный описать(подробно: Логическое): Строка
+    {
+        вернуть "круг"
+    }
+}
+
+функция главная { вывести 1 }
+`
+	d := newDoc("test://a.rech", src)
+	lenses := d.codeLenses()
+	if at := findLenses(lenses, lineOf(t, src, "// без параметров")); !containsTitle(at, "1 переопределение") {
+		t.Fatalf("ожидалось \"1 переопределение\" у описать(), получено: %v", lensTitles(at))
+	}
+	for _, cl := range findLenses(lenses, lineOf(t, src, "// со строкой")) {
+		if strings.Contains(cl.Title, "переопредел") {
+			t.Fatalf("у описать(Строка) нет переопределений, получено: %v", cl.Title)
 		}
 	}
 }

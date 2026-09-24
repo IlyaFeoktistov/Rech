@@ -131,7 +131,10 @@ func TestMethodOverloadRejectsStaticInGroup(t *testing.T) {
 	}
 }
 
-func TestMethodOverloadRejectsOverrideOfOverloadedGroup(t *testing.T) {
+// TestMethodOverloadOverrideVariantReturnTypeMismatch - вариант потомка с
+// тем же списком параметров, что у базового варианта группы, -
+// переопределение и обязан совпадать по типу результата.
+func TestMethodOverloadOverrideVariantReturnTypeMismatch(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 сущность База
 {
@@ -146,9 +149,9 @@ func TestMethodOverloadRejectsOverrideOfOverloadedGroup(t *testing.T) {
 }
 сущность Потомок наследует Базу
 {
-    сложить(а: Целое, б: Целое): Целое
+    сложить(а: Целое, б: Целое): Строка
     {
-        вернуть 0
+        вернуть "0"
     }
 }
 функция главная
@@ -156,12 +159,14 @@ func TestMethodOverloadRejectsOverrideOfOverloadedGroup(t *testing.T) {
     вывести "ок"
 }
 `)
-	if err == nil || !strings.Contains(err.Error(), "нельзя переопределить перегруженный метод") {
-		t.Fatalf("ожидалась ошибка о запрете переопределения перегруженного метода, получено: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "по типу результата") {
+		t.Fatalf("ожидалась ошибка о несовпадении типа результата, получено: %v", err)
 	}
 }
 
-func TestMethodOverloadRejectsOverloadOnTopOfInheritedMethod(t *testing.T) {
+// TestMethodOverloadOnTopOfInheritedRejectsStatic - статический метод
+// потомка не может стать перегрузкой унаследованного.
+func TestMethodOverloadOnTopOfInheritedRejectsStatic(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 сущность База
 {
@@ -172,11 +177,7 @@ func TestMethodOverloadRejectsOverloadOnTopOfInheritedMethod(t *testing.T) {
 }
 сущность Потомок наследует Базу
 {
-    сложить(а: Целое, б: Целое): Целое
-    {
-        вернуть 0
-    }
-    сложить(а: Строка, б: Строка): Строка
+    статический сложить(а: Строка, б: Строка): Строка
     {
         вернуть а + б
     }
@@ -186,8 +187,8 @@ func TestMethodOverloadRejectsOverloadOnTopOfInheritedMethod(t *testing.T) {
     вывести "ок"
 }
 `)
-	if err == nil || !strings.Contains(err.Error(), "нельзя перегружать метод") {
-		t.Fatalf("ожидалась ошибка о запрете перегрузки поверх унаследованного метода, получено: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "перегрузка поверх него не поддерживается") {
+		t.Fatalf("ожидалась ошибка о статическом методе поверх унаследованного, получено: %v", err)
 	}
 }
 

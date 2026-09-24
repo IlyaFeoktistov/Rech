@@ -57,7 +57,7 @@ func (d *doc) codeLenses() []CodeLens {
 		}
 		for _, m := range ent.Methods {
 			out = append(out, d.newCodeLens(m.Line, matchMethodRefs, m.Name))
-			if overrides := d.overrideRefs(ent.Name, m.Name); len(overrides) > 0 {
+			if overrides := d.overrideRefs(ent.Name, m); len(overrides) > 0 {
 				out = append(out, CodeLens{Line: m.Line, Title: overrideCountLabel(len(overrides)), Refs: overrides})
 			}
 		}

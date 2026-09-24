@@ -85,12 +85,15 @@ func parseForeignProgram(path string) (*ast.Program, bool) {
 	return prog, true
 }
 
-// overrideRefs - позиция ПЕРЕОПРЕДЕЛЕНИЯ метода methodName у каждого
-// потомка entityName (см. package doc выше) - того же вида (refLocation),
+// overrideRefs - позиция ПЕРЕОПРЕДЕЛЕНИЯ метода method у каждого потомка
+// entityName (см. package doc выше) - то же имя и тот же список типов
+// параметров (одноимённый метод с другими параметрами - перегрузка, не
+// переопределение) - того же вида (refLocation),
 // что и у crossFileRefs (references.go), чтобы CodeLens мог показать её
 // тем же "editor.action.showReferences" (server.go, handleCodeLens), не
 // заводя вторую клиентскую команду.
-func (d *doc) overrideRefs(entityName, methodName string) []refLocation {
+func (d *doc) overrideRefs(entityName string, method *ast.MethodDecl) []refLocation {
+	methodName := method.Name
 	candidates := d.entityCandidates()
 	seen := map[string]bool{}
 	var out []refLocation
@@ -105,7 +108,7 @@ func (d *doc) overrideRefs(entityName, methodName string) []refLocation {
 			}
 			seen[ed.Name] = true
 			for _, m := range ed.Methods {
-				if m.Name != methodName {
+				if m.Name != methodName || !sameParamTypes(m.Params, method.Params) {
 					continue
 				}
 				toks := d.tokens
@@ -128,6 +131,20 @@ func (d *doc) overrideRefs(entityName, methodName string) []refLocation {
 	}
 	walk(entityName)
 	return out
+}
+
+// sameParamTypes - одинаковые списки типов параметров, как написаны в
+// исходнике.
+func sameParamTypes(a, b []ast.Param) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Type != b[i].Type {
+			return false
+		}
+	}
+	return true
 }
 
 // overrideCountLabel - число переопределений, согласованное со словом

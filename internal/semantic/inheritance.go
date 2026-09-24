@@ -114,35 +114,17 @@ func (a *Analyzer) applyInheritance(entities map[string]entitySig, methods map[s
 			if baseSigM, isOverride := baseMethods[name]; isOverride && !sigsMatch(baseSigM, sig) {
 				return entitySig{}, nil, nil, errAtLine(ent.Line, CodeInheritance, "сущность %q: переопределение метода %q не совпадает по сигнатуре с методом базовой сущности %q", ent.Name, name, ent.BaseName)
 			}
-			// Обычное (не перегруженное) переопределение метода, который в
-			// базовой сущности - ГРУППА перегрузок - обратный случай
-			// проверки ниже (перегрузка поверх обычного унаследованного
-			// метода): непонятно, какую из перегрузок это "переопределяет".
-			if _, baseOverloaded := baseOverloads[name]; baseOverloaded {
-				return entitySig{}, nil, nil, errAtLine(ent.Line, CodeInheritance, "сущность %q: нельзя переопределить перегруженный метод %q - базовая сущность %q объявляет несколько перегрузок с этим именем", ent.Name, name, ent.BaseName)
-			}
 			flatMethods[name] = sig
 		}
-		for name := range ownOverloads {
-			// Перегрузка ПОВЕРХ обычного унаследованного метода ИЛИ поверх
-			// унаследованной группы перегрузок (с любого уровня цепочки,
-			// транзитивно - baseOverloads уже несёт объединение своей и
-			// унаследованной ею перегрузки) - запрещена в этой версии: было
-			// бы неясно, участвует ли унаследованный вариант(ы) в общем
-			// выборе перегрузки вместе с собственными.
-			if _, isOverride := baseMethods[name]; isOverride {
-				return entitySig{}, nil, nil, errAtLine(ent.Line, CodeInheritance, "сущность %q: нельзя перегружать метод %q - базовая сущность %q уже объявляет метод с этим именем", ent.Name, name, ent.BaseName)
-			}
-			if _, baseOverloaded := baseOverloads[name]; baseOverloaded {
-				return entitySig{}, nil, nil, errAtLine(ent.Line, CodeInheritance, "сущность %q: нельзя перегружать метод %q - базовая сущность %q уже объявляет перегрузки с этим именем", ent.Name, name, ent.BaseName)
-			}
-		}
-		// methodOverloads этой сущности - копия унаследованной с наложенными
-		// собственными группами - имена не пересекаются с уже отклонёнными
-		// выше коллизиями, наложение всегда безопасно.
+		// methodOverloads этой сущности - унаследованные группы с
+		// наложенными собственными; собственная группа имени, у которого
+		// есть унаследованные варианты, объединяется с ними
+		// (alignOverloadsWithBase уже разложил её по сигнатурам базовых).
 		merged := make(map[string][]funcSig, len(baseOverloads)+len(ownOverloads))
 		maps.Copy(merged, baseOverloads)
-		maps.Copy(merged, ownOverloads)
+		for name, own := range ownOverloads {
+			merged[name] = mergeInheritedOverloads(a.baseMethodVariants(methods, ent.BaseName, name), own, ir.EntityType(ent.Name))
+		}
 		methodOverloads = merged
 	}
 	// Мангл-имена собственных перегрузок ЭТОЙ сущности - в flatMethods (уже
