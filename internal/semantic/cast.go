@@ -241,6 +241,14 @@ var allowedCasts = map[ir.Type]map[ir.Type]bool{
 // целевой тип) вообще имеет смысл (allowedCasts) - сама успешность
 // приведения runtime-значения (разбор строки как числа и т.п.) проверяется
 // во время исполнения, не здесь.
+// printedAsText - виды значений, которые "вывести" печатает, но которые
+// явным "(Строка)" не приводятся; во вставке "${...}" они дают тот же
+// текст, что и "вывести" (ir.CastExpr.AsPrinted).
+var printedAsText = map[ir.TypeKind]bool{
+	ir.KindEntity: true, ir.KindPointer: true, ir.KindFile: true,
+	ir.KindSocket: true, ir.KindDB: true, ir.KindHTTP2Session: true,
+}
+
 func analyzeCastExpr(sc *ctx, e *ast.CastExpr) (ir.Expr, error) {
 	to, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, e.Type)
 	if err != nil {
@@ -264,6 +272,16 @@ func analyzeCastExpr(sc *ctx, e *ast.CastExpr) (ir.Expr, error) {
 	from := ir.TypeOf(value)
 	if from == to {
 		return value, nil
+	}
+	// "(Строка) x" у сущности/интерфейса, реализующего "Строчный" - его
+	// в_строку(), как и у "вывести x" (а значит и "${x}" в шаблоне).
+	if to == ir.TypeString {
+		if call := wrapStringerPrint(sc, value, from); call != nil {
+			return call, nil
+		}
+		if e.Template && printedAsText[from.Kind] {
+			return &ir.CastExpr{Value: value, To: to, AsPrinted: true}, nil
+		}
 	}
 	// Разворот "?Тип" в Тип - явный каст, единственный путь ВНЕ доказанной
 	// непустоты (см. package doc ir.NullUnwrapExpr) - паникует в рантайме на

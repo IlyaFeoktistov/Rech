@@ -521,58 +521,6 @@ func (l *Lexer) readChar(line, col int) (Token, error) {
 	return Token{Type: CHAR, Value: string(value), Line: line, Col: col}, nil
 }
 
-// readTag разбирает содержимое между обратными кавычками - ОДИН и тот же
-// токен (TAG) обслуживает ДВЕ разные синтаксические роли, различаемые
-// парсером по ПОЗИЦИИ (не лексером): тег поля/метода (`json:"name"` и
-// т. п., см. internal/structtag) в позиции перед объявлением поля/метода -
-// парсер просто берёт .Value как есть, ничего в нём не разбирая; шаблонная
-// строка (`Привет, ${имя}!`) в позиции выражения - internal/parser
-// дополнительно разбирает .Value на текстовые куски и "${...}"-вставки
-// (см. internal/parser/template.go). Настоящий перенос строки в исходнике -
-// уже настоящий перенос строки в значении (многострочность работает без
-// какого-либо спецсимвола, как в heredoc с незакавыченным маркером); сверх
-// этого поддерживается небольшой набор explicit-экранирований для
-// символов, которые неудобно/невозможно набрать как есть.
-func (l *Lexer) readTag(line, col int) (Token, error) {
-	l.advance() // "`"
-	var sb []rune
-	for {
-		if l.pos >= len(l.src) {
-			return Token{}, errAt(CodeBadLiteral, line, col, "строка в обратных кавычках не закрыта (нет \"`\")")
-		}
-		r := l.peek()
-		if r == '`' {
-			l.advance()
-			break
-		}
-		if r == '\\' {
-			l.advance()
-			esc := l.peek()
-			switch esc {
-			case 'n':
-				sb = append(sb, '\n')
-			case 't':
-				sb = append(sb, '\t')
-			case 'r':
-				sb = append(sb, '\r')
-			case '`':
-				sb = append(sb, '`')
-			case '\\':
-				sb = append(sb, '\\')
-			case '$':
-				sb = append(sb, '$')
-			default:
-				return Token{}, errAt(CodeBadEscape, l.line, l.col, "неизвестная последовательность экранирования \\%c", esc)
-			}
-			l.advance()
-			continue
-		}
-		sb = append(sb, r)
-		l.advance()
-	}
-	return Token{Type: TAG, Value: string(sb), Line: line, Col: col, EndLine: l.line}, nil
-}
-
 // validateUTF8 - небольшая защита от бинарного мусора на входе;
 // вызывается из cmd/rech перед лексированием.
 func ValidateUTF8(src string) error {

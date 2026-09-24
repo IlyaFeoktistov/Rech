@@ -36,7 +36,8 @@ func injectStringerInterface(prog *ast.Program) {
 // wrapStringerPrint - если typ (тип уже разобранного value) сущность или
 // интерфейс, реализующий "Строчный", оборачивает value в вызов её
 // в_строку() - "вывести значение" в analyzeStmt печатает результат ЭТОГО
-// вызова вместо value как есть. nil - Строчный не реализован (или value не
+// вызова вместо value как есть; тот же вызов - у "(Строка) value"
+// (analyzeCastExpr). nil - Строчный не реализован (или value не
 // сущность/интерфейс), значение печатается прежним способом.
 func wrapStringerPrint(sc *ctx, value ir.Expr, typ ir.Type) ir.Expr {
 	switch typ.Kind {

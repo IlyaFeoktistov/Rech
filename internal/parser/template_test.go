@@ -1,9 +1,11 @@
 package parser
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 )
 
 // TestParseTemplateLiteralNoInterpolation - без "${...}" шаблонный литерал -
@@ -91,9 +93,9 @@ func TestParseTemplateLiteralExpressionWithNestedQuotesAndBraces(t *testing.T) {
 // TestParseTemplateLiteralUnclosedInterpolationFails - "${" без парной "}"
 // должно быть синтаксической ошибкой, а не молча съеденным текстом.
 func TestParseTemplateLiteralUnclosedInterpolationFails(t *testing.T) {
-	_, err := parseSource(t, "функция главная {\n    переменная а = `текст ${незакрыто`\n}\n")
-	if err == nil {
-		t.Fatal("ожидалась ошибка на незакрытой вставке")
+	_, err := lexer.New("функция главная {\n    переменная а = `текст ${незакрыто`\n}\n").Tokenize()
+	if err == nil || !strings.Contains(err.Error(), "не закрыта символом") {
+		t.Fatalf("ожидалась ошибка незакрытой вставки, получено: %v", err)
 	}
 }
 
@@ -125,5 +127,14 @@ func TestParseTemplateLiteralInterpolationKeepsSourceLine(t *testing.T) {
 	call, ok := cast.Value.(*ast.CallExpr)
 	if !ok || call.Line != 4 {
 		t.Fatalf("ожидался CallExpr на строке 4, получено %+v", cast.Value)
+	}
+}
+
+// TestParseTemplateLiteralThisInsideMethod - вставка в теле метода видит
+// "этот" (контекст объемлющего кода).
+func TestParseTemplateLiteralThisInsideMethod(t *testing.T) {
+	_, err := parseSource(t, "сущность Т\n{\n    имеет:\n        х: Целое\n\n    публичный показ(): Строка\n    {\n        вернуть `х=${этот.х}`\n    }\n}\n")
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 }

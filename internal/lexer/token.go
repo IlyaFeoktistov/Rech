@@ -293,6 +293,9 @@ type Token struct {
 	// значения экранирование "\n" уже раскодировано, поэтому число
 	// переносов в Value не равно числу физических строк).
 	EndLine int
+
+	// Parts - TAG: текст и "${...}"-вставки по кускам (см. readTag).
+	Parts []TemplatePart
 }
 
 func (t TokenType) String() string {

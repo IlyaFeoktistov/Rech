@@ -18,6 +18,9 @@ func generateIRCastExpr(ctx *irGenCtx, e *ir.CastExpr) (string, valueType, error
 		return "", typeUnknown, err
 	}
 	to := fromIRType(e.To)
+	if e.AsPrinted {
+		return printedTextCode(ctx, from, code), typeString, nil
+	}
 
 	if to == typeAny {
 		// Боксирование - см. internal/backend/cbackend/reflect.go,
@@ -142,6 +145,12 @@ static char *rech_cast_uint_to_str(unsigned long long v) {
 static char *rech_cast_int_to_str(long long v) {
     char buf[32];
     snprintf(buf, sizeof(buf), "%lld", v);
+    return rech_cast_alloc(buf, strlen(buf));
+}
+
+static char *rech_cast_ptr_to_str(void *v) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%p", v);
     return rech_cast_alloc(buf, strlen(buf));
 }
 

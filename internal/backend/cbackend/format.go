@@ -37,21 +37,9 @@ func printCall(ctx *irGenCtx, typ valueType, code string) string {
 		// Символ -> Строка (rech_cast_char_to_str, castHelpers).
 		ctx.usesCast = true
 		return fmt.Sprintf(`printf("%%s", rech_cast_char_to_str(%s));`, code)
-	case typeFile:
-		return `printf("[файл]");`
-	case typeSocket:
-		return `printf("[сокет]");`
-	case typeDB:
-		return `printf("[бд]");`
-	case typeHTTP2Session:
-		return `printf("[http2-сессия]");`
 	default:
-		if typ.kind == kindEntity {
-			kind := "сущность"
-			if !ctx.entityIsRef(typ.entity) {
-				kind = "структура"
-			}
-			return fmt.Sprintf(`printf("[%s]<%s>");`, kind, escapeCString(typ.entity))
+		if text, ok := printedLabel(ctx, typ); ok {
+			return fmt.Sprintf(`printf("%s");`, text)
 		}
 		if typ.kind == kindPointer {
 			// Адрес, не разыменованное значение - "%p" (не "%s": code -
@@ -62,6 +50,42 @@ func printCall(ctx *irGenCtx, typ valueType, code string) string {
 		}
 		return fmt.Sprintf(`printf("%%s", %s);`, code)
 	}
+}
+
+// printedLabel - плейсхолдер, которым "вывести" печатает значение вида
+// typ без собственного текстового представления (файл, сокет, БД,
+// HTTP/2-сессия, сущность/структура) - уже экранированный для C-строки.
+func printedLabel(ctx *irGenCtx, typ valueType) (string, bool) {
+	switch typ {
+	case typeFile:
+		return "[файл]", true
+	case typeSocket:
+		return "[сокет]", true
+	case typeDB:
+		return "[бд]", true
+	case typeHTTP2Session:
+		return "[http2-сессия]", true
+	}
+	if typ.kind == kindEntity {
+		kind := "сущность"
+		if !ctx.entityIsRef(typ.entity) {
+			kind = "структура"
+		}
+		return fmt.Sprintf("[%s]<%s>", kind, escapeCString(typ.entity)), true
+	}
+	return "", false
+}
+
+// printedTextCode - C-выражение "const char *" с тем же текстом, что
+// печатает printCall для значения code вида typ (вставка "${...}",
+// ir.CastExpr.AsPrinted): плейсхолдер - после вычисления code ради его
+// побочных эффектов, указатель - адрес "%p".
+func printedTextCode(ctx *irGenCtx, typ valueType, code string) string {
+	if text, ok := printedLabel(ctx, typ); ok {
+		return fmt.Sprintf(`((void)(%s), "%s")`, code, text)
+	}
+	ctx.usesCast = true
+	return fmt.Sprintf("rech_cast_ptr_to_str((void *)(%s))", code)
 }
 
 func formatFloatLiteral(v float64) string {

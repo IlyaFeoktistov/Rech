@@ -902,50 +902,56 @@ func formatFloatForPrint(f float64) string {
 // через "\n" в строке (в отличие от "показать", отладочного инструмента,
 // который его сохраняет).
 func (in *Interp) printValue(v Value) {
+	fmt.Fprint(in.out, in.printText(v))
+}
+
+// printText - текст значения v ровно в том виде, что печатает "вывести"
+// (и вставка "${...}" для значений без приведения к Строка, см.
+// ir.CastExpr.AsPrinted).
+func (in *Interp) printText(v Value) string {
 	switch v.Type.Kind {
 	case ir.KindString:
-		fmt.Fprint(in.out, v.S)
+		return v.S
 	case ir.KindInt, ir.KindByte:
-		fmt.Fprint(in.out, strconv.FormatInt(v.I, 10))
+		return strconv.FormatInt(v.I, 10)
 	case ir.KindInt8, ir.KindInt16, ir.KindInt32, ir.KindInt64:
-		fmt.Fprint(in.out, strconv.FormatInt(v.I, 10))
+		return strconv.FormatInt(v.I, 10)
 	case ir.KindUint, ir.KindUint8, ir.KindUint16, ir.KindUint32, ir.KindUint64:
 		// FormatUint(uint64(v.I)), не FormatInt - Натуральное64 может
 		// нести значение выше INT64_MAX, отображаемое как отрицательное,
 		// если печатать v.I напрямую как знаковое (см. wrapFixedWidth).
-		fmt.Fprint(in.out, strconv.FormatUint(uint64(v.I), 10))
+		return strconv.FormatUint(uint64(v.I), 10)
 	case ir.KindFloat, ir.KindFloat32:
-		fmt.Fprint(in.out, formatFloatForPrint(v.F))
+		return formatFloatForPrint(v.F)
 	case ir.KindChar:
-		fmt.Fprint(in.out, string(rune(v.I)))
+		return string(rune(v.I))
 	case ir.KindBool:
 		if v.B {
-			fmt.Fprint(in.out, "истина")
-		} else {
-			fmt.Fprint(in.out, "ложь")
+			return "истина"
 		}
+		return "ложь"
 	case ir.KindFile:
-		fmt.Fprint(in.out, "[файл]")
+		return "[файл]"
 	case ir.KindSocket:
-		fmt.Fprint(in.out, "[сокет]")
+		return "[сокет]"
 	case ir.KindDB:
-		fmt.Fprint(in.out, "[бд]")
+		return "[бд]"
 	case ir.KindHTTP2Session:
-		fmt.Fprint(in.out, "[http2-сессия]")
+		return "[http2-сессия]"
 	case ir.KindPointer:
 		// В отличие от cbackend (настоящий C-указатель, "%p") -
 		// pointerTarget интерпретатора не настоящий адрес памяти
 		// (package doc pointer.go), печатать нечего, кроме факта "это
 		// указатель" - тем же принципом, что и у файла/сокета/БД выше.
-		fmt.Fprint(in.out, "[указатель]")
+		return "[указатель]"
 	case ir.KindEntity:
 		kind := "сущность"
 		if ent, ok := in.entities[v.Obj.typeName]; ok && ent.IsStruct {
 			kind = "структура"
 		}
-		fmt.Fprintf(in.out, "[%s]<%s>", kind, v.Obj.typeName)
+		return fmt.Sprintf("[%s]<%s>", kind, v.Obj.typeName)
 	default:
-		fmt.Fprint(in.out, v.S)
+		return v.S
 	}
 }
 
