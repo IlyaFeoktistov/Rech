@@ -54,12 +54,12 @@ func (in *Interp) evalAsExpr(e *ir.AsExpr, env *Env, cc *callCtx) (Value, error)
 	}
 	if e.To.Kind == ir.KindInterface {
 		if !in.entityImplementsInterface(v.Boxed.Type, e.To.Entity) {
-			panicRuntime("%s", rtmsg.AsInterfaceMismatchFormat(e.To.Entity, v.Boxed.Type.String()))
+			panicRuntimeAs(rtmsg.PanicBadCast, "%s", rtmsg.AsInterfaceMismatchFormat(e.To.Entity, v.Boxed.Type.String()))
 		}
 		return *v.Boxed, nil
 	}
 	if v.Boxed.Type != e.To {
-		panicRuntime("%s", rtmsg.AsTypeMismatchFormat(v.Boxed.Type.String(), e.To.String()))
+		panicRuntimeAs(rtmsg.PanicBadCast, "%s", rtmsg.AsTypeMismatchFormat(v.Boxed.Type.String(), e.To.String()))
 	}
 	return *v.Boxed, nil
 }

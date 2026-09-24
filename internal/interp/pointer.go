@@ -84,7 +84,7 @@ func (p *pointerTarget) get() Value {
 		return p.interp.readRawPointerValue(p.raw, p.elemType)
 	default:
 		if p.index < 0 || p.index >= int64(len(p.coll.elems)) {
-			panicRuntime("%s", rtmsg.IndexOutOfRange(p.collName))
+			panicRuntimeAs(rtmsg.PanicOutOfRange, "%s", rtmsg.IndexOutOfRange(p.collName))
 		}
 		return p.coll.elems[p.index]
 	}
@@ -103,7 +103,7 @@ func (p *pointerTarget) set(v Value) {
 		p.interp.setRawPointerValue(p.raw, p.elemType, v)
 	default:
 		if p.index < 0 || p.index >= int64(len(p.coll.elems)) {
-			panicRuntime("%s", rtmsg.IndexOutOfRange(p.collName))
+			panicRuntimeAs(rtmsg.PanicOutOfRange, "%s", rtmsg.IndexOutOfRange(p.collName))
 		}
 		p.coll.elems[p.index] = v
 	}
@@ -140,7 +140,7 @@ func (in *Interp) evalAddressOfExpr(e *ir.AddressOfExpr, env *Env, cc *callCtx) 
 		}
 		coll := list.Obj.coll
 		if idx.I < 0 || idx.I >= int64(len(coll.elems)) {
-			panicRuntime("%s", rtmsg.IndexOutOfRange(recv.CollectionName))
+			panicRuntimeAs(rtmsg.PanicOutOfRange, "%s", rtmsg.IndexOutOfRange(recv.CollectionName))
 		}
 		return pointerValue(e.Type, &pointerTarget{coll: coll, index: idx.I, collName: recv.CollectionName}), nil
 	default:

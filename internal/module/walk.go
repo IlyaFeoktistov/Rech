@@ -2,6 +2,7 @@ package module
 
 import (
 	"fmt"
+	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
@@ -107,6 +108,13 @@ var builtinTypeBases = map[string]bool{
 	"Натуральное64":    true,
 	"Тип":              true,
 	"Значение":         true,
+}
+
+// Встроенная иерархия паник - тем же списком, что у семантики/backend'ов.
+func init() {
+	for _, name := range rtmsg.PanicKinds {
+		builtinTypeBases[name] = true
+	}
 }
 
 // resolveBareName ищет name (имя функции или простого - не generic - типа)

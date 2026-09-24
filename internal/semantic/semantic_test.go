@@ -7,6 +7,7 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 	"github.com/IlyaFeoktistov/Rech/internal/parser"
+	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
 // AnalyzeSource разбирает и анализирует src, возвращая саму ошибку (в
@@ -961,12 +962,13 @@ func TestAnalyzeEntityFieldsConstructorAndFieldAccess(t *testing.T) {
 `)
 	// 1 пользовательская + "Запрос"/"Ответ"/"ДатаВремя"/"ОпцииКуки"/
 	// "Дейтаграмма"/"RGBЦвет"/"Процесс"/"РезультатКоманды"/"СостояниеБД"/
-	// "Регистры" (структуры-данные) + "Исключение" - Analyze добавляет их
+	// "Регистры" (структуры-данные) + "Исключение" + 7 встроенных паник
+	// (rtmsg.PanicKinds) - Analyze добавляет их
 	// во все out.Entities всегда, не только когда программа их использует -
 	// см. package doc registerHTTPEntity и buildIR (internal/semantic/
 	// analyzer.go).
-	if len(irProg.Entities) != 12 {
-		t.Fatalf("ожидалась 1 пользовательская сущность + 11 встроенных (Запрос/Ответ/ДатаВремя/ОпцииКуки/Дейтаграмма/RGBЦвет/Процесс/РезультатКоманды/СостояниеБД/Регистры/Исключение), получено %d", len(irProg.Entities))
+	if want := 12 + len(rtmsg.PanicKinds); len(irProg.Entities) != want {
+		t.Fatalf("ожидалась 1 пользовательская сущность + 11 встроенных (Запрос/Ответ/ДатаВремя/ОпцииКуки/Дейтаграмма/RGBЦвет/Процесс/РезультатКоманды/СостояниеБД/Регистры/Исключение) + паники, получено %d", len(irProg.Entities))
 	}
 	entity := irProg.Entities[0]
 	if entity.Name != "Пользователь" || len(entity.Fields) != 2 {

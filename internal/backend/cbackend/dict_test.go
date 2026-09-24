@@ -37,20 +37,3 @@ func TestGenerateFromIRDictStringKeyMethods(t *testing.T) {
 		t.Fatalf("ожидался вызов установить, получено:\n%s", out)
 	}
 }
-
-func TestGenerateFromIRDictIntKeyOmitsStringH(t *testing.T) {
-	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
-		&ir.VarDecl{Name: "д", Value: &ir.NewExpr{Entity: "Словарь<Целое, Целое>"}},
-	}}
-	prog := &ir.Program{
-		Functions: []*ir.Function{main},
-		Generics:  []ir.GenericInstantiation{{Name: "Словарь<Целое, Целое>", Template: "Словарь", KeyType: ir.TypeInt, ElemType: ir.TypeInt}},
-	}
-	out, err := GenerateFromIR(prog)
-	if err != nil {
-		t.Fatalf("неожиданная ошибка: %v", err)
-	}
-	if strings.Contains(out, "#include <string.h>") {
-		t.Fatalf("не ожидался string.h для целочисленного ключа, получено:\n%s", out)
-	}
-}

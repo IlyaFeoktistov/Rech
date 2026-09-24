@@ -360,12 +360,12 @@ func arithmetic(op string, l, r Value) (Value, error) {
 		return intValue(l.I * r.I), nil
 	case "/":
 		if r.I == 0 {
-			panicRuntime("%s", rtmsg.DivisionByZero)
+			panicRuntimeAs(rtmsg.PanicDivisionByZero, "%s", rtmsg.DivisionByZero)
 		}
 		return intValue(l.I / r.I), nil
 	case "%":
 		if r.I == 0 {
-			panicRuntime("%s", rtmsg.DivisionByZero)
+			panicRuntimeAs(rtmsg.PanicDivisionByZero, "%s", rtmsg.DivisionByZero)
 		}
 		return intValue(l.I % r.I), nil
 	}
@@ -670,14 +670,14 @@ func (in *Interp) evalCollectionMethod(obj *entityObj, e *ir.MethodCallExpr, env
 	case "получить":
 		idx := args[0].I
 		if idx < 0 || idx >= int64(len(obj.coll.elems)) {
-			panicRuntime("%s", rtmsg.IndexOutOfRange(obj.typeName))
+			panicRuntimeAs(rtmsg.PanicOutOfRange, "%s", rtmsg.IndexOutOfRange(obj.typeName))
 		}
 		return in.cloneValue(obj.coll.elems[idx]), nil
 
 	case "установить":
 		idx := args[0].I
 		if idx < 0 || idx >= int64(len(obj.coll.elems)) {
-			panicRuntime("%s", rtmsg.IndexOutOfRange(obj.typeName))
+			panicRuntimeAs(rtmsg.PanicOutOfRange, "%s", rtmsg.IndexOutOfRange(obj.typeName))
 		}
 		obj.coll.elems[idx] = in.cloneValue(args[1])
 		return Value{}, nil
@@ -685,7 +685,7 @@ func (in *Interp) evalCollectionMethod(obj *entityObj, e *ir.MethodCallExpr, env
 	case "удалить":
 		idx := args[0].I
 		if idx < 0 || idx >= int64(len(obj.coll.elems)) {
-			panicRuntime("%s", rtmsg.IndexOutOfRange(obj.typeName))
+			panicRuntimeAs(rtmsg.PanicOutOfRange, "%s", rtmsg.IndexOutOfRange(obj.typeName))
 		}
 		v := obj.coll.elems[idx]
 		obj.coll.elems = append(obj.coll.elems[:idx], obj.coll.elems[idx+1:]...)
@@ -694,7 +694,7 @@ func (in *Interp) evalCollectionMethod(obj *entityObj, e *ir.MethodCallExpr, env
 	case "снять":
 		n := len(obj.coll.elems)
 		if n == 0 {
-			panicRuntime("%s", rtmsg.EmptyStackOp(obj.typeName))
+			panicRuntimeAs(rtmsg.PanicEmptyCollection, "%s", rtmsg.EmptyStackOp(obj.typeName))
 		}
 		v := obj.coll.elems[n-1]
 		obj.coll.elems = obj.coll.elems[:n-1]
@@ -709,13 +709,13 @@ func (in *Interp) evalCollectionMethod(obj *entityObj, e *ir.MethodCallExpr, env
 	case "верх":
 		n := len(obj.coll.elems)
 		if n == 0 {
-			panicRuntime("%s", rtmsg.EmptyStackOp(obj.typeName))
+			panicRuntimeAs(rtmsg.PanicEmptyCollection, "%s", rtmsg.EmptyStackOp(obj.typeName))
 		}
 		return in.cloneValue(obj.coll.elems[n-1]), nil
 
 	case "извлечь":
 		if len(obj.coll.elems) == 0 {
-			panicRuntime("%s", rtmsg.EmptyQueueOp(obj.typeName))
+			panicRuntimeAs(rtmsg.PanicEmptyCollection, "%s", rtmsg.EmptyQueueOp(obj.typeName))
 		}
 		v := obj.coll.elems[0]
 		obj.coll.elems = obj.coll.elems[1:]
@@ -729,15 +729,15 @@ func (in *Interp) evalCollectionMethod(obj *entityObj, e *ir.MethodCallExpr, env
 		// (obj.coll.template отличает их, метод-имя одно и то же).
 		if len(obj.coll.elems) == 0 {
 			if obj.coll.template == "Очередь" {
-				panicRuntime("%s", rtmsg.EmptyQueueOp(obj.typeName))
+				panicRuntimeAs(rtmsg.PanicEmptyCollection, "%s", rtmsg.EmptyQueueOp(obj.typeName))
 			}
-			panicRuntime("%s", rtmsg.IndexOutOfRange(obj.typeName))
+			panicRuntimeAs(rtmsg.PanicOutOfRange, "%s", rtmsg.IndexOutOfRange(obj.typeName))
 		}
 		return in.cloneValue(obj.coll.elems[0]), nil
 
 	case "последний":
 		if len(obj.coll.elems) == 0 {
-			panicRuntime("%s", rtmsg.IndexOutOfRange(obj.typeName))
+			panicRuntimeAs(rtmsg.PanicOutOfRange, "%s", rtmsg.IndexOutOfRange(obj.typeName))
 		}
 		return in.cloneValue(obj.coll.elems[len(obj.coll.elems)-1]), nil
 
@@ -777,7 +777,7 @@ func (in *Interp) evalDictMethod(obj *entityObj, e *ir.MethodCallExpr, env *Env,
 	case "получить":
 		v, ok := obj.coll.pairs.get(args[0])
 		if !ok {
-			panicRuntime("%s", rtmsg.DictKeyNotFound(obj.typeName))
+			panicRuntimeAs(rtmsg.PanicKeyNotFound, "%s", rtmsg.DictKeyNotFound(obj.typeName))
 		}
 		return in.cloneValue(v), nil
 

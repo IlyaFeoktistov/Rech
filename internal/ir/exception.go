@@ -11,29 +11,22 @@ type ThrowStmt struct {
 func (*ThrowStmt) stmt() {}
 
 // TryStmt соответствует "попытаться { <тело> } поймать(<имя>: <Тип>[|<Тип>...]) { <обработчик> }".
-// CatchTypes - имена сущностей ("Исключение" или наследники, проверено
-// семантическим анализом). CatchVarType - тип, под которым CatchVar
-// доступен в CatchBody: сам CatchTypes[0], если он один, иначе
-// "Исключение" - единственный гарантированный общий предок всего списка
-// (все элементы CatchTypes обязаны быть им самим или его наследником).
+// CatchTypes - имена сущностей ("Исключение"/"Паника" или наследники,
+// проверено семантическим анализом); брошенное значение совпадает, если
+// относится хотя бы к одному из них. CatchVarType - тип, под которым
+// CatchVar доступен в CatchBody: сам CatchTypes[0], если он один; корень
+// ("Исключение"/"Паника"), если все из одной иерархии; "Строка" (поле
+// "сообщение" брошенного значения), если список смешивает обе иерархии -
+// общего предка у них нет.
 type TryStmt struct {
-	Body       []Stmt
-	CatchVar   string
-	CatchTypes []string
-	// CatchPanic - см. ast.TryStmt.CatchPanic (изоляция
-	// паники) - "Паника" была в списке типов - CatchVarType всегда
-	// TypeString, ловит "rech_panic"-класс ошибок. CatchTypes пуст -
-	// "поймать (x: Паника)" в одиночку (не пересекается с rech_throw вовсе).
-	// CatchTypes непуст - смешанный "поймать (x: Паника|Тип|...)": ловит И
-	// панику, И перечисленные исключения ОДНИМ обработчиком (см. cbackend/
-	// exceptions.go, generateIRTryCatchMixedStmt; internal/interp/
-	// exception.go, execTryCatchMixed).
-	CatchPanic   bool
+	Body         []Stmt
+	CatchVar     string
+	CatchTypes   []string
 	CatchVarType Type
 	CatchBody    []Stmt
 	// NoCatch - см. ast.TryStmt.NoCatch: "попытаться { ... } окончательно
-	// { ... }" без единого "поймать" - CatchVar/CatchTypes/CatchPanic/
-	// CatchVarType/CatchBody не имеют смысла, Finally обязан быть непустым.
+	// { ... }" без единого "поймать" - CatchVar/CatchTypes/CatchVarType/
+	// CatchBody не имеют смысла, Finally обязан быть непустым.
 	NoCatch bool
 	// Finally - см. ast.TryStmt.Finally: непусто только у самого внешнего
 	// узла цепочки "поймать" (или у единственного узла, если NoCatch) -

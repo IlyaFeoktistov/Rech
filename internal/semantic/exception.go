@@ -9,6 +9,7 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
+	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
 // systemExceptionEntity - имя базовой сущности, которую обязаны наследовать
@@ -76,35 +77,43 @@ func analyzeThrowStmt(sc *ctx, s *ast.ThrowStmt) (ir.Stmt, error) {
 		return nil, err
 	}
 	typ := ir.TypeOf(value)
-	if typ.Kind != ir.KindEntity || !entityIsOrExtends(sc.entities, typ.Entity, systemExceptionEntity) {
-		return nil, errAtLine(s.Line, CodeException, "\"выбросить\" ожидает значение сущности %q или наследника, получено %s", systemExceptionEntity, typ)
+	if typ.Kind != ir.KindEntity || !isThrowable(sc.entities, typ.Entity) {
+		return nil, errAtLine(s.Line, CodeException, "\"выбросить\" ожидает значение сущности %q/%q или наследника, получено %s", systemExceptionEntity, rtmsg.PanicEntity, typ)
 	}
 	return &ir.ThrowStmt{Value: value, Line: s.Line}, nil
 }
 
-// checkCatchTypesAreExceptions проверяет, что каждое имя из "поймать(...)"
-// (кроме "Паника" - вырезанной парсером ещё до этого места, см. package doc
-// ast.TryStmt.CatchPanic) резолвится в "Исключение" саму или наследника, и
-// что список без дубликатов - общая проверка и для обычного поймать(Тип),
-// и для смешанного поймать(Паника|Тип) (analyzeTryStmt, обе ветки ниже).
-// Пустой names - нет ошибки (единственная точка вызова, где это возможно, -
-// смешанная ветка с одной лишь "Паника" в списке, т. е. otherTypes пуст).
-func checkCatchTypesAreExceptions(sc *ctx, names []string) error {
+// checkCatchTypesAreThrowable проверяет, что каждое имя из "поймать(...)"
+// резолвится в "Исключение"/"Паника" или наследника и что список без
+// дубликатов; возвращает тип, под которым CatchVar виден в обработчике (см.
+// package doc ir.TryStmt.CatchVarType).
+func checkCatchTypesAreThrowable(sc *ctx, names []string) (ir.Type, error) {
 	seen := map[string]bool{}
+	roots := map[string]bool{}
 	for _, name := range names {
 		typ, err := resolveTypeName(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums, name)
 		if err != nil {
-			return diagnostics.Wrap(err, "\"поймать(...)\"")
+			return ir.TypeUnknown, diagnostics.Wrap(err, "\"поймать(...)\"")
 		}
-		if typ.Kind != ir.KindEntity || !entityIsOrExtends(sc.entities, typ.Entity, systemExceptionEntity) {
-			return errNoPos(CodeException, "\"поймать(...)\" ожидает сущность %q или наследника, получено %s", systemExceptionEntity, typ)
+		if typ.Kind != ir.KindEntity || !isThrowable(sc.entities, typ.Entity) {
+			return ir.TypeUnknown, errNoPos(CodeException, "\"поймать(...)\" ожидает сущность %q/%q или наследника, получено %s", systemExceptionEntity, rtmsg.PanicEntity, typ)
 		}
 		if seen[typ.Entity] {
-			return errNoPos(CodeDuplicateDecl, "\"поймать(...)\": тип %q перечислен более одного раза", typ.Entity)
+			return ir.TypeUnknown, errNoPos(CodeDuplicateDecl, "\"поймать(...)\": тип %q перечислен более одного раза", typ.Entity)
 		}
 		seen[typ.Entity] = true
+		roots[throwableRoot(sc.entities, typ.Entity)] = true
 	}
-	return nil
+	switch {
+	case len(names) == 1:
+		return ir.EntityType(names[0]), nil
+	case len(roots) > 1:
+		return ir.TypeString, nil
+	case roots[rtmsg.PanicEntity]:
+		return ir.EntityType(rtmsg.PanicEntity), nil
+	default:
+		return ir.EntityType(systemExceptionEntity), nil
+	}
 }
 
 // analyzeTryStmt - "попытаться { ... } поймать(<имя>: <Тип>[|<Тип>...]) { ... }".
@@ -136,55 +145,14 @@ func analyzeTryStmt(sc *ctx, s *ast.TryStmt) (ir.Stmt, error) {
 		return &ir.TryStmt{Body: body, NoCatch: true, Finally: finally, Line: s.Line}, nil
 	}
 
-	// CatchPanic - "Паника" была в списке типов (изоляция
-	// паники) - CatchVar несёт "Строка" (сообщение), не сущность-исключение,
-	// её типовая проверка/entityIsOrExtends ниже к ней не применяется. Если
-	// s.CatchTypes при этом непусто ("поймать (x: Паника|Исключение)" и
-	// подобные, см. package doc ast.TryStmt.CatchPanic) - остальные типы
-	// списка ВСЁ РАВНО проверяются как настоящие типы исключений (та же
-	// проверка, что и в обычной ветке ниже), просто CatchVarType остаётся
-	// "Строка" в любом случае - смешение с "Паника" уже не оставляет общего
-	// типа шире неё.
-	if s.CatchPanic {
-		if err := checkCatchTypesAreExceptions(sc, s.CatchTypes); err != nil {
-			return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: s.Line})
-		}
-		sc.push()
-		if err := sc.declare(s.CatchVar, ir.TypeString); err != nil {
-			sc.pop()
-			return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: s.Line})
-		}
-		catchBody, err := analyzeBlock(sc, s.CatchBody)
-		sc.pop()
-		if err != nil {
-			return nil, err
-		}
-		sc.established = preTry
-		finally, err := analyzeFinally(sc, s, preTry)
-		if err != nil {
-			return nil, err
-		}
-		return &ir.TryStmt{
-			Body: body, CatchVar: s.CatchVar, CatchPanic: true, CatchTypes: s.CatchTypes, CatchVarType: ir.TypeString, CatchBody: catchBody, Finally: finally, Line: s.Line,
-		}, nil
-	}
-
 	if len(s.CatchTypes) == 0 {
-		return nil, errAtLine(s.Line, CodeException, "\"поймать(...)\" должно перечислять хотя бы один тип исключения")
+		return nil, errAtLine(s.Line, CodeException, "\"поймать(...)\" должно перечислять хотя бы один тип исключения или паники")
 	}
-	if err := checkCatchTypesAreExceptions(sc, s.CatchTypes); err != nil {
+	// Различение конкретных типов внутри CatchBody при нескольких
+	// перечисленных - через "относится к" (IsExpr).
+	catchVarType, err := checkCatchTypesAreThrowable(sc, s.CatchTypes)
+	if err != nil {
 		return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: s.Line})
-	}
-
-	// CatchVarType - единственный перечисленный тип, если он один (полный
-	// доступ к его полям/методам в CatchBody); при нескольких - только
-	// "Исключение", единственный гарантированный общий предок списка (все
-	// элементы CatchTypes уже проверены выше как он сам или наследники) -
-	// различение конкретных типов внутри CatchBody, если нужно, через
-	// "относится к" (IsExpr), а не через доступ к специфичным полям.
-	catchVarType := ir.EntityType(systemExceptionEntity)
-	if len(s.CatchTypes) == 1 {
-		catchVarType = ir.EntityType(s.CatchTypes[0])
 	}
 
 	sc.push()

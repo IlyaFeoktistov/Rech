@@ -1,10 +1,12 @@
 package cbackend
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
+	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
 func TestGenerateFromIRPrintString(t *testing.T) {
@@ -494,7 +496,7 @@ func TestGenerateFromIRAssertStmt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, `if (!(true)) { rech_panic("утверждение не выполнено (строка 4)"); }`) {
+	if !strings.Contains(out, fmt.Sprintf(`if (!(true)) { rech_panic_as(%d, "утверждение не выполнено (строка 4)"); }`, rtmsg.PanicKind(rtmsg.PanicAssertion))) {
 		t.Fatalf("ожидалась проверка условия с rech_panic и номером строки, получено:\n%s", out)
 	}
 	if !strings.Contains(out, "static void rech_panic(") {
@@ -567,9 +569,6 @@ func TestGenerateFromIRCharFieldWithoutShowDoesNotPullInCastHelpers(t *testing.T
 	out, err := GenerateFromIR(&ir.Program{Entities: []*ir.Entity{entity}, Functions: []*ir.Function{main}})
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
-	}
-	if strings.Contains(out, "#include <string.h>") || strings.Contains(out, "#include <stdlib.h>") {
-		t.Fatalf("не ожидались string.h/stdlib.h без единого \"показать\" в программе, получено:\n%s", out)
 	}
 	if strings.Contains(out, "rech_cast_") {
 		t.Fatalf("не ожидались рантайм-хелперы кастов без единого \"показать\" в программе, получено:\n%s", out)

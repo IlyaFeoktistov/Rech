@@ -75,7 +75,7 @@ type builtinFlags struct {
 	// usesArgs - нужна ли rech_arg (встроенная функция "аргумент") -
 	// rech_argc/rech_argv (argsGlobals) сами по себе всегда объявлены
 	// безусловно (см. argsGlobals), этот флаг - только про саму индексную
-	// функцию (нужен ей panicHelper).
+	// функцию (нужен ей panicPrototypes).
 	usesArgs bool
 	// usesCurrentOS - нужен ли rech_current_os (встроенная функция
 	// "текущая_ос") - см. currentOSHelper.
@@ -1079,7 +1079,7 @@ static void rech_init_args(int argc, char **argv) {
 
 // argFuncHelper - "аргумент" (сама индексная функция, вызывает rech_panic
 // при выходе за диапазон - в отличие от argsGlobals выше, требует
-// panicHelper, поэтому под usesArgs, как и остальные необязательные
+// panicPrototypes, поэтому под usesArgs, как и остальные необязательные
 // helper'ы). Индексация с 0, как и у "получить" встроенных коллекций -
 // rech_arg(i) читает argv[i+1]. Текст сообщения об ошибке должен совпадать
 // байт-в-байт с rtmsg.ArgIndexOutOfRangeFormat - Go "%d" и C "%lld"
@@ -1103,7 +1103,7 @@ const argFuncHelper = `static const char *rech_arg(long long i) {
 // предопределённые макросы препроцессора C, поэтому это просто константа,
 // не настоящий рантайм-запрос ОС - ноль накладных расходов. Без
 // зависимостей (в отличие от argFuncHelper выше), emитируется безусловно
-// под usesCurrentOS, без panicHelper.
+// под usesCurrentOS, без panicPrototypes.
 const currentOSHelper = `#if defined(_WIN32)
 static const long long rech_current_os = 1;
 #elif defined(__APPLE__)
@@ -1171,19 +1171,6 @@ const rechIntPowHelper = `static long long rech_int_pow(long long base, long lon
 }
 `
 
-// panicHelper - аварийное завершение процесса с понятным сообщением:
-// снять/извлечь с пустой Стопки/Очереди, индекс вне границ у Списка -
-// осознанно необрабатываемая ошибка (аналог паники в Go/Rust), не выброс
-// исключения (internal/backend/cbackend/exceptions.go, rech_throw) -
-// ошибка использования встроенной коллекции самой программой, не
-// исключительная ситуация во внешних данных/окружении.
-var panicHelper = fmt.Sprintf(`static void rech_panic(const char *msg) {
-    fprintf(stderr, "%s%%s\n", msg);
-    rech_trace_print();
-    exit(1);
-}
-`, rtmsg.PanicPrefix)
-
 // intWidthHelperSpec - C-тип и (для знаковых) минимальное представимое
 // значение конкретной ширины rech_int_div<N>/rech_int_mod<N>/
 // rech_uint_div<N>/rech_uint_mod<N> (см. intDivModHelperCode). min пустой у
@@ -1245,48 +1232,51 @@ func intDivModHelperCode(u intDivModUsage, signed bool) string {
 	return sb.String()
 }
 
+// divZeroPanicC - паника "ДелениеНаНоль" в div/mod-хелперах ниже.
+var divZeroPanicC = panicCallC(rtmsg.PanicDivisionByZero, `"`+escapeCString(rtmsg.DivisionByZero)+`"`)
+
 func intDivHelperText(prefix string, w intWidthHelperSpec) string {
 	if w.min == "" {
 		return fmt.Sprintf(`static %[1]s rech_%[2]s_div%[3]d(%[1]s a, %[1]s b) {
     if (b == 0) {
-        rech_panic("%[4]s");
+        %[6]s;
     }
     return a / b;
 }
-`, w.cType, prefix, w.bits, rtmsg.DivisionByZero)
+`, w.cType, prefix, w.bits, rtmsg.DivisionByZero, "", divZeroPanicC)
 	}
 	return fmt.Sprintf(`static %[1]s rech_%[2]s_div%[3]d(%[1]s a, %[1]s b) {
     if (b == 0) {
-        rech_panic("%[4]s");
+        %[6]s;
     }
     if (a == %[5]s && b == -1) {
         return %[5]s;
     }
     return a / b;
 }
-`, w.cType, prefix, w.bits, rtmsg.DivisionByZero, w.min)
+`, w.cType, prefix, w.bits, rtmsg.DivisionByZero, w.min, divZeroPanicC)
 }
 
 func intModHelperText(prefix string, w intWidthHelperSpec) string {
 	if w.min == "" {
 		return fmt.Sprintf(`static %[1]s rech_%[2]s_mod%[3]d(%[1]s a, %[1]s b) {
     if (b == 0) {
-        rech_panic("%[4]s");
+        %[6]s;
     }
     return a %% b;
 }
-`, w.cType, prefix, w.bits, rtmsg.DivisionByZero)
+`, w.cType, prefix, w.bits, rtmsg.DivisionByZero, "", divZeroPanicC)
 	}
 	return fmt.Sprintf(`static %[1]s rech_%[2]s_mod%[3]d(%[1]s a, %[1]s b) {
     if (b == 0) {
-        rech_panic("%[4]s");
+        %[6]s;
     }
     if (a == %[5]s && b == -1) {
         return 0;
     }
     return a %% b;
 }
-`, w.cType, prefix, w.bits, rtmsg.DivisionByZero, w.min)
+`, w.cType, prefix, w.bits, rtmsg.DivisionByZero, w.min, divZeroPanicC)
 }
 
 // readHelpers - прочитать_строку/прочитать_целое/прочитать_число (шаг 8, без

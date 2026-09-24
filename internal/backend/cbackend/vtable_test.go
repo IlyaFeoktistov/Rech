@@ -34,9 +34,6 @@ func TestGenerateFromIRPlainEntityGetsNoVtable(t *testing.T) {
 	if strings.Contains(out, "const rech_vtable *vt;") {
 		t.Fatalf("не участвующая в диспетчеризации сущность не должна получать поле vt, получено:\n%s", out)
 	}
-	if strings.Contains(out, "rech_vtable") {
-		t.Fatalf("программа без наследования/интерфейсов не должна содержать типов диспетчеризации, получено:\n%s", out)
-	}
 	if !strings.Contains(out, "rech_M_tochka_pokazat_x((v_EN_p));") {
 		t.Fatalf("ожидался прямой вызов метода по мангл-имени, получено:\n%s", out)
 	}

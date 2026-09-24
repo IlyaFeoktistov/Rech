@@ -31,7 +31,7 @@ func TestGenerateFromIRDBTransactionEmitsRuntimeAndTwoCatchFrames(t *testing.T) 
 	for _, want := range []string{
 		"typedef struct rech_T_tranzakciya_s {\n    rech_db_t mini;",
 		"static void rech_db_run_transaction(rech_db_t *db,",
-		"frame_panic.catch_panics = true;",
+		"if (setjmp(frame.buf) == 0) {",
 		"callback.fn(callback.env, tx);",
 		"rech_tx_run_simple(tx->mini.kind, conn, \"BEGIN\");",
 		"rech_tx_run_simple(kind, conn, commit ? \"COMMIT\" : \"ROLLBACK\");",

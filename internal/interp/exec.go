@@ -167,9 +167,9 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 				if err != nil {
 					return ctrl{}, err
 				}
-				panicRuntime("%s: %s", rtmsg.AssertFailed(s.Line), msg.S)
+				panicRuntimeAs(rtmsg.PanicAssertion, "%s: %s", rtmsg.AssertFailed(s.Line), msg.S)
 			}
-			panicRuntime("%s", rtmsg.AssertFailed(s.Line))
+			panicRuntimeAs(rtmsg.PanicAssertion, "%s", rtmsg.AssertFailed(s.Line))
 		}
 		return ctrl{}, nil
 

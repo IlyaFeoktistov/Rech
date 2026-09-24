@@ -25,6 +25,7 @@ import (
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
+	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
 // vtfuncType/vtableType/vtableHeaderType - имена синтезированных C-типов
@@ -63,6 +64,14 @@ func computeDispatch(prog *ir.Program) (participants map[string]bool, slots map[
 	}
 	for name := range isBase {
 		participants[name] = true
+	}
+	// Корни брошенных значений - всегда: поймать/rech_throw читают
+	// vt->type_id у ЛЮБОГО брошенного объекта (исключения и паники - один
+	// канал, см. exceptions.go).
+	for _, ent := range prog.Entities {
+		if ent.Name == systemExceptionEntity || ent.Name == rtmsg.PanicEntity {
+			participants[ent.Name] = true
+		}
 	}
 
 	slots = map[string]int{}

@@ -24,7 +24,6 @@ func (p *Parser) parseThrowStmt() (ast.Stmt, error) {
 type tryCatchClause struct {
 	catchVar   string
 	catchTypes []string
-	catchPanic bool
 	catchBody  []ast.Stmt
 	line       int
 }
@@ -69,28 +68,8 @@ func (p *Parser) parseOneCatchClause() (tryCatchClause, error) {
 	if err != nil {
 		return tryCatchClause{}, err
 	}
-	// "Паника" (изоляция паники) - НЕ настоящий тип
-	// исключения (см. package doc ast.TryStmt.CatchPanic) - распознаётся
-	// здесь ПОСЛЕ полного разбора списка типов, а не как отдельная ветка
-	// грамматики, и вырезается из catchTypes перед возвратом (семантика
-	// резолвит только оставшиеся имена как настоящие типы, "Паника" саму по
-	// себе резолвить не пытается): "поймать (x: Паника | Паника)" - явная
-	// ошибка (дубликат), "поймать (x: Паника | ОшибкаХ)" - валидный
-	// смешанный обработчик (CatchPanic true И CatchTypes непусто).
-	panicCount := 0
-	otherTypes := make([]string, 0, len(catchTypes))
-	for _, t := range catchTypes {
-		if t == "Паника" {
-			panicCount++
-			continue
-		}
-		otherTypes = append(otherTypes, t)
-	}
-	if panicCount > 1 {
-		return tryCatchClause{}, errAtLine(kw.Line, CodeUnexpectedToken, "\"Паника\" в \"поймать(...)\" перечислена более одного раза")
-	}
 	return tryCatchClause{
-		catchVar: catchVar.Value, catchTypes: otherTypes, catchPanic: panicCount == 1, catchBody: catchBody, line: kw.Line,
+		catchVar: catchVar.Value, catchTypes: catchTypes, catchBody: catchBody, line: kw.Line,
 	}, nil
 }
 
@@ -152,12 +131,12 @@ func (p *Parser) parseTryStmt() (ast.Stmt, error) {
 
 	node := &ast.TryStmt{
 		Body: body, CatchVar: clauses[0].catchVar, CatchTypes: clauses[0].catchTypes,
-		CatchPanic: clauses[0].catchPanic, CatchBody: clauses[0].catchBody, Line: clauses[0].line,
+		CatchBody: clauses[0].catchBody, Line: clauses[0].line,
 	}
 	for _, c := range clauses[1:] {
 		node = &ast.TryStmt{
 			Body: []ast.Stmt{node}, CatchVar: c.catchVar, CatchTypes: c.catchTypes,
-			CatchPanic: c.catchPanic, CatchBody: c.catchBody, Line: c.line,
+			CatchBody: c.catchBody, Line: c.line,
 		}
 	}
 	node.Finally = finallyBody

@@ -320,7 +320,7 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 		}
 		ctx.usesPanic = true
 		if s.Message == nil {
-			fmt.Fprintf(sb, "%sif (!(%s)) { rech_panic(\"%s\"); }\n", ind, cond, escapeCString(rtmsg.AssertFailed(s.Line)))
+			fmt.Fprintf(sb, "%sif (!(%s)) { %s; }\n", ind, cond, panicCallC(rtmsg.PanicAssertion, `"`+escapeCString(rtmsg.AssertFailed(s.Line))+`"`))
 			return nil
 		}
 		// "утверждать <условие>, <сообщение>" (внятные
@@ -335,7 +335,7 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 		}
 		ctx.usesConcat = true
 		prefix := escapeCString(rtmsg.AssertFailed(s.Line) + ": ")
-		fmt.Fprintf(sb, "%sif (!(%s)) { rech_panic(rech_str_concat(\"%s\", %s)); }\n", ind, cond, prefix, msgCode)
+		fmt.Fprintf(sb, "%sif (!(%s)) { %s; }\n", ind, cond, panicCallC(rtmsg.PanicAssertion, fmt.Sprintf(`rech_str_concat("%s", %s)`, prefix, msgCode)))
 		return nil
 
 	case *ir.ExprStmt:

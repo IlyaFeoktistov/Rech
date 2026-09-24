@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
@@ -88,41 +87,9 @@ func TestParseIsExprTakesTargetLiterallyWithoutDeclension(t *testing.T) {
 	}
 }
 
-// TestParseTryCatchPanic - "поймать (x: Паника)" (изоляция
-// паники) - "Паника" не заносится в CatchTypes (не настоящий тип
-// исключения, см. package doc ast.TryStmt.CatchPanic), а ставит CatchPanic.
-func TestParseTryCatchPanic(t *testing.T) {
-	prog, err := parseSource(t, `
-функция главная
-{
-    попытаться {
-        вывести "тело"
-    } поймать(сообщение: Паника) {
-        вывести сообщение
-    }
-}
-`)
-	if err != nil {
-		t.Fatalf("неожиданная ошибка: %v", err)
-	}
-	try := prog.Functions[0].Body[0].(*ast.TryStmt)
-	if !try.CatchPanic {
-		t.Fatalf("ожидался CatchPanic == true")
-	}
-	if try.CatchVar != "сообщение" {
-		t.Fatalf("ожидалось имя переменной \"сообщение\", получено %q", try.CatchVar)
-	}
-	if len(try.CatchTypes) != 0 {
-		t.Fatalf("ожидался пустой CatchTypes у \"поймать(x: Паника)\", получено %+v", try.CatchTypes)
-	}
-}
-
-// TestParseTryCatchPanicUnionWithOtherType - "Паника" МОЖЕТ сочетаться с
-// обычными типами через "|" (package doc ast.TryStmt.CatchPanic) -
-// "поймать(x: Паника|Исключение)" - валидный смешанный обработчик: "Паника"
-// вырезается из CatchTypes (не заносится в него буквально), CatchPanic
-// становится true, остальные типы списка остаются в CatchTypes как обычно.
-func TestParseTryCatchPanicUnionWithOtherType(t *testing.T) {
+// TestParseTryCatchPanicIsOrdinaryType - "Паника" (и её наследники) в
+// "поймать(...)" - обычное имя типа, в том числе вперемешку с исключениями.
+func TestParseTryCatchPanicIsOrdinaryType(t *testing.T) {
 	prog, err := parseSource(t, `
 функция главная
 {
@@ -137,30 +104,8 @@ func TestParseTryCatchPanicUnionWithOtherType(t *testing.T) {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 	try := prog.Functions[0].Body[0].(*ast.TryStmt)
-	if !try.CatchPanic {
-		t.Fatalf("ожидался CatchPanic == true")
-	}
-	if len(try.CatchTypes) != 1 || try.CatchTypes[0] != "Исключение" {
-		t.Fatalf("ожидался CatchTypes [Исключение] (без \"Паника\"), получено %+v", try.CatchTypes)
-	}
-}
-
-// TestParseTryCatchPanicRejectsDuplicatePanic - "Паника" перечисленная в
-// списке типов более одного раза - явная ошибка разбора, как и дубликат
-// любого другого типа.
-func TestParseTryCatchPanicRejectsDuplicatePanic(t *testing.T) {
-	_, err := parseSource(t, `
-функция главная
-{
-    попытаться {
-        вывести "тело"
-    } поймать(сообщение: Паника|Паника) {
-        вывести "поймано"
-    }
-}
-`)
-	if err == nil || !strings.Contains(err.Error(), "перечислена более одного раза") {
-		t.Fatalf("ожидалась ошибка о дубликате \"Паника\", получено: %v", err)
+	if len(try.CatchTypes) != 2 || try.CatchTypes[0] != "Паника" || try.CatchTypes[1] != "Исключение" {
+		t.Fatalf("ожидался CatchTypes [Паника Исключение], получено %+v", try.CatchTypes)
 	}
 }
 

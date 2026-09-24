@@ -314,6 +314,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 		CtorParamNames: []string{"сообщение"},
 	}
 	methods["Исключение"] = map[string]funcSig{}
+	registerPanicEntities(entities, methods)
 	// bag - собирает диагностики НЕЗАВИСИМЫХ объявлений (и "внешняя
 	// сущность" ниже, и обычных сущностей дальше) за один прогон, вместо
 	// остановки на первой - тем же принципом, что и buildIR (см. её package
@@ -1318,6 +1319,7 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 		// `Exception(String message)` в Java/C# - см. systemExceptionCtor.
 		&ir.Entity{Name: "Исключение", Fields: systemExceptionFields(), Ctor: systemExceptionCtor()},
 	)
+	out.Entities = append(out.Entities, panicIREntities()...)
 	for _, fn := range prog.Functions {
 		currentFile = fn.File
 		irFn, err := a.analyzeFunction(fn)

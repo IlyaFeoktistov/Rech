@@ -80,9 +80,9 @@ func (ts taskSig) fillTask(sb *strings.Builder) {
 }
 
 // runUnderCatch - тело точки входа: вызов t->fn под кадром "попытаться"
-// (исключение оседает в t->exc и поднимается заново в "дождаться").
-// "= {0}" обязателен: воркер пула переиспользует стек, мусор в
-// catch_panics прежнего кадра иначе читался бы как настоящее значение.
+// (исключение или паника оседает в t->exc и поднимается заново в
+// "дождаться"). "= {0}" - воркер пула переиспользует стек, мусор прежнего
+// кадра не должен читаться как значение.
 func (ts taskSig) runUnderCatch(sb *strings.Builder) {
 	fmt.Fprintf(sb, "    %s rech_frame = {0};\n", catchFrameType)
 	fmt.Fprintf(sb, "    rech_frame.prev = %s;\n", catchTopVar)
@@ -141,7 +141,7 @@ func ensureTaskType(ctx *irGenCtx, name string) (taskSig, error) {
 	fmt.Fprintf(&sb, "static %s %s(%s *t) {\n", resultC, mangleTaskAwait(name), ts.taskType)
 	sb.WriteString("    t->wait(t);\n")
 	sb.WriteString("    if (t->exc != NULL) {\n")
-	fmt.Fprintf(&sb, "        %s(t->exc, %s);\n", throwFunc, throwTypeNameExpr(ctx, "t->exc", systemExceptionEntity))
+	fmt.Fprintf(&sb, "        %s(t->exc, %s);\n", throwFunc, thrownTypeNameExpr("t->exc"))
 	sb.WriteString("    }\n")
 	if ts.resultC != "" {
 		sb.WriteString("    return t->result;\n")

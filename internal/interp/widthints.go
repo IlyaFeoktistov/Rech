@@ -116,7 +116,7 @@ func fixedWidthArithmetic(op string, l, r Value) (Value, error) {
 		return Value{Type: l.Type, I: wrapFixedWidth(k, l.I*r.I)}, nil
 	case "/":
 		if r.I == 0 {
-			panicRuntime("%s", rtmsg.DivisionByZero)
+			panicRuntimeAs(rtmsg.PanicDivisionByZero, "%s", rtmsg.DivisionByZero)
 		}
 		if isUnsignedFixedWidth(k) {
 			return Value{Type: l.Type, I: wrapFixedWidth(k, int64(uint64(l.I)/uint64(r.I)))}, nil
@@ -124,7 +124,7 @@ func fixedWidthArithmetic(op string, l, r Value) (Value, error) {
 		return Value{Type: l.Type, I: wrapFixedWidth(k, l.I/r.I)}, nil
 	case "%":
 		if r.I == 0 {
-			panicRuntime("%s", rtmsg.DivisionByZero)
+			panicRuntimeAs(rtmsg.PanicDivisionByZero, "%s", rtmsg.DivisionByZero)
 		}
 		if isUnsignedFixedWidth(k) {
 			return Value{Type: l.Type, I: wrapFixedWidth(k, int64(uint64(l.I)%uint64(r.I)))}, nil

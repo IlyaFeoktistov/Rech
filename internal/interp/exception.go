@@ -24,6 +24,9 @@ type thrownException struct {
 	// какого-либо вызова (execTryStmt внутри той же активации) - в этом
 	// случае .Error() у него никто не спрашивает.
 	trace []traceFrame
+	// isPanic - брошенное значение - "Паника" или наследник ("выбросить"
+	// своей паники): непойманное печатается как паника, без имени типа.
+	isPanic bool
 }
 
 // newSystemException строит thrownException для системного исключения
@@ -48,7 +51,11 @@ func newSystemException(entityName, msg string) *thrownException {
 // исключение дошло до самого верха необработанным - см.
 // rtmsg.UncaughtExceptionFormat (тот же формат, что и у cbackend.rech_throw).
 func (e *thrownException) Error() string {
-	return rtmsg.PanicPrefix + rtmsg.UncaughtExceptionFormat(e.value.Obj.typeName, e.value.Obj.getField("сообщение").S) + traceSuffix(e.trace)
+	msg := e.value.Obj.getField("сообщение").S
+	if e.isPanic {
+		return rtmsg.PanicPrefix + msg + traceSuffix(e.trace)
+	}
+	return rtmsg.PanicPrefix + rtmsg.UncaughtExceptionFormat(e.value.Obj.typeName, msg) + traceSuffix(e.trace)
 }
 
 // isA - "относится к": typeName == target, или один из предков typeName по
@@ -82,72 +89,97 @@ func (in *Interp) execThrowStmt(s *ir.ThrowStmt, env *Env, cc *callCtx) (ctrl, e
 	if err != nil {
 		return ctrl{}, err
 	}
-	return ctrl{}, &thrownException{value: v}
+	return ctrl{}, &thrownException{value: v, isPanic: in.isA(v.Obj.typeName, rtmsg.PanicEntity)}
 }
 
 // execTryStmt - "попытаться { ... } поймать(<имя>: <Тип>[|<Тип>...]) { ... }".
-// Тело исполняется как обычный блок; если оно вернуло thrownException,
-// фактический тип сравнивается с каждым перечисленным в CatchTypes (isA) -
-// первое совпадение запускает CatchBody с CatchVar, привязанным к самому
-// значению (не к копии заголовка - "этот" внутри полиморфного вызова
-// метода на CatchVar должен видеть тот же объект). Ни одно совпадение,
-// как и любая ДРУГАЯ ошибка (runtimeError и т. п.) - err пробрасывается
-// как есть дальше, до ближайшего охватывающего "попытаться" или до самого
-// верха.
+// Брошенное значение приходит двумя путями - "выбросить" (thrownException,
+// обычная error) и паника рантайма (panicRuntime*, Go panic с
+// *runtimeError, превращается в объект встроенной паники, panicValue) -
+// дальше оба сопоставляются с CatchTypes одинаково (isA). Не подошло -
+// пробрасывается дальше тем же путём, каким пришло.
 func (in *Interp) execTryStmt(s *ir.TryStmt, env *Env, cc *callCtx) (ctrl, error) {
 	if s.NoCatch || len(s.Finally) > 0 {
 		return in.execTryWithFinally(s, env, cc)
 	}
-	if s.CatchPanic {
-		if len(s.CatchTypes) > 0 {
-			return in.execTryCatchMixed(s, env, cc)
-		}
-		return in.execTryCatchPanic(s, env, cc)
-	}
-	return in.execTryCatchTypes(s, env, cc)
+	return in.execTryCatch(s, env, cc)
 }
 
-// execTryCatchTypes - обычный "поймать(Тип[|Тип...])" без "Паника" в
-// списке - вынесено из execTryStmt в отдельную функцию, чтобы
-// execTryWithFinally ниже могла переиспользовать её целиком (см. package
-// doc там же), не копируя диспетчеризацию по CatchTypes ещё раз.
-func (in *Interp) execTryCatchTypes(s *ir.TryStmt, env *Env, cc *callCtx) (ctrl, error) {
-	c, err := in.execBlock(s.Body, newEnv(env), cc)
+// execTryCatch - тело + сопоставление брошенного с CatchTypes (без
+// "окончательно"; execTryWithFinally оборачивает его снаружи).
+func (in *Interp) execTryCatch(s *ir.TryStmt, env *Env, cc *callCtx) (c ctrl, err error) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			return
+		}
+		re, ok := r.(*runtimeError)
+		if !ok {
+			panic(r)
+		}
+		v := in.panicValue(re)
+		if !in.catchMatches(s, v) {
+			panic(r)
+		}
+		c, err = in.runCatch(s, env, cc, v)
+	}()
+	c, err = in.execBlock(s.Body, newEnv(env), cc)
 	if err == nil {
 		return c, nil
 	}
 	thrown, ok := err.(*thrownException)
-	if !ok {
+	if !ok || !in.catchMatches(s, thrown.value) {
 		return ctrl{}, err
 	}
-	matched := false
+	return in.runCatch(s, env, cc, thrown.value)
+}
+
+func (in *Interp) catchMatches(s *ir.TryStmt, v Value) bool {
 	for _, t := range s.CatchTypes {
-		if in.isA(thrown.value.Obj.typeName, t) {
-			matched = true
-			break
+		if in.isA(v.Obj.typeName, t) {
+			return true
 		}
 	}
-	if !matched {
-		return ctrl{}, err
-	}
+	return false
+}
+
+// runCatch - CatchBody с CatchVar, привязанным к самому брошенному
+// значению (не к копии заголовка - "этот" внутри полиморфного вызова
+// метода на CatchVar должен видеть тот же объект) или, у смешанного
+// списка обеих иерархий, к его "сообщение" (ir.TryStmt.CatchVarType).
+func (in *Interp) runCatch(s *ir.TryStmt, env *Env, cc *callCtx, v Value) (ctrl, error) {
 	catchEnv := newEnv(env)
-	catchEnv.declare(s.CatchVar, in.cloneValue(thrown.value))
+	if s.CatchVarType.Kind == ir.KindString {
+		catchEnv.declare(s.CatchVar, stringValue(v.Obj.getField("сообщение").S))
+	} else {
+		catchEnv.declare(s.CatchVar, in.cloneValue(v))
+	}
 	return in.execBlock(s.CatchBody, catchEnv, cc)
 }
 
+// panicValue - объект встроенной паники re.kind ("" - корень "Паника") с
+// сообщением без служебного префикса.
+func (in *Interp) panicValue(re *runtimeError) Value {
+	kind := re.kind
+	if kind == "" {
+		kind = rtmsg.PanicEntity
+	}
+	return Value{
+		Type: ir.EntityType(kind),
+		Obj: &entityObj{typeName: kind, fields: map[string]Value{
+			"сообщение": stringValue(strings.TrimPrefix(re.msg, rtmsg.PanicPrefix)),
+		}},
+	}
+}
+
 // execTryWithFinally - узел цепочки с "окончательно" (package doc
-// ast.TryStmt.Finally) - либо вовсе без "поймать" (s.NoCatch), либо один
-// из трёх обычных видов (CatchTypes/CatchPanic/оба сразу) с довеском
-// "окончательно". Диспетчеризация тела/поймать НЕ ОТЛИЧАЕТСЯ ни строчкой
-// от версии без "окончательно" (execTryCatchTypes/execTryCatchPanic/
-// execTryCatchMixed переиспользуются целиком) - единственная разница, defer
-// ниже, запускающий Finally, оборачивает их СНАРУЖИ: Go defer срабатывает
-// на ЛЮБОМ выходе из этой функции - обычный возврат, возврат ошибки
-// (thrownException или любая другая) и ПРОБРОС паники дальше без recover
-// здесь (Go продолжает разматывать стек через уже сработавший defer точно
-// так же, как через любой другой) - "окончательно" в результате исполняется
-// РОВНО ОДИН РАЗ, что бы ни случилось внутри, без отдельного кода на
-// каждый случай.
+// ast.TryStmt.Finally) - либо вовсе без "поймать" (s.NoCatch), либо
+// обычный "поймать" с довеском "окончательно". Диспетчеризация тела/поймать
+// та же, что без "окончательно" (execTryCatch) - единственная разница,
+// defer ниже, запускающий Finally, оборачивает её СНАРУЖИ: Go defer
+// срабатывает на ЛЮБОМ выходе из этой функции - обычный возврат, возврат
+// ошибки и ПРОБРОС паники дальше без recover здесь - "окончательно" в
+// результате исполняется РОВНО ОДИН РАЗ, что бы ни случилось внутри.
 //
 // "вернуть" внутри самого Finally ПЕРЕОПРЕДЕЛЯЕТ результат (та же семантика,
 // что и в Java/C# - известный сюрприз языка, но наименее удивительный из
@@ -172,94 +204,7 @@ func (in *Interp) execTryWithFinally(s *ir.TryStmt, env *Env, cc *callCtx) (c ct
 	if s.NoCatch {
 		return in.execBlock(s.Body, newEnv(env), cc)
 	}
-	if s.CatchPanic {
-		if len(s.CatchTypes) > 0 {
-			return in.execTryCatchMixed(s, env, cc)
-		}
-		return in.execTryCatchPanic(s, env, cc)
-	}
-	return in.execTryCatchTypes(s, env, cc)
-}
-
-// execTryCatchPanic - "попытаться { ... } поймать (<CatchVar>: Паника) { ... }"
-// (изоляция паники) - в отличие от execTryStmt выше,
-// ловит НЕ "выбросить"-исключение (обычная error, thrownException), а
-// panicRuntime (rtmsg.PanicPrefix + внутреннее сообщение - выход за
-// границы Список/Стопка/Очередь, несовпадение "как"/рефлексии,
-// "утверждать" и т. п.) - это Go panic/recover, не error-возврат (см.
-// package doc panicRuntime/callFunction - каждая граница вызова функции
-// уже перехватывает *runtimeError, дописывает свой кадр стека и
-// перепаниковывает дальше тем же r); recover здесь работает по тому же
-// принципу, просто НЕ перепаниковывает - конвертирует в обычный возврат.
-// "внутренняя ошибка интерпретатора" (r, не приводимый к *runtimeError -
-// настоящий баг interp, не паника Rech-программы) пробрасывается дальше
-// без изменений - НЕ наше дело перехватывать её здесь, как и Run() не
-// перехватывает её иначе на самом верху.
-func (in *Interp) execTryCatchPanic(s *ir.TryStmt, env *Env, cc *callCtx) (c ctrl, err error) {
-	defer func() {
-		r := recover()
-		if r == nil {
-			return
-		}
-		re, ok := r.(*runtimeError)
-		if !ok {
-			panic(r)
-		}
-		msg := strings.TrimPrefix(re.msg, rtmsg.PanicPrefix)
-		catchEnv := newEnv(env)
-		catchEnv.declare(s.CatchVar, stringValue(msg))
-		c, err = in.execBlock(s.CatchBody, catchEnv, cc)
-	}()
-	return in.execBlock(s.Body, newEnv(env), cc)
-}
-
-// execTryCatchMixed - "попытаться { ... } поймать (<CatchVar>: Паника|<Тип>[|<Тип>...]) { ... }"
-// ("интерфейс Выбрасываемое" - реализовано без него, тем же
-// поймать(...) с "|", см. package doc ir.TryStmt.CatchPanic) - ОДИН
-// обработчик и на панику (execTryCatchPanic), и на перечисленные исключения
-// (execTryStmt) сразу; CatchVar в обоих случаях несёт только "Строка"
-// (сообщение) - у паники другого и не бывает, а раз она в списке, общий тип
-// уже не шире строки (см. package doc ast.TryStmt.CatchPanic). Устроено как
-// execTryCatchPanic (defer/recover вокруг тела), но recover-ветка НЕ
-// единственный источник обработки - обычное thrownException, вернувшееся
-// без паники, проверяется после него тем же isA-перебором, что и в
-// execTryStmt.
-func (in *Interp) execTryCatchMixed(s *ir.TryStmt, env *Env, cc *callCtx) (c ctrl, err error) {
-	defer func() {
-		r := recover()
-		if r == nil {
-			return
-		}
-		re, ok := r.(*runtimeError)
-		if !ok {
-			panic(r)
-		}
-		msg := strings.TrimPrefix(re.msg, rtmsg.PanicPrefix)
-		catchEnv := newEnv(env)
-		catchEnv.declare(s.CatchVar, stringValue(msg))
-		c, err = in.execBlock(s.CatchBody, catchEnv, cc)
-	}()
-	bc, berr := in.execBlock(s.Body, newEnv(env), cc)
-	if berr == nil {
-		return bc, nil
-	}
-	thrown, ok := berr.(*thrownException)
-	if !ok {
-		return ctrl{}, berr
-	}
-	matched := false
-	for _, t := range s.CatchTypes {
-		if in.isA(thrown.value.Obj.typeName, t) {
-			matched = true
-			break
-		}
-	}
-	if !matched {
-		return ctrl{}, berr
-	}
-	catchEnv := newEnv(env)
-	catchEnv.declare(s.CatchVar, stringValue(thrown.value.Obj.getField("сообщение").S))
-	return in.execBlock(s.CatchBody, catchEnv, cc)
+	return in.execTryCatch(s, env, cc)
 }
 
 // evalIsExpr - "<выражение> относится к <Тип>" - см. isA.

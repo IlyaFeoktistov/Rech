@@ -118,30 +118,54 @@ func TestAnalyzeCatchRejectsDuplicateTypeInUnion(t *testing.T) {
 	}
 }
 
-// TestAnalyzeCatchPanicBindsCatchVarAsString - "поймать (x: Паника)" (docs/
-// изоляция паники) - CatchVar всегда Строка, независимо от
-// того, объявлена ли в программе своя сущность "Исключение" вообще.
-func TestAnalyzeCatchPanicBindsCatchVarAsString(t *testing.T) {
-	prog := parseProgram(t, `
+// TestAnalyzeCatchVarTypeAcrossHierarchies - тип переменной "поймать":
+// единственный тип - он сам; несколько из одной иерархии - её корень;
+// обе иерархии вперемешку - Строка (сообщение).
+func TestAnalyzeCatchVarTypeAcrossHierarchies(t *testing.T) {
+	cases := map[string]ir.Type{
+		"Паника": ir.EntityType("Паника"),
+		"ВыходЗаГраницы | ДелениеНаНоль": ir.EntityType("Паника"),
+		"Паника | Исключение":            ir.TypeString,
+		"ОшибкаРазбора | Исключение":     ir.EntityType("Исключение"),
+	}
+	for types, want := range cases {
+		t.Run(types, func(t *testing.T) {
+			prog := parseProgram(t, `
 функция главная
 {
     попытаться {
         вывести "тело"
-    } поймать(сообщение: Паника) {
-        вывести сообщение
+    } поймать(о: `+types+`) {
+        вывести о
     }
 }
 `)
-	fn := findFunc(prog, "главная")
-	try := fn.Body[0].(*ir.TryStmt)
-	if !try.CatchPanic {
-		t.Fatalf("ожидался CatchPanic == true")
+			try := findFunc(prog, "главная").Body[0].(*ir.TryStmt)
+			if try.CatchVarType != want {
+				t.Fatalf("ожидался тип %s, получено %s", want, try.CatchVarType)
+			}
+		})
 	}
-	if try.CatchVarType != ir.TypeString {
-		t.Fatalf("ожидался тип Строка у переменной поймать(x: Паника), получено %s", try.CatchVarType)
-	}
-	if len(try.CatchTypes) != 0 {
-		t.Fatalf("ожидался пустой CatchTypes, получено %+v", try.CatchTypes)
+}
+
+func TestAnalyzeCatchRejectsDuplicateAndNonThrowable(t *testing.T) {
+	for src, want := range map[string]string{
+		"Паника | Паника": "перечислен более одного раза",
+		"Целое":           "ожидает сущность",
+	} {
+		_, err := AnalyzeSource(t, `
+функция главная
+{
+    попытаться {
+        вывести "тело"
+    } поймать(о: `+src+`) {
+        вывести "поймано"
+    }
+}
+`)
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("%s: ожидалась ошибка с %q, получено: %v", src, want, err)
+		}
 	}
 }
 

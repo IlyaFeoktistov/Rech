@@ -226,15 +226,6 @@ type irGenCtx struct {
 	usesExceptions bool
 	tryCounter     int
 
-	// usesPanicCatch - хотя бы один "поймать (<имя>: Паника)" реально
-	// встретился в программе (изоляция паники, см.
-	// ir.TryStmt.CatchPanic/generateIRTryCatchPanicStmt) - переключает
-	// rech_panic с безусловного fprintf+exit (panicHelper) на версию,
-	// которая ищет ближайший такой кадр вверх по rech_catch_top
-	// (panicCatchHelperCode) - подавляющее большинство программ этот флаг
-	// не поднимают, panicHelper для них не меняется вовсе.
-	usesPanicCatch bool
-
 	// irFuncs - функции программы по имени (нужно generateIRLaunchExpr,
 	// чтобы найти параметры/тип результата обёрнутой функции - см.
 	// internal/backend/cbackend/concurrency.go, ensureTaskWrapper).
@@ -475,21 +466,6 @@ func varRef(ctx *irGenCtx, name string) string {
 	return mangleVar(name)
 }
 
-// exceptionsUseDispatch - true, если системная сущность "Исключение"
-// реально участвует в диспетчеризации (есть хотя бы один пользовательский
-// наследник где-то в программе) - единственный случай, когда объект
-// исключения гарантированно несёт vt/type_id (embedding одинаков для ВСЕХ
-// объектов типа "Исключение" во всей программе, свой у каждого backend'а
-// один typedef на тип - см. generateIREntityStruct). Если false - в
-// программе в принципе не может существовать никакого исключения, кроме
-// самого "Исключение" (наследников нет ни у кого) - чтение vt->type_id
-// было бы неопределённым поведением на объекте без этого поля, поэтому
-// катч/isExpr в этом случае разрешаются на этапе компиляции без
-// обращения к рантайму вовсе (см. generateIRTryStmt/generateIRIsExpr).
-func (ctx *irGenCtx) exceptionsUseDispatch() bool {
-	return ctx.dispatchParticipants[systemExceptionEntity]
-}
-
 // receiverIsPointer - true, если C-выражение, которое сгенерирует
 // generateIRExpr(ctx, receiver), уже само по себе указатель ("Тип *"), а не
 // значение ("Тип"). Три места используют один и тот же ответ на один и тот
@@ -712,15 +688,11 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	}
 	if ent, ok := entities[transactionEntityName]; ok && ent.IsTransaction {
 		ctx.usesDBTransaction = true
-		// rech_db_run_transaction (dbtx.go) ловит и "Паника" (catch_panics-
-		// кадр - нужен panicCatchHelperCode, полное тело rech_panic,
-		// ищущее такой кадр), и "Исключение" (обычный кадр - нужен
-		// rech_throw/catchFrameType, exceptionRuntimeCode) - тем же набором
-		// флагов, что и обычное "поймать (x: Паника)" в Rech-коде
-		// (generateIRTryCatchPanicStmt).
-		ctx.usesExceptions = true
-		ctx.usesPanicCatch = true
 	}
+	// Встроенные паники (rech_panic_as) бросаются тем же rech_throw, что и
+	// исключения, а паника возможна в любой программе - рантайм
+	// исключений нужен всегда.
+	ctx.usesExceptions = true
 	if ctx.usesStateFlags {
 		// rech_require_state (typestate.go) бросает через rech_throw -
 		// сущность со "состояние:" почти всегда участвует и в
@@ -960,7 +932,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// сущность) - НАОБОРОТ, ПОЗЖЕ (обёртка ссылается на C-typedef самой
 	// сущности, mangleType(entity), который ещё не объявлен раньше
 	// typedefs). Использует rech_panic (usesNullables ниже участвует в
-	// условии panicHelper).
+	// условии panicPrototypes).
 	//
 	// nullablesAfterCallables - третья группа, "?Вызываемый(...)": обёртка
 	// хранит {fn, env} по значению, typedef сигнатуры обязан быть раньше
@@ -1145,16 +1117,16 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// место, где эти флаги взводятся, поэтому раньше их не узнать.
 	// Точки входа внешних байт в Строку - используют strutil.TextCode.
 	ctx.usesText = ctx.usesText || ctx.usesFileIO || ctx.usesConsoleInput || ctx.usesByteStringConv || ctx.usesBytesIO || ctx.usesSockets || ctx.usesEnv || ctx.usesArgs || ctx.usesSubprocess || prog.UsesDB || ctx.usesHTTP || ctx.usesHTTPServer || ctx.usesHTTP2 || ctx.usesMultipart || ctx.usesUDPDatagram || ctx.usesCrypto || ctx.usesAES || hasStructTargets || ctx.usesQueryParams
-	ctx.includesStringH = ctx.usesText || ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesPanicCatch || ctx.usesStringSplit || ctx.usesRegex || ctx.usesHTTPHeaders || ctx.usesHTTPHeaderValues || ctx.usesColor || ctx.usesSubprocess || ctx.usesCwd || hasStructTargets || prog.UsesReflection || ctx.usesTZ || ctx.usesDateParse
+	ctx.includesStringH = ctx.usesText || ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesExceptions || ctx.usesStringSplit || ctx.usesRegex || ctx.usesHTTPHeaders || ctx.usesHTTPHeaderValues || ctx.usesColor || ctx.usesSubprocess || ctx.usesCwd || hasStructTargets || prog.UsesReflection || ctx.usesTZ || ctx.usesDateParse
 	// usesNullables/prog.UsesReflection - те же два условия, что у panicGate
-	// (ниже) сверх её собственных: panicGate решает, эмитить ли panicHelper
+	// (ниже) сверх её собственных: panicGate решает, эмитить ли panicPrototypes
 	// (безусловный exit(1)), includesStdlibH - подключать ли <stdlib.h>, где
 	// exit() объявлен - расхождение между двумя списками значило "exit()
 	// вызывается, а <stdlib.h> не подключён" (implicit-function-declaration
 	// - GCC на Linux это лишь предупреждение, но Apple Clang - жёсткая
 	// ошибка компиляции). usesNullables фактически истинен почти всегда -
 	// встроенное "Исключение" безусловно регистрирует "?Целое" для поля
-	// "код" (см. package doc systemExceptionFields), значит panicHelper (а
+	// "код" (см. package doc systemExceptionFields), значит panicPrototypes (а
 	// с ним и <stdlib.h>) эмитится в подавляющем большинстве программ, не
 	// только там, где пользователь сам пишет "?Тип".
 	ctx.includesStdlibH = ctx.usesText || ctx.usesConcat || usesGenerics || usesNullables || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesColor || ctx.usesQueryParams || ctx.usesCookies || ctx.usesRandom || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesRegex || ctx.usesHTTPHeaders || ctx.usesHTTPHeaderValues || hasStructTargets || ctx.usesExit || ctx.usesTZ || ctx.usesHumanDate || prog.UsesReflection
@@ -1508,33 +1480,14 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// usesCookies - rech_cookie_string (cookies.go, ниже) сама
 	// собирается через rech_str_concat.
 	appendCodeIf(&sb, ctx.usesConcat || ctx.usesCookies, strConcatHelper)
-	// ctx.usesCast - castHelpers (ниже) - один общий блок текста на все
-	// явные касты (int/float/char <-> Строка, см. package doc cast.go), не
-	// отдельная функция на каждый - несколько из них (разбор строки в
-	// число/символ) сами вызывают rech_panic при ошибке разбора, даже если
-	// в программе встретился только каст, который панике не подвержен
-	// (например, число -> Строка) - тот же принцип, что и у usesGenerics
-	// здесь: panicHelper должен быть виден целиком, раз в файле есть хотя
-	// бы один потенциальный вызывающий его блок текста.
-	//
-	// ctx.usesPanicCatch - полное тело rech_panic эмитится не здесь, а
-	// НИЖЕ, после exceptionRuntimeCode (panicCatchHelperCode читает
-	// rech_catch_frame/rech_catch_top оттуда) - здесь в этом случае только
-	// прототип, чтобы все вызовы rech_panic() выше (readHelpers/
-	// socketHelpers/castHelpers и т. п., ниже этой строки, но раньше
-	// exceptionRuntimeCode) остались валидным C (объявление обязано
-	// предшествовать первому вызову).
+	// Прототипы rech_panic/rech_panic_as - раньше любого хелпера, который
+	// их вызывает; определения (panicRuntimeCode) - после прототипов
+	// конструкторов встроенных паник.
 	// strutil.TextCode - починка внешних байт в валидный текст (правило
 	// "Строка - валидный UTF-8 без NUL", internal/textutf8) - раньше
 	// любого хелпера, читающего внешние данные.
 	appendCodeIf(&sb, ctx.usesText, strutil.TextCode)
-	panicGate := usesGenerics || usesNullables || ctx.usesPanic || ctx.usesCast || prog.UsesReflection || ctx.usesPanicCatch ||
-		ctx.intDivMod.any() || ctx.uintDivMod.any()
-	if ctx.usesPanicCatch {
-		appendCodeIf(&sb, panicGate, "static void rech_panic(const char *msg);\n")
-	} else {
-		appendCodeIf(&sb, panicGate, panicHelper)
-	}
+	sb.WriteString(panicPrototypes)
 	// concurrency.CoroutineRuntimeCode (runtime/concurrency/coroutine.go) -
 	// ЗДЕСЬ, не рядом с taskCode/
 	// coroTaskCode ниже (как было раньше, до Шага 132): rech_accept/
@@ -1739,11 +1692,6 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// После typedefs - использует rech_vtable_header/rech_T_Исключение,
 	// оба уже должны быть объявлены (см. exceptions.go).
 	appendCodeIf(&sb, ctx.usesExceptions, exceptionRuntimeCode(ctx))
-	// panicCatchHelperCode - полное тело rech_panic, когда программа
-	// содержит "поймать (x: Паника)" (см. прототип вместо panicHelper
-	// выше) - после exceptionRuntimeCode: читает rech_catch_frame/
-	// rech_catch_top, определённые там.
-	appendCodeIf(&sb, ctx.usesPanicCatch, panicCatchHelperCode())
 	appendCodeIf(&sb, callableTypedefs.Len() > 0, callableTypedefs.String())
 	appendCodeIf(&sb, nullablesAfterCallables.Len() > 0, nullablesAfterCallables.String())
 	// После callableTypedefs - см. её package doc выше (genericsCode).
@@ -1945,7 +1893,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	appendCodeIf(&sb, ctx.usesColor, color.Helpers(mangleType("RGBЦвет"),
 		mangleField("красный"), mangleField("зелёный"), mangleField("синий"), escapeCString(rtmsg.HexColorInvalidFormat)))
 	// numbase.go - "целое_в_*"/"целое_из_*" - не зависит от typedefs, только
-	// примитивы (Целое/Строка) - "из_*" зовёт rech_panic (panicHelper выше).
+	// примитивы (Целое/Строка) - "из_*" зовёт rech_panic (panicPrototypes выше).
 	appendCodeIf(&sb, ctx.usesNumBase, numbase.ToStringHelpers)
 	appendCodeIf(&sb, ctx.usesNumBase, numbase.FromStringHelpers(
 		escapeCString(rtmsg.NumBaseParseFailedFormat("целое_из_hex", "%s")),
@@ -1958,10 +1906,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// для единообразия с остальными builtin-хелперами шага 8.
 	appendCodeIf(&sb, ctx.usesRandom, crypto.RandomHelpers)
 	// Не зависит от typedefs - только примитивы (const char *) - после
-	// panicHelper выше (rech_substring зовёт rech_panic).
+	// panicPrototypes выше (rech_substring зовёт rech_panic).
 	appendCodeIf(&sb, ctx.usesStringOps, strutil.Helpers)
 	// Не зависит от typedefs - только примитивы (const char *) - после
-	// panicHelper выше (rech_base64url_decode зовёт rech_panic).
+	// panicPrototypes выше (rech_base64url_decode зовёт rech_panic).
 	appendCodeIf(&sb, ctx.usesCrypto, crypto.Helpers)
 	// runtime/crypto/aes.go - "зашифровать"/"расшифровать" - ПОСЛЕ
 	// crypto.Helpers выше (rech_aes_key_from_passphrase зовёт rech_sha256_*,
@@ -1972,7 +1920,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// runtime/crypto/signing.go - "сгенерировать_приватный_ключ"/
 	// "получить_публичный_ключ"/"подписать"/"проверить_подпись" - ПОСЛЕ
 	// crypto.Helpers (rech_sign_hex зовёт rech_bytes_to_hex, rech_verify_
-	// signature_hex зовёт rech_hex_decode) и ПОСЛЕ panicHelper (обе тянут
+	// signature_hex зовёт rech_hex_decode) и ПОСЛЕ panicPrototypes (обе тянут
 	// rech_panic) - оба уже гарантированы: usesSigning всегда идёт вместе с
 	// usesCrypto=true.
 	appendCodeIf(&sb, ctx.usesSigning, crypto.SigningHelpers)
@@ -1985,11 +1933,11 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// принципом, что и usesCookies выше).
 	appendCodeIf(&sb, ctx.usesEnv, process.EnvHelpers(mangleType("?Строка")))
 	// Не зависит от typedefs (обычная "Строка", не nullable) - можно
-	// эмитировать в любом месте после panicHelper, тем же принципом, что и
+	// эмитировать в любом месте после panicPrototypes, тем же принципом, что и
 	// usesHTTPHeaders ниже.
 	appendCodeIf(&sb, ctx.usesOptions, options.Helpers(escapeCString(prog.OptionsYAML)))
 	// Не зависит от typedefs (обычная "Строка", не nullable) - тем же
-	// принципом, что и usesEnv/usesOptions выше; требует panicHelper (уже
+	// принципом, что и usesEnv/usesOptions выше; требует panicPrototypes (уже
 	// эмитирован - usesCwd подразумевает usesPanic, см. package doc
 	// builtinFlags.usesCwd).
 	appendCodeIf(&sb, ctx.usesCwd, process.CwdHelper(escapeCString(rtmsg.CwdFailed)))
@@ -1997,7 +1945,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// что и usesEnv/usesCookies выше.
 	appendCodeIf(&sb, ctx.usesHTTPHeaders, httpwire.HeaderValueHelper(mangleType("?Строка")))
 	// Не зависит от typedefs (только sig_atomic_t/int) - можно эмитировать
-	// в любом месте после panicHelper, здесь - просто рядом с остальными
+	// в любом месте после panicPrototypes, здесь - просто рядом с остальными
 	// небольшими самодостаточными хелперами.
 	appendCodeIf(&sb, ctx.usesShutdownFlag, process.ShutdownFlagCode)
 	appendCodeIf(&sb, ctx.usesSignals, signals.RuntimeCode(escapeCString(rtmsg.SignalUncatchable), escapeCString(rtmsg.SignalSendFailed)))
@@ -2052,6 +2000,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	appendCodeIf(&sb, len(prog.ParseTargets) > 0 || len(prog.XMLParseTargets) > 0 || len(prog.YAMLParseTargets) > 0 || len(prog.ProtobufParseTargets) > 0, structParseThrowHelperCode())
 	appendCodeIf(&sb, ctx.usesStateFlags, requireStateHelperCode())
 	appendCodeIf(&sb, ctx.usesStateFlags, revokeStatesHelperCode())
+	sb.WriteString(panicRuntimeCode())
 
 	err = resolveRuntimeCode(
 		&sb,
@@ -2085,7 +2034,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// (ir.DBRowsAsExpr, db_rows.go) - тем же принципом, что jsonRuntimeCode
 	// выше: нужны уже готовый rech_new_<Тип> (ctors выше) и Список<Тип>
 	// (genericsCodeAfterEntities, эмитирован ещё раньше typedefs). Зовёт
-	// rech_panic через reflectCheckedUnboxExprCode - panicHelper уже
+	// rech_panic через reflectCheckedUnboxExprCode - panicPrototypes уже
 	// безусловно эмитирован раньше (prog.UsesReflection уже true всегда,
 	// когда достижим этот путь - registerDBTypesOnCall, db.go), отдельный
 	// ctx.usesPanic здесь не нужен.

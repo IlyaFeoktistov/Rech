@@ -132,17 +132,14 @@ func dbtxRunSimpleCode(backends dbscheme.Set) string {
 // эмитится безусловно, ровно один раз, только если ctx.usesDBTransaction.
 //
 // rech_tx_run - общее тело корневой ("начать_транзакцию") и вложенной
-// ("тр.вложенная") транзакции: исполняет колбэк ПОД ДВУМЯ вложенными
-// кадрами перехвата (тот же catchFrameType/catchTopVar, что использует и
-// rech_throw, и rech_panic - каждый ищет в нём свой маркер, пропуская чужие
-// кадры, exceptions.go): внешний - catch_panics (ловит панику, в т.ч. от
-// самих "запросить"/"выполнить" внутри колбэка), внутренний - обычный кадр
-// без диспетчеризации по типу (тип не проверяется - единственная цель
-// кадра поймать ЛЮБОЕ "выбросить", раз всё наследует "Исключение", см. её
-// package doc). Оба при срабатывании: откатывают (rech_tx_finish -
+// ("тр.вложенная") транзакции: исполняет колбэк под кадром перехвата
+// (catchFrameType/catchTopVar, exceptions.go), который ловит ЛЮБОЕ
+// брошенное значение - исключение или панику, в т.ч. от самих
+// "запросить"/"выполнить" внутри колбэка. При срабатывании: откатывает
+// (rech_tx_finish -
 // ROLLBACK у корневой, ROLLBACK TO SAVEPOINT у вложенной; ничего, если уже
-// откачено явно "откатить()"), возвращают соединение в реальный пул (только
-// корневая), пробрасывают исходную ошибку тем же способом дальше. Штатное
+// откачено явно "откатить()"), возвращает соединение в реальный пул (только
+// корневая), пробрасывает исходное значение дальше тем же rech_throw. Штатное
 // завершение колбэка - фиксирует (COMMIT/RELEASE SAVEPOINT) и тоже
 // возвращает соединение в пул.
 func dbtxRuntimeCode(ctx *irGenCtx) string {
@@ -230,31 +227,18 @@ static void %[6]s(%[1]s *this_) {
 `, txC, resultListC, zaprosit, paramsListC, vypolnit, otkatit)
 
 	fmt.Fprintf(&sb, `static void rech_tx_run(%[3]s *tx, %[2]s callback) {
-    %[4]s frame_panic = {0};
-    frame_panic.prev = %[5]s;
-    frame_panic.catch_panics = true;
-    %[5]s = &frame_panic;
-    if (setjmp(frame_panic.buf) == 0) {
-        %[4]s frame_exc = {0};
-        frame_exc.prev = %[5]s;
-        %[5]s = &frame_exc;
-        if (setjmp(frame_exc.buf) == 0) {
-            callback.fn(callback.env, tx);
-            %[5]s = frame_exc.prev;
-        } else {
-            %[5]s = frame_exc.prev;
-            void *exc = frame_exc.exc;
-            rech_tx_finish(tx, false);
-            rech_tx_release_conn(tx);
-            %[6]s(exc, %[7]s);
-        }
-        %[5]s = frame_panic.prev;
+    %[4]s frame = {0};
+    frame.prev = %[5]s;
+    %[5]s = &frame;
+    if (setjmp(frame.buf) == 0) {
+        callback.fn(callback.env, tx);
+        %[5]s = frame.prev;
     } else {
-        %[5]s = frame_panic.prev;
-        const char *msg = frame_panic.panic_msg;
+        %[5]s = frame.prev;
+        void *exc = frame.exc;
         rech_tx_finish(tx, false);
         rech_tx_release_conn(tx);
-        rech_panic(msg);
+        %[6]s(exc, %[7]s);
     }
     rech_tx_finish(tx, true);
     rech_tx_release_conn(tx);
@@ -283,7 +267,7 @@ static void %[8]s(%[3]s *this_, %[2]s callback) {
 }
 
 `, dbRunTransactionFunc, callableC, txC, catchFrameType, catchTopVar, throwFunc,
-		throwTypeNameExpr(ctx, "exc", systemExceptionEntity), vlozhennaya, escapeCString(rtmsg.DBTxResolved))
+		thrownTypeNameExpr("exc"), vlozhennaya, escapeCString(rtmsg.DBTxResolved))
 
 	return sb.String()
 }

@@ -66,7 +66,7 @@ func (in *Interp) dbRowToEntity(row Value, ent *ir.Entity) (Value, error) {
 		key := stringValue(f.SQLKey())
 		boxed, ok := row.Obj.coll.pairs.get(key)
 		if !ok {
-			panicRuntime("%s", rtmsg.DictKeyNotFound(row.Type.String()))
+			panicRuntimeAs(rtmsg.PanicKeyNotFound, "%s", rtmsg.DictKeyNotFound(row.Type.String()))
 		}
 		if f.Type.Kind == ir.KindNullable {
 			if boxed.Boxed.Type.Kind == ir.KindNull {
@@ -75,14 +75,14 @@ func (in *Interp) dbRowToEntity(row Value, ent *ir.Entity) (Value, error) {
 			}
 			inner := dbNullableInnerType(f.Type.Entity)
 			if boxed.Boxed.Type != inner {
-				panicRuntime("%s", rtmsg.AsTypeMismatchFormat(boxed.Boxed.Type.String(), inner.String()))
+				panicRuntimeAs(rtmsg.PanicBadCast, "%s", rtmsg.AsTypeMismatchFormat(boxed.Boxed.Type.String(), inner.String()))
 			}
 			unwrapped := *boxed.Boxed
 			fields[f.Name] = Value{Type: f.Type, Nullable: &unwrapped}
 			continue
 		}
 		if boxed.Boxed.Type != f.Type {
-			panicRuntime("%s", rtmsg.AsTypeMismatchFormat(boxed.Boxed.Type.String(), f.Type.String()))
+			panicRuntimeAs(rtmsg.PanicBadCast, "%s", rtmsg.AsTypeMismatchFormat(boxed.Boxed.Type.String(), f.Type.String()))
 		}
 		fields[f.Name] = *boxed.Boxed
 	}

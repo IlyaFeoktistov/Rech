@@ -1,10 +1,12 @@
 package cbackend
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
+	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
 // exceptionEntity - минимальный "Исключение", как его засеивает
@@ -40,41 +42,6 @@ func TestGenerateFromIRTryCatchEmitsSetjmpLongjmp(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("ожидался фрагмент %q, получено:\n%s", want, out)
 		}
-	}
-}
-
-// TestGenerateFromIRBareExceptionWithoutSubclassSkipsIsaTable - если во
-// всей программе нет ни одного наследника "Исключение", единственный
-// возможный фактический тип брошенного значения - оно само, известный на
-// этапе компиляции - "поймать(...)" не должен читать vt->type_id/rech_isa
-// вовсе (сама "Исключение" не участвует в диспетчеризации).
-func TestGenerateFromIRBareExceptionWithoutSubclassSkipsIsaTable(t *testing.T) {
-	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
-		&ir.TryStmt{
-			Body: []ir.Stmt{
-				&ir.ThrowStmt{Value: &ir.NewExpr{Entity: systemExceptionEntity, Args: []ir.Expr{&ir.StringLiteral{Value: "просто"}}}},
-			},
-			CatchVar: "иск", CatchTypes: []string{systemExceptionEntity}, CatchVarType: ir.EntityType(systemExceptionEntity),
-			CatchBody: []ir.Stmt{
-				&ir.PrintStmt{Value: &ir.FieldAccess{Receiver: &ir.Identifier{Name: "иск", Type: ir.EntityType(systemExceptionEntity)}, Field: "сообщение", Type: ir.TypeString}},
-			},
-		},
-	}}
-	out, err := GenerateFromIR(&ir.Program{Entities: []*ir.Entity{exceptionEntity()}, Functions: []*ir.Function{main}})
-	if err != nil {
-		t.Fatalf("неожиданная ошибка: %v", err)
-	}
-	if strings.Contains(out, "rech_isa") {
-		t.Fatalf("без наследников \"Исключение\" rech_isa не нужна, получено:\n%s", out)
-	}
-	if strings.Contains(out, "vt->type_id") {
-		t.Fatalf("без наследников \"Исключение\" чтение vt->type_id не нужно, получено:\n%s", out)
-	}
-	if strings.Contains(out, "const rech_vtable *vt;") {
-		t.Fatalf("без наследников \"Исключение\" сама она не должна участвовать в диспетчеризации, получено:\n%s", out)
-	}
-	if !strings.Contains(out, "rech_throw(") {
-		t.Fatalf("ожидался вызов rech_throw, получено:\n%s", out)
 	}
 }
 
@@ -133,9 +100,6 @@ func TestGenerateFromIRIsExprOnNonParticipantIsCompileTimeConstant(t *testing.T)
 	if !strings.Contains(out, "if (true) {") {
 		t.Fatalf("ожидалась константа true вместо рантайм-проверки, получено:\n%s", out)
 	}
-	if strings.Contains(out, "rech_isa") {
-		t.Fatalf("сущность вне иерархии не должна порождать rech_isa, получено:\n%s", out)
-	}
 }
 
 // TestGenerateFromIRVtableFieldEmittedForEntityWithoutMethods - регрессия:
@@ -163,73 +127,37 @@ func TestGenerateFromIRVtableFieldEmittedForEntityWithoutMethods(t *testing.T) {
 	}
 }
 
-// TestGenerateFromIRTryCatchPanicUsesFrameSearchingRechPanic - "поймать (x:
-// Паника)" (изоляция паники) должен переключить rech_panic
-// с безусловного fprintf+exit (panicHelper) на версию, которая ищет кадр с
-// catch_panics=true - и вставить прототип rech_panic РАНЬШЕ полного тела
-// (полное тело читает rech_catch_frame/rech_catch_top, определённые вместе
-// с exceptionRuntimeCode).
-func TestGenerateFromIRTryCatchPanicUsesFrameSearchingRechPanic(t *testing.T) {
-	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
-		&ir.TryStmt{
-			Body: []ir.Stmt{
-				&ir.AssertStmt{Cond: &ir.BoolLiteral{Value: false}, Line: 1},
-			},
-			CatchVar: "сообщение", CatchPanic: true, CatchVarType: ir.TypeString,
-			CatchBody: []ir.Stmt{
-				&ir.PrintStmt{Value: &ir.Identifier{Name: "сообщение", Type: ir.TypeString}},
-			},
-		},
-	}}
-	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
-	if err != nil {
-		t.Fatalf("неожиданная ошибка: %v", err)
-	}
-	protoIdx := strings.Index(out, "static void rech_panic(const char *msg);")
-	if protoIdx < 0 {
-		t.Fatalf("ожидался прототип rech_panic, получено:\n%s", out)
-	}
-	defIdx := strings.Index(out, "static void rech_panic(const char *msg) {")
-	if defIdx < 0 || defIdx < protoIdx {
-		t.Fatalf("ожидалось полное тело rech_panic ПОСЛЕ прототипа, получено:\n%s", out)
+// TestGeneratePanicIsThrownObject - паника рантайма строит объект
+// встроенного типа (rech_panic_as) и бросается тем же rech_throw, что и
+// "выбросить"; "поймать(о: ВыходЗаГраницы)" сопоставляет тип по rech_isa;
+// прототип rech_panic_as - раньше определения.
+func TestGeneratePanicIsThrownObject(t *testing.T) {
+	out := generateFromSrc(t, `
+функция главная
+{
+    Список<Целое> сп = []
+    попытаться {
+        вывести сп.получить(1)
+    } поймать(о: ВыходЗаГраницы) {
+        вывести о
+    }
+}
+`)
+	protoIdx := strings.Index(out, "static void rech_panic_as(int kind, const char *msg);")
+	defIdx := strings.Index(out, "static void rech_panic_as(int kind, const char *msg) {")
+	if protoIdx < 0 || defIdx < protoIdx {
+		t.Fatalf("ожидался прототип rech_panic_as до определения, получено:\n%s", out)
 	}
 	for _, want := range []string{
-		"bool catch_panics;", "const char *panic_msg;",
-		"while (f != NULL && !f->catch_panics)", "f->panic_msg = rech_panic_copy;",
-		"rech_frame_1.catch_panics = true;", "rech_frame_1.panic_msg;",
+		fmt.Sprintf("rech_panic_as(%d, ", rtmsg.PanicKind(rtmsg.PanicOutOfRange)),
+		fmt.Sprintf("case %d: rech_throw(", rtmsg.PanicKind(rtmsg.PanicOutOfRange)),
+		"rech_isa[((const rech_vtable_header *)(rech_frame_1_exc))->vt->type_id]",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("ожидался фрагмент %q, получено:\n%s", want, out)
 		}
 	}
-}
-
-// TestGenerateFromIRThrowSkipsCatchPanicFrames - "выбросить" внутри
-// "поймать (x: Паника)" обязано пролететь мимо catch_panics-кадра насквозь
-// (rech_throw не умеет диспетчеризовать по типу через panic_msg) - см.
-// package doc rech_throw в exceptions.go.
-func TestGenerateFromIRThrowSkipsCatchPanicFrames(t *testing.T) {
-	custom := &ir.Entity{Name: "ОшибкаХ", BaseName: systemExceptionEntity}
-	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
-		&ir.TryStmt{
-			Body: []ir.Stmt{
-				&ir.TryStmt{
-					Body: []ir.Stmt{
-						&ir.ThrowStmt{Value: &ir.NewExpr{Entity: "ОшибкаХ", Args: []ir.Expr{&ir.StringLiteral{Value: "х"}}}},
-					},
-					CatchVar: "п", CatchPanic: true, CatchVarType: ir.TypeString,
-					CatchBody: []ir.Stmt{},
-				},
-			},
-			CatchVar: "иск", CatchTypes: []string{"ОшибкаХ"}, CatchVarType: ir.EntityType("ОшибкаХ"),
-			CatchBody: []ir.Stmt{},
-		},
-	}}
-	out, err := GenerateFromIR(&ir.Program{Entities: []*ir.Entity{exceptionEntity(), custom}, Functions: []*ir.Function{main}})
-	if err != nil {
-		t.Fatalf("неожиданная ошибка: %v", err)
-	}
-	if !strings.Contains(out, "while (f != NULL && f->catch_panics)") {
-		t.Fatalf("ожидался пропуск catch_panics-кадров в rech_throw, получено:\n%s", out)
+	if strings.Contains(out, "catch_panics") {
+		t.Fatalf("отдельного канала паник больше нет, получено:\n%s", out)
 	}
 }

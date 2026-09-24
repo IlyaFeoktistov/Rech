@@ -93,8 +93,8 @@ func TestGenerateAwaitRethrowsUncaughtException(t *testing.T) {
     дождаться задача
 }
 `)
-	if !strings.Contains(out, `rech_throw(t->exc, "Исключение");`) {
-		t.Fatalf("ожидался rech_throw(t->exc, \"Исключение\"), получено:\n%s", out)
+	if !strings.Contains(out, "rech_throw(t->exc, rech_type_names[") {
+		t.Fatalf("ожидался rech_throw(t->exc, <фактический тип>), получено:\n%s", out)
 	}
 	if !strings.Contains(out, "static void "+mangleTaskAwait("Вызываемый<>")+"(") {
 		t.Fatalf("задача без результата - rech_await_... без результата, получено:\n%s", out)

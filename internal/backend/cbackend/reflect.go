@@ -89,11 +89,11 @@ var reflectUnboxCheckHelper = fmt.Sprintf(`static rech_any_t rech_unbox_check(re
     if (v.type != expected) {
         char msg[256];
         snprintf(msg, sizeof(msg), "%s", expected->name, v.type->name);
-        rech_panic(msg);
+        %s;
     }
     return v;
 }
-`, escapeCString(rtmsg.AsTypeMismatchTemplate))
+`, escapeCString(rtmsg.AsTypeMismatchTemplate), panicCallC(rtmsg.PanicBadCast, "msg"))
 
 // reflectUnboxCheckIfaceHelper - "значение как ИмяИнтерфейса"
 // (находка "значение как ИмяИнтерфейса не распаковывает
@@ -111,10 +111,10 @@ var reflectUnboxCheckIfaceHelper = fmt.Sprintf(`static rech_any_t rech_unbox_che
     }
     char msg[256];
     snprintf(msg, sizeof(msg), "%s", iface_name, v.type->name);
-    rech_panic(msg);
+    %s;
     return v;
 }
-`, escapeCString(rtmsg.AsInterfaceMismatchTemplate))
+`, escapeCString(rtmsg.AsInterfaceMismatchTemplate), panicCallC(rtmsg.PanicBadCast, "msg"))
 
 // reflectLookupHelpers - поиск поля/метода по имени (линейный - число
 // полей/методов сущности единицы, не нужен хеш) и по индексу (с проверкой

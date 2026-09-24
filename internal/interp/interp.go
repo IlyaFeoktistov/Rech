@@ -448,7 +448,9 @@ type callCtx struct {
 // panicRuntime и заполняется по мере того, как паника проходит через
 // callFunction/callMethod вверх до Run.
 type runtimeError struct {
-	msg   string
+	msg string
+	// kind - встроенный тип паники (rtmsg.Panic*); "" - корень "Паника".
+	kind  string
 	trace []traceFrame
 }
 
@@ -463,6 +465,12 @@ func (e *runtimeError) Error() string { return e.msg + traceSuffix(e.trace) }
 // rech_panic в сгенерированном C.
 func panicRuntime(format string, args ...any) {
 	panic(&runtimeError{msg: rtmsg.PanicPrefix + fmt.Sprintf(format, args...)})
+}
+
+// panicRuntimeAs - panicRuntime с конкретным встроенным типом паники kind
+// (rtmsg.Panic*), который ловится по имени.
+func panicRuntimeAs(kind, format string, args ...any) {
+	panic(&runtimeError{msg: rtmsg.PanicPrefix + fmt.Sprintf(format, args...), kind: kind})
 }
 
 // Interp - состояние интерпретатора одной программы. debugger - непусто

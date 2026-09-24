@@ -3,6 +3,8 @@ package collections
 import (
 	"fmt"
 	"strings"
+
+	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
 // ListCollectionCode строит C-текст (typedef struct + функции) для
@@ -48,7 +50,7 @@ static void %[3]s(%[2]s *this_, %[1]s value) {
 
 static %[1]s %[4]s(%[2]s *this_, long long index) {
     if (index < 0 || index >= this_->len) {
-        rech_panic("%[7]s");
+        rech_panic_as(%[13]d, "%[7]s");
     }
     return this_->data[index];
 }
@@ -60,14 +62,14 @@ static %[1]s %[4]s(%[2]s *this_, long long index) {
 // программиста, задокументированное ограничение, не проверяется рантаймом.
 static %[1]s *%[9]s(%[2]s *this_, long long index) {
     if (index < 0 || index >= this_->len) {
-        rech_panic("%[7]s");
+        rech_panic_as(%[13]d, "%[7]s");
     }
     return &this_->data[index];
 }
 
 static void %[5]s(%[2]s *this_, long long index, %[1]s value) {
     if (index < 0 || index >= this_->len) {
-        rech_panic("%[7]s");
+        rech_panic_as(%[13]d, "%[7]s");
     }
     this_->data[index] = value;
 }
@@ -82,7 +84,7 @@ static void %[5]s(%[2]s *this_, long long index, %[1]s value) {
 // %[4]s остальных элементов по индексу.
 static %[1]s %[10]s(%[2]s *this_, long long index) {
     if (index < 0 || index >= this_->len) {
-        rech_panic("%[7]s");
+        rech_panic_as(%[13]d, "%[7]s");
     }
     %[1]s removed = this_->data[index];
     for (long long i = index; i < this_->len - 1; i++) {
@@ -112,7 +114,7 @@ static %[1]s %[12]s(%[2]s *this_) {
     return %[4]s(this_, this_->len - 1);
 }
 
-`, elemC, structC, addMethod, getMethod, setMethod, lengthMethod, outOfRangeMsg, emptyMethod, addr, removeMethod, firstMethod, lastMethod)
+`, elemC, structC, addMethod, getMethod, setMethod, lengthMethod, outOfRangeMsg, emptyMethod, addr, removeMethod, firstMethod, lastMethod, rtmsg.PanicKind(rtmsg.PanicOutOfRange))
 }
 
 // StackCollectionCode - как ListCollectionCode, для "Стопка<T>" (LIFO).
@@ -134,7 +136,7 @@ static void %[3]s(%[2]s *this_, %[1]s value) {
 
 static %[1]s %[4]s(%[2]s *this_) {
     if (this_->len == 0) {
-        rech_panic("%[7]s");
+        rech_panic_as(%[9]d, "%[7]s");
     }
     this_->len--;
     return this_->data[this_->len];
@@ -142,7 +144,7 @@ static %[1]s %[4]s(%[2]s *this_) {
 
 static %[1]s %[5]s(%[2]s *this_) {
     if (this_->len == 0) {
-        rech_panic("%[7]s");
+        rech_panic_as(%[9]d, "%[7]s");
     }
     return this_->data[this_->len - 1];
 }
@@ -155,7 +157,7 @@ static bool %[8]s(%[2]s *this_) {
     return this_->len == 0;
 }
 
-`, elemC, structC, pushMethod, popMethod, topMethod, lengthMethod, onEmptyMsg, emptyMethod)
+`, elemC, structC, pushMethod, popMethod, topMethod, lengthMethod, onEmptyMsg, emptyMethod, rtmsg.PanicKind(rtmsg.PanicEmptyCollection))
 }
 
 // QueueCollectionCode - как ListCollectionCode, для "Очередь<T>" (FIFO).
@@ -177,7 +179,7 @@ static void %[3]s(%[2]s *this_, %[1]s value) {
 
 static %[1]s %[4]s(%[2]s *this_) {
     if (this_->len == 0) {
-        rech_panic("%[7]s");
+        rech_panic_as(%[9]d, "%[7]s");
     }
     %[1]s value = this_->data[0];
     for (long long i = 1; i < this_->len; i++) {
@@ -189,7 +191,7 @@ static %[1]s %[4]s(%[2]s *this_) {
 
 static %[1]s %[5]s(%[2]s *this_) {
     if (this_->len == 0) {
-        rech_panic("%[7]s");
+        rech_panic_as(%[9]d, "%[7]s");
     }
     return this_->data[0];
 }
@@ -202,7 +204,7 @@ static bool %[8]s(%[2]s *this_) {
     return this_->len == 0;
 }
 
-`, elemC, structC, addMethod, removeMethod, firstMethod, lengthMethod, onEmptyMsg, emptyMethod)
+`, elemC, structC, addMethod, removeMethod, firstMethod, lengthMethod, onEmptyMsg, emptyMethod, rtmsg.PanicKind(rtmsg.PanicEmptyCollection))
 }
 
 // DictCollectionCode строит C-текст для "Словарь<К, В>" - компактная
@@ -352,7 +354,7 @@ static void %[8]s(%[2]s *this_, %[6]s key, %[9]s value) {
 static %[9]s %[10]s(%[2]s *this_, %[6]s key) {
     long long e = %[5]s(this_, key);
     if (e < 0) {
-        rech_panic("%[11]s");
+        rech_panic_as(%[17]d, "%[11]s");
     }
     return this_->slots[e].value;
 }
@@ -380,7 +382,7 @@ static bool %[15]s(%[2]s *this_) {
     return this_->count == 0;
 }
 
-`, resizeFn, structC, slotType, hashFn, findFn, keyC, eqFn, setMethod, valC, getMethod, notFoundMsg, hasMethod, delMethod, lengthMethod, emptyMethod, bucketFn)
+`, resizeFn, structC, slotType, hashFn, findFn, keyC, eqFn, setMethod, valC, getMethod, notFoundMsg, hasMethod, delMethod, lengthMethod, emptyMethod, bucketFn, rtmsg.PanicKind(rtmsg.PanicKeyNotFound))
 
 	return sb.String()
 }

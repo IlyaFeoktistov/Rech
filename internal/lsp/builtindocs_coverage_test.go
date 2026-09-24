@@ -22,9 +22,6 @@ import (
 func TestHoverCoversAllReservedEntityNames(t *testing.T) {
 	d := newDoc("test://a.rech", "функция главная\n{\n}\n")
 	for name := range builtins.ReservedEntityNames {
-		if name == "Паника" {
-			continue // псевдо-тип, распознаётся только в "поймать (x: Паника)" - не настоящая сущность, hover для голого имени не ожидается
-		}
 		if _, ok := d.hoverBareName(name, 1); !ok {
 			t.Errorf("нет hover для зарезервированной сущности %q (builtins.ReservedEntityNames)", name)
 		}
@@ -37,9 +34,6 @@ func TestHoverCoversAllReservedEntityNames(t *testing.T) {
 // имя из builtins.ReservedEntityNames должно вести хоть куда-то, не молчать.
 func TestDefinitionCoversAllReservedEntityNames(t *testing.T) {
 	for name := range builtins.ReservedEntityNames {
-		if name == "Паника" {
-			continue // псевдо-тип, см. комментарий в TestHoverCoversAllReservedEntityNames
-		}
 		if _, ok := builtinTypeDefinitionPos(name); !ok {
 			t.Errorf("нет \"перейти к определению\" для зарезервированной сущности %q (builtins.ReservedEntityNames)", name)
 		}

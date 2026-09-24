@@ -2,8 +2,10 @@ package cbackend
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
+	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
 // generateIRCastExpr - "(Тип) значение" (internal/semantic уже проверил
@@ -96,7 +98,9 @@ func isUnsignedFixedWidth(vt valueType) bool {
 // же кастов. rech_cast_alloc - выделение результирующей строки (аналог
 // rech_dup из httpHelpers, но не завязан на usesHTTP - кастам он нужен
 // независимо от того, используется ли HTTP-клиент).
-const castHelpers = `static char *rech_cast_alloc(const char *s, size_t len) {
+var castHelpers = strings.ReplaceAll(castHelpersText, "rech_panic(msg);", panicCallC(rtmsg.PanicBadCast, "msg")+";")
+
+const castHelpersText = `static char *rech_cast_alloc(const char *s, size_t len) {
     char *r = malloc(len + 1);
     memcpy(r, s, len);
     r[len] = '\0';
