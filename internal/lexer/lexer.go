@@ -123,6 +123,11 @@ func (l *Lexer) next() (Token, error) {
 		return Token{Type: COLON, Value: ":", Line: line, Col: col}, nil
 	case r == '.':
 		l.advance()
+		if l.peek() == '.' && l.peekAt(1) == '.' {
+			l.advance()
+			l.advance()
+			return Token{Type: ELLIPSIS, Value: "...", Line: line, Col: col}, nil
+		}
 		return Token{Type: DOT, Value: ".", Line: line, Col: col}, nil
 	case r == '+':
 		l.advance()
@@ -568,7 +573,7 @@ func (l *Lexer) readTag(line, col int) (Token, error) {
 		sb = append(sb, r)
 		l.advance()
 	}
-	return Token{Type: TAG, Value: string(sb), Line: line, Col: col}, nil
+	return Token{Type: TAG, Value: string(sb), Line: line, Col: col, EndLine: l.line}, nil
 }
 
 // validateUTF8 - небольшая защита от бинарного мусора на входе;

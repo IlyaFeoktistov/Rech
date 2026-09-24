@@ -224,7 +224,11 @@ func computeLineDepths(toks []lexer.Token, lines []string, prog *ast.Program) (d
 		// строки исходника - подсчёт по ней вслепую сбил бы дальнейшее
 		// отслеживание строк на весь остаток файла.
 		if tok.Type == lexer.TAG || tok.Type == lexer.DOC_COMMENT {
-			if n := strings.Count(tok.Value, "\n"); n > 0 {
+			n := strings.Count(tok.Value, "\n")
+			if tok.Type == lexer.TAG {
+				n = tok.EndLine - tok.Line
+			}
+			if n > 0 {
 				for l := tok.Line + 1; l <= tok.Line+n; l++ {
 					verbatim[l] = true
 				}

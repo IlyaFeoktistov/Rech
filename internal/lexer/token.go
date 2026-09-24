@@ -30,6 +30,7 @@ const (
 	COLON     // :
 	DBLCOLON  // :: (доступ к статическому члену - Тип::имя)
 	DOT       // .
+	ELLIPSIS  // ... (вариативный параметр, спред)
 
 	ASSIGN  // =
 	PLUS    // +
@@ -287,6 +288,11 @@ type Token struct {
 	// прочтения: "Тип[]" (список) и "Тип []" (пустой список захвата
 	// лямбды, parseTypeName).
 	SpaceBefore bool
+
+	// EndLine - строка исходника, на которой токен закончился (TAG: у
+	// значения экранирование "\n" уже раскодировано, поэтому число
+	// переносов в Value не равно числу физических строк).
+	EndLine int
 }
 
 func (t TokenType) String() string {
@@ -323,6 +329,8 @@ func (t TokenType) String() string {
 		return ":"
 	case DBLCOLON:
 		return "::"
+	case ELLIPSIS:
+		return "..."
 	case DOT:
 		return "."
 	case ASSIGN:

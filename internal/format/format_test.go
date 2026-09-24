@@ -932,3 +932,17 @@ func TestFormatMultilineCallTrailingBraceParen(t *testing.T) {
 		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
 	}
 }
+
+// TestFormatEscapedNewlineInBacktickIsNotSourceLine - "\n" внутри
+// обратных кавычек - экранирование, а не перенос строки исходника:
+// следующая строка не считается частью литерала.
+func TestFormatEscapedNewlineInBacktickIsNotSourceLine(t *testing.T) {
+	src := "функция г(): Строка\n{\n    вернуть склеить(`\\n`, а)\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != src {
+		t.Fatalf("строка с `\\n` переотступлена:\nполучено:\n%q\nожидалось:\n%q", got, src)
+	}
+}
