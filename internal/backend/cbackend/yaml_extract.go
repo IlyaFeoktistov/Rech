@@ -317,6 +317,9 @@ static void rech_yv_sb_putc(rech_yv_sb *sb, char c) {
 
 static char *rech_yv_sb_finish(rech_yv_sb *sb) {
     sb->buf[sb->len] = '\0';
+    if (!rech_text_valid((const unsigned char *)sb->buf, (size_t)sb->len)) {
+        return rech_text_fixed((const unsigned char *)sb->buf, (size_t)sb->len);
+    }
     return sb->buf;
 }
 

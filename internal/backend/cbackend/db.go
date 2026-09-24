@@ -131,6 +131,7 @@ extern int sqlite3_column_type(sqlite3_stmt *stmt, int col);
 extern long long sqlite3_column_int64(sqlite3_stmt *stmt, int col);
 extern double sqlite3_column_double(sqlite3_stmt *stmt, int col);
 extern const unsigned char *sqlite3_column_text(sqlite3_stmt *stmt, int col);
+extern int sqlite3_column_bytes(sqlite3_stmt *stmt, int col);
 extern int sqlite3_changes(sqlite3 *db);
 extern int sqlite3_busy_timeout(sqlite3 *db, int ms);
 
@@ -145,6 +146,7 @@ extern int PQntuples(const PGresult *res);
 extern int PQnfields(const PGresult *res);
 extern char *PQfname(const PGresult *res, int field_num);
 extern char *PQgetvalue(const PGresult *res, int tup_num, int field_num);
+extern int PQgetlength(const PGresult *res, int tup_num, int field_num);
 extern int PQgetisnull(const PGresult *res, int tup_num, int field_num);
 extern void PQclear(PGresult *res);
 extern unsigned int PQftype(const PGresult *res, int field_num);
@@ -159,6 +161,7 @@ extern int mysql_real_query(MYSQL *mysql, const char *q, unsigned long length);
 extern MYSQL_RES *mysql_store_result(MYSQL *mysql);
 extern void mysql_free_result(MYSQL_RES *result);
 extern rech_mysql_row_t mysql_fetch_row(MYSQL_RES *result);
+extern unsigned long *mysql_fetch_lengths(MYSQL_RES *result);
 extern unsigned int mysql_num_fields(MYSQL_RES *res);
 extern rech_mysql_field_t *mysql_fetch_field(MYSQL_RES *result);
 extern unsigned long long mysql_affected_rows(MYSQL *mysql);
@@ -340,13 +343,21 @@ static void rech_db_checkin(rech_db_t *db, int idx) {
 #endif
 }
 
-static const char *rech_db_dup_str(const char *s) {
+// rech_db_text - значение колонки (n байт, может содержать NUL) как
+// валидный текст (strutil.TextCode) - копия, результат БД освобождается.
+static const char *rech_db_text(const char *s, size_t n) {
     if (!s) return "";
-    size_t n = strlen(s);
     char *out = GC_MALLOC(n + 1);
     memcpy(out, s, n);
     out[n] = '\0';
-    return out;
+    if (rech_text_valid((const unsigned char *)out, n)) {
+        return out;
+    }
+    return rech_text_fixed((const unsigned char *)out, n);
+}
+
+static const char *rech_db_dup_str(const char *s) {
+    return rech_db_text(s, s ? strlen(s) : 0);
 }
 
 typedef struct { char *buf; long long len; long long cap; } rech_db_sb;
@@ -673,7 +684,8 @@ func sqliteQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictC
             } else if (ctype == 5) {
                 v = (rech_any_t){.type = &%[8]s};
             } else {
-                v = (rech_any_t){.type = &%[9]s, .v.s = rech_db_dup_str((const char *)sqlite3_column_text(stmt, i))};
+                const char *text = (const char *)sqlite3_column_text(stmt, i);
+                v = (rech_any_t){.type = &%[9]s, .v.s = rech_db_text(text, (size_t)sqlite3_column_bytes(stmt, i))};
             }
             %[3]s(row, colname, v);
         }
@@ -750,7 +762,7 @@ func pgQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCtor 
                 } else if (oid == 16) {
                     v = (rech_any_t){.type = &%[10]s, .v.b = (text[0] == 't')};
                 } else {
-                    v = (rech_any_t){.type = &%[9]s, .v.s = rech_db_dup_str(text)};
+                    v = (rech_any_t){.type = &%[9]s, .v.s = rech_db_text(text, (size_t)PQgetlength(res, r, c))};
                 }
             }
             %[3]s(row, colname, v);
@@ -821,6 +833,7 @@ func mysqlQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCt
     }
     rech_mysql_row_t row_data;
     while ((row_data = mysql_fetch_row(res)) != NULL) {
+        unsigned long *lens = mysql_fetch_lengths(res);
         %[2]s *row = %[12]s();
         for (unsigned int i = 0; i < ncols; i++) {
             rech_any_t v;
@@ -833,7 +846,7 @@ func mysqlQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCt
                 } else if (t == 0 || t == 4 || t == 5 || t == 246) {
                     v = (rech_any_t){.type = &%[7]s, .v.f64 = strtod(row_data[i], NULL)};
                 } else {
-                    v = (rech_any_t){.type = &%[9]s, .v.s = rech_db_dup_str(row_data[i])};
+                    v = (rech_any_t){.type = &%[9]s, .v.s = rech_db_text(row_data[i], (size_t)lens[i])};
                 }
             }
             %[3]s(row, colnames[i], v);

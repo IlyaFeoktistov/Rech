@@ -111,6 +111,11 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 			return fmt.Sprintf("%s(rech_argc, rech_argv)", callee), fromIRType(e.Type), nil
 		}
 		callCode := fmt.Sprintf("%s(%s)", callee, strings.Join(argCodes, ", "))
+		if isExtern && e.HasReturn && e.Type.Kind == ir.KindString {
+			// Строка от C - валидный текст (strutil.TextCode).
+			ctx.usesText = true
+			return fmt.Sprintf("rech_text_z(%s)", callCode), fromIRType(e.Type), nil
+		}
 		if _, _, isFn := ctx.ffiFuncPointerSig(e.Type); isExtern && e.HasReturn && isFn {
 			code, err := ctx.unmarshalFuncPointer(e.Type, callCode, fmt.Sprintf(rtmsg.FFINullFuncPointerResultTemplate, cName))
 			if err != nil {
@@ -142,6 +147,10 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 					return "", typeUnknown, err
 				}
 				return unmarshaled, fromIRType(e.Type), nil
+			}
+			if e.Type.Kind == ir.KindString {
+				ctx.usesText = true
+				return fmt.Sprintf("rech_text_z(%s)", access), fromIRType(e.Type), nil
 			}
 		}
 		return access, fromIRType(e.Type), nil

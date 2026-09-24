@@ -36,6 +36,7 @@ package interp
 
 import (
 	"fmt"
+	"github.com/IlyaFeoktistov/Rech/internal/textutf8"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -269,7 +270,7 @@ func (in *Interp) readFFIValue(rv reflect.Value, irType ir.Type) Value {
 	}
 	switch rv.Kind() {
 	case reflect.String:
-		return Value{Type: irType, S: rv.String()}
+		return Value{Type: irType, S: textutf8.Fix(rv.String())}
 	case reflect.Bool:
 		return Value{Type: irType, B: rv.Bool()}
 	case reflect.Float32, reflect.Float64:

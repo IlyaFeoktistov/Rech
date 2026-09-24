@@ -106,8 +106,7 @@ static char *rech_http_dechunk(const char *body) {
             p += 2;
         }
     }
-    out[len] = '\0';
-    return out;
+    return rech_text_take(out, len);
 }
 
 static int rech_http_try_dechunk(const char *body, long long avail, char **out, long long *out_len) {

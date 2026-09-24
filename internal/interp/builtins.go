@@ -149,12 +149,11 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		if max <= 0 {
 			panicRuntime("%s", rtmsg.ReadInvalidMax)
 		}
-		buf := make([]byte, max)
-		n, err := args[0].File.Read(buf)
-		if err != nil && err != io.EOF {
+		text, err := in.readTextChunk(args[0].File, args[0].File, int(max), true)
+		if err != nil {
 			panicRuntime("%s", rtmsg.ReadIOFailed)
 		}
-		return stringValue(string(buf[:n])), true
+		return stringValue(text), true
 	case "записать":
 		n, err := args[0].File.WriteString(args[1].S)
 		if err != nil || n != len(args[1].S) {
@@ -162,6 +161,7 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		}
 		return Value{}, true
 	case "закрыть":
+		in.pending.take(args[0].File)
 		args[0].File.Close()
 		return Value{}, true
 	case "прочитать_файл":
@@ -184,11 +184,12 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 			panicRuntime("%s", rtmsg.ReadBytesInvalidMax)
 		}
 		buf := make([]byte, max)
-		n, err := args[0].File.Read(buf)
-		if err != nil && err != io.EOF {
+		n := copy(buf, in.pending.take(args[0].File))
+		k, err := io.ReadFull(args[0].File, buf[n:])
+		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 			panicRuntime("%s", rtmsg.ReadBytesIOFailed)
 		}
-		return bytesValue(buf[:n]), true
+		return bytesValue(buf[:n+k]), true
 	case "записать_байты":
 		data := bytesFromValue(args[1])
 		n, err := args[0].File.Write(data)
@@ -321,13 +322,12 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		if max <= 0 {
 			panicRuntime("%s", rtmsg.SocketRecvInvalidMax)
 		}
-		buf := make([]byte, max)
 		applyDeadline(args[0].Conn, args[0].Conn)
-		n, err := args[0].Conn.Read(buf)
-		if err != nil && err != io.EOF {
+		text, err := in.readTextChunk(args[0].Conn, args[0].Conn, int(max), false)
+		if err != nil {
 			panicRuntime("%s", rtmsg.SocketRecvFailed)
 		}
-		return stringValue(string(buf[:n])), true
+		return stringValue(text), true
 	case "запрос":
 		return in.httpRequest(args[0]), true
 	case "принять_http":
@@ -497,6 +497,7 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 	case "закрыть_сокет":
 		switch {
 		case args[0].Conn != nil:
+			in.pending.take(args[0].Conn)
 			args[0].Conn.Close()
 		case args[0].Listener != nil:
 			args[0].Listener.Close()

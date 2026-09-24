@@ -181,8 +181,7 @@ static DWORD WINAPI rech_read_pipe_thread(LPVOID arg) {
         }
         len += (size_t)n;
     }
-    buf[len] = '\0';
-    a->result = buf;
+    a->result = rech_text_take(buf, len);
     return 0;
 }
 #endif
@@ -278,8 +277,8 @@ static %[4]s rech_run_command(const char *cmd, const char *dir) {
     long long code = WIFEXITED(status) ? (long long)WEXITSTATUS(status)
                     : WIFSIGNALED(status) ? (long long)(128 + WTERMSIG(status)) : -1;
     %[4]s result;
-    result.%[5]s = out_buf;
-    result.%[6]s = err_buf;
+    result.%[5]s = rech_text_take(out_buf, out_len);
+    result.%[6]s = rech_text_take(err_buf, err_len);
     result.%[7]s = code;
     return result;
 #else

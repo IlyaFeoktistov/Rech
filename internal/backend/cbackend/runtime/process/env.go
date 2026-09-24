@@ -20,8 +20,7 @@ func EnvHelpers(nullableStrC string) string {
     size_t n = strlen(v);
     char *out = malloc(n + 1);
     memcpy(out, v, n);
-    out[n] = '\0';
-    return %[1]s_wrap(out);
+    return %[1]s_wrap(rech_text_take(out, n));
 }
 
 `, nullableStrC)

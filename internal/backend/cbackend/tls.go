@@ -198,21 +198,8 @@ static long long rech_socket_read_raw(rech_socket_t s, char *buf, long long max)
     return ssl != NULL ? SSL_read(ssl, buf, (int)max) : recv(s, buf, (int)max, 0);
 }
 
-static char *rech_recv(rech_socket_t s, long long max) {
-    if (max <= 0) {
-        rech_panic("%[4]s");
-    }
-    char *buf = malloc((size_t)max + 1);
-    long long n = rech_socket_read_raw(s, buf, max);
-    if (n < 0) {
-        free(buf);
-        rech_panic("%[5]s");
-    }
-    buf[n] = '\0';
-    return buf;
-}
-
-static void rech_close_socket(rech_socket_t s) {
+%[7]sstatic void rech_close_socket(rech_socket_t s) {
+    rech_pend_drop((void *)(intptr_t)s);
     rech_tls_entry_t *entry = rech_tls_unregister(s);
     if (entry != NULL) {
         if (entry->ssl != NULL) {
@@ -231,7 +218,7 @@ static void rech_close_socket(rech_socket_t s) {
 #endif
 }
 
-`, rtmsg.SocketAcceptFailed, rtmsg.TLSHandshakeFailed, rtmsg.SocketSendFailed, rtmsg.SocketRecvInvalidMax, rtmsg.SocketRecvFailed, mangleType("?Сокет"))
+`, rtmsg.SocketAcceptFailed, rtmsg.TLSHandshakeFailed, rtmsg.SocketSendFailed, rtmsg.SocketRecvInvalidMax, rtmsg.SocketRecvFailed, mangleType("?Сокет"), recvTextCode)
 
 // tlsListenSecureCode - "слушать_tcp_защищённо(порт, файл_сертификата,
 // файл_ключа)": обычный rech_listen_tcp (bind+listen, socketTypeAndConnectCode

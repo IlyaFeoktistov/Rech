@@ -550,6 +550,9 @@ func (g *pbDecGen) fieldParseCaseCode(exprC string, t ir.Type) (string, error) {
                 char *s = GC_MALLOC((size_t)n + 1);
                 memcpy(s, data, (size_t)n);
                 s[n] = '\0';
+                if (!rech_text_valid((const unsigned char *)s, (size_t)n)) {
+                    s = rech_text_fixed((const unsigned char *)s, (size_t)n);
+                }
                 %s = s;
             } else {
                 rech_pb_skip(p, wt);
@@ -677,6 +680,9 @@ func (g *pbDecGen) repeatedFieldParseCode(listExprC string, gi ir.GenericInstant
                 char *s = GC_MALLOC((size_t)n + 1);
                 memcpy(s, data, (size_t)n);
                 s[n] = '\0';
+                if (!rech_text_valid((const unsigned char *)s, (size_t)n)) {
+                    s = rech_text_fixed((const unsigned char *)s, (size_t)n);
+                }
                 %s;
             } else {
                 rech_pb_skip(p, wt);

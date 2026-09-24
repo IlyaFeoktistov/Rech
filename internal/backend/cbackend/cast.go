@@ -173,6 +173,11 @@ static bool rech_cast_str_to_bool(const char *s) {
 static char *rech_cast_char_to_str(int32_t c) {
     unsigned char buf[4];
     size_t len;
+    if (c <= 0 || c > 0x10FFFF || (c >= 0xD800 && c <= 0xDFFF)) {
+        /* Не кодовая точка текста (NUL, суррогат, вне Unicode) - U+FFFD,
+           тот же результат, что string(rune) + textutf8.Fix в interp. */
+        return rech_cast_alloc("\xEF\xBF\xBD", 3);
+    }
     if (c < 0x80) {
         buf[0] = (unsigned char)c;
         len = 1;

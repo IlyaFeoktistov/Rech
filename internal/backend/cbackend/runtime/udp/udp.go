@@ -29,9 +29,8 @@ func DatagramHelpers(datagramC, dataField, addrField, portField string) string {
         free(buf);
         rech_panic("%[7]s");
     }
-    buf[n] = '\0';
     %[1]s d;
-    d.%[2]s = buf;
+    d.%[2]s = rech_text_take(buf, (size_t)n);
     d.%[3]s = rech_dup(inet_ntoa(from.sin_addr));
     d.%[4]s = (long long)ntohs(from.sin_port);
     return d;

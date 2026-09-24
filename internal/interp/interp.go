@@ -36,6 +36,7 @@ import (
 	"bufio"
 	"database/sql"
 	"fmt"
+	"github.com/IlyaFeoktistov/Rech/internal/textutf8"
 	"io"
 	"net"
 	"os"
@@ -245,7 +246,11 @@ type Value struct {
 
 func intValue(v int64) Value     { return Value{Type: ir.TypeInt, I: v} }
 func floatValue(v float64) Value { return Value{Type: ir.TypeFloat, F: v} }
-func stringValue(v string) Value { return Value{Type: ir.TypeString, S: v} }
+
+// stringValue - Строка всегда валидный UTF-8 без NUL (internal/textutf8):
+// любые байты, откуда бы ни пришли, чинятся здесь - единая точка входа
+// строк интерпретатора (cbackend чинит на каждой внешней границе).
+func stringValue(v string) Value { return Value{Type: ir.TypeString, S: textutf8.Fix(v)} }
 func boolValue(v bool) Value     { return Value{Type: ir.TypeBool, B: v} }
 func fileValue(f *os.File) Value { return Value{Type: ir.TypeFile, File: f} }
 
@@ -465,6 +470,9 @@ func panicRuntime(format string, args ...any) {
 // "rech debug") - обычный Run/rech test его не заводит вовсе, поэтому не
 // платит ни за какие проверки/блокировки отладчика.
 type Interp struct {
+	// pending - отложенные байты файлов/сокетов при чтении текста кусками
+	// (textchunk.go).
+	pending    pendingBytes
 	out        io.Writer
 	stdin      *bufio.Reader
 	funcs      map[string]*ir.Function

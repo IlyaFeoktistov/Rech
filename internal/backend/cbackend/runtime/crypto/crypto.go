@@ -756,7 +756,6 @@ static char *rech_base64url_decode(const char *s) {
         out[oi++] = (char)((vals[0] << 2) | (vals[1] >> 4));
         out[oi++] = (char)(((vals[1] & 0xf) << 4) | (vals[2] >> 2));
     }
-    out[oi] = '\0';
-    return out;
+    return rech_text_take(out, oi);
 }
 `, rtmsg.Base64URLInvalidInput, rtmsg.UnknownHashAlgorithm)

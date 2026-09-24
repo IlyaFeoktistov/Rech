@@ -359,10 +359,18 @@ static void rech_jv_sb_putc(rech_jv_sb *sb, char c) {
 
 static char *rech_jv_sb_finish(rech_jv_sb *sb) {
     sb->buf[sb->len] = '\0';
+    if (!rech_text_valid((const unsigned char *)sb->buf, (size_t)sb->len)) {
+        return rech_text_fixed((const unsigned char *)sb->buf, (size_t)sb->len);
+    }
     return sb->buf;
 }
 
 static void rech_jv_sb_utf8(rech_jv_sb *sb, unsigned int cp) {
+    if (cp == 0 || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) {
+        /* Не кодовая точка текста - U+FFFD (правило "Строка - валидный
+           UTF-8 без NUL", internal/textutf8). */
+        cp = 0xFFFD;
+    }
     if (cp <= 0x7F) {
         rech_jv_sb_putc(sb, (char)cp);
     } else if (cp <= 0x7FF) {

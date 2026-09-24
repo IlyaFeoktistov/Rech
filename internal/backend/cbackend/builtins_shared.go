@@ -1091,7 +1091,7 @@ const argFuncHelper = `static const char *rech_arg(long long i) {
         snprintf(msg, sizeof(msg), "аргумент: индекс %lld вне диапазона", i);
         rech_panic(msg);
     }
-    return rech_argv[i + 1];
+    return rech_text_z(rech_argv[i + 1]);
 }
 `
 
@@ -1306,28 +1306,12 @@ func intModHelperText(prefix string, w intWidthHelperSpec) string {
 // rtmsg.ReadIntFormat/ReadFloatFormat (интерпретатор строит то же
 // сообщение через fmt.Sprintf с тем же шаблоном - см. internal/interp).
 var readHelpers = fmt.Sprintf(`static char *rech_read_line(void) {
-    size_t cap = 128, len = 0;
-    char *buf = malloc(cap);
-    for (;;) {
-        if (!fgets(buf + len, (int)(cap - len), stdin)) {
-            if (len == 0) {
-                rech_panic("%s");
-            }
-            break;
-        }
-        len += strlen(buf + len);
-        if (len > 0 && buf[len - 1] == '\n') {
-            break;
-        }
-        if (len + 1 >= cap) {
-            cap *= 2;
-            buf = realloc(buf, cap);
-        }
+    int ok = 0;
+    char *line = rech_file_read_line(stdin, &ok);
+    if (!ok) {
+        rech_panic("%s");
     }
-    while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r')) {
-        buf[--len] = '\0';
-    }
-    return buf;
+    return line;
 }
 
 // rech_trim_line обрезает пробелы/табы с обоих концов line на месте -
@@ -1425,17 +1409,36 @@ static rech_file_t rech_open_append(const char *path) {
     return rech_open_mode(path, "ab", L"ab", "открыть_для_дозаписи");
 }
 
+// rech_read - "прочитать(файл, максимум)": до max байт, кусок кончается
+// целым символом - оборванный хвост откладывается до следующего чтения
+// (rech_pend_*, strutil.TextCode); если первый же символ длиннее max, он
+// дочитывается целиком.
 static char *rech_read(rech_file_t f, long long max) {
     if (max <= 0) {
         rech_panic("%[1]s");
     }
-    char *buf = malloc((size_t)max + 1);
-    size_t n = fread(buf, 1, (size_t)max, f);
+    unsigned char *buf = malloc((size_t)max + 4);
+    size_t n = 0;
+    int c;
+    while (n < (size_t)max && (c = rech_pend_next(f)) != -1) {
+        buf[n++] = (unsigned char)c;
+    }
+    n += fread(buf + n, 1, (size_t)max - n, f);
     if (n == 0 && ferror(f)) {
         rech_panic("%[2]s");
     }
-    buf[n] = '\0';
-    return buf;
+    size_t tail = rech_utf8_incomplete_tail(buf, n);
+    if (tail > 0 && !feof(f)) {
+        if (tail == n) {
+            while (rech_utf8_seq(buf, n) == -1 && (c = getc(f)) != EOF) {
+                buf[n++] = (unsigned char)c;
+            }
+        } else {
+            rech_pend_put(f, buf + n - tail, (int)tail);
+            n -= tail;
+        }
+    }
+    return rech_text_take((char *)buf, n);
 }
 
 static void rech_write(rech_file_t f, const char *s) {
@@ -1446,6 +1449,7 @@ static void rech_write(rech_file_t f, const char *s) {
 }
 
 static void rech_close(rech_file_t f) {
+    rech_pend_drop(f);
     fclose(f);
 }
 
@@ -1459,33 +1463,10 @@ static void rech_close(rech_file_t f) {
 // файла без завершающего "\n" всё равно возвращается один раз
 // (*ok == true) - цикл увидит конец файла только на СЛЕДУЮЩЕЙ попытке.
 static char *rech_read_line_from_file(rech_file_t f, bool *ok) {
-    size_t cap = 128, len = 0;
-    char *buf = malloc(cap);
-    int got_any = 0;
-    for (;;) {
-        if (!fgets(buf + len, (int)(cap - len), f)) {
-            break;
-        }
-        got_any = 1;
-        len += strlen(buf + len);
-        if (len > 0 && buf[len - 1] == '\n') {
-            break;
-        }
-        if (len + 1 >= cap) {
-            cap *= 2;
-            buf = realloc(buf, cap);
-        }
-    }
-    if (!got_any) {
-        free(buf);
-        *ok = false;
-        return NULL;
-    }
-    while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r')) {
-        buf[--len] = '\0';
-    }
-    *ok = true;
-    return buf;
+    int got = 0;
+    char *line = rech_file_read_line(f, &got);
+    *ok = got;
+    return line;
 }
 
 // rech_read_whole_file/rech_write_file/rech_append_file - высокоуровневые
@@ -1514,9 +1495,8 @@ static char *rech_read_whole_file(const char *path) {
     if (ferror(f)) {
         rech_panic("%[2]s");
     }
-    buf[len] = '\0';
     fclose(f);
-    return buf;
+    return rech_text_take(buf, len);
 }
 
 static void rech_write_whole_file(const char *path, const char *content, const char *mode, const wchar_t *wmode, const char *op) {
@@ -1888,28 +1868,57 @@ static long long rech_socket_read_raw(rech_socket_t s, char *buf, long long max)
     return recv(s, buf, (int)max, 0);
 }
 
-static char *rech_recv(rech_socket_t s, long long max) {
-    if (max <= 0) {
-        rech_panic("%[3]s");
-    }
-    char *buf = malloc((size_t)max + 1);
-    long long n = rech_socket_read_raw(s, buf, max);
-    if (n < 0) {
-        free(buf);
-        rech_panic("%[4]s");
-    }
-    buf[n] = '\0';
-    return buf;
-}
-
-static void rech_close_socket(rech_socket_t s) {
+%[6]sstatic void rech_close_socket(rech_socket_t s) {
+    rech_pend_drop((void *)(intptr_t)s);
 #ifdef _WIN32
     closesocket(s);
 #else
     close(s);
 #endif
 }
-`, rtmsg.SocketAcceptFailed, rtmsg.SocketSendFailed, rtmsg.SocketRecvInvalidMax, rtmsg.SocketRecvFailed, mangleType("?Сокет"))
+`, rtmsg.SocketAcceptFailed, rtmsg.SocketSendFailed, rtmsg.SocketRecvInvalidMax, rtmsg.SocketRecvFailed, mangleType("?Сокет"), recvTextCode)
+
+// recvTextCode - rech_recv, общий для обычных и TLS-сокетов (различаются
+// только rech_socket_read_raw, объявленным раньше).
+var recvTextCode = fmt.Sprintf(`// rech_recv - "получить(сокет, максимум)": одно чтение до max байт, кусок
+// кончается целым символом - тот же приём с отложенным хвостом, что у
+// rech_read (файл), только ключ - сам сокет.
+static char *rech_recv(rech_socket_t s, long long max) {
+    if (max <= 0) {
+        rech_panic("%[1]s");
+    }
+    void *key = (void *)(intptr_t)s;
+    unsigned char *buf = malloc((size_t)max + 4);
+    long long n = 0;
+    int c;
+    while (n < max && (c = rech_pend_next(key)) != -1) {
+        buf[n++] = (unsigned char)c;
+    }
+    int eof = 0;
+    if (n < max) {
+        long long k = rech_socket_read_raw(s, (char *)buf + n, max - n);
+        if (k < 0) {
+            free(buf);
+            rech_panic("%[2]s");
+        }
+        eof = k == 0;
+        n += k;
+    }
+    size_t tail = rech_utf8_incomplete_tail(buf, (size_t)n);
+    if (tail > 0 && !eof) {
+        if (tail == (size_t)n) {
+            while (rech_utf8_seq(buf, (size_t)n) == -1 && n < 4 && rech_socket_read_raw(s, (char *)buf + n, 1) == 1) {
+                n++;
+            }
+        } else {
+            rech_pend_put(key, buf + n - tail, (int)tail);
+            n -= (long long)tail;
+        }
+    }
+    return rech_text_take((char *)buf, (size_t)n);
+}
+
+`, rtmsg.SocketRecvInvalidMax, rtmsg.SocketRecvFailed)
 
 // socketHelpers - сетевые примитивы БЕЗ TLS: TCP-сервер (rech_listen_tcp +
 // rech_accept), UDP-сервер (rech_listen_udp - bind без connect/listen,
@@ -1956,7 +1965,7 @@ const rechDupHelper = `static char *rech_dup(const char *s) {
 
 `
 
-var httpHelpers = fmt.Sprintf(`static char *rech_recv_until_close(rech_socket_t s) {
+var httpHelpers = fmt.Sprintf(`static char *rech_recv_until_close(rech_socket_t s, size_t *out_len) {
     size_t cap = 4096, len = 0;
     char *buf = malloc(cap);
     for (;;) {
@@ -1975,6 +1984,7 @@ var httpHelpers = fmt.Sprintf(`static char *rech_recv_until_close(rech_socket_t 
         len += (size_t)n;
     }
     buf[len] = '\0';
+    *out_len = len;
     return buf;
 }
 
@@ -2014,7 +2024,8 @@ static %[7]s rech_http_request(%[8]s req) {
     rech_send(s, full);
     free(full);
 
-    char *raw = rech_recv_until_close(s);
+    size_t raw_len = 0;
+    char *raw = rech_recv_until_close(s, &raw_len);
     rech_close_socket(s);
 
     %[7]s resp;
@@ -2029,12 +2040,14 @@ static %[7]s rech_http_request(%[8]s req) {
         size_t header_len = (size_t)(body_sep - raw);
         char *headers = malloc(header_len + 1);
         memcpy(headers, raw, header_len);
-        headers[header_len] = '\0';
-        resp.%[4]s = headers;
+        resp.%[4]s = rech_text_take(headers, header_len);
         if (rech_http_is_chunked(raw, body_sep)) {
             resp.%[6]s = rech_http_dechunk(body_sep + 4);
         } else {
-            resp.%[6]s = rech_dup(body_sep + 4);
+            size_t body_len = raw_len - (size_t)(body_sep + 4 - raw);
+            char *body = malloc(body_len + 1);
+            memcpy(body, body_sep + 4, body_len);
+            resp.%[6]s = rech_text_take(body, body_len);
         }
     } else {
         resp.%[4]s = rech_dup("");

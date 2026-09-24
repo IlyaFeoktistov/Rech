@@ -276,11 +276,15 @@ static void rech_xml_sb_puts(rech_xml_sb *sb, const char *s) {
 }
 
 static char *rech_xml_sb_finish(rech_xml_sb *sb) {
-    sb->buf[sb->len] = '\0';
-    return sb->buf;
+    return rech_text_take(sb->buf, (size_t)sb->len);
 }
 
 static void rech_xml_sb_utf8(rech_xml_sb *sb, unsigned int cp) {
+    if (cp == 0 || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) {
+        /* Не кодовая точка текста - U+FFFD (правило "Строка - валидный
+           UTF-8 без NUL", internal/textutf8). */
+        cp = 0xFFFD;
+    }
     if (cp <= 0x7F) {
         rech_xml_sb_putc(sb, (char)cp);
     } else if (cp <= 0x7FF) {

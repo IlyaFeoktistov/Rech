@@ -926,7 +926,7 @@ func TestGenerateFromIRHTTPRequestBuiltinCall(t *testing.T) {
 		"rech_http_request(v_r)",
 		"static rech_T_otvet rech_http_request(rech_T_zapros req)",
 		"} rech_T_zapros;", "} rech_T_otvet;",
-		"static char *rech_recv_until_close(rech_socket_t s)",
+		"static char *rech_recv_until_close(rech_socket_t s, size_t *out_len)",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("ожидалось %q в выводе, получено:\n%s", want, out)

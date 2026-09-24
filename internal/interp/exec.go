@@ -1,7 +1,6 @@
 package interp
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"strings"
@@ -341,7 +340,8 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 // тело цикла всё равно должно выполниться на ней один раз, прежде чем
 // цикл завершится.
 func (in *Interp) execForEachFileLine(f *os.File, s *ir.ForEachStmt, env *Env, cc *callCtx) (ctrl, error) {
-	reader := bufio.NewReader(f)
+	reader, release := in.fileLineReader(f, f)
+	defer release()
 	for {
 		line, readErr := reader.ReadString('\n')
 		if readErr != nil && line == "" {

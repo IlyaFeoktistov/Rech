@@ -123,6 +123,10 @@ type irGenCtx struct {
 	// "<stdlib.h>"/"<math.h>" по СОБСТВЕННЫМ причинам (usesMemcpy/usesCast/
 	// usesMath/... - см. их же сборку ниже).
 	includesStringH bool
+	// usesText - хоть одна точка входа внешних байт в Строку (файлы,
+	// сокеты, процессы, БД, FFI, строка_из_байт, декодеры) - эмитит
+	// strutil.TextCode.
+	usesText        bool
 	includesStdlibH bool
 	includesMathH   bool
 	// usesGC - нужен ли Boehm GC (#include <gc.h>, GC_INIT(), см.
@@ -1132,7 +1136,9 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// теперь, тела выше (ctx.usesMemcpy/usesCast/usesRandom/... - и то, что
 	// ниже собирает "#include <...>", ir_generator.go, sb) - единственное
 	// место, где эти флаги взводятся, поэтому раньше их не узнать.
-	ctx.includesStringH = ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesPanicCatch || ctx.usesStringSplit || ctx.usesRegex || ctx.usesHTTPHeaders || ctx.usesHTTPHeaderValues || ctx.usesColor || ctx.usesSubprocess || ctx.usesCwd || hasStructTargets || prog.UsesReflection || ctx.usesTZ || ctx.usesDateParse
+	// Точки входа внешних байт в Строку - используют strutil.TextCode.
+	ctx.usesText = ctx.usesText || ctx.usesFileIO || ctx.usesConsoleInput || ctx.usesByteStringConv || ctx.usesBytesIO || ctx.usesSockets || ctx.usesEnv || ctx.usesArgs || ctx.usesSubprocess || prog.UsesDB || ctx.usesHTTP || ctx.usesHTTPServer || ctx.usesHTTP2 || ctx.usesMultipart || ctx.usesUDPDatagram || ctx.usesCrypto || ctx.usesAES || hasStructTargets || ctx.usesQueryParams
+	ctx.includesStringH = ctx.usesText || ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesPanicCatch || ctx.usesStringSplit || ctx.usesRegex || ctx.usesHTTPHeaders || ctx.usesHTTPHeaderValues || ctx.usesColor || ctx.usesSubprocess || ctx.usesCwd || hasStructTargets || prog.UsesReflection || ctx.usesTZ || ctx.usesDateParse
 	// usesNullables/prog.UsesReflection - те же два условия, что у panicGate
 	// (ниже) сверх её собственных: panicGate решает, эмитить ли panicHelper
 	// (безусловный exit(1)), includesStdlibH - подключать ли <stdlib.h>, где
@@ -1144,7 +1150,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// "код" (см. package doc systemExceptionFields), значит panicHelper (а
 	// с ним и <stdlib.h>) эмитится в подавляющем большинстве программ, не
 	// только там, где пользователь сам пишет "?Тип".
-	ctx.includesStdlibH = ctx.usesConcat || usesGenerics || usesNullables || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesColor || ctx.usesQueryParams || ctx.usesCookies || ctx.usesRandom || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesRegex || ctx.usesHTTPHeaders || ctx.usesHTTPHeaderValues || hasStructTargets || ctx.usesExit || ctx.usesTZ || ctx.usesHumanDate || prog.UsesReflection
+	ctx.includesStdlibH = ctx.usesText || ctx.usesConcat || usesGenerics || usesNullables || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesColor || ctx.usesQueryParams || ctx.usesCookies || ctx.usesRandom || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesRegex || ctx.usesHTTPHeaders || ctx.usesHTTPHeaderValues || hasStructTargets || ctx.usesExit || ctx.usesTZ || ctx.usesHumanDate || prog.UsesReflection
 	ctx.includesMathH = ctx.usesMath
 	if len(prog.ExternFuncs) > 0 {
 		protos.WriteString(externSymbolMacros)
@@ -1511,6 +1517,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// socketHelpers/castHelpers и т. п., ниже этой строки, но раньше
 	// exceptionRuntimeCode) остались валидным C (объявление обязано
 	// предшествовать первому вызову).
+	// strutil.TextCode - починка внешних байт в валидный текст (правило
+	// "Строка - валидный UTF-8 без NUL", internal/textutf8) - раньше
+	// любого хелпера, читающего внешние данные.
+	appendCodeIf(&sb, ctx.usesText, strutil.TextCode)
 	panicGate := usesGenerics || usesNullables || ctx.usesPanic || ctx.usesCast || prog.UsesReflection || ctx.usesPanicCatch
 	if ctx.usesPanicCatch {
 		appendCodeIf(&sb, panicGate, "static void rech_panic(const char *msg);\n")

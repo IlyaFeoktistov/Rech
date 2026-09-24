@@ -107,8 +107,7 @@ static char *rech_path_url_decode(const char *s, size_t len) {
         }
         out[o++] = s[i];
     }
-    out[o] = '\0';
-    return out;
+    return rech_text_take(out, o);
 }
 
 static char *rech_recv_http_request(rech_socket_t s, long long *out_len) {
@@ -240,9 +239,8 @@ static void rech_http_parse_head(const char *raw, char **out_method, char **out_
         size_t method_len = (size_t)(sp1 - raw);
         char *method = malloc(method_len + 1);
         memcpy(method, raw, method_len);
-        method[method_len] = '\0';
         free(*out_method);
-        *out_method = method;
+        *out_method = rech_text_take(method, method_len);
 
         const char *sp2 = strchr(sp1 + 1, ' ');
         if (sp2 && sp2 < line_end) {
@@ -266,7 +264,7 @@ static void rech_http_parse_head(const char *raw, char **out_method, char **out_
                 memcpy(combined + decoded_len, q, suffix_len + 1);
                 free(decoded_seg);
                 free(raw_path);
-                *out_path = combined;
+                *out_path = rech_text_take(combined, decoded_len + suffix_len);
             } else {
                 free(raw_path);
                 *out_path = decoded_seg;
@@ -280,9 +278,8 @@ static void rech_http_parse_head(const char *raw, char **out_method, char **out_
         size_t header_len = (size_t)(body_sep - hdr_start);
         char *headers = malloc(header_len + 1);
         memcpy(headers, hdr_start, header_len);
-        headers[header_len] = '\0';
         free(*out_headers);
-        *out_headers = headers;
+        *out_headers = rech_text_take(headers, header_len);
         *out_body_sep = body_sep;
     }
 }
@@ -299,7 +296,10 @@ static %[7]s rech_http_accept_request(rech_socket_t s) {
     rech_http_parse_head(raw, &req.%[1]s, &req.%[2]s, &req.%[4]s, &body_sep);
     if (body_sep) {
         free(req.%[6]s);
-        req.%[6]s = rech_dup(body_sep + 4);
+        size_t body_len = (size_t)raw_len - (size_t)(body_sep + 4 - raw);
+        char *body = malloc(body_len + 1);
+        memcpy(body, body_sep + 4, body_len);
+        req.%[6]s = rech_text_take(body, body_len);
     }
     free(raw);
     return req;
@@ -442,8 +442,7 @@ static char *rech_qp_url_decode(const char *s, long long len) {
             out[o++] = s[i];
         }
     }
-    out[o] = '\0';
-    return out;
+    return rech_text_take(out, o);
 }
 
 static %[1]s *rech_query_params(const char *path) {

@@ -207,7 +207,7 @@ static %[3]s *rech_parse_multipart(%[1]s *body, const char *headers) {
         size_t part_hdr_len = (size_t)(hdr_end - pos);
         char *part_headers = malloc(part_hdr_len + 1);
         memcpy(part_headers, pos, part_hdr_len);
-        part_headers[part_hdr_len] = '\0';
+        part_headers = rech_text_take(part_headers, part_hdr_len);
 
         const unsigned char *content = hdr_end + 4;
         const unsigned char *next = rech_memfind(content, (long long)(end_of_body - content), delim, delim_len);

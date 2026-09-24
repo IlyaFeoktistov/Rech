@@ -106,7 +106,6 @@ static char *rech_aes_decrypt_hex(const char *ciphertext_hex, const char *passph
         rech_panic("%[3]s");
     }
     outlen += tmplen;
-    plaintext[outlen] = '\0';
-    return (char *)plaintext;
+    return rech_text_take((char *)plaintext, (size_t)outlen);
 }
 `, rtmsg.AESRandomFailed, rtmsg.AESCiphertextInvalid, rtmsg.AESAuthenticationFailed)

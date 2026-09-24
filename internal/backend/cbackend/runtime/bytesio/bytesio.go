@@ -42,19 +42,17 @@ func WrapHelper(mangledByteList string) string {
 // StringConvHelpers - "строка_из_байт"/"байты_из_строки" (мост между
 // "Список<Байт>" и "Строка" - см. package doc registerBytesIOFuncs,
 // internal/semantic/bytesio.go, зачем он нужен). "rech_string_from_bytes"
-// физически копирует ВСЕ байты в новый буфер (даже если среди них есть
-// нулевые) - потеря происходит не здесь, а позже, у любой операции,
-// читающей результат через strlen (врождённое ограничение null-terminated
-// "Строка" в cbackend, не новое). "rech_bytes_from_string" не теряет
-// ничего - strlen(s) уже и есть весь реальный размер содержимого Строки.
+// - по правилу "Строка - валидный UTF-8 без NUL" (rech_text_take,
+// strutil.TextCode): невалидные байты и NUL становятся U+FFFD.
+// "rech_bytes_from_string" не теряет ничего - в Строке нет NUL, strlen(s)
+// и есть весь её размер.
 func StringConvHelpers(mangledByteList string) string {
 	return fmt.Sprintf(`static char *rech_string_from_bytes(%[1]s *b) {
     char *out = malloc((size_t)b->len + 1);
     if (b->len > 0) {
         memcpy(out, b->data, (size_t)b->len);
     }
-    out[b->len] = '\0';
-    return out;
+    return rech_text_take(out, (size_t)b->len);
 }
 
 static %[1]s *rech_bytes_from_string(const char *s) {
@@ -71,7 +69,12 @@ func IOHelpers(mangledByteList string) string {
         rech_panic("%[2]s");
     }
     unsigned char *buf = malloc((size_t)max);
-    size_t n = fread(buf, 1, (size_t)max, f);
+    size_t n = 0;
+    int c;
+    while (n < (size_t)max && (c = rech_pend_next(f)) != -1) {
+        buf[n++] = (unsigned char)c;
+    }
+    n += fread(buf + n, 1, (size_t)max - n, f);
     if (n == 0 && ferror(f)) {
         free(buf);
         rech_panic("%[3]s");

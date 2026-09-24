@@ -364,6 +364,9 @@ static int rech_http2_on_header(nghttp2_session *ng, const nghttp2_frame *frame,
     char *v = GC_MALLOC(valuelen + 1);
     memcpy(v, value, valuelen);
     v[valuelen] = '\0';
+    if (!rech_text_valid((const unsigned char *)v, valuelen)) {
+        v = rech_text_fixed((const unsigned char *)v, valuelen);
+    }
     if (strcmp(n, ":path") == 0) {
         st->path = v;
     } else if (strcmp(n, ":method") == 0) {
