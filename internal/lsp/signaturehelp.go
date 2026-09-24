@@ -44,6 +44,10 @@ func (d *doc) signatureHelp(line, col int) (SignatureHelp, bool) {
 		return SignatureHelp{}, false
 	}
 	sig.ActiveParam = d.activeParamAt(openIdx, line, col)
+	// Все аргументы с позиции вариативного параметра - его.
+	if last := len(sig.ParamLabels) - 1; last >= 0 && sig.ActiveParam > last && strings.HasPrefix(sig.ParamLabels[last], "...") {
+		sig.ActiveParam = last
+	}
 	return sig, true
 }
 
@@ -222,6 +226,11 @@ func (d *doc) callSignatureAt(openIdx, line int) (SignatureHelp, bool) {
 func (d *doc) paramLabels(params []ir.Param) []string {
 	labels := make([]string, len(params))
 	for i, p := range params {
+		if p.Variadic {
+			elem := strings.TrimSuffix(strings.TrimPrefix(d.dispType(p.Type), "Список<"), ">")
+			labels[i] = "..." + p.Name + ": " + elem
+			continue
+		}
 		labels[i] = p.Name + ": " + d.dispType(p.Type)
 	}
 	return labels

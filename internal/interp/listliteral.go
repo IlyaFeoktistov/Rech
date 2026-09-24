@@ -7,13 +7,19 @@ import "github.com/IlyaFeoktistov/Rech/internal/ir"
 // существующих встроенных построителей списка из данных (internal/interp/
 // json.go, internal/interp/xml.go).
 func (in *Interp) evalListLiteralExpr(e *ir.ListLiteralExpr, env *Env, cc *callCtx) (Value, error) {
-	elems := make([]Value, len(e.Elems))
+	elems := make([]Value, 0, len(e.Elems))
 	for i, el := range e.Elems {
 		v, err := in.evalExpr(el, env, cc)
 		if err != nil {
 			return Value{}, err
 		}
-		elems[i] = in.cloneValue(v)
+		if e.Spread != nil && e.Spread[i] {
+			for _, item := range v.Obj.coll.elems {
+				elems = append(elems, in.cloneValue(item))
+			}
+			continue
+		}
+		elems = append(elems, in.cloneValue(v))
 	}
 	return Value{Type: e.Type, Obj: &entityObj{typeName: e.CollectionName, coll: &collection{template: "Список", elems: elems}}}, nil
 }

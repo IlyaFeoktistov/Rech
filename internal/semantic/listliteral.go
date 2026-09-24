@@ -21,14 +21,19 @@ func analyzeListLiteralExpr(sc *ctx, e *ast.ListLiteral, targetElem ir.Type, has
 	}
 
 	elems := make([]ir.Expr, len(e.Elems))
+	var spread []bool
 	var elemType ir.Type
 	for i, raw := range e.Elems {
-		v, err := analyzeExpr(sc, raw)
+		v, vt, isSpread, err := analyzeListElem(sc, raw, e.Line)
 		if err != nil {
 			return nil, err
 		}
-		v = maybeUnwrapNarrowed(sc, v)
-		vt := ir.TypeOf(v)
+		if isSpread && spread == nil {
+			spread = make([]bool, len(e.Elems))
+		}
+		if isSpread {
+			spread[i] = true
+		}
 		if i == 0 {
 			elemType = vt
 			if hasTarget && elemType != targetElem {
@@ -39,7 +44,37 @@ func analyzeListLiteralExpr(sc *ctx, e *ast.ListLiteral, targetElem ir.Type, has
 		}
 		elems[i] = v
 	}
-	return buildListLiteral(sc, elems, elemType, e.Line)
+	lit, err := buildListLiteral(sc, elems, elemType, e.Line)
+	if err != nil {
+		return nil, err
+	}
+	lit.(*ir.ListLiteralExpr).Spread = spread
+	return lit, nil
+}
+
+// analyzeListElem - один элемент литерала списка: обычное выражение или
+// "...список" (ast.SpreadExpr) - тогда vt - тип элемента этого списка.
+func analyzeListElem(sc *ctx, raw ast.Expr, line int) (v ir.Expr, vt ir.Type, isSpread bool, err error) {
+	sp, isSpread := raw.(*ast.SpreadExpr)
+	if !isSpread {
+		v, err = analyzeExpr(sc, raw)
+		if err != nil {
+			return nil, ir.Type{}, false, err
+		}
+		v = maybeUnwrapNarrowed(sc, v)
+		return v, ir.TypeOf(v), false, nil
+	}
+	v, err = analyzeExpr(sc, sp.Value)
+	if err != nil {
+		return nil, ir.Type{}, false, err
+	}
+	v = maybeUnwrapNarrowed(sc, v)
+	t := ir.TypeOf(v)
+	sig, ok := sc.entities[t.Entity]
+	if t.Kind != ir.KindEntity || !ok || !sig.IsList {
+		return nil, ir.Type{}, false, errAtLine(line, CodeSemanticOther, "\"...\" раскрывает только Список, получен %s", t)
+	}
+	return v, sig.ElemType, true, nil
 }
 
 // buildListLiteral резолвит/регистрирует "Список<elemType>" (тем же путём,

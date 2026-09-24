@@ -10,7 +10,11 @@ type ListLiteralExpr struct {
 	ElemType       Type
 	CollectionName string
 	Type           Type // "Список<ElemType>"
-	Line           int
+	// Spread[i] - Elems[i] записан как "...список" и раскрывается на своём
+	// месте всеми элементами (сам Elems[i] - типа Список<ElemType>). nil -
+	// спредов в литерале нет.
+	Spread []bool
+	Line   int
 }
 
 func (*ListLiteralExpr) expr() {}

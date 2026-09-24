@@ -354,6 +354,9 @@ type Function struct {
 type Param struct {
 	Name string
 	Type Type
+	// Variadic - "...имя: Т": Type - Список<Т>, аргументы вызова с этой
+	// позиции собраны семантикой в один литерал списка.
+	Variadic bool
 }
 
 // Entity - сущность программы после семантического анализа. Объявленные

@@ -236,6 +236,8 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 
 	case *ast.ListLiteral:
 		return analyzeListLiteralExpr(sc, e, ir.Type{}, false)
+	case *ast.SpreadExpr:
+		return nil, errAtLine(e.Line, CodeExprCheck, "\"...\" допустимо только в литерале списка и в вариативной части аргументов вызова")
 
 	default:
 		return nil, errNoPos(diagnostics.CodeInternal, "выражение %T не поддерживается", e)
@@ -848,10 +850,21 @@ func callHasReturn(e ir.Expr) bool {
 // пересечение если/иначе), но не может СОКРАЩАТЬСЯ от факта "передан кому-
 // то ещё", если явно не проверить это здесь.
 func checkCallArgs(sc *ctx, args []ast.Expr, sig funcSig, line int, callee, argLabel string) ([]ir.Expr, error) {
+	if err := checkSpreadPlacement(args, sig, line, callee); err != nil {
+		return nil, err
+	}
+	var variadicTail []ast.Expr
+	if sig.Variadic {
+		fixed := len(sig.Params) - 1
+		if len(args) < fixed {
+			return nil, errAtLine(line, CodeExprCheck, "%s ожидает аргументов: минимум %d, передано: %d", callee, fixed, len(args))
+		}
+		args, variadicTail = args[:fixed], args[fixed:]
+	}
 	if len(args) > len(sig.Params) {
 		return nil, errAtLine(line, CodeExprCheck, "%s ожидает аргументов: %d, передано: %d", callee, len(sig.Params), len(args))
 	}
-	if len(args) < len(sig.Params) {
+	if len(args) < len(sig.Params) && !sig.Variadic {
 		// minRequired - позиция первого параметра со значением по
 		// умолчанию (ParamDefaults только хвостом, см. её package doc) -
 		// всё, что до него, обязательно должно быть передано.
@@ -867,7 +880,9 @@ func checkCallArgs(sc *ctx, args []ast.Expr, sig funcSig, line int, callee, argL
 	for i := range sig.Params {
 		var arg ir.Expr
 		var err error
-		if i < len(args) {
+		if sig.Variadic && i == len(sig.Params)-1 {
+			arg, err = analyzeVariadicTail(sc, variadicTail, sig.Params[i], i, line, argLabel)
+		} else if i < len(args) {
 			arg, err = coerceExpr(sc, args[i], sig.Params[i])
 		} else {
 			// Аргумент не передан - значение по умолчанию (уже проверено

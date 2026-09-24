@@ -529,6 +529,9 @@ func (a *Analyzer) collectOneEntity(entities map[string]entitySig, methods map[s
 			if m.IsAbstract || m.IsStatic {
 				return errNoPos(CodeEntityDecl, "сущность %q: метод %q: перегрузка не поддерживается для абстрактных/статических методов в этой версии", ent.Name, name)
 			}
+			if hasVariadicParam(m.Params) {
+				return errNoPos(CodeEntityDecl, "сущность %q: метод %q: вариативный метод нельзя перегружать", ent.Name, name)
+			}
 			msig, err := a.buildMethodSig(entities, methods, aliases, aliasState, enums, ent, m, sig.States, overloadedMethodNames)
 			if err != nil {
 				return err
@@ -703,6 +706,10 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 				bag.AddErr(errNoPos(CodeEntityDecl, "функция %q: перегрузка не поддерживается для \"экспортировать\" в этой версии - C-символ вычисляется из настоящего имени функции без учёта списка параметров, коллизия с другой перегрузкой той же группы", name))
 				continue
 			}
+			if hasVariadicParam(fn.Params) {
+				bag.AddErr(errNoPos(CodeEntityDecl, "функция %q: вариативную функцию нельзя перегружать", name))
+				continue
+			}
 			if fn.IsAsync {
 				bag.AddErr(errNoPos(CodeEntityDecl, "функция %q: перегрузка не поддерживается для \"асинхронная\" в этой версии - \"дождаться %s(...)\" резолвит целевую функцию по голому имени, без учёта списка параметров", name, name))
 				continue
@@ -758,7 +765,7 @@ func (a *Analyzer) buildFreeFuncSig(fn *ast.FunctionDecl, enums map[string]map[s
 		paramStates[i] = a.aliasState[p.Type]
 		paramDefaults[i] = p.Default
 	}
-	sig := funcSig{Params: params, ParamStates: paramStates, ParamDefaults: paramDefaults, IsAsync: fn.IsAsync}
+	sig := funcSig{Params: params, ParamStates: paramStates, ParamDefaults: paramDefaults, IsAsync: fn.IsAsync, Variadic: hasVariadicParam(fn.Params)}
 	if fn.ReturnType != "" {
 		typ, err := resolveTypeName(a.entities, a.methods, a.aliases, a.interfaces, enums, fn.ReturnType)
 		if err != nil {
@@ -797,7 +804,7 @@ func (a *Analyzer) buildMethodSig(entities map[string]entitySig, methods map[str
 	if err != nil {
 		return funcSig{}, diagnostics.Wrap(err, "сущность %q", ent.Name)
 	}
-	msig := funcSig{Params: params, ParamStates: paramStates, ParamDefaults: paramDefaults, Visibility: m.Visibility, IsAbstract: m.IsAbstract, IsStatic: m.IsStatic, RevokesStates: revokes}
+	msig := funcSig{Params: params, ParamStates: paramStates, ParamDefaults: paramDefaults, Visibility: m.Visibility, IsAbstract: m.IsAbstract, IsStatic: m.IsStatic, RevokesStates: revokes, Variadic: hasVariadicParam(m.Params)}
 	switch {
 	case m.SelfReturn:
 		// "этот" как тип результата - собственный метод сущности X
@@ -985,7 +992,7 @@ func (a *Analyzer) collectModuleConsts(prog *ast.Program) error {
 func (a *Analyzer) analyzeParamsAndBody(sc *ctx, astParams []ast.Param, sig funcSig, body []ast.Stmt) ([]ir.Param, []ir.Stmt, funcSig, error) {
 	params := make([]ir.Param, len(astParams))
 	for i, p := range astParams {
-		params[i] = ir.Param{Name: p.Name, Type: sig.Params[i]}
+		params[i] = ir.Param{Name: p.Name, Type: sig.Params[i], Variadic: p.Variadic}
 		if err := sc.declare(p.Name, sig.Params[i]); err != nil {
 			return nil, nil, sig, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: p.Line}, "параметр %q", p.Name)
 		}

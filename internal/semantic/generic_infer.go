@@ -191,12 +191,9 @@ func inferredCallee(sc *ctx, e *ast.CallExpr) (string, bool, error) {
 	key := inferKey(sc.inferScope, e.ID)
 	typeArgs, known := inf.table[key]
 	if !known {
-		paramTypes := make([]string, len(tpl.Params))
-		for i, p := range tpl.Params {
-			paramTypes[i] = p.Type
-		}
+		paramTypes, args := variadicInferArgs(tpl.Params, e.Args)
 		var err error
-		typeArgs, err = inferTypeArgs(sc, tpl.TypeParams, paramTypes, e.Args, fmt.Sprintf("функция %q", e.Callee), e.Callee+"<...>(...)", e.Line)
+		typeArgs, err = inferTypeArgs(sc, tpl.TypeParams, paramTypes, args, fmt.Sprintf("функция %q", e.Callee), e.Callee+"<...>(...)", e.Line)
 		if err != nil {
 			return "", false, err
 		}

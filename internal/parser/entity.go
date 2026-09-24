@@ -316,6 +316,9 @@ func (p *Parser) parseConstructor() (*ast.ConstructorDecl, error) {
 	if err != nil {
 		return nil, diagnostics.Wrap(err, "в списке параметров конструктора")
 	}
+	if err := rejectVariadicParam(params, "конструктора"); err != nil {
+		return nil, err
+	}
 	p.skipNewlines()
 	prevInMethod, prevInCtor := p.inMethodBody, p.inConstructorBody
 	p.inMethodBody, p.inConstructorBody = true, true

@@ -28,6 +28,9 @@ func (p *Parser) parseLambdaExpr() (*ast.LambdaExpr, error) {
 		if err != nil {
 			return nil, diagnostics.Wrap(err, "в списке параметров лямбды")
 		}
+		if err := rejectVariadicParam(params, "лямбды"); err != nil {
+			return nil, err
+		}
 	}
 
 	returnType := ""

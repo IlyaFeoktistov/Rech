@@ -455,7 +455,7 @@ func (p *Parser) parseListLiteral() (ast.Expr, error) {
 	var elems []ast.Expr
 	if p.cur().Type != lexer.RBRACKET {
 		for {
-			el, err := p.parseExpr()
+			el, err := p.parseMaybeSpread()
 			if err != nil {
 				return nil, diagnostics.Wrap(err, "в литерале списка")
 			}

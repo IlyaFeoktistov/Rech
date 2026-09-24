@@ -32,7 +32,7 @@ func (p *Parser) parseArgList() ([]ast.Expr, error) {
 	var args []ast.Expr
 	if p.cur().Type != lexer.RPAREN {
 		for {
-			arg, err := p.parseExpr()
+			arg, err := p.parseMaybeSpread()
 			if err != nil {
 				return nil, err
 			}
@@ -225,6 +225,9 @@ func (p *Parser) parseNaturalCall(params []ast.Param) (*ast.CallExpr, error) {
 // subject).
 func (p *Parser) matchNaturalCallArgs(subject lexer.Token, params []ast.Param) ([]ast.Expr, error) {
 	name := subject
+	if len(params) > 0 && params[len(params)-1].Variadic {
+		return nil, errAt(name.Line, name.Col, CodeNaturalCall, "%q с вариативным параметром вызывается только строгим синтаксисом: %s(...)", name.Value, name.Value)
+	}
 
 	tokens := make([]lexer.Token, len(params))
 	// tokenPrep[i] - предлог, реально стоявший перед tokens[i] в исходном
@@ -397,4 +400,18 @@ func (p *Parser) parseNaturalCallContinuationCore(call ast.Expr, line int) (stmt
 		return p.resolveAssignTarget(target, call), true, nil
 	}
 	return nil, true, errAt(p.cur().Line, p.cur().Col, CodeUnexpectedToken, "после \"и\" ожидалось \"вывести\" или %q в <переменная>, получено %q", naturalCallPutWord, p.cur().Value)
+}
+
+// parseMaybeSpread - выражение аргумента/элемента литерала списка, с
+// необязательным "..." впереди (ast.SpreadExpr).
+func (p *Parser) parseMaybeSpread() (ast.Expr, error) {
+	if p.cur().Type != lexer.ELLIPSIS {
+		return p.parseExpr()
+	}
+	tok := p.advance() // "..."
+	value, err := p.parseExpr()
+	if err != nil {
+		return nil, diagnostics.Wrap(err, "после \"...\"")
+	}
+	return &ast.SpreadExpr{Value: value, Line: tok.Line}, nil
 }

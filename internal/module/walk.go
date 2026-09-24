@@ -730,6 +730,8 @@ func (r *rewriter) rewriteExpr(e ast.Expr) error {
 		return r.rewriteExpr(e.Index)
 	case *ast.ListLiteral:
 		return r.rewriteExprs(e.Elems)
+	case *ast.SpreadExpr:
+		return r.rewriteExpr(e.Value)
 	case *ast.MethodCallExpr:
 		if err := r.rewriteExpr(e.Receiver); err != nil {
 			return err

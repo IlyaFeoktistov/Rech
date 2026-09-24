@@ -248,3 +248,14 @@ type ListLiteral struct {
 
 func (*ListLiteral) node() {}
 func (*ListLiteral) expr() {}
+
+// SpreadExpr - "...список" среди аргументов вызова вариативной функции или
+// элементов литерала списка: элементы Value (Список) подставляются по
+// одному на это место.
+type SpreadExpr struct {
+	Value Expr
+	Line  int
+}
+
+func (*SpreadExpr) node() {}
+func (*SpreadExpr) expr() {}

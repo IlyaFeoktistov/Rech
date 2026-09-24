@@ -384,6 +384,8 @@ func walkLambdaBodies(e ast.Expr, onLambda func([]ast.Stmt)) {
 		for _, e2 := range v.Elems {
 			walkLambdaBodies(e2, onLambda)
 		}
+	case *ast.SpreadExpr:
+		walkLambdaBodies(v.Value, onLambda)
 	case *ast.CastExpr:
 		walkLambdaBodies(v.Value, onLambda)
 	case *ast.AsExpr:
@@ -444,6 +446,8 @@ func exprContainsThis(e ast.Expr) bool {
 		return exprContainsThis(v.Receiver) || exprContainsThis(v.Index)
 	case *ast.ListLiteral:
 		return anyExprContainsThis(v.Elems)
+	case *ast.SpreadExpr:
+		return exprContainsThis(v.Value)
 	case *ast.CastExpr:
 		return exprContainsThis(v.Value)
 	case *ast.AsExpr:

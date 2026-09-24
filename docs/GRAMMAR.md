@@ -42,7 +42,10 @@ TAG            := "`" <произвольный текст без "`"> "`"
 
 function       := { modifier } "функция" IDENT [ type_params ] [ "(" [ params ] ")" ] [ ":" type_name ] { sep } block
 params         := param { "," param }
-param          := IDENT ":" type_name [ "=" expr ]
+param          := [ "..." ] IDENT ":" type_name [ "=" expr ]
+                                             (* "..." - вариативный параметр: только последний, не у лямбды/
+                                                конструктора/внешней функции, без значений по умолчанию у
+                                                любого параметра той же функции, в теле - Список<Тип> *)
 type_name      := [ "?" ] ( IDENT [ "<" type_name { "," type_name } ">" ] | "*" type_name | callable_type ) { "[" "]" }
                                              (* "Тип[]"/"Тип[][]" - сахар над "Список<Тип>"/"Список<Список<Тип>>";
                                                 "*Тип" - сахар над "Указатель<Тип>" (раздел 22);
@@ -175,10 +178,13 @@ continue_stmt  := "продолжить" [ INT ] (* та же глубина, ч
                                         проверкой его условия, ровно как в C *)
 return_stmt    := "вернуть" [ expr ]
 call_stmt      := call_expr
-call_expr      := IDENT "(" [ expr { "," expr } ] ")"
-                | IDENT "<" type_name { "," type_name } ">" "(" [ expr { "," expr } ] ")"  (* только generic-функция *)
+arg            := [ "..." ] expr                               (* "...список" - спред: только Список, только в
+                                                вариативной части вызова (с позиции "...параметра")
+                                                или в list_literal *)
+call_expr      := IDENT "(" [ arg { "," arg } ] ")"
+                | IDENT "<" type_name { "," type_name } ">" "(" [ arg { "," arg } ] ")"  (* только generic-функция *)
 method_call_stmt := method_call_expr
-gerund_stmt    := IDENT "(" [ expr { "," expr } ] ")" GERUND_BLOCK
+gerund_stmt    := IDENT "(" [ arg { "," arg } ] ")" GERUND_BLOCK
                                              (* раздел 23 - IDENT сам должен быть распознан как
                                                 деепричастная форма функции (морфология или тег
                                                 `деепричастие:...`); GERUND_BLOCK - одна и более
@@ -213,12 +219,12 @@ unary          := "-" unary | "~" unary | "!" unary | "&" addressable | "*" unar
 addressable    := IDENT | IDENT "." IDENT | IDENT "[" expr "]"
                                              (* ровно один уровень - раздел 22 *)
 incdec_prefix  := ("++" | "--") IDENT
-postfix        := primary { ("." IDENT [ "(" [ expr { "," expr } ] ")" ]) | ("[" expr "]") }
+postfix        := primary { ("." IDENT [ "(" [ arg { "," arg } ] ")" ]) | ("[" expr "]") }
                                              (* "[" expr "]" - безопасная индексация, только чтение (ListIndexExpr/DictIndexExpr) *)
 primary        := INT | FLOAT | STRING | TEMPLATE_STRING | "истина" | "ложь" | "Ничто" | ( IDENT [ "++" | "--" ] ) | "этот"
                 | call_expr | new_expr | list_literal | "(" expr ")" | launch_expr | dispatch_expr | await_stmt
                 | lambda_expr | "&" IDENT | parse_expr | serialize_expr
-list_literal   := "[" [ expr { "," expr } ] "]"
+list_literal   := "[" [ arg { "," arg } ] "]"
 launch_expr    := "запустить" ( call_expr | method_call_expr )
                                              (* функция программы, переменная типа "Вызываемый" или метод
                                                 экземпляра - не встроенная/внешняя функция, не статический

@@ -110,7 +110,7 @@ func (a *Analyzer) collectInterfaces(prog *ast.Program) error {
 				}
 				params[i] = typ
 			}
-			msig := funcSig{Params: params}
+			msig := funcSig{Params: params, Variadic: hasVariadicParam(m.Params)}
 			switch {
 			case m.SelfReturn:
 				// "этот" как тип результата контракта - через интерфейсное
@@ -199,7 +199,7 @@ func sigsMatch(a, b funcSig) bool {
 	if !a.SelfReturn && (a.HasReturn != b.HasReturn || (a.HasReturn && a.ReturnType != b.ReturnType)) {
 		return false
 	}
-	if len(a.Params) != len(b.Params) {
+	if len(a.Params) != len(b.Params) || a.Variadic != b.Variadic {
 		return false
 	}
 	for i := range a.Params {
@@ -267,7 +267,7 @@ func interfaceIsOrExtends(interfaces map[string]interfaceSig, name, target strin
 func paramsFromTypes(astParams []ast.Param, types []ir.Type) []ir.Param {
 	out := make([]ir.Param, len(astParams))
 	for i, p := range astParams {
-		out[i] = ir.Param{Name: p.Name, Type: types[i]}
+		out[i] = ir.Param{Name: p.Name, Type: types[i], Variadic: p.Variadic}
 	}
 	return out
 }

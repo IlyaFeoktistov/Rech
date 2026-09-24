@@ -28,5 +28,27 @@ func ListLiteralCode(structC, elemC, ctorName string) string {
     return r;
 }
 
+/* Склейка частей литерала со спредом ("[a, ...b, c]"): каждая часть -
+   готовый список, результат - новый список из всех их элементов по
+   порядку. */
+static %[1]s *%[1]s_from_parts(long long n, %[1]s **parts) {
+    long long total = 0;
+    for (long long i = 0; i < n; i++) {
+        total += parts[i]->len;
+    }
+    %[3]s *data = total > 0 ? GC_MALLOC(sizeof(%[3]s) * (size_t)total) : NULL;
+    long long k = 0;
+    for (long long i = 0; i < n; i++) {
+        for (long long j = 0; j < parts[i]->len; j++) {
+            data[k++] = parts[i]->data[j];
+        }
+    }
+    %[1]s *r = %[4]s();
+    r->data = data;
+    r->len = total;
+    r->cap = total;
+    return r;
+}
+
 `, structC, fn, elemC, ctorName)
 }

@@ -350,6 +350,9 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 			}
 			codes[i] = code
 		}
+		if e.Spread != nil {
+			return listLiteralFromParts(e, codes, elemC), fromIRType(e.Type), nil
+		}
 		arr := fmt.Sprintf("(%s[]){%s}", elemC, strings.Join(codes, ", "))
 		return fmt.Sprintf("%s(%dLL, %s)", fn, len(e.Elems), arr), fromIRType(e.Type), nil
 

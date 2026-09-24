@@ -103,6 +103,9 @@ func (p *Parser) parseExternFuncDecl() (*ast.ExternFuncDecl, error) {
 		if err != nil {
 			return nil, diagnostics.Wrap(err, "в списке параметров внешней функции %q", alias)
 		}
+		if err := rejectVariadicParam(params, "внешней функции"); err != nil {
+			return nil, err
+		}
 	}
 
 	returnType := ""
@@ -320,10 +323,45 @@ func (p *Parser) parseParams() ([]ast.Param, error) {
 	if _, err := p.expect(lexer.RPAREN); err != nil {
 		return nil, err
 	}
+	if err := checkVariadicParam(params); err != nil {
+		return nil, err
+	}
 	if err := checkTrailingDefaults(params); err != nil {
 		return nil, err
 	}
 	return params, nil
+}
+
+// checkVariadicParam проверяет вариативный параметр ("...имя: Тип"): он
+// единственный, последний и без значения по умолчанию. Его Type
+// переписывается в "Список<Тип>" - так параметр виден в теле функции.
+func checkVariadicParam(params []ast.Param) error {
+	for i := range params {
+		if !params[i].Variadic {
+			continue
+		}
+		if i != len(params)-1 {
+			return errAtLine(params[i].Line, CodeUnexpectedToken, "вариативный параметр %q должен быть последним", params[i].Name)
+		}
+		for _, other := range params {
+			if other.Default != nil {
+				return errAtLine(other.Line, CodeUnexpectedToken, "параметр %q: значения по умолчанию нельзя сочетать с вариативным параметром %q", other.Name, params[i].Name)
+			}
+		}
+		params[i].Type = "Список<" + params[i].Type + ">"
+	}
+	return nil
+}
+
+// rejectVariadicParam - вариативный параметр допустим только у функций и
+// методов; where - что объявляется ("лямбды", "конструктора", ...).
+func rejectVariadicParam(params []ast.Param, where string) error {
+	for _, param := range params {
+		if param.Variadic {
+			return errAtLine(param.Line, CodeUnexpectedToken, "у %s не может быть вариативного параметра %q - только у функций и методов", where, param.Name)
+		}
+	}
+	return nil
 }
 
 // checkTrailingDefaults проверяет, что значения по умолчанию (Param.Default)
@@ -466,6 +504,15 @@ func (p *Parser) parseTypeName() (string, error) {
 // и следом идёт ещё один IDENT (а не ":"), это двусловная форма; иначе
 // первое слово - и есть Name (падежное или нет).
 func (p *Parser) parseParam() (ast.Param, error) {
+	if p.cur().Type == lexer.ELLIPSIS {
+		p.advance() // "..."
+		param, err := p.parseParam()
+		if err != nil {
+			return param, err
+		}
+		param.Variadic = true
+		return param, nil
+	}
 	if p.cur().Type == lexer.KwWith && p.peekAt(1).Type == lexer.IDENT &&
 		(p.peekAt(1).Value == "кем" || p.peekAt(1).Value == "чем") {
 		return p.parseTwoWordCaseParam(morph.ParamWithWhom, morph.ParamWithWhat)

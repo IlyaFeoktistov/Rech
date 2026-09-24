@@ -40,6 +40,11 @@ type funcSig struct {
 	// но срез внутри указывает на тот же исходный backing-array).
 	ParamDefaults []ast.Expr
 
+	// Variadic - последний параметр вариативный ("...имя: Тип"): его тип в
+	// Params - Список<Тип>, а аргументы вызова с его позиции собираются в
+	// этот список (checkCallArgs).
+	Variadic bool
+
 	// Visibility - видимость метода (ast.MethodDecl.Visibility); всегда
 	// ast.Public для обычных функций - у них нет понятия видимости.
 	Visibility ast.Visibility
