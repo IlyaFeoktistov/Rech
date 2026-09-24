@@ -90,11 +90,7 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 		cType := typ.cType(ctx)
 		mangled := mangleVar(s.Name)
 		tmp := mangled + "_INIT"
-		if bridged, ok := bridgeExternStructCallCode(ctx, s.Value, typ.entity, cType, code); ok {
-			fmt.Fprintf(sb, "%s%s %s = %s;\n", ind, cType, tmp, bridged)
-		} else {
-			fmt.Fprintf(sb, "%s%s %s = %s;\n", ind, cType, tmp, code)
-		}
+		fmt.Fprintf(sb, "%s%s %s = %s;\n", ind, cType, tmp, code)
 		fmt.Fprintf(sb, "%s%s %s = %s;\n", ind, cType, mangled, tmp)
 		return nil
 

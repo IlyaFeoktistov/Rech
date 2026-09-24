@@ -84,13 +84,6 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 				}
 				code = marshaled
 			}
-			// Настоящий прототип из заголовка (не собственная догадка
-			// cbackend) почти наверняка объявляет параметр непрозрачным
-			// структурным указателем своего имени (HWND/HDC/...) - см.
-			// package doc bridgeExternHeaderArgCode (extern_headers.go).
-			if isExtern && externPrototypeAlreadyProvided(ctx, cName) {
-				code = bridgeExternHeaderArgCode(ctx, ir.TypeOf(a), code)
-			}
 			argCodes[i] = code
 		}
 		// Порядок проверки: builtin (inline C-выражение) -> внешняя функция
@@ -100,7 +93,7 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 		}
 		callee := funcCName(ctx, e.Callee)
 		if isExtern {
-			callee = cName
+			callee = mangleExternFunc(e.Callee)
 		}
 		if e.Callee == entryPointName {
 			// "главная" манглится в настоящий C "main" (mangleName) - у НЕГО,
@@ -124,9 +117,6 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 				return "", typeUnknown, err
 			}
 			return code, fromIRType(e.Type), nil
-		}
-		if isExtern && e.HasReturn && externPrototypeAlreadyProvided(ctx, cName) {
-			callCode = bridgeExternHeaderReturnCode(ctx, e.Type, callCode)
 		}
 		return callCode, fromIRType(e.Type), nil
 

@@ -289,39 +289,6 @@ func cParamListIR(ctx *irGenCtx, params []ir.Param) string {
 	return strings.Join(parts, ", ")
 }
 
-// externPrototypeOfIR - "extern <тип> <CName>(<типы>);" для внешней
-// функции - без имён параметров (в отличие от cbackend.externPrototypeOf,
-// C допускает анонимные параметры в прототипе, а сами имена
-// параметров Rech после семантического анализа уже не нужны ни для чего,
-// кроме сообщений об ошибках, которые уже показаны на этапе Analyze.
-func externPrototypeOfIR(ctx *irGenCtx, ext *ir.ExternFuncDecl) (string, error) {
-	if externPrototypeAlreadyProvided(ctx, ext.CName) {
-		// Стандартный символ (strlen/malloc/sqrt/...), а заголовок,
-		// объявляющий его, программа и так включает по другой причине -
-		// см. package doc extern_headers.go - НЕ дублируем прототип,
-		// полагаемся на уже видимый из заголовка.
-		return "", nil
-	}
-	cReturnType := "void"
-	if ext.HasReturn {
-		cReturnType = fromIRType(ext.ReturnType).cType(ctx)
-		// "Вызываемый"/"?Вызываемый" результатом - голый указатель на
-		// функцию (демаршалинг в месте вызова, ffi_callback.go).
-		if sigName, _, ok := ctx.ffiFuncPointerSig(ext.ReturnType); ok {
-			cReturnType = mangleRawFnType(sigName)
-		}
-	}
-	types := make([]string, len(ext.Params))
-	for i, p := range ext.Params {
-		t, err := ffiParamCType(ctx, p)
-		if err != nil {
-			return "", err
-		}
-		types[i] = t
-	}
-	return fmt.Sprintf("extern %s %s(%s);\n", cReturnType, ext.CName, strings.Join(types, ", ")), nil
-}
-
 // cMethodParamListIR - как cParamListIR, но с обязательным скрытым первым
 // параметром "Тип *this_" (получатель по указателю, как и в AST-пути) -
 // у метода он есть всегда, поэтому в отличие от cParamListIR/

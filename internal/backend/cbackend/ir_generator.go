@@ -121,13 +121,7 @@ type irGenCtx struct {
 	// после генерации ВСЕХ тел функций/методов - см. generateSource) в
 	// точности когда сама программа реально включит "#include <string.h>"/
 	// "<stdlib.h>"/"<math.h>" по СОБСТВЕННЫМ причинам (usesMemcpy/usesCast/
-	// usesMath/... - см. их же сборку ниже). externPrototypeOfIR
-	// (extern_headers.go, externPrototypeAlreadyProvided) сверяется с ними,
-	// чтобы не писать собственный extern-прототип для стандартного символа
-	// (strlen/malloc/sqrt/...), который заголовок и так уже объявляет -
-	// иначе два расходящихся по типу прототипа ОДНОГО имени - ошибка
-	// компиляции C (найдено живьём, "FFI: конфликт
-	// extern-прототипов со стандартными заголовками").
+	// usesMath/... - см. их же сборку ниже).
 	includesStringH bool
 	includesStdlibH bool
 	includesMathH   bool
@@ -188,10 +182,8 @@ type irGenCtx struct {
 	externCNames map[string]string
 	// externHeaders - prog.ExternHeaders ("сборка.заголовки" файла проекта,
 	// internal/project.File.Заголовки) - nil, если проект их не объявил.
-	// Непусто - каждый эмитится "#include <...>" (generateSource) И
-	// externPrototypeAlreadyProvided доверяет ЛЮБОМУ "внешняя функция"
-	// программы целиком (не только курируемому externSymbolHeader) - см.
-	// package doc extern_headers.go.
+	// Непусто - каждый эмитится "#include <...>" (generateSource); прототипы
+	// "внешняя функция" с ним не конфликтуют (свои C-имена, extern_symbols.go).
 	externHeaders []string
 	thisEntity    string
 
@@ -1139,16 +1131,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// ctx.includesStringH/includesStdlibH/includesMathH - вычислены только
 	// теперь, тела выше (ctx.usesMemcpy/usesCast/usesRandom/... - и то, что
 	// ниже собирает "#include <...>", ir_generator.go, sb) - единственное
-	// место, где эти флаги взводятся, поэтому раньше их не узнать. externPrototypeOfIR
-	// ниже (перенесённый сюда специально, НЕ рядом с mutexPrototypes/
-	// semaphorePrototypes выше, где не было бы ещё известно ни одного из
-	// них) заранее знает, войдёт ли string.h/stdlib.h/math.h в файл ПО
-	// ДРУГОЙ причине - и, если да, для известного (externSymbolHeader,
-	// extern_headers.go) стандартного символа не пишет собственный,
-	// потенциально расходящийся по типу extern-прототип поверх уже
-	// объявленного заголовком (найдено живьём - examples/основы/
-	// внешние_функции.rech, strlen + <string.h>, включённый совсем по
-	// другой причине - memcpy захваченной лямбды).
+	// место, где эти флаги взводятся, поэтому раньше их не узнать.
 	ctx.includesStringH = ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesPanicCatch || ctx.usesStringSplit || ctx.usesRegex || ctx.usesHTTPHeaders || ctx.usesHTTPHeaderValues || ctx.usesColor || ctx.usesSubprocess || ctx.usesCwd || hasStructTargets || prog.UsesReflection || ctx.usesTZ || ctx.usesDateParse
 	// usesNullables/prog.UsesReflection - те же два условия, что у panicGate
 	// (ниже) сверх её собственных: panicGate решает, эмитить ли panicHelper
@@ -1163,6 +1146,9 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// только там, где пользователь сам пишет "?Тип".
 	ctx.includesStdlibH = ctx.usesConcat || usesGenerics || usesNullables || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesColor || ctx.usesQueryParams || ctx.usesCookies || ctx.usesRandom || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesRegex || ctx.usesHTTPHeaders || ctx.usesHTTPHeaderValues || hasStructTargets || ctx.usesExit || ctx.usesTZ || ctx.usesHumanDate || prog.UsesReflection
 	ctx.includesMathH = ctx.usesMath
+	if len(prog.ExternFuncs) > 0 {
+		protos.WriteString(externSymbolMacros)
+	}
 	for _, ext := range prog.ExternFuncs {
 		protoStr, err := externPrototypeOfIR(ctx, ext)
 		if err != nil {

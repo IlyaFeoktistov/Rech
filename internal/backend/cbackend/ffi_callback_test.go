@@ -64,9 +64,9 @@ func TestGenerateFuncPointerFromCRoundTrip(t *testing.T) {
 	sig := "Вызываемый<Целое32>"
 	for _, want := range []string{
 		"typedef void (*" + mangleRawFnType(sig) + ")(int32_t);",
-		"extern " + mangleRawFnType(sig) + " signal(int32_t, void (*)(int32_t));",
-		mangleFromRawOpt(sig) + "((" + mangleRawFnType(sig) + ")(signal(",
-		mangleFromRaw(sig) + "((" + mangleRawFnType(sig) + ")(dlsym(",
+		"extern " + mangleRawFnType(sig) + " " + mangleExternFunc("signal") + "(int32_t, void (*)(int32_t)) __asm__(RECH_SYM(\"signal\"));",
+		mangleFromRawOpt(sig) + "((" + mangleRawFnType(sig) + ")(" + mangleExternFunc("signal") + "(",
+		mangleFromRaw(sig) + "((" + mangleRawFnType(sig) + ")(" + mangleExternFunc("найти") + "(",
 		"вернула NULL вместо указателя на функцию",
 		"if (c.fn == " + mangleRawThunk(sig) + ") {",
 	} {

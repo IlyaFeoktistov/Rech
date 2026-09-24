@@ -804,8 +804,10 @@ func TestGenerateFromIRBuiltinMathCall(t *testing.T) {
 	}
 }
 
-// TestGenerateFromIRExternFuncCall - ir.Program.ExternFuncs даёт настоящий
-// extern-прототип и вызов по CName, не по mangleName(Alias).
+// TestGenerateFromIRExternFuncCall - ir.Program.ExternFuncs даёт свой
+// прототип под собственным C-именем, привязанный к настоящему символу
+// (CName) asm-меткой - не конфликтует с <math.h>, который программа тоже
+// подключает.
 func TestGenerateFromIRExternFuncCall(t *testing.T) {
 	prog := &ir.Program{
 		ExternFuncs: []*ir.ExternFuncDecl{
@@ -821,11 +823,12 @@ func TestGenerateFromIRExternFuncCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, "extern double sqrt(double);") {
-		t.Fatalf("ожидался extern-прототип sqrt, получено:\n%s", out)
+	proto := "extern double " + mangleExternFunc("корень2") + "(double) __asm__(RECH_SYM(\"sqrt\"));"
+	if !strings.Contains(out, proto) || !strings.Contains(out, "#define RECH_SYM(name)") {
+		t.Fatalf("ожидался прототип %q, получено:\n%s", proto, out)
 	}
-	if !strings.Contains(out, "sqrt(16") {
-		t.Fatalf("ожидался вызов по настоящему C-имени sqrt, получено:\n%s", out)
+	if !strings.Contains(out, mangleExternFunc("корень2")+"(16") {
+		t.Fatalf("ожидался вызов через свой прототип, получено:\n%s", out)
 	}
 	if strings.Contains(out, "корень2") {
 		t.Fatalf("Rech-facing имя не должно попасть в C (только CName), получено:\n%s", out)
