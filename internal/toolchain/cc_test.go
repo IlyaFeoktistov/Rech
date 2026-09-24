@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/IlyaFeoktistov/Rech/internal/compiler"
 )
 
 // fakeCC - записывающий скрипт-заглушка вместо настоящего cc: сохраняет
@@ -54,7 +56,7 @@ func TestCompileCLinksGCOnlyWhenSourceUsesIt(t *testing.T) {
 
 	cc := &CC{}
 	binWith := filepath.Join(dir, "bin_with")
-	if err := cc.CompileC(withGC, binWith, nil, nil); err != nil {
+	if err := cc.CompileC(withGC, binWith, compiler.CBuild{}); err != nil {
 		t.Fatalf("CompileC: %v", err)
 	}
 	argsWith, err := os.ReadFile(script + ".args")
@@ -66,7 +68,7 @@ func TestCompileCLinksGCOnlyWhenSourceUsesIt(t *testing.T) {
 	}
 
 	binWithout := filepath.Join(dir, "bin_without")
-	if err := cc.CompileC(withoutGC, binWithout, nil, nil); err != nil {
+	if err := cc.CompileC(withoutGC, binWithout, compiler.CBuild{}); err != nil {
 		t.Fatalf("CompileC: %v", err)
 	}
 	argsWithout, err := os.ReadFile(script + ".args")
@@ -98,7 +100,7 @@ func TestCompileCPassesLibraryPathFlags(t *testing.T) {
 
 	cc := &CC{}
 	bin := filepath.Join(dir, "бин")
-	if err := cc.CompileC(src, bin, []string{"myrechlib"}, []string{"/некий/путь"}); err != nil {
+	if err := cc.CompileC(src, bin, compiler.CBuild{Libs: []string{"myrechlib"}, LibPaths: []string{"/некий/путь"}}); err != nil {
 		t.Fatalf("CompileC: %v", err)
 	}
 	args, err := os.ReadFile(script + ".args")
@@ -138,7 +140,7 @@ func TestCompileCLinksSSLOnlyWhenSourceUsesTLS(t *testing.T) {
 
 	cc := &CC{}
 	binWith := filepath.Join(dir, "bin_with")
-	if err := cc.CompileC(withTLS, binWith, nil, nil); err != nil {
+	if err := cc.CompileC(withTLS, binWith, compiler.CBuild{}); err != nil {
 		t.Fatalf("CompileC: %v", err)
 	}
 	argsWith, err := os.ReadFile(script + ".args")
@@ -150,7 +152,7 @@ func TestCompileCLinksSSLOnlyWhenSourceUsesTLS(t *testing.T) {
 	}
 
 	binWithout := filepath.Join(dir, "bin_without")
-	if err := cc.CompileC(withoutTLS, binWithout, nil, nil); err != nil {
+	if err := cc.CompileC(withoutTLS, binWithout, compiler.CBuild{}); err != nil {
 		t.Fatalf("CompileC: %v", err)
 	}
 	argsWithout, err := os.ReadFile(script + ".args")
@@ -218,7 +220,7 @@ func TestCompileCLinksDBLibrariesOnlyWhenSourceUsesThem(t *testing.T) {
 		if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 			t.Fatalf("запись исходника: %v", err)
 		}
-		if err := cc.CompileC(path, filepath.Join(dir, "bin_"+name), nil, nil); err != nil {
+		if err := cc.CompileC(path, filepath.Join(dir, "bin_"+name), compiler.CBuild{}); err != nil {
 			t.Fatalf("CompileC: %v", err)
 		}
 		args, err := os.ReadFile(script + ".args")

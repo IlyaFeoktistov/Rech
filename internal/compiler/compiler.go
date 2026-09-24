@@ -100,23 +100,37 @@ type Backend interface {
 // в нативный бинарник или разделяемую библиотеку (CompileLib, `rech build
 // --lib`).
 type Toolchain interface {
-	// CompileC компилирует cPath в исполняемый файл binPath. extraLibs -
-	// внешние библиотеки для линковки (-l<имя>, "сборка.библиотеки" файла
-	// проекта) - nil, если проект их не объявил. extraLibPaths -
-	// дополнительные каталоги для их поиска (-L<путь>, "сборка.
-	// путь_библиотек" - уже АБСОЛЮТНЫЕ пути, разрешённые относительно
-	// каталога .rechproj в internal/project.File.ПутиБиблиотек, эта
-	// функция сама их не резолвит) - nil, если не указаны (обычный
-	// системный поиск линковщика, как и раньше).
-	CompileC(cPath, binPath string, extraLibs, extraLibPaths []string) error
+	// CompileC компилирует cPath в исполняемый файл binPath (см. CBuild).
+	CompileC(cPath, binPath string, b CBuild) error
 	// CompileLib компилирует cPath в разделяемую библиотеку libPath - имя
 	// уже несёт правильное платформенное расширение (см. LibExtension).
-	// extraLibs/extraLibPaths - см. CompileC.
-	CompileLib(cPath, libPath string, extraLibs, extraLibPaths []string) error
+	CompileLib(cPath, libPath string, b CBuild) error
 	// LibExtension - расширение разделяемой библиотеки на текущей
 	// платформе (".so"/".dylib"/".dll") - Compiler называет им итоговый
 	// файл, сам не завися от runtime.GOOS.
 	LibExtension() string
+}
+
+// CBuild - параметры вызова компилятора C.
+//
+// Libs - внешние библиотеки для линковки (-l<имя>, "сборка.библиотеки"
+// файла проекта и его зависимостей), LibPaths - каталоги для их поиска
+// (-L<путь>, "сборка.путь_библиотек" - уже АБСОЛЮТНЫЕ пути, разрешённые
+// относительно каталога .rechproj). Оба nil - только системный поиск.
+//
+// CCompiler - "сборка.компилятор_c" ("" - $CC, затем cc/clang/gcc в PATH).
+// CFlags/LinkFlags - "сборка.флаги_c"/"сборка.флаги_линковки": при
+// CFlagsSet/LinkFlagsSet они ПОЛНОСТЬЮ заменяют флаги, которые компилятор
+// ставит сам (оптимизация, -lm/-lgc/-pthread и прочие автоматически
+// найденные библиотеки, Libs/LibPaths, -shared у библиотеки) - сам
+// компилятор добавляет только "<файл.c> -o <выход>".
+type CBuild struct {
+	Libs, LibPaths []string
+	CCompiler      string
+	CFlags         []string
+	CFlagsSet      bool
+	LinkFlags      []string
+	LinkFlagsSet   bool
 }
 
 type defaultBackend struct{}
@@ -246,6 +260,17 @@ type Compiler struct {
 	// заполняется cmd/rech перед вызовом Build, тем же принципом, что и
 	// ExternHeaders. "" - нет .rechproj или секции (см. ir.Program.OptionsYAML).
 	OptionsYAML string
+	// CBuild - компилятор/флаги C из файла проекта (Libs/LibPaths здесь не
+	// заполняются - приходят параметрами Build, см. cBuild).
+	CBuild CBuild
+}
+
+// cBuild - параметры вызова cc для этой сборки: флаги проекта плюс
+// библиотеки конкретного вызова Build.
+func (c *Compiler) cBuild(libs, libPaths []string) CBuild {
+	b := c.CBuild
+	b.Libs, b.LibPaths = libs, libPaths
+	return b
 }
 
 // NewCompiler - провайдер для Wire, собирающий Compiler из готовых зависимостей.
@@ -361,7 +386,7 @@ func (c *Compiler) compileLibProgram(prog *ast.Program, base, libRoot, stubDir s
 	}
 	libExt := c.Toolchain.LibExtension()
 	tmpLibPath := tmpBase + libExt
-	if err := c.Toolchain.CompileLib(tmpCPath, tmpLibPath, extraLibs, extraLibPaths); err != nil {
+	if err := c.Toolchain.CompileLib(tmpCPath, tmpLibPath, c.cBuild(extraLibs, extraLibPaths)); err != nil {
 		return "", "", nil, diagnostics.Internal(err)
 	}
 
@@ -486,7 +511,7 @@ func (c *Compiler) compileProgram(prog *ast.Program, base string, keepC bool, ex
 	if err := os.WriteFile(tmpCPath, []byte(cSource), 0o644); err != nil {
 		return "", fmt.Errorf("не удалось записать %s: %w", tmpCPath, err)
 	}
-	if err := c.Toolchain.CompileC(tmpCPath, tmpBase, extraLibs, extraLibPaths); err != nil {
+	if err := c.Toolchain.CompileC(tmpCPath, tmpBase, c.cBuild(extraLibs, extraLibPaths)); err != nil {
 		return "", diagnostics.Internal(err)
 	}
 

@@ -20,27 +20,26 @@ type CC struct{}
 // NewCC - провайдер для Wire.
 func NewCC() compiler.Toolchain { return &CC{} }
 
-// CompileC компилирует cPath в исполняемый файл binPath. extraLibs -
-// внешние библиотеки для линковки (см. package doc CompileLib) - "" (или
-// nil), если проект их не объявил (сборка.библиотеки, internal/project).
-// extraLibPaths - см. libPathFlags.
-func (*CC) CompileC(cPath, binPath string, extraLibs, extraLibPaths []string) error {
+// CompileC компилирует cPath в исполняемый файл binPath.
+func (*CC) CompileC(cPath, binPath string, b compiler.CBuild) error {
 	src, err := os.ReadFile(cPath)
 	if err != nil {
 		return fmt.Errorf("не удалось прочитать сгенерированный файл %q: %w", cPath, err)
 	}
-	args := append([]string{cPath, "-o", binPath}, commonLinkFlags(src)...)
-	args = append(args, libPathFlags(extraLibPaths)...)
-	args = append(args, libFlags(extraLibs)...)
-	return runCC(args)
+	return runCC(b, cPath, binPath, defaultLinkFlags(src, b))
+}
+
+// defaultLinkFlags - флаги линковки, которые компилятор ставит сам:
+// автоматически найденные библиотеки (autoLinkFlags) плюс внешние
+// библиотеки проекта (сборка.путь_библиотек/сборка.библиотеки).
+func defaultLinkFlags(src []byte, b compiler.CBuild) []string {
+	flags := autoLinkFlags(src, runtime.GOOS)
+	flags = append(flags, libPathFlags(b.LibPaths)...)
+	return append(flags, libFlags(b.Libs)...)
 }
 
 // libFlags превращает имена внешних библиотек ("curl", "ssl") в флаги
-// линковщика ("-lcurl", "-lssl") - то же соглашение об именах, что и у
-// "-lm"/"-lgc" в commonLinkFlags, только имя приходит не отсюда, а из
-// "сборка.библиотеки" файла проекта (Rech-код объявляет лишь сигнатуру
-// функции "внешняя функция", без привязки к конкретной библиотеке - см.
-// package doc ast.ExternFuncDecl).
+// линковщика ("-lcurl", "-lssl").
 func libFlags(names []string) []string {
 	flags := make([]string, len(names))
 	for i, name := range names {
@@ -49,19 +48,12 @@ func libFlags(names []string) []string {
 	return flags
 }
 
-// libPathFlags превращает локальные каталоги ("сборка.путь_библиотек"
-// файла проекта, уже абсолютные - internal/project.File.ПутиБиблиотек) в
-// флаги линковщика: "-L<путь>" (сама линковка ищет "-l<имя>" не только в
-// системных путях) и, на Linux/macOS, дополнительно "-Wl,-rpath,<путь>" -
-// чтобы уже СОБРАННЫЙ бинарник САМ нашёл разделяемую библиотеку в момент
-// ЗАПУСКА, без ручного LD_LIBRARY_PATH (тот же принцип, которым настоящие
-// C/C++-проекты решают "зависимость лежит рядом, не установлена в
-// систему"). На Windows у DLL нет аналога rpath - только "-L" помогает
-// самой линковке, поиск .dll при запуске - PATH/каталог рядом с .exe
-// (известное ограничение, тот же класс, что и у остального FFI на
-// Windows, docs/SPEC.md).
+// libPathFlags - каталоги внешних библиотек: "-L<путь>" и, на Linux/macOS,
+// "-Wl,-rpath,<путь>" - динамический загрузчик найдёт библиотеку при
+// запуске без LD_LIBRARY_PATH. На Windows у DLL нет аналога rpath - DLL
+// ищется рядом с .exe или в PATH.
 func libPathFlags(paths []string) []string {
-	flags := make([]string, 0, len(paths)*2)
+	var flags []string
 	for _, p := range paths {
 		flags = append(flags, "-L"+p)
 		if runtime.GOOS != "windows" {
@@ -71,155 +63,85 @@ func libPathFlags(paths []string) []string {
 	return flags
 }
 
-// commonLinkFlags - флаги cc, общие для CompileC (исполняемый файл) и
-// CompileLib (разделяемая библиотека, lib.go) - решение "нужен ли этот
-// флаг" зависит только от содержимого сгенерированного C (src) и платформы,
-// не от того, что именно из него в итоге собирается.
-func commonLinkFlags(src []byte) []string {
-	// -lm - математика (internal/builtins: корень/степень/округлить/
-	// потолок/пол/модуль) может быть не слинкована без этого флага в libc,
-	// не предоставляющей math.h-функции сама по себе; передаётся всегда, а
-	// не только когда программа реально использует эти функции - линковка
-	// неиспользуемой библиотеки безвредна, а решать здесь "нужна ли она"
-	// означало бы протаскивать это знание из cbackend через весь конвейер
-	// компиляции только ради этого одного флага.
-	flags := []string{"-lm"}
-	// -lgc - Boehm GC ("сущность"/"класс" - ссылочная семантика по
-	// умолчанию, GC_MALLOC в сгенерированном C) - в отличие от -lm, НЕ
-	// входит в состав стандартного C-тулчейна ни на одной платформе
-	// (проверено эмпирически: ни на свежем Ubuntu, ни на MinGW-w64 её нет
-	// без отдельной установки) - линковать безусловно, как -lm, означало
-	// бы, что даже программа без единой сущности не соберётся без
-	// libgc-dev/bdw-gc/bdwgc. cbackend подключает "#include <gc.h>" в
-	// сгенерированном файле, только если в программе есть хотя бы одна
-	// ссылочная сущность (ctx.usesGC, см. internal/backend/cbackend/
-	// ir_generator.go) - этого же признака в самом файле достаточно, чтобы
-	// решить, нужен ли -lgc, без протаскивания отдельного флага через
-	// весь internal/compiler.Toolchain только ради этого.
-	if bytes.Contains(src, []byte("#include <gc.h>")) {
-		flags = append(flags, "-lgc")
-	}
-	// -pthread - потоки ОС ("запустить"/"дождаться" -
-	// internal/backend/cbackend/concurrency.go) - только на POSIX, где
-	// pthread_create и не является частью libc по умолчанию на всех
-	// платформах (glibc сама по себе линкует его безусловно с недавних
-	// версий, но не гарантированно на каждом POSIX-тулчейне) - на Windows
-	// используется CreateThread (kernel32, уже линкуется по умолчанию),
-	// поэтому здесь ограничено !windows, а не просто наличием
-	// "#include <pthread.h>" в файле (тот присутствует в тексте всегда,
-	// когда используются потоки, независимо от платформы - см. package doc
-	// cbackend/ir_generator.go).
-	if bytes.Contains(src, []byte("#include <pthread.h>")) && runtime.GOOS != "windows" {
-		flags = append(flags, "-pthread")
-	}
-	// -lsqlite3/-lpq/-lmysqlclient - клиентские библиотеки БД
-	// (internal/backend/cbackend/db.go) - тот же принцип, что и -lgc выше:
-	// не входят в стандартный C-тулчейн, линкуются только когда программа
-	// реально использует "подключиться_к_бд"/"запросить"/"выполнить"/
-	// "закрыть_бд" (по маркеру в самом сгенерированном файле, а не по
-	// отдельному протащенному флагу). В отличие от -lgc/-pthread выше -
-	// ТРИ независимых маркера, не один: cbackend (internal/dbscheme.Set,
-	// dbRuntimeCode) эмитирует C-код только для реально нужной(ых) СУБД
-	// (по статическому анализу literal-схемы строки подключения) - линковать
-	// все три библиотеки безусловно означало бы требовать
-	// libsqlite3/libpq/libmysqlclient даже от программы, использующей
-	// только одну ("toolchain линкует... безусловно").
-	// Маркер - имя функции подключения КОНКРЕТНОЙ библиотеки (не
-	// "rech_db_connect(" - та эмитируется всегда при UsesDB, независимо от
-	// того, какая именно СУБД внутри неё скомпилирована) - "sqlite3_open("/
-	// "PQconnectdb("/"mysql_init(" присутствуют в сгенерированном файле
-	// ТОЛЬКО когда dbRuntimeCode реально включила соответствующий блок.
-	if bytes.Contains(src, []byte("sqlite3_open(")) {
-		flags = append(flags, "-lsqlite3")
-	}
-	if bytes.Contains(src, []byte("PQconnectdb(")) {
-		flags = append(flags, "-lpq")
-	}
-	if bytes.Contains(src, []byte("mysql_init(")) {
-		flags = append(flags, "-lmysqlclient")
-	}
-	// -lssl -lcrypto - OpenSSL (TLS для "слушать_tcp_защищённо", internal/
-	// backend/cbackend/tls.go) - тот же принцип, что и у -lgc/клиентов БД
-	// выше: не входит в стандартный C-тулчейн, линкуется только когда
-	// программа реально использует TLS (по маркеру "#include
-	// <openssl/ssl.h>" в сгенерированном файле - тот эмитируется только при
-	// ctx.usesTLS, см. ir_generator.go). -lssl ДО -lcrypto - libssl зависит
-	// от libcrypto, порядок статической линковки на некоторых линковщиках
-	// (GNU ld без --start-group) значим.
-	usesOpenSSLSSL := bytes.Contains(src, []byte("#include <openssl/ssl.h>"))
-	if usesOpenSSLSSL {
-		flags = append(flags, "-lssl", "-lcrypto")
-	}
-	// -lcrypto (без -lssl) - AES-256-GCM ("зашифровать"/"расшифровать",
-	// internal/backend/cbackend/aes.go) - только EVP/RAND (libcrypto), не
-	// TLS-рукопожатие (libssl) - по маркеру "#include <openssl/evp.h>"
-	// (ctx.usesAES). Если TLS уже добавил "-lcrypto" веткой выше - не
-	// дублировать флаг.
-	if !usesOpenSSLSSL && bytes.Contains(src, []byte("#include <openssl/evp.h>")) {
-		flags = append(flags, "-lcrypto")
-	}
-	// -lnghttp2 - HTTP/2-транспорт (internal/backend/cbackend/http2.go) -
-	// тот же принцип, что и OpenSSL выше: не входит в стандартный C-тулчейн,
-	// линкуется только когда программа реально вызвала одну из
-	// http2_*-функций (по маркеру "#include <nghttp2/nghttp2.h>", ctx.
-	// usesHTTP2).
-	if bytes.Contains(src, []byte("#include <nghttp2/nghttp2.h>")) {
-		flags = append(flags, "-lnghttp2")
-	}
-	// -lz - gzip-(де)компрессия gRPC-сообщений (internal/backend/cbackend/
-	// runtime/http2/grpc.go, rech_gzip_compress/rech_gzip_decompress) - тот
-	// же принцип, что и nghttp2/OpenSSL выше, по маркеру "#include
-	// <zlib.h>" (ctx.usesGRPC - эмитится безусловно вместе с gRPC, не
-	// отдельным флагом).
-	if bytes.Contains(src, []byte("#include <zlib.h>")) {
-		flags = append(flags, "-lz")
-	}
-	// -lpng - PNG-кодек ("png_декодировать_файл"/"png_кодировать_файл",
-	// internal/backend/cbackend/png.go) - тот же принцип, что и OpenSSL/
-	// nghttp2 выше, по маркеру "#include <png.h>" (ctx.usesPNG).
-	if bytes.Contains(src, []byte("#include <png.h>")) {
-		flags = append(flags, "-lpng")
-	}
-	// -ljpeg - JPEG-кодек ("jpeg_декодировать_файл"/"jpeg_кодировать_файл",
-	// internal/backend/cbackend/jpeg.go) - по маркеру "#include
-	// <jpeglib.h>" (ctx.usesJPEG).
-	if bytes.Contains(src, []byte("#include <jpeglib.h>")) {
-		flags = append(flags, "-ljpeg")
-	}
-	if runtime.GOOS == "windows" {
-		// -lshell32 - CommandLineToArgvW (internal/backend/cbackend.
-		// argFuncHelper/rech_init_args): argv, который сам даёт CRT на
-		// Windows, - в ANSI-кодовой странице процесса, не UTF-8, поэтому
-		// "аргумент"/"количество_аргументов" перечитывают его сами через
-		// CommandLineToArgvW - без -lshell32 сборка не слинкуется. runtime.
-		// GOOS здесь - платформа, на которой на самом деле запущен сам
-		// rech (не кросс-компиляция C-вывода) - тот же компилятор cc и
-		// собирает, и запускается на одной и той же ОС.
-		// -lws2_32 - Winsock2 (internal/backend/cbackend.
-		// socketHelpers): сокеты на Windows - отдельная библиотека, не
-		// часть обычной libc, как BSD-сокеты на POSIX. Тот же принцип, что
-		// и у -lm выше - всегда, безвредно при отсутствии реального
-		// использования сокетов в программе.
-		flags = append(flags, "-lshell32", "-lws2_32")
+// AutoLinkLib - библиотека, которую компилятор линкует сам, если
+// сгенерированный C её использует. Marker - текст в сгенерированном C,
+// по которому это видно ("" - всегда); OS - "windows"/"!windows"/"" (любая);
+// Purpose - для чего она (шаблон .rechproj и документация перечисляют
+// эту же таблицу, см. TestTemplateListsAllAutoLinkFlags).
+type AutoLinkLib struct {
+	Flags   []string
+	Marker  string
+	OS      string
+	Purpose string
+}
+
+// AutoLinkLibs - в порядке появления в командной строке (-lssl раньше
+// -lcrypto: libssl зависит от libcrypto).
+var AutoLinkLibs = []AutoLinkLib{
+	{Flags: []string{"-lm"}, Purpose: "математика (корень, степень, округлить...) - всегда"},
+	{Flags: []string{"-lgc"}, Marker: "#include <gc.h>", Purpose: "сборщик мусора Boehm GC - сущности, коллекции, строки"},
+	{Flags: []string{"-pthread"}, Marker: "#include <pthread.h>", OS: "!windows", Purpose: "потоки - запустить, Блокировка, Семафор, пул БД"},
+	{Flags: []string{"-lsqlite3"}, Marker: "sqlite3_open(", Purpose: "БД SQLite"},
+	{Flags: []string{"-lpq"}, Marker: "PQconnectdb(", Purpose: "БД PostgreSQL"},
+	{Flags: []string{"-lmysqlclient"}, Marker: "mysql_init(", Purpose: "БД MySQL"},
+	{Flags: []string{"-lssl", "-lcrypto"}, Marker: "#include <openssl/ssl.h>", Purpose: "TLS (слушать_tcp_защищённо, https, grpcs)"},
+	{Flags: []string{"-lcrypto"}, Marker: "#include <openssl/evp.h>", Purpose: "шифрование, хеши, подписи без TLS"},
+	{Flags: []string{"-lnghttp2"}, Marker: "#include <nghttp2/nghttp2.h>", Purpose: "HTTP/2 и gRPC"},
+	{Flags: []string{"-lz"}, Marker: "#include <zlib.h>", Purpose: "gzip-сжатие gRPC-сообщений"},
+	{Flags: []string{"-lpng"}, Marker: "#include <png.h>", Purpose: "PNG-изображения"},
+	{Flags: []string{"-ljpeg"}, Marker: "#include <jpeglib.h>", Purpose: "JPEG-изображения"},
+	{Flags: []string{"-lshell32", "-lws2_32"}, OS: "windows", Purpose: "Windows: аргументы командной строки (CommandLineToArgvW) и сокеты (Winsock2) - всегда"},
+}
+
+// autoLinkFlags - флаги AutoLinkLibs, нужные программе src на goos, без
+// повторов. Библиотека, которой программа не пользуется, не линкуется:
+// иначе программа без БД требовала бы установленных клиентов всех БД.
+func autoLinkFlags(src []byte, goos string) []string {
+	var flags []string
+	seen := map[string]bool{}
+	for _, l := range AutoLinkLibs {
+		switch {
+		case l.OS == "windows" && goos != "windows", l.OS == "!windows" && goos == "windows":
+			continue
+		case l.Marker != "" && !bytes.Contains(src, []byte(l.Marker)):
+			continue
+		}
+		for _, f := range l.Flags {
+			if !seen[f] {
+				seen[f] = true
+				flags = append(flags, f)
+			}
+		}
 	}
 	return flags
 }
 
-// runCC запускает системный компилятор с готовым списком аргументов -
-// общий хвост CompileC/CompileLib.
-func runCC(args []string) error {
-	path, err := findCCompiler()
+// runCC запускает компилятор C: "<флаги C> <cPath> -o <out> <флаги
+// линковки>". Флаги проекта (b.CFlags/b.LinkFlags), если заданы, заменяют
+// встроенные целиком (см. compiler.CBuild); встроенных флагов C нет.
+func runCC(b compiler.CBuild, cPath, out string, defaultLink []string) error {
+	path, err := findCCompiler(b.CCompiler)
 	if err != nil {
 		return err
 	}
+	var args []string
+	if b.CFlagsSet {
+		args = append(args, b.CFlags...)
+	}
+	args = append(args, cPath, "-o", out)
+	if b.LinkFlagsSet {
+		args = append(args, b.LinkFlags...)
+	} else {
+		args = append(args, defaultLink...)
+	}
 	// #nosec G204 -- пути приходят от локального пользователя, вызывающего свой же компилятор.
 	cmd := exec.Command(path, args...)
-	out, err := cmd.CombinedOutput()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		if hint := missingLibHint(string(out)); hint != "" {
-			return fmt.Errorf("%s завершился с ошибкой: %w\n%s\n%s", path, err, string(out), hint)
+		if hint := missingLibHint(string(output)); hint != "" {
+			return fmt.Errorf("%s завершился с ошибкой: %w\n%s\n%s", path, err, string(output), hint)
 		}
-		return fmt.Errorf("%s завершился с ошибкой: %w\n%s", path, err, string(out))
+		return fmt.Errorf("%s завершился с ошибкой: %w\n%s", path, err, string(output))
 	}
 	return nil
 }
@@ -362,9 +284,16 @@ func installHintFor(lib string) string {
 	return "установите клиентскую библиотеку/dev-пакет для lib" + lib
 }
 
-// findCCompiler ищет системный компилятор C: сначала переменную окружения
-// CC, затем стандартные имена в PATH.
-func findCCompiler() (string, error) {
+// findCCompiler ищет компилятор C: сборка.компилятор_c (explicit), затем
+// переменную окружения CC, затем стандартные имена в PATH.
+func findCCompiler(explicit string) (string, error) {
+	if explicit != "" {
+		path, err := exec.LookPath(explicit)
+		if err != nil {
+			return "", fmt.Errorf("компилятор C %q из сборка.компилятор_c не найден: %w", explicit, err)
+		}
+		return path, nil
+	}
 	if cc := os.Getenv("CC"); cc != "" {
 		if path, err := exec.LookPath(cc); err == nil {
 			return path, nil
@@ -375,5 +304,5 @@ func findCCompiler() (string, error) {
 			return path, nil
 		}
 	}
-	return "", fmt.Errorf("не найден C-компилятор (проверялись $CC, cc, clang, gcc) - Rech v0.1 транспилирует в C и требует системный компилятор для финальной сборки")
+	return "", fmt.Errorf("не найден C-компилятор (проверялись сборка.компилятор_c, $CC, cc, clang, gcc) - Rech транспилирует в C и требует системный компилятор для финальной сборки")
 }

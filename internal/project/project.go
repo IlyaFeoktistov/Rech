@@ -96,6 +96,17 @@ type File struct {
 	// librariesRaw - "сборка.библиотеки" как есть, через запятую ("curl,
 	// ssl") - см. Библиотеки.
 	librariesRaw string
+
+	// cCompiler*/cFlags*/linkFlags* - "сборка.компилятор_c"/"флаги_c"/
+	// "флаги_линковки" и их варианты для платформ, как есть (см.
+	// КомпиляторC/ФлагиC/ФлагиЛинковки).
+	cCompilerRaw, cCompilerWindowsRaw, cCompilerLinuxRaw, cCompilerMacosRaw string
+	cFlagsRaw, cFlagsWindowsRaw, cFlagsLinuxRaw, cFlagsMacosRaw             string
+	linkFlagsRaw, linkFlagsWindowsRaw, linkFlagsLinuxRaw, linkFlagsMacosRaw string
+	// present - полные имена полей, записанные в файле (даже с пустым
+	// значением): "флаги_c:" без значения - тоже замена встроенных флагов
+	// (на пустой список), не их отсутствие.
+	present map[string]bool
 	// libraryPathsRaw - "сборка.путь_библиотек" как есть, через запятую
 	// ("../экспорт_библиотеки/сборка, /общий/каталог/библиотек") - см.
 	// ПутиБиблиотек.
@@ -159,6 +170,18 @@ func (pf *File) fields() map[string]*string {
 		"сборка.платформа":                &pf.Платформа,
 		"сборка.тип":                      &pf.Тип,
 		"сборка.библиотеки":               &pf.librariesRaw,
+		"сборка.компилятор_c":             &pf.cCompilerRaw,
+		"сборка.компилятор_c_windows":     &pf.cCompilerWindowsRaw,
+		"сборка.компилятор_c_linux":       &pf.cCompilerLinuxRaw,
+		"сборка.компилятор_c_macos":       &pf.cCompilerMacosRaw,
+		"сборка.флаги_c":                  &pf.cFlagsRaw,
+		"сборка.флаги_c_windows":          &pf.cFlagsWindowsRaw,
+		"сборка.флаги_c_linux":            &pf.cFlagsLinuxRaw,
+		"сборка.флаги_c_macos":            &pf.cFlagsMacosRaw,
+		"сборка.флаги_линковки":           &pf.linkFlagsRaw,
+		"сборка.флаги_линковки_windows":   &pf.linkFlagsWindowsRaw,
+		"сборка.флаги_линковки_linux":     &pf.linkFlagsLinuxRaw,
+		"сборка.флаги_линковки_macos":     &pf.linkFlagsMacosRaw,
 		"сборка.путь_библиотек":           &pf.libraryPathsRaw,
 		"сборка.библиотеки_windows":       &pf.librariesWindowsRaw,
 		"сборка.библиотеки_linux":         &pf.librariesLinuxRaw,
@@ -373,6 +396,10 @@ func Load(path string) (*File, error) {
 			return nil, fmt.Errorf("%s: неизвестное поле %q", path, full)
 		}
 		*target = value
+		if pf.present == nil {
+			pf.present = map[string]bool{}
+		}
+		pf.present[full] = true
 	}
 	if err := sc.Err(); err != nil {
 		return nil, err
@@ -790,6 +817,43 @@ const Template = `проект:
   # установлены в систему, например собственная Rech-библиотека рядом -
   # см. docs/SPEC.md, "Экспорт в разделяемую библиотеку"; относительно
   # каталога ЭТОГО .rechproj, не текущего рабочего каталога)
+  #
+  # Компилятор C и его флаги. Пока поля ниже закомментированы, сборка
+  # вызывает компилятор так:
+  #   <компилятор_c> [флаги_c] <файл.c> -o <выход> <флаги_линковки>
+  # компилятор_c - переменная окружения CC, иначе первый из cc/clang/gcc
+  # в PATH; флагов C нет вовсе (без оптимизации); флаги линковки
+  # подбираются сами по тому, что использует программа (список ниже), плюс
+  # "-L<путь> -l<имя>" из путь_библиотек/библиотеки выше. Поле, которое
+  # есть в файле, ПОЛНОСТЬЮ заменяет встроенное - перечислите в нём всё
+  # нужное: компилятор сам добавит только "<файл.c> -o <выход>". Флаги -
+  # через пробел, "..." - один флаг с пробелом внутри (путь). Варианты
+  # _windows/_linux/_macos добавляются к общему полю на своей платформе
+  # (компилятор_c_<платформа> - заменяет общий).
+  # компилятор_c: gcc
+  # флаги_c: -O2
+  # флаги_линковки: -lm -lgc
+  # флаги_линковки_linux: -pthread
+  # флаги_линковки_macos: -pthread
+  # флаги_линковки_windows: -lshell32 -lws2_32
+  # Встроенные флаги линковки и когда компилятор ставит их сам:
+  #   -lm                 математика (корень, степень, округлить...) - всегда
+  #   -lgc                сборщик мусора Boehm GC - сущности, коллекции, строки
+  #   -pthread            потоки - запустить, Блокировка, Семафор, пул БД (не Windows)
+  #   -lsqlite3           БД SQLite
+  #   -lpq                БД PostgreSQL
+  #   -lmysqlclient       БД MySQL
+  #   -lssl -lcrypto      TLS (слушать_tcp_защищённо, https, grpcs)
+  #   -lcrypto            шифрование, хеши, подписи без TLS
+  #   -lnghttp2           HTTP/2 и gRPC
+  #   -lz                 gzip-сжатие gRPC-сообщений
+  #   -lpng               PNG-изображения
+  #   -ljpeg              JPEG-изображения
+  #   -lshell32 -lws2_32  Windows: аргументы командной строки и сокеты - всегда
+  # Для "тип: библиотека" встроенные флаги линковки начинаются с
+  #   -shared -fPIC -fvisibility=hidden (Linux), -dynamiclib -fvisibility=hidden
+  #   (macOS), -shared (Windows) - при своих флаги_линковки их тоже нужно
+  #   написать самому.
 
 # бд:
 #   размер_пула: 8 (число одновременных соединений с БД - "подключиться_к_бд"

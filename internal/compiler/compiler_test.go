@@ -13,11 +13,11 @@ import (
 // того, установлен ли системный компилятор).
 type fakeToolchain struct{}
 
-func (fakeToolchain) CompileC(cPath, binPath string, extraLibs, extraLibPaths []string) error {
+func (fakeToolchain) CompileC(cPath, binPath string, b CBuild) error {
 	return os.WriteFile(binPath, []byte{}, 0o755)
 }
 
-func (fakeToolchain) CompileLib(cPath, libPath string, extraLibs, extraLibPaths []string) error {
+func (fakeToolchain) CompileLib(cPath, libPath string, b CBuild) error {
 	return os.WriteFile(libPath, []byte{}, 0o755)
 }
 
@@ -27,7 +27,7 @@ func newTestCompiler() *Compiler {
 	return NewCompiler(NewFrontend(), NewBackend(), fakeToolchain{})
 }
 
-// capturingToolchain записывает extraLibs/extraLibPaths, переданные
+// capturingToolchain записывает CBuild.Libs/LibPaths, переданные
 // CompileC/CompileLib - проверяет, что Compiler действительно прокидывает
 // оба списка до Toolchain, а не теряет их по дороге.
 type capturingToolchain struct {
@@ -35,18 +35,18 @@ type capturingToolchain struct {
 	gotLibPaths *[]string
 }
 
-func (c capturingToolchain) CompileC(cPath, binPath string, extraLibs, extraLibPaths []string) error {
-	*c.gotLibs = extraLibs
+func (c capturingToolchain) CompileC(cPath, binPath string, b CBuild) error {
+	*c.gotLibs = b.Libs
 	if c.gotLibPaths != nil {
-		*c.gotLibPaths = extraLibPaths
+		*c.gotLibPaths = b.LibPaths
 	}
 	return os.WriteFile(binPath, []byte{}, 0o755)
 }
 
-func (c capturingToolchain) CompileLib(cPath, libPath string, extraLibs, extraLibPaths []string) error {
-	*c.gotLibs = extraLibs
+func (c capturingToolchain) CompileLib(cPath, libPath string, b CBuild) error {
+	*c.gotLibs = b.Libs
 	if c.gotLibPaths != nil {
-		*c.gotLibPaths = extraLibPaths
+		*c.gotLibPaths = b.LibPaths
 	}
 	return os.WriteFile(libPath, []byte{}, 0o755)
 }
@@ -57,11 +57,11 @@ func (capturingToolchain) LibExtension() string { return ".so" }
 // ".exe" к выходному файлу, даже если -o дан без расширения.
 type exeAppendingToolchain struct{}
 
-func (exeAppendingToolchain) CompileC(cPath, binPath string, extraLibs, extraLibPaths []string) error {
+func (exeAppendingToolchain) CompileC(cPath, binPath string, b CBuild) error {
 	return os.WriteFile(binPath+".exe", []byte{}, 0o755)
 }
 
-func (exeAppendingToolchain) CompileLib(cPath, libPath string, extraLibs, extraLibPaths []string) error {
+func (exeAppendingToolchain) CompileLib(cPath, libPath string, b CBuild) error {
 	return os.WriteFile(libPath, []byte{}, 0o755)
 }
 

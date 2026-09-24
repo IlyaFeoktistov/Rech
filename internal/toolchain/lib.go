@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+
+	"github.com/IlyaFeoktistov/Rech/internal/compiler"
 )
 
 // LibExtension - расширение разделяемой библиотеки на текущей платформе
@@ -39,22 +41,23 @@ func (*CC) LibExtension() string {
 // "экспортировать" тоже - не проблема корректности (заголовок .h всё равно
 // объявляет только помеченные "экспортировать" - лишние символы не мешают,
 // если потребитель просто не знает их имён).
-func (*CC) CompileLib(cPath, libPath string, extraLibs, extraLibPaths []string) error {
+func (*CC) CompileLib(cPath, libPath string, b compiler.CBuild) error {
 	src, err := os.ReadFile(cPath)
 	if err != nil {
 		return fmt.Errorf("не удалось прочитать сгенерированный файл %q: %w", cPath, err)
 	}
-	var args []string
-	switch runtime.GOOS {
+	return runCC(b, cPath, libPath, append(LibModeFlags(runtime.GOOS), defaultLinkFlags(src, b)...))
+}
+
+// LibModeFlags - флаги сборки разделяемой библиотеки на goos (сборка.тип:
+// библиотека / rech build --lib).
+func LibModeFlags(goos string) []string {
+	switch goos {
 	case "windows":
-		args = []string{cPath, "-o", libPath, "-shared"}
+		return []string{"-shared"}
 	case "darwin":
-		args = []string{cPath, "-o", libPath, "-dynamiclib", "-fvisibility=hidden"}
+		return []string{"-dynamiclib", "-fvisibility=hidden"}
 	default:
-		args = []string{cPath, "-o", libPath, "-shared", "-fPIC", "-fvisibility=hidden"}
+		return []string{"-shared", "-fPIC", "-fvisibility=hidden"}
 	}
-	args = append(args, commonLinkFlags(src)...)
-	args = append(args, libPathFlags(extraLibPaths)...)
-	args = append(args, libFlags(extraLibs)...)
-	return runCC(args)
 }

@@ -158,6 +158,7 @@ func main() {
 	var extraLibs []string
 	var extraLibPaths []string
 	var extraHeaders []string
+	var cBuild compiler.CBuild
 	var optionsYAML string
 	var projectDeps map[string]string
 	var projectDepScopes map[string]map[string]string
@@ -241,6 +242,15 @@ func main() {
 			extraLibs = pf.Библиотеки()
 			extraLibPaths = pf.ПутиБиблиотек()
 			extraHeaders = pf.Заголовки()
+			cBuild.CCompiler = pf.КомпиляторC()
+			if cBuild.CFlags, cBuild.CFlagsSet, perr = pf.ФлагиC(); perr != nil {
+				fmt.Fprintln(os.Stderr, "ошибка:", perr)
+				os.Exit(1)
+			}
+			if cBuild.LinkFlags, cBuild.LinkFlagsSet, perr = pf.ФлагиЛинковки(); perr != nil {
+				fmt.Fprintln(os.Stderr, "ошибка:", perr)
+				os.Exit(1)
+			}
 			optionsYAML = pf.Опции
 			if deps, scopes, depLibs, depLibPaths, derr := resolveDeps(pf); derr != nil {
 				fmt.Fprintln(os.Stderr, "ошибка:", derr)
@@ -276,6 +286,7 @@ func main() {
 	comp.HTTPMaxRequestBytes = httpMaxRequestBytes
 	comp.ExternHeaders = extraHeaders
 	comp.OptionsYAML = optionsYAML
+	comp.CBuild = cBuild
 	build := func() (string, error) { return comp.Build(srcPath, keepC, extraLibs, extraLibPaths) }
 	buildLib := func() (string, string, []string, error) {
 		return comp.BuildLib(srcPath, libRoot, outDir, keepC, extraLibs, extraLibPaths)
