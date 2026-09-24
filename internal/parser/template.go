@@ -35,7 +35,7 @@ func (p *Parser) parseTemplateLiteral(tok lexer.Token) (ast.Expr, error) {
 	for _, part := range parts {
 		var piece ast.Expr
 		if part.isExpr {
-			expr, err := parseTemplateExprPart(part.text)
+			expr, err := parseTemplateExprPart(part.text, tok.Line)
 			if err != nil {
 				return nil, diagnostics.WrapAt(err, diagnostics.Position{Line: tok.Line, Col: tok.Col}, "во вставке \"${%s}\" шаблонного литерала", part.text)
 			}
@@ -55,11 +55,19 @@ func (p *Parser) parseTemplateLiteral(tok lexer.Token) (ast.Expr, error) {
 // parseTemplateExprPart разбирает исходный текст одной "${...}"-вставки
 // отдельным вложенным лексером/парсером - вставка вправе содержать любое
 // выражение языка, включая свои собственные строковые/символьные литералы
-// и вложенные шаблонные литералы.
-func parseTemplateExprPart(src string) (ast.Expr, error) {
+// и вложенные шаблонные литералы. Строки токенов сдвигаются на line -
+// строку самого литерала, иначе позиции узлов вставки (и ошибок семантики
+// по ним) отсчитывались бы от 1.
+func parseTemplateExprPart(src string, line int) (ast.Expr, error) {
 	toks, err := lexer.New(src).Tokenize()
 	if err != nil {
 		return nil, err
+	}
+	for i := range toks {
+		toks[i].Line += line - 1
+		if toks[i].EndLine != 0 {
+			toks[i].EndLine += line - 1
+		}
 	}
 	sub := New(toks)
 	expr, err := sub.parseExpr()

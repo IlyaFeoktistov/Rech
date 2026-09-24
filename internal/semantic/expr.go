@@ -756,6 +756,14 @@ func analyzeCallExpr(sc *ctx, e *ast.CallExpr) (ir.Expr, error) {
 	if len(e.TypeArgs) == 0 {
 		if typ, ok := sc.lookup(e.Callee); ok && typ.Kind == ir.KindCallable {
 			return analyzeCallValueExpr(sc, &ir.Identifier{Name: e.Callee, Type: typ}, e)
+		} else if ok && typ.Kind == ir.KindNullable && nullableInner(sc, typ).Kind == ir.KindCallable {
+			// "?Вызываемый" - вызывается только доказанно непустое значение
+			// ("если ф != Ничто { ф(...) }"), тем же сужением, что и везде.
+			value := maybeUnwrapNarrowed(sc, &ir.Identifier{Name: e.Callee, Type: typ})
+			if ir.TypeOf(value).Kind != ir.KindCallable {
+				return nil, errAtLine(e.Line, CodeNullable, "%q имеет тип %s и может быть Ничто - вызывать можно только после проверки (\"если %s != Ничто { ... }\")", e.Callee, typ, e.Callee)
+			}
+			return analyzeCallValueExpr(sc, value, e)
 		}
 	}
 	return nil, errAtLine(e.Line, CodeNameResolution, "функция %q не объявлена", callee)

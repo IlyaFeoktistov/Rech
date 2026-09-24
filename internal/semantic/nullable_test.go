@@ -436,3 +436,32 @@ func TestAnalyzeNullableNarrowedAfterBreakOnEqualNichto(t *testing.T) {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 }
+
+// TestAnalyzeNullableCallableCallAfterCheck - "?Вызываемый" вызывается
+// после доказательства непустоты; без проверки - ошибка.
+func TestAnalyzeNullableCallableCallAfterCheck(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция удвоить(х: Целое): Целое
+{
+    вернуть х * 2
+}
+функция главная {
+    переменная г: ?Вызываемый(Целое): Целое = &удвоить
+    если г != Ничто {
+        переменная р = г(21)
+    }
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	_, err = AnalyzeSource(t, `
+функция главная {
+    переменная г: ?Вызываемый(Целое): Целое = Ничто
+    переменная р = г(1)
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "может быть Ничто") {
+		t.Fatalf("ожидалась ошибка вызова без проверки, получено: %v", err)
+	}
+}

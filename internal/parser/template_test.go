@@ -112,3 +112,18 @@ func TestParseTemplateLiteralEscapesProcessed(t *testing.T) {
 		t.Fatalf("хотели StringLiteral(%q), получили %+v", want, decl.Value)
 	}
 }
+
+// TestParseTemplateLiteralInterpolationKeepsSourceLine - узлы внутри
+// "${...}" несут строку самого литерала, не строку внутри вставки (1).
+func TestParseTemplateLiteralInterpolationKeepsSourceLine(t *testing.T) {
+	prog, err := parseSource(t, "функция главная {\n    переменная а = 1\n\n    переменная б = `x ${ф(а)}`\n}\n")
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	decl := prog.Functions[0].Body[1].(*ast.VarDecl)
+	cast := decl.Value.(*ast.BinaryExpr).Right.(*ast.CastExpr)
+	call, ok := cast.Value.(*ast.CallExpr)
+	if !ok || call.Line != 4 {
+		t.Fatalf("ожидался CallExpr на строке 4, получено %+v", cast.Value)
+	}
+}
