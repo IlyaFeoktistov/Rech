@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
 // sourceLine возвращает line-ю строку (1-индексную) src без завершающего
@@ -48,7 +50,7 @@ func Render(d *Diagnostic, src string) string {
 
 	if d.Hint != "" {
 		b.WriteString("подсказка: ")
-		b.WriteString(d.Hint)
+		b.WriteString(ir.DisplayTypes(d.Hint))
 		b.WriteByte('\n')
 	}
 	return b.String()
@@ -72,7 +74,7 @@ func header(d *Diagnostic) string {
 			loc = fmt.Sprintf("\n  --> %s:%d", file, d.Pos.Line)
 		}
 	}
-	return fmt.Sprintf("%s%s: %s%s", sev, code, d.Message, loc)
+	return fmt.Sprintf("%s%s: %s%s", sev, code, ir.DisplayTypes(d.Message), loc)
 }
 
 // writeSnippet пишет строку исходника с префиксом номера строки (тем же

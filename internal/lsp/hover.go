@@ -14,6 +14,13 @@ import (
 // 1-индексные) - "", false, если под курсором нечего показать (пробел,
 // ключевое слово, нераспознанный идентификатор).
 func (d *doc) hover(line, col int) (string, bool) {
+	text, ok := d.hoverText(line, col)
+	return ir.DisplayTypes(text), ok
+}
+
+// hoverText - текст hover до перевода канонических имён типов в запись
+// исходника (ir.DisplayTypes).
+func (d *doc) hoverText(line, col int) (string, bool) {
 	if d.irProg == nil {
 		return "", false
 	}

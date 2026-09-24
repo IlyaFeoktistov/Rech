@@ -8,7 +8,11 @@
 // обратно.
 package diagnostics
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/IlyaFeoktistov/Rech/internal/ir"
+)
 
 // Severity - серьёзность диагностики. Сейчас у компилятора нет
 // предупреждений (любая диагностика останавливает сборку) - Warning
@@ -74,6 +78,7 @@ func (d *Diagnostic) Error() string {
 	if d.Hint != "" {
 		msg = fmt.Sprintf("%s (подсказка: %s)", msg, d.Hint)
 	}
+	msg = ir.DisplayTypes(msg)
 	if d.Pos.File == "" && d.Pos.Line == 0 {
 		if d.Code == "" {
 			return msg

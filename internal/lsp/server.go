@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"sync"
+
+	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
 // Run обслуживает одну сессию LSP поверх in/out (в реальном запуске -
@@ -198,7 +200,7 @@ func diagnosticJSON(diag Diagnostic) map[string]any {
 			"end":   map[string]any{"line": diag.Line - 1, "character": diag.Col - 1 + diag.Len},
 		},
 		"severity": diag.Severity,
-		"message":  diag.Message,
+		"message":  ir.DisplayTypes(diag.Message),
 	}
 	if len(diag.Tags) > 0 {
 		tags := make([]any, len(diag.Tags))
