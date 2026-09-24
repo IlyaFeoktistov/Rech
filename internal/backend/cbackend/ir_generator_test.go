@@ -109,7 +109,7 @@ func TestGenerateFromIRIfWhileForReturn(t *testing.T) {
 	for _, want := range []string{
 		"if (true) {", "} else {",
 		"while (false) {",
-		"for (long long v_i = 1LL; v_i <= 5LL; v_i++) {",
+		"for (long long v_EN_i = 1LL; v_EN_i <= 5LL; v_EN_i++) {",
 		"return 0;",
 	} {
 		if !strings.Contains(out, want) {
@@ -335,7 +335,7 @@ func TestGenerateFromIRFieldAssignOnStructTemporaryMaterializesTemp(t *testing.T
 	if !strings.Contains(out, "rech_T_tochka rech_chain_tmp1 = rech_sozdat();") {
 		t.Fatalf("ожидалось объявление временной переменной ПЕРЕД присваиванием полю, получено:\n%s", out)
 	}
-	if !strings.Contains(out, "(rech_chain_tmp1).f_x = 100LL;") {
+	if !strings.Contains(out, "(rech_chain_tmp1).f_EN_x = 100LL;") {
 		t.Fatalf("ожидалось присваивание полю временной переменной, получено:\n%s", out)
 	}
 }
@@ -633,10 +633,10 @@ func TestGenerateFromIRListGenericAndForEach(t *testing.T) {
 	if !strings.Contains(out, "rech_M_spisok_of_celoe_dobavit((v_chisla), 5LL);") {
 		t.Fatalf("ожидался вызов добавить, получено:\n%s", out)
 	}
-	if !strings.Contains(out, "for (long long rech_fe_i_v_x = 0; rech_fe_i_v_x < v_chisla->len; rech_fe_i_v_x++) {") {
+	if !strings.Contains(out, "for (long long rech_fe_i_v_EN_x = 0; rech_fe_i_v_EN_x < v_chisla->len; rech_fe_i_v_EN_x++) {") {
 		t.Fatalf("ожидался цикл по данным Списка, получено:\n%s", out)
 	}
-	if !strings.Contains(out, "long long v_x = v_chisla->data[rech_fe_i_v_x];") {
+	if !strings.Contains(out, "long long v_EN_x = v_chisla->data[rech_fe_i_v_EN_x];") {
 		t.Fatalf("ожидалось присваивание элемента переменной цикла, получено:\n%s", out)
 	}
 }
@@ -1078,8 +1078,8 @@ func TestGenerateFromIRShowStmtEntityGeneratesShowFunc(t *testing.T) {
 		"static void rech_show_tochka(rech_T_tochka * v) {",
 		`printf("Точка { ");`,
 		`printf("x: ");`,
-		`printf("%lld (Целое)", v->f_x);`,
-		"rech_show_tochka(v_p);",
+		`printf("%lld (Целое)", v->f_EN_x);`,
+		"rech_show_tochka(v_EN_p);",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("ожидалось %q в выводе, получено:\n%s", want, out)

@@ -100,7 +100,7 @@ func TestGenerateHeaderOpaqueEntityTypedef(t *testing.T) {
 	if !strings.Contains(header, "typedef struct Точка Точка;") {
 		t.Fatalf("ожидался непрозрачный typedef сущности с настоящим именем (не rech_T_tochka), получено:\n%s", header)
 	}
-	if !strings.Contains(header, "Точка * новая_точка(long long v_x);") {
+	if !strings.Contains(header, "Точка * новая_точка(long long v_EN_x);") {
 		t.Fatalf("ожидался прототип, возвращающий указатель на сущность по настоящему имени, получено:\n%s", header)
 	}
 }

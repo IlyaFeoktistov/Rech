@@ -115,93 +115,122 @@ func checkManglingCollisions(prog *ir.Program) error {
 }
 
 // checkParamsAndBodyMangling - параметры функции/метода и тело в общей
-// корневой области видимости (как ctx.pushScope перед generateCallable в
-// AST-пути), затем рекурсивно по вложенным блокам.
+// корневой области видимости, затем рекурсивно по вложенным блокам.
 func checkParamsAndBodyMangling(params []ir.Param, body []ir.Stmt) error {
-	scope := map[string]string{}
+	root := &mangleScope{vars: map[string]string{}}
 	for _, p := range params {
-		if err := declareMangledVar(scope, p.Name); err != nil {
+		if err := root.declare(p.Name); err != nil {
 			return err
 		}
 	}
-	return checkBlockManglingIn(scope, body)
+	return checkBlockManglingIn(root, body)
+}
+
+// mangleScope - область видимости локальных имён: C-имя -> Rech-имя плюс
+// объемлющая область. Вложенный блок видит внешние имена - внутреннее
+// C-имя, совпавшее с внешним ДРУГОГО Rech-имени, затенило бы его прямо в
+// C (`v_f = v_f->data[...]` у "для f в ф"), поэтому коллизия проверяется
+// по всей цепочке; затенение тем же Rech-именем - как в C, разрешено.
+type mangleScope struct {
+	vars   map[string]string
+	parent *mangleScope
+}
+
+func (sc *mangleScope) child() *mangleScope {
+	return &mangleScope{vars: map[string]string{}, parent: sc}
+}
+
+func (sc *mangleScope) declare(name string) error {
+	mangled := mangleVar(name)
+	for s := sc; s != nil; s = s.parent {
+		if other, exists := s.vars[mangled]; exists && other != name {
+			return fmt.Errorf("переменные %q и %q транслитерируются в одно и то же имя %q в C - переименуйте одну из них", other, name, mangled)
+		}
+	}
+	sc.vars[mangled] = name
+	return nil
 }
 
 // checkBlockMangling проверяет тело вложенного блока (если/иначе/пока/для) в
-// СВЕЖЕЙ области видимости - повторное объявление того же имени во
-// вложенном блоке разрешено (затенение, как в C), поэтому каждый блок
-// начинается с пустой карты, а не наследует внешнюю.
-func checkBlockMangling(body []ir.Stmt) error {
-	return checkBlockManglingIn(map[string]string{}, body)
+// новой области поверх sc.
+func checkBlockMangling(sc *mangleScope, body []ir.Stmt) error {
+	return checkBlockManglingIn(sc.child(), body)
 }
 
-func checkBlockManglingIn(scope map[string]string, body []ir.Stmt) error {
+func checkBlockManglingIn(sc *mangleScope, body []ir.Stmt) error {
 	for _, st := range body {
 		switch s := st.(type) {
 		case *ir.VarDecl:
-			if err := declareMangledVar(scope, s.Name); err != nil {
+			if err := sc.declare(s.Name); err != nil {
 				return err
 			}
 		case *ir.IfStmt:
-			if err := checkBlockMangling(s.Then); err != nil {
+			if err := checkBlockMangling(sc, s.Then); err != nil {
 				return err
 			}
-			if err := checkBlockMangling(s.Else); err != nil {
+			if err := checkBlockMangling(sc, s.Else); err != nil {
 				return err
 			}
 		case *ir.WhileStmt:
-			if err := checkBlockMangling(s.Body); err != nil {
+			if err := checkBlockMangling(sc, s.Body); err != nil {
 				return err
 			}
 		case *ir.GerundStmt:
-			if err := checkBlockMangling(s.Body); err != nil {
+			if err := checkBlockMangling(sc, s.Body); err != nil {
 				return err
 			}
 		case *ir.BlockStmt:
-			if err := checkBlockMangling(s.Body); err != nil {
+			if err := checkBlockMangling(sc, s.Body); err != nil {
 				return err
 			}
 		case *ir.ForStmt:
-			loopScope := map[string]string{}
-			if err := declareMangledVar(loopScope, s.Var); err != nil {
+			loop := sc.child()
+			if err := loop.declare(s.Var); err != nil {
 				return err
 			}
-			if err := checkBlockManglingIn(loopScope, s.Body); err != nil {
+			if err := checkBlockManglingIn(loop, s.Body); err != nil {
 				return err
 			}
 		case *ir.ForEachStmt:
-			loopScope := map[string]string{}
+			loop := sc.child()
 			if s.KeyVar != "" {
-				if err := declareMangledVar(loopScope, s.KeyVar); err != nil {
+				if err := loop.declare(s.KeyVar); err != nil {
 					return err
 				}
 			}
-			if err := declareMangledVar(loopScope, s.Var); err != nil {
+			if err := loop.declare(s.Var); err != nil {
 				return err
 			}
-			if err := checkBlockManglingIn(loopScope, s.Body); err != nil {
+			if err := checkBlockManglingIn(loop, s.Body); err != nil {
+				return err
+			}
+		case *ir.TryStmt:
+			if err := checkBlockMangling(sc, s.Body); err != nil {
+				return err
+			}
+			if !s.NoCatch {
+				catch := sc.child()
+				if err := catch.declare(s.CatchVar); err != nil {
+					return err
+				}
+				if err := checkBlockManglingIn(catch, s.CatchBody); err != nil {
+					return err
+				}
+			}
+			if err := checkBlockMangling(sc, s.Finally); err != nil {
 				return err
 			}
 		case *ir.CStyleForStmt:
-			loopScope := map[string]string{}
+			loop := sc.child()
 			if s.Init != nil {
-				if err := declareMangledVar(loopScope, s.Init.Name); err != nil {
+				if err := loop.declare(s.Init.Name); err != nil {
 					return err
 				}
 			}
-			if err := checkBlockManglingIn(loopScope, s.Body); err != nil {
+			if err := checkBlockManglingIn(loop, s.Body); err != nil {
 				return err
 			}
 		}
 	}
-	return nil
-}
-
-func declareMangledVar(scope map[string]string, name string) error {
-	mangled := mangleVar(name)
-	if other, exists := scope[mangled]; exists && other != name {
-		return fmt.Errorf("переменные %q и %q транслитерируются в одно и то же имя %q в C - переименуйте одну из них", other, name, mangled)
-	}
-	scope[mangled] = name
 	return nil
 }

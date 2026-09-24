@@ -43,7 +43,7 @@ func TestGenerateFromIRMutexEmitsNativeStructCtorAndMethods(t *testing.T) {
 		"EnterCriticalSection(&this_->native);",
 		"pthread_mutex_unlock(&this_->native);",
 		"LeaveCriticalSection(&this_->native);",
-		"rech_M_blokirovka_zahvatit(((v_schet)->f_blokirovka));",
+		"rech_M_blokirovka_zahvatit(((v_schyot)->f_blokirovka));",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("ожидался фрагмент %q, получено:\n%s", want, out)

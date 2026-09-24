@@ -131,10 +131,10 @@ func TestGenerateFromIREntityReflectTargetGeneratesAccessorsAndDescriptor(t *tes
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, "static rech_any_t rech_reflect_get_tochka_x(void *self) {") {
+	if !strings.Contains(out, "static rech_any_t rech_reflect_get_tochka_EN_x(void *self) {") {
 		t.Fatalf("ожидался геттер поля x, получено:\n%s", out)
 	}
-	if !strings.Contains(out, "static void rech_reflect_set_tochka_x(void *self, rech_any_t v) {") {
+	if !strings.Contains(out, "static void rech_reflect_set_tochka_EN_x(void *self, rech_any_t v) {") {
 		t.Fatalf("ожидался сеттер поля x, получено:\n%s", out)
 	}
 	if !strings.Contains(out, "static rech_any_t rech_reflect_invoke_tochka_koordinata(void *self, rech_any_t *args, int argc) {") {

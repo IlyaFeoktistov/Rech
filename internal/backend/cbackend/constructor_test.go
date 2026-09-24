@@ -30,20 +30,20 @@ func TestGenerateFromIRExplicitConstructorSplitsInitFromNew(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, "static void rech_init_tochka(rech_T_tochka *this_, long long v_x, long long v_y) {") {
+	if !strings.Contains(out, "static void rech_init_tochka(rech_T_tochka *this_, long long v_EN_x, long long v_EN_y) {") {
 		t.Fatalf("ожидалась функция инициализации конструктора, получено:\n%s", out)
 	}
-	if !strings.Contains(out, "(this_)->f_x = v_x;") || !strings.Contains(out, "(this_)->f_y = v_y;") {
+	if !strings.Contains(out, "(this_)->f_EN_x = v_EN_x;") || !strings.Contains(out, "(this_)->f_EN_y = v_EN_y;") {
 		t.Fatalf("ожидалось присваивание полей внутри инициализации, получено:\n%s", out)
 	}
-	if !strings.Contains(out, "static rech_T_tochka *rech_new_tochka(long long v_x, long long v_y) {") {
+	if !strings.Contains(out, "static rech_T_tochka *rech_new_tochka(long long v_EN_x, long long v_EN_y) {") {
 		t.Fatalf("ожидалась обёртка rech_new_tochka, получено:\n%s", out)
 	}
 	if !strings.Contains(out, "rech_T_tochka *p = GC_MALLOC(sizeof(rech_T_tochka));") ||
-		!strings.Contains(out, "rech_init_tochka(p, v_x, v_y);") {
+		!strings.Contains(out, "rech_init_tochka(p, v_EN_x, v_EN_y);") {
 		t.Fatalf("ожидался GC_MALLOC + вызов инициализации в обёртке, получено:\n%s", out)
 	}
-	if !strings.Contains(out, "rech_T_tochka * v_p_INIT = rech_new_tochka(1LL, 2LL);") {
+	if !strings.Contains(out, "rech_T_tochka * v_EN_p_INIT = rech_new_tochka(1LL, 2LL);") {
 		t.Fatalf("ожидался вызов rech_new_tochka с аргументами конструктора, получено:\n%s", out)
 	}
 }

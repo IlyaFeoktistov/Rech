@@ -10,6 +10,7 @@ package cbackend
 
 import (
 	"strings"
+	"unicode"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
@@ -22,7 +23,7 @@ const entryPointName = "главная"
 // Не претендует на лингвистическую точность (это не морфология, см.
 // ), задача - дать читаемый и уникальный C-идентификатор.
 var translit = map[rune]string{
-	'а': "a", 'б': "b", 'в': "v", 'г': "g", 'д': "d", 'е': "e", 'ё': "e",
+	'а': "a", 'б': "b", 'в': "v", 'г': "g", 'д': "d", 'е': "e", 'ё': "yo",
 	'ж': "zh", 'з': "z", 'и': "i", 'й': "j", 'к': "k", 'л': "l", 'м': "m",
 	'н': "n", 'о': "o", 'п': "p", 'р': "r", 'с': "s", 'т': "t", 'у': "u",
 	'ф': "f", 'х': "h", 'ц': "c", 'ч': "ch", 'ш': "sh", 'щ': "sch", 'ъ': "",
@@ -63,16 +64,67 @@ var translit = map[rune]string{
 	'=': "_eq_", '!': "_not_",
 }
 
+// transliterate - C-идентификатор для Rech-имени. Имя режется на сегменты
+// по служебным символам (generic-скобки, "?", скобки перегрузки,
+// операторы - всё, что в translit, кроме кириллицы): сегмент с кириллицей
+// транслитерируется в нижний регистр, сегмент БЕЗ кириллицы, но с
+// латинской буквой - остаётся как написан, с маркером latinMarker впереди.
+// Транслитерация кириллицы никогда не даёт заглавных букв, поэтому
+// латинское "f" (EN_f) не совпадёт с кириллическим "ф" (f).
 func transliterate(name string) string {
 	var sb strings.Builder
-	for _, r := range strings.ToLower(name) {
-		if lat, ok := translit[r]; ok {
-			sb.WriteString(lat)
+	start := 0
+	flush := func(end int) {
+		seg := name[start:end]
+		if seg == "" {
+			return
+		}
+		if isLatinSegment(seg) {
+			sb.WriteString(latinMarker)
+			sb.WriteString(seg)
+			return
+		}
+		for _, r := range strings.ToLower(seg) {
+			if lat, ok := translit[r]; ok {
+				sb.WriteString(lat)
+				continue
+			}
+			sb.WriteRune(r)
+		}
+	}
+	for i, r := range name {
+		sep, ok := translit[r]
+		if !ok || isCyrillic(r) {
 			continue
 		}
-		sb.WriteRune(r)
+		flush(i)
+		sb.WriteString(sep)
+		start = i + len(string(r))
 	}
+	flush(len(name))
 	return sb.String()
+}
+
+// latinMarker - префикс сегмента имени без кириллицы (см. transliterate).
+const latinMarker = "EN_"
+
+func isCyrillic(r rune) bool {
+	return unicode.Is(unicode.Cyrillic, r)
+}
+
+// isLatinSegment - в сегменте нет кириллицы, но есть латинская буква
+// (сегмент только из цифр/"_" маркера не получает).
+func isLatinSegment(seg string) bool {
+	hasLatin := false
+	for _, r := range seg {
+		if isCyrillic(r) {
+			return false
+		}
+		if r < 128 && unicode.IsLetter(r) {
+			hasLatin = true
+		}
+	}
+	return hasLatin
 }
 
 func mangleName(name string) string {
