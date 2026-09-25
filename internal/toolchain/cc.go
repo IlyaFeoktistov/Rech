@@ -116,14 +116,12 @@ func autoLinkFlags(src []byte, goos string) []string {
 	return flags
 }
 
-// runCC запускает компилятор C: "<флаги C> <cPath> -o <out> <флаги
-// линковки>". Флаги проекта (b.CFlags/b.LinkFlags), если заданы, заменяют
-// встроенные целиком (см. compiler.CBuild); встроенных флагов C нет.
-func runCC(b compiler.CBuild, cPath, out string, defaultLink []string) error {
-	path, err := findCCompiler(b.CCompiler)
-	if err != nil {
-		return err
-	}
+// windowsGUIFlag - оконная подсистема Windows (MinGW/clang): исполняемый
+// файл без консоли.
+const windowsGUIFlag = "-mwindows"
+
+// ccArgs - аргументы компилятора C для runCC (goos - целевая ОС).
+func ccArgs(b compiler.CBuild, cPath, out string, defaultLink []string, goos string) []string {
 	var args []string
 	if b.CFlagsSet {
 		args = append(args, b.CFlags...)
@@ -134,6 +132,23 @@ func runCC(b compiler.CBuild, cPath, out string, defaultLink []string) error {
 	} else {
 		args = append(args, defaultLink...)
 	}
+	// Подсистема - часть "сборка.тип", не флагов линковки: добавляется и
+	// тогда, когда флаги_линковки заданы в проекте целиком.
+	if b.Windowed && goos == "windows" {
+		args = append(args, windowsGUIFlag)
+	}
+	return args
+}
+
+// runCC запускает компилятор C: "<флаги C> <cPath> -o <out> <флаги
+// линковки>". Флаги проекта (b.CFlags/b.LinkFlags), если заданы, заменяют
+// встроенные целиком (см. compiler.CBuild); встроенных флагов C нет.
+func runCC(b compiler.CBuild, cPath, out string, defaultLink []string) error {
+	path, err := findCCompiler(b.CCompiler)
+	if err != nil {
+		return err
+	}
+	args := ccArgs(b, cPath, out, defaultLink, runtime.GOOS)
 	// #nosec G204 -- пути приходят от локального пользователя, вызывающего свой же компилятор.
 	cmd := exec.Command(path, args...)
 	output, err := cmd.CombinedOutput()

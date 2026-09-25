@@ -131,6 +131,9 @@ type CBuild struct {
 	CFlagsSet      bool
 	LinkFlags      []string
 	LinkFlagsSet   bool
+	// Windowed - "сборка.тип: оконное": на Windows исполняемый файл
+	// собирается для оконной подсистемы (без консоли).
+	Windowed bool
 }
 
 type defaultBackend struct{}

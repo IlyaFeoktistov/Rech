@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
@@ -40,8 +41,8 @@ func TestLoadDefaultsAndPaths(t *testing.T) {
 	if pf.KeepC() {
 		t.Fatalf("режим релиз не должен сохранять .c")
 	}
-	if pf.Тип != "программа" || pf.IsLibrary() {
-		t.Fatalf("ожидался тип по умолчанию \"программа\", получено %+v", pf)
+	if pf.Тип != "консольное" || pf.IsLibrary() || pf.IsWindowed() {
+		t.Fatalf("ожидался тип по умолчанию \"консольное\", получено %+v", pf)
 	}
 }
 
@@ -194,6 +195,43 @@ func TestLoadLibraryType(t *testing.T) {
 	}
 	if !pf.IsLibrary() {
 		t.Fatal("ожидалось IsLibrary() == true при сборка.тип: библиотека")
+	}
+}
+
+// TestLoadBuildTypes - все значения "сборка.тип" и отказ от неизвестного
+// (в том числе прежнего "программа").
+func TestLoadBuildTypes(t *testing.T) {
+	cases := []struct {
+		value             string
+		library, windowed bool
+		wantErr           bool
+	}{
+		{value: "консольное"},
+		{value: "оконное", windowed: true},
+		{value: "библиотека", library: true},
+		{value: "программа", wantErr: true},
+	}
+	for _, c := range cases {
+		t.Run(c.value, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "тест.rechproj")
+			content := "проект:\n  имя: тест\n\nфайлы:\n  главный: исходники/главный.rech\n\nсборка:\n  тип: " + c.value + "\n"
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatalf("запись файла проекта: %v", err)
+			}
+			pf, err := Load(path)
+			if c.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "оконное") {
+					t.Fatalf("ожидалась ошибка со списком допустимых значений, получено %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if pf.IsLibrary() != c.library || pf.IsWindowed() != c.windowed {
+				t.Fatalf("IsLibrary=%v IsWindowed=%v, ожидалось %v/%v", pf.IsLibrary(), pf.IsWindowed(), c.library, c.windowed)
+			}
+		})
 	}
 }
 

@@ -243,6 +243,7 @@ func main() {
 			extraLibPaths = pf.ПутиБиблиотек()
 			extraHeaders = pf.Заголовки()
 			cBuild.CCompiler = pf.КомпиляторC()
+			cBuild.Windowed = pf.IsWindowed()
 			if cBuild.CFlags, cBuild.CFlagsSet, perr = pf.ФлагиC(); perr != nil {
 				fmt.Fprintln(os.Stderr, "ошибка:", perr)
 				os.Exit(1)
