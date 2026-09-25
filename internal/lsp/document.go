@@ -405,6 +405,15 @@ func localDeclsAt(scope *funcScope, line int) map[string]*ir.VarDecl {
 	return out
 }
 
+// varDeclType - тип переменной: аннотация, если она была, иначе тип
+// значения.
+func varDeclType(s *ir.VarDecl) ir.Type {
+	if s.DeclType.Kind != ir.KindUnknown {
+		return s.DeclType
+	}
+	return ir.TypeOf(s.Value)
+}
+
 // walkLocals - обход локальных имён тела до строки maxLine (см. localsAt):
 // visit получает имя, тип, объявление (nil - переменная цикла/"поймать") и
 // строку объявления (0 - неизвестна, у переменной "поймать"). Затенение
@@ -416,7 +425,7 @@ func walkLocals(stmts []ir.Stmt, maxLine int, visit func(name string, t ir.Type,
 		switch s := s.(type) {
 		case *ir.VarDecl:
 			if s.Line <= maxLine {
-				visit(s.Name, ir.TypeOf(s.Value), s, s.Line)
+				visit(s.Name, varDeclType(s), s, s.Line)
 			}
 		case *ir.IfStmt:
 			walkLocals(s.Then, maxLine, visit)

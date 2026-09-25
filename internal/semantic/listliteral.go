@@ -132,7 +132,29 @@ func coerceListElem(sc *ctx, raw ast.Expr, v ir.Expr, vt ir.Type, isSpread bool,
 	if !isSpread && elemType.Kind == ir.KindNullable && nullableInner(sc, elemType) == vt {
 		return &ir.NullWrapExpr{Value: v, Type: elemType}, nil
 	}
+	if up, ok := upcastListElem(sc, v, vt, elemType); !isSpread && ok {
+		return up, nil
+	}
 	return nil, errAtLine(line, CodeSemanticOther, "элемент %d литерала списка должен быть типа %s, получен %s", i+1, elemType, vt)
+}
+
+// upcastListElem - сущность-потомок или реализация интерфейса там, где тип
+// элемента - предок или интерфейс (в том числе "?Предок"): то же правило,
+// что у аргумента и переменной (isAssignable, ir.UpcastExpr).
+func upcastListElem(sc *ctx, v ir.Expr, vt, elemType ir.Type) (ir.Expr, bool) {
+	target := elemType
+	if elemType.Kind == ir.KindNullable {
+		target = nullableInner(sc, elemType)
+	}
+	if vt.Kind != ir.KindEntity || (target.Kind != ir.KindEntity && target.Kind != ir.KindInterface) ||
+		!isAssignable(sc.entities, sc.interfaces, vt, target) {
+		return nil, false
+	}
+	var out ir.Expr = &ir.UpcastExpr{Value: v, Type: target}
+	if elemType.Kind == ir.KindNullable {
+		out = &ir.NullWrapExpr{Value: out, Type: elemType}
+	}
+	return out, true
 }
 
 // analyzeListElem - один элемент литерала списка: обычное выражение или

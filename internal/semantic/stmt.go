@@ -179,7 +179,14 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		// что объявленной (пустой) внутренней переменной вместо той, на
 		// которую на самом деле ссылается value.
 		newEstablished := establishedForNewBinding(sc, s.Name, value)
-		if err := sc.declare(s.Name, ir.TypeOf(value)); err != nil {
+		// Тип переменной - аннотация, если она есть: "Фигура ф = новый
+		// Квадрат()" - переменная интерфейса, ей можно присвоить любую
+		// другую фигуру, а поля Квадрата через неё не видны.
+		varType := ir.TypeOf(value)
+		if hasAnnotation {
+			varType = declared
+		}
+		if err := sc.declare(s.Name, varType); err != nil {
 			return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: s.Line})
 		}
 		sc.setEstablished(s.Name, newEstablished)
@@ -188,7 +195,11 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			sc.a.nextStaticVarID++
 			staticID = sc.a.nextStaticVarID
 		}
-		return &ir.VarDecl{Name: s.Name, Value: value, IsStatic: s.IsStatic, StaticID: staticID, Line: s.Line, Doc: s.Doc}, nil
+		decl := &ir.VarDecl{Name: s.Name, Value: value, IsStatic: s.IsStatic, StaticID: staticID, Line: s.Line, Doc: s.Doc}
+		if hasAnnotation {
+			decl.DeclType = declared
+		}
+		return decl, nil
 
 	case *ast.ConstDecl:
 		// Полностью тот же код, что и VarDecl выше (одна и та же ir.VarDecl -

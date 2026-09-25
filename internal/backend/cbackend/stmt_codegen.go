@@ -87,6 +87,9 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 		// заглавными буквами специально: mangleVar/transliterate всегда
 		// приводят весь мангл-идентификатор к нижнему регистру, поэтому
 		// такое имя не может совпасть ни с одной настоящей переменной Rech.
+		if s.DeclType.Kind != ir.KindUnknown {
+			typ = fromIRType(s.DeclType)
+		}
 		cType := typ.cType(ctx)
 		mangled := mangleVar(s.Name)
 		tmp := mangled + "_INIT"

@@ -189,6 +189,13 @@ func coerceExpr(sc *ctx, e ast.Expr, target ir.Type) (ir.Expr, error) {
 	if target.Kind == ir.KindNullable && nullableInner(sc, target) == typ {
 		return &ir.NullWrapExpr{Value: value, Type: target}, nil
 	}
+	if target.Kind == ir.KindNullable {
+		// Потомок/реализация там, где ожидается "?Предок"/"?Интерфейс".
+		if inner := nullableInner(sc, target); typ.Kind == ir.KindEntity && (inner.Kind == ir.KindEntity || inner.Kind == ir.KindInterface) &&
+			isAssignable(sc.entities, sc.interfaces, typ, inner) {
+			return &ir.NullWrapExpr{Value: &ir.UpcastExpr{Value: value, Type: inner}, Type: target}, nil
+		}
+	}
 	value = maybeUnwrapNarrowed(sc, value)
 	if typ := ir.TypeOf(value); typ.Kind == ir.KindEntity && target.Kind == ir.KindEntity && typ.Entity != target.Entity &&
 		entityIsOrExtends(sc.entities, typ.Entity, target.Entity) {

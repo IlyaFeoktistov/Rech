@@ -38,6 +38,9 @@ func generateIRStaticVarDecl(sb *strings.Builder, ctx *irGenCtx, s *ir.VarDecl, 
 	if err != nil {
 		return err
 	}
+	if s.DeclType.Kind != ir.KindUnknown {
+		typ = fromIRType(s.DeclType)
+	}
 	cType := typ.cType(ctx)
 	mangled := mangleVar(s.Name)
 	inited := mangled + "_STATIC_INITED"
