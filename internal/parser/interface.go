@@ -56,6 +56,9 @@ func (p *Parser) parseInterfaceDecl() (*ast.InterfaceDecl, error) {
 			// Интерфейс пока не несёт doc-комментариев у своих сигнатур
 			// (ast.InterfaceMethod без поля Doc) - "/** ... */" здесь ведёт
 			// себя как обычный комментарий, просто пропускается.
+			if err := p.checkDocAttached(); err != nil {
+				return nil, err
+			}
 			p.advance()
 			p.skipSeparators()
 			continue

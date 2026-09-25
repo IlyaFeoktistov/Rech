@@ -382,6 +382,11 @@ func (p *Parser) parseFieldsSection() ([]ast.Field, error) {
 			// ни к чему не привязан - съедаем его тоже, как обычный
 			// комментарий, чтобы не запнуться на нём снаружи (parseEntity).
 			for p.cur().Type == lexer.NEWLINE || p.cur().Type == lexer.DOC_COMMENT {
+				if p.cur().Type == lexer.DOC_COMMENT {
+					if err := p.checkDocAttached(); err != nil {
+						return nil, err
+					}
+				}
 				p.advance()
 			}
 			break
@@ -396,7 +401,10 @@ func (p *Parser) parseFieldsSection() ([]ast.Field, error) {
 		if err := p.requireSeparator(); err != nil {
 			return nil, diagnostics.Wrap(err, "перед полем")
 		}
-		doc := p.consumeDoc()
+		doc, err := p.consumeDoc()
+		if err != nil {
+			return nil, err
+		}
 		field, err := p.parseField()
 		if err != nil {
 			return nil, err

@@ -20,6 +20,7 @@ var (
 	CodeConditionalBuild = diagnostics.Register("RECH2013", "ошибка в блоке условной компиляции (\"#если\")")
 	CodeSwitch           = diagnostics.Register("RECH2014", "ошибка в \"выбрать\"/\"когда\"")
 	CodeTemplate         = diagnostics.Register("RECH2015", "ошибка в шаблонном литерале")
+	CodeFloatingDoc      = diagnostics.Register("RECH2016", "doc-комментарий не стоит вплотную перед объявлением")
 )
 
 // errAt строит диагностику парсера с позицией (в рунах - см. package doc

@@ -24,13 +24,8 @@ func (p *Parser) parseBlock() ([]ast.Stmt, error) {
 			return nil, errAtLine(p.cur().Line, CodeUnclosedBracket, "не найдена закрывающая }")
 		}
 		if p.cur().Type == lexer.DOC_COMMENT {
-			// "/** ... */" внутри тела - не сразу перед объявлением
-			// (consumeDoc уже забрал бы его в соответствующей точке
-			// разбора, если бы был) - ведёт себя как обычный комментарий,
-			// просто пропускается, ни к чему не привязываясь.
-			p.advance()
-			p.skipSeparators()
-			continue
+			// Инструкция - не объявление, документировать нечего.
+			return nil, p.errDocInBody()
 		}
 		stmt, err := p.parseStatement()
 		if err != nil {

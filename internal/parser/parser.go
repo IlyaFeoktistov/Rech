@@ -329,14 +329,47 @@ func (p *Parser) skipNewlinesAfterListComma(closing lexer.TokenType) (bool, erro
 // какое объявление разбирать дальше (ParseProgram, тело сущности, тело
 // "имеет:") - сам doc-комментарий не становится отдельным ast.Stmt/узлом,
 // он просто текст, привязанный к следующему объявлению.
-func (p *Parser) consumeDoc() string {
+func (p *Parser) consumeDoc() (string, error) {
 	doc := ""
 	for p.cur().Type == lexer.DOC_COMMENT {
+		if err := p.checkDocAttached(); err != nil {
+			return "", err
+		}
 		doc = normalizeDoc(p.cur().Value)
 		p.advance()
 		p.skipNewlines()
 	}
-	return doc
+	return doc, nil
+}
+
+// errDocInBody - doc-комментарий перед инструкцией в теле функции/метода/
+// ветки "когда": документируются только объявления.
+func (p *Parser) errDocInBody() error {
+	return errAtLine(p.cur().Line, CodeFloatingDoc, "doc-комментарий \"/** ... */\" внутри тела ни к чему не относится - документируются только объявления (функция, метод, сущность, поле, константа); для обычного комментария используйте \"//\"")
+}
+
+// checkDocAttached - текущий токен DOC_COMMENT обязан стоять вплотную перед
+// тем, что он документирует: следующий токен - на следующей же строке
+// после "*/" и не "}"/конец файла/ещё один doc-комментарий. Пустая строка
+// или //-комментарий между ними (лексер их не отдаёт, виден только разрыв
+// в номерах строк) - ошибка: иначе описание файла или соседнего блока
+// молча прилипало бы к ближайшему объявлению (hover показывал бы чужой
+// текст).
+func (p *Parser) checkDocAttached() error {
+	doc := p.cur()
+	offset := 1
+	for p.peekAt(offset).Type == lexer.NEWLINE {
+		offset++
+	}
+	next := p.peekAt(offset)
+	endLine := doc.Line + strings.Count(doc.Value, "\n")
+	switch {
+	case next.Type == lexer.EOF || next.Type == lexer.RBRACE:
+		return errAtLine(doc.Line, CodeFloatingDoc, "doc-комментарий \"/** ... */\" ни к чему не относится - после него нет объявления; для обычного комментария используйте \"//\"")
+	case next.Type == lexer.DOC_COMMENT || next.Line != endLine+1:
+		return errAtLine(doc.Line, CodeFloatingDoc, "doc-комментарий \"/** ... */\" отделён от объявления (пустая строка, \"//\"-комментарий или ещё один doc-комментарий между ними) - поставьте его вплотную перед объявлением или замените на \"//\"")
+	}
+	return nil
 }
 
 // normalizeDoc убирает построчное "оформление" многострочного
@@ -664,7 +697,10 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 // конце файла, не перед объявлением - обычный комментарий, ни к чему не
 // привязанный (doc уже прочитан и отброшен), разбирать нечего.
 func (p *Parser) parseTopLevelItem(prog *ast.Program, topLevelStmts *[]ast.Stmt, explicitMain **ast.FunctionDecl) (skip bool, err error) {
-	doc := p.consumeDoc()
+	doc, err := p.consumeDoc()
+	if err != nil {
+		return false, err
+	}
 	if p.cur().Type == lexer.EOF {
 		return true, nil
 	}
@@ -921,7 +957,10 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 	defer func() { p.currentEntityName = prevEntityName }()
 
 	for p.cur().Type != lexer.RBRACE {
-		doc := p.consumeDoc()
+		doc, err := p.consumeDoc()
+		if err != nil {
+			return nil, err
+		}
 		if p.cur().Type == lexer.RBRACE {
 			// "/** ... */" висело в конце тела, не перед объявлением -
 			// обычный комментарий, ни к чему не привязанный (doc уже

@@ -145,9 +145,7 @@ func (p *Parser) parseSwitchCaseBody() ([]ast.Stmt, error) {
 			break
 		}
 		if t == lexer.DOC_COMMENT {
-			p.advance()
-			p.skipSeparators()
-			continue
+			return nil, p.errDocInBody()
 		}
 		stmt, err := p.parseStatement()
 		if err != nil {

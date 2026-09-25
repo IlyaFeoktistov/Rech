@@ -1,6 +1,9 @@
 package parser
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseDocCommentOnFunction(t *testing.T) {
 	src := `
@@ -20,34 +23,6 @@ func TestParseDocCommentOnFunction(t *testing.T) {
 	}
 	if prog.Functions[1].Doc != "" {
 		t.Fatalf("у функции без doc-комментария Doc должен быть пуст, получено %q", prog.Functions[1].Doc)
-	}
-}
-
-// TestParseDocCommentConsecutiveKeepsLastOne - файловый заголовок в
-// "/** */" сразу перед собственным doc-комментарием объявления - раньше
-// поглощался только первый (consumeDoc вызывался ровно один раз), второй
-// оставался нетронутым токеном, который дальнейший разбор пытался понять
-// как начало объявления и падал с невнятной ошибкой "неожиданный токен...
-// в теле функции". Побеждает ПОСЛЕДНИЙ комментарий (ближайший к
-// объявлению) - более ранние отбрасываются как обычная прозаическая
-// заметка, не привязанная ни к чему.
-func TestParseDocCommentConsecutiveKeepsLastOne(t *testing.T) {
-	src := `
-/** Файловый заголовок - общее описание модуля. */
-
-/** Складывает два числа. */
-функция сложить(кого: Целое, кому: Целое): Целое
-{
-    вернуть кого + кому
-}
-функция главная { вывести "ок" }
-`
-	prog, err := parseSource(t, src)
-	if err != nil {
-		t.Fatalf("неожиданная ошибка: %v", err)
-	}
-	if prog.Functions[0].Doc != "Складывает два числа." {
-		t.Fatalf("неожиданный Doc: %q", prog.Functions[0].Doc)
 	}
 }
 
@@ -94,57 +69,20 @@ func TestParseDocCommentOnEntityFieldMethodConst(t *testing.T) {
 	}
 }
 
-// TestParseDocCommentBeforeStatementInsideBodyIsIgnored - "/** ... */" не
-// сразу перед объявлением (сущность/функция/поле/метод/константа) ведёт
-// себя как обычный "/* ... */" - молча пропускается, не падает и никуда не
-// прикрепляется.
-func TestParseDocCommentBeforeStatementInsideBodyIsIgnored(t *testing.T) {
+// TestParseDocCommentBeforeStatementInsideBodyIsError - "/** ... */"
+// перед инструкцией внутри тела - ошибка: документируются только
+// объявления.
+func TestParseDocCommentBeforeStatementInsideBodyIsError(t *testing.T) {
 	src := `
 функция главная
 {
-    /** это не объявление верхнего уровня */
+    /** это не объявление */
     переменная число = 1
     вывести число
 }
 `
-	prog, err := parseSource(t, src)
-	if err != nil {
-		t.Fatalf("неожиданная ошибка: %v", err)
-	}
-	if len(prog.Functions[0].Body) != 2 {
-		t.Fatalf("ожидалось 2 инструкции в теле (doc-комментарий не должен породить свою), получено %d", len(prog.Functions[0].Body))
-	}
-}
-
-// TestParseDocCommentTrailingBeforeClosingBraceIsIgnored - "/** ... */"
-// прямо перед закрывающей "}" (тела функции, тела сущности, секции "имеет:")
-// - тоже не объявление, тем же принципом, что и
-// TestParseDocCommentBeforeStatementInsideBodyIsIgnored.
-func TestParseDocCommentTrailingBeforeClosingBraceIsIgnored(t *testing.T) {
-	src := `
-сущность Точка
-{
-    имеет:
-        x: Целое
-        /** висячий - не поле */
-
-    конструктор(x: Целое) { этот.x = x }
-
-    /** висячий - не метод */
-}
-функция главная
-{
-    переменная т = новая Точка(1)
-    вывести т.x
-    /** висячий - не инструкция */
-}
-`
-	prog, err := parseSource(t, src)
-	if err != nil {
-		t.Fatalf("неожиданная ошибка: %v", err)
-	}
-	if len(prog.Entities[0].Fields) != 1 {
-		t.Fatalf("ожидалось 1 поле, получено %d", len(prog.Entities[0].Fields))
+	if _, err := parseSource(t, src); err == nil || !strings.Contains(err.Error(), "RECH2016") {
+		t.Fatalf("ожидалась ошибка RECH2016, получено %v", err)
 	}
 }
 
@@ -188,5 +126,40 @@ func TestParseOrdinaryBlockCommentIsInvisibleEverywhere(t *testing.T) {
 	}
 	if prog.Functions[0].Doc != "" {
 		t.Fatalf("обычный /* */ не должен становиться Doc, получено %q", prog.Functions[0].Doc)
+	}
+}
+
+// TestParseDocCommentMustBeAttached - doc-комментарий, после которого нет
+// вплотную объявления (пустая строка, "//", ещё один doc, "}" или конец
+// файла), - ошибка RECH2016, а не молчаливая привязка к следующему
+// объявлению.
+func TestParseDocCommentMustBeAttached(t *testing.T) {
+	cases := map[string]string{
+		"два doc подряд":   "/** Файл. */\n/** Функция. */\nфункция ф()\n{\n}\n",
+		"пустая строка":    "/** Функция. */\n\nфункция ф()\n{\n}\n",
+		"//-комментарий":   "/** Функция. */\n// заметка\nфункция ф()\n{\n}\n",
+		"конец файла":      "функция ф()\n{\n}\n/** висячий */\n",
+		"перед } сущности": "сущность Т\n{\n    имеет:\n        x: Целое\n    /** висячий */\n}\n",
+		"перед } функции":  "функция ф()\n{\n    вывести `1\\n`\n    /** висячий */\n}\n",
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := parseSource(t, src)
+			if err == nil || !strings.Contains(err.Error(), "RECH2016") {
+				t.Fatalf("ожидалась ошибка RECH2016, получено %v", err)
+			}
+		})
+	}
+}
+
+// TestParseDocCommentAttachedAfterLineComment - "//" ПЕРЕД doc-комментарием
+// не мешает: важен только разрыв между "*/" и объявлением.
+func TestParseDocCommentAttachedAfterLineComment(t *testing.T) {
+	prog, err := parseSource(t, "// файл\n\n/** Функция. */\nфункция ф()\n{\n}\nфункция главная { вывести `ок` }\n")
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if prog.Functions[0].Doc != "Функция." {
+		t.Fatalf("неожиданный Doc: %q", prog.Functions[0].Doc)
 	}
 }
