@@ -1043,6 +1043,9 @@ func analyzeBinaryExpr(sc *ctx, e *ast.BinaryExpr) (ir.Expr, error) {
 	// обработаны раньше).
 	left = maybeUnwrapNarrowed(sc, left)
 	right = maybeUnwrapNarrowed(sc, right)
+	if left, right, err = coerceNumericConstPair(left, right, e.Line); err != nil {
+		return nil, err
+	}
 	lt, rt := ir.TypeOf(left), ir.TypeOf(right)
 
 	// Перегрузка оператора (internal/semantic/operator.go) - ДО встроенной

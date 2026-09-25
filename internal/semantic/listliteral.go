@@ -115,6 +115,20 @@ func coerceListElem(sc *ctx, raw ast.Expr, v ir.Expr, vt ir.Type, isSpread bool,
 	if vt == elemType {
 		return v, nil
 	}
+	if !isSpread {
+		inner := elemType
+		if elemType.Kind == ir.KindNullable {
+			inner = nullableInner(sc, elemType)
+		}
+		if coerced, ok, err := coerceNumericConst(v, inner, line); err != nil {
+			return nil, err
+		} else if ok {
+			v, vt = coerced, inner
+			if vt == elemType {
+				return v, nil
+			}
+		}
+	}
 	if !isSpread && elemType.Kind == ir.KindNullable && nullableInner(sc, elemType) == vt {
 		return &ir.NullWrapExpr{Value: v, Type: elemType}, nil
 	}

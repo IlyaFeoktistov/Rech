@@ -122,7 +122,8 @@ func TestAnalyzeBitwiseMixedByteAndIntFails(t *testing.T) {
 функция главная
 {
     переменная а = (Байт) 6
-    вывести а & 3
+    переменная б = 3
+    вывести а & б
 }
 `)
 	if err == nil || !strings.Contains(err.Error(), "побитовый оператор") {

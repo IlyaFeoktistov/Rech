@@ -174,6 +174,18 @@ func coerceExpr(sc *ctx, e ast.Expr, target ir.Type) (ir.Expr, error) {
 	if typ == target {
 		return value, nil
 	}
+	inner := target
+	if target.Kind == ir.KindNullable {
+		inner = nullableInner(sc, target)
+	}
+	if coerced, ok, err := coerceNumericConst(value, inner, exprLine(e)); err != nil {
+		return nil, err
+	} else if ok {
+		value, typ = coerced, inner
+	}
+	if typ == target {
+		return value, nil
+	}
 	if target.Kind == ir.KindNullable && nullableInner(sc, target) == typ {
 		return &ir.NullWrapExpr{Value: value, Type: target}, nil
 	}
@@ -235,6 +247,10 @@ func analyzeNullCoalesce(e *ast.BinaryExpr, sc *ctx, left, right ir.Expr) (ir.Ex
 		return nil, errAtLine(e.Line, CodeNullable, "\"??\" применимо только к nullable-значению слева, получен %s", lt)
 	}
 	inner := nullableInner(sc, lt)
+	right, _, err := coerceNumericConst(right, inner, e.Line)
+	if err != nil {
+		return nil, err
+	}
 	rt := ir.TypeOf(right)
 	switch rt {
 	case inner:
