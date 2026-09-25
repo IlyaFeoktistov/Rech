@@ -155,6 +155,7 @@ func main() {
 	var extraLibPaths []string
 	var extraHeaders []string
 	var cBuild compiler.CBuild
+	isService, serviceName := false, ""
 	var optionsYAML string
 	var projectDeps map[string]string
 	var projectDepScopes map[string]map[string]string
@@ -241,6 +242,8 @@ func main() {
 			cBuild.CCompiler = pf.КомпиляторC()
 			cBuild.Windowed = pf.IsWindowed()
 			cBuild.StaticLib = pf.IsStaticLibrary()
+			isService = pf.IsService()
+			serviceName = pf.ИмяСлужбы
 			if cBuild.CFlags, cBuild.CFlagsSet, perr = pf.ФлагиC(); perr != nil {
 				fmt.Fprintln(os.Stderr, "ошибка:", perr)
 				os.Exit(1)
@@ -285,6 +288,7 @@ func main() {
 	comp.ExternHeaders = extraHeaders
 	comp.OptionsYAML = optionsYAML
 	comp.CBuild = cBuild
+	comp.Service = isService
 	build := func() (string, error) { return comp.Build(srcPath, keepC, extraLibs, extraLibPaths) }
 	buildLib := func() (string, string, []string, error) {
 		return comp.BuildLib(srcPath, libRoot, outDir, keepC, extraLibs, extraLibPaths)
@@ -344,6 +348,16 @@ func main() {
 			// бинарник переносится в каталог "выход" - в обоих случаях без
 			// печати негде было бы догадаться, куда положен результат.
 			fmt.Println(binPath)
+		}
+		if isService {
+			paths, err := writeServiceFiles(binPath, projName, serviceName)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "ошибка:", err)
+				os.Exit(1)
+			}
+			for _, p := range paths {
+				fmt.Println(p)
+			}
 		}
 	case "run":
 		if isLib {
@@ -416,7 +430,7 @@ func parseBuildArgs(args []string) (srcPath, code string, keepC, hasCode, isLib 
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "использование: rech build [--keep-c] [--lib] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech run [--keep-c] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech test <файл.rech>|<каталог> | rech fmt [--write|-w | --check] <файл.rech>|<каталог> | rech proto [-o <файл.rech>] <файл.proto> | rech add <имя> <url> <версия> | rech install | rech debug | rech lsp | rech init [--console|--gui|--library|--static-library] [имя] | rech version")
+	fmt.Fprintln(os.Stderr, "использование: rech build [--keep-c] [--lib] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech run [--keep-c] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech test <файл.rech>|<каталог> | rech fmt [--write|-w | --check] <файл.rech>|<каталог> | rech proto [-o <файл.rech>] <файл.proto> | rech add <имя> <url> <версия> | rech install | rech debug | rech lsp | rech init [--console|--gui|--service|--library|--static-library] [имя] | rech version")
 }
 
 // testDotsPerLine - сколько точек/"F" печатать в строке прогресса, прежде

@@ -209,6 +209,7 @@ func TestLoadBuildTypes(t *testing.T) {
 		{value: "консольное"},
 		{value: "оконное", windowed: true},
 		{value: "библиотека", library: true},
+		{value: "служба"},
 		{value: "программа", wantErr: true},
 	}
 	for _, c := range cases {
@@ -931,5 +932,24 @@ func TestLoadWithoutOptionsSectionIsEmptyString(t *testing.T) {
 	}
 	if pf.Опции != "" {
 		t.Fatalf("Опции = %q, ожидалась пустая строка", pf.Опции)
+	}
+}
+
+// TestLoadServiceName - "сборка.имя_службы" принимается латиницей и
+// отклоняется с кириллицей/пробелом.
+func TestLoadServiceName(t *testing.T) {
+	for value, ok := range map[string]bool{"journal-logger": true, "my_svc.1": true, "служба": false, "два слова": false} {
+		path := filepath.Join(t.TempDir(), "тест.rechproj")
+		content := "проект:\n  имя: тест\n\nфайлы:\n  главный: главный.rech\n\nсборка:\n  тип: служба\n  имя_службы: " + value + "\n"
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pf, err := Load(path)
+		if ok && (err != nil || pf.ИмяСлужбы != value) {
+			t.Errorf("%q: ожидалось принять, получено %v", value, err)
+		}
+		if !ok && err == nil {
+			t.Errorf("%q: ожидалась ошибка", value)
+		}
 	}
 }

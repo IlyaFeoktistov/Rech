@@ -12,6 +12,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/runtime/process"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
@@ -62,6 +63,24 @@ var translit = map[rune]string{
 	// аргументами.
 	'+': "_plus_", '-': "_minus_", '*': "_mul_", '/': "_div_", '%': "_mod_",
 	'=': "_eq_", '!': "_not_",
+}
+
+// ASCIIName - имя из латиницы, цифр, "_" и "-" для мест вне C-кода, где
+// кириллица недопустима (имя юнита systemd, службы Windows): кириллица -
+// по таблице translit, остальные символы - "_".
+func ASCIIName(name string) string {
+	var sb strings.Builder
+	for _, r := range strings.ToLower(name) {
+		switch {
+		case isCyrillic(r):
+			sb.WriteString(translit[r])
+		case r < unicode.MaxASCII && (unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-'):
+			sb.WriteRune(r)
+		default:
+			sb.WriteByte('_')
+		}
+	}
+	return sb.String()
 }
 
 // transliterate - C-идентификатор для Rech-имени. Имя режется на сегменты
@@ -150,6 +169,9 @@ func mangleName(name string) string {
 func funcCName(ctx *irGenCtx, name string) string {
 	if ctx.exportedFuncNames[name] {
 		return name
+	}
+	if name == entryPointName && ctx.service {
+		return process.ServiceBodyName
 	}
 	return mangleName(name)
 }

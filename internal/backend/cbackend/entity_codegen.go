@@ -307,7 +307,8 @@ func generateIRFunction(ctx *irGenCtx, fn *ir.Function) (string, error) {
 	fmt.Fprintf(&sb, "// %s\n", fn.Name)
 	cName := funcCName(ctx, fn.Name)
 	paramList := cParamListIR(ctx, fn.Params)
-	if cName == "main" {
+	isEntry := fn.Name == entryPointName
+	if isEntry {
 		// "главная" всегда получает настоящую C-сигнатуру main(int argc,
 		// char **argv) - как и в AST-пути (generateCallable) - количество_
 		// аргументов/аргумент читают их из глобальных rech_argc/rech_argv
@@ -317,7 +318,7 @@ func generateIRFunction(ctx *irGenCtx, fn *ir.Function) (string, error) {
 	}
 	fmt.Fprintf(&sb, "%s%s %s(%s) {\n", exportAttr(ctx, fn.Exported), cReturnTypeFor(ctx, fn.HasReturn, fn.ReturnType), cName, paramList)
 	fmt.Fprintf(&sb, "    %s", tracePush(fn.Name))
-	if cName == "main" {
+	if isEntry {
 		if ctx.usesGC {
 			sb.WriteString("    GC_INIT();\n")
 		}

@@ -227,6 +227,9 @@ type Program struct {
 	// options.go), это поле остаётся compile-time умолчанием, откуда
 	// runtime-состояние стартует.
 	OptionsYAML string
+	// Service - "сборка.тип: служба": на Windows "главная" исполняется
+	// под диспетчером служб (SCM), см. cbackend service main.
+	Service bool
 	// DBRowTargets - сущности, встретившиеся хоть раз ЭЛЕМЕНТОМ цели
 	// "запросить(...) как Список<Тип>" (DBRowsAsExpr, internal/semantic/
 	// db_rows.go), без повторов - тем же принципом, что и ParseTargets:

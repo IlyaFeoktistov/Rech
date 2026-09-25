@@ -81,7 +81,7 @@ type Backend interface {
 	// ir.Program.ExternHeaders).
 	// optionsYAML - "опции:" файла проекта (internal/project.File.Опции) -
 	// см. ir.Program.OptionsYAML, тем же принципом, что и externHeaders.
-	Generate(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int, externHeaders []string, optionsYAML string) (string, error)
+	Generate(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int, externHeaders []string, optionsYAML string, service bool) (string, error)
 	// GenerateLib - как Generate, но для библиотеки (`rech build --lib`),
 	// см. LibSource. libRoot == "" - нет файла проекта (BuildLibSource) -
 	// интерфейс одним плоским результатом под ключом "".
@@ -173,7 +173,7 @@ type defaultBackend struct{}
 // удалён.
 func NewBackend() Backend { return defaultBackend{} }
 
-func (defaultBackend) Generate(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int, externHeaders []string, optionsYAML string) (string, error) {
+func (defaultBackend) Generate(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int, externHeaders []string, optionsYAML string, service bool) (string, error) {
 	irProg, err := semantic.Analyze(prog)
 	if err != nil {
 		return "", err
@@ -194,6 +194,7 @@ func (defaultBackend) Generate(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, d
 	}
 	irProg.ExternHeaders = externHeaders
 	irProg.OptionsYAML = optionsYAML
+	irProg.Service = service
 
 	src, err := cbackend.GenerateFromIR(irProg)
 	if err != nil {
@@ -289,6 +290,8 @@ type Compiler struct {
 	// заполняется cmd/rech перед вызовом Build, тем же принципом, что и
 	// ExternHeaders. "" - нет .rechproj или секции (см. ir.Program.OptionsYAML).
 	OptionsYAML string
+	// Service - "сборка.тип: служба" (см. ir.Program.Service).
+	Service bool
 	// CBuild - компилятор/флаги C из файла проекта (Libs/LibPaths здесь не
 	// заполняются - приходят параметрами Build, см. cBuild).
 	CBuild CBuild
@@ -525,7 +528,7 @@ func (c *Compiler) BuildSource(src string, keepC bool, extraLibs, extraLibPaths 
 // compileProgram - общий хвост Build/BuildSource: генерация C, запись,
 // сборка бинарником, необязательная уборка .c.
 func (c *Compiler) compileProgram(prog *ast.Program, base string, keepC bool, extraLibs, extraLibPaths []string) (string, error) {
-	cSource, err := c.Backend.Generate(prog, c.DBPoolSize, c.DBPoolTimeoutMs, c.DBSQLiteBusyTimeoutMs, c.PoolShrinkEnabled, c.PoolIdleTimeoutMs, c.HTTPMaxRequestBytes, c.ExternHeaders, c.OptionsYAML)
+	cSource, err := c.Backend.Generate(prog, c.DBPoolSize, c.DBPoolTimeoutMs, c.DBSQLiteBusyTimeoutMs, c.PoolShrinkEnabled, c.PoolIdleTimeoutMs, c.HTTPMaxRequestBytes, c.ExternHeaders, c.OptionsYAML, c.Service)
 	if err != nil {
 		return "", fmt.Errorf("генерация C: %w", err)
 	}

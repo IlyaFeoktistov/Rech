@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -93,8 +94,13 @@ type File struct {
 	// "оконное" (исполняемый файл без консоли на Windows - см. IsWindowed),
 	// "библиотека" (`rech build --lib` без явного флага - разделяемая
 	// библиотека .so/.dylib/.dll + C-заголовок .h, см. IsLibrary) или
-	// "статическая_библиотека" (.a + .h, см. IsStaticLibrary).
+	// "статическая_библиотека" (.a + .h, см. IsStaticLibrary) или "служба"
+	// (см. IsService).
 	Тип string
+	// ИмяСлужбы - "сборка.имя_службы": имя службы Windows/юнита systemd у
+	// "сборка.тип: служба" (латиница, цифры, "_", "-", "."); "" -
+	// транслитерация проект.имя (см. cmd/rech, writeServiceFiles).
+	ИмяСлужбы string
 	// librariesRaw - "сборка.библиотеки" как есть, через запятую ("curl,
 	// ssl") - см. Библиотеки.
 	librariesRaw string
@@ -171,6 +177,7 @@ func (pf *File) fields() map[string]*string {
 		"сборка.режим":                    &pf.Режим,
 		"сборка.платформа":                &pf.Платформа,
 		"сборка.тип":                      &pf.Тип,
+		"сборка.имя_службы":               &pf.ИмяСлужбы,
 		"сборка.библиотеки":               &pf.librariesRaw,
 		"сборка.компилятор_c":             &pf.cCompilerRaw,
 		"сборка.компилятор_c_windows":     &pf.cCompilerWindowsRaw,
@@ -431,8 +438,11 @@ func Load(path string) (*File, error) {
 	if pf.Тип == "" {
 		pf.Тип = buildTypeConsole
 	}
+	if pf.ИмяСлужбы != "" && !serviceNamePattern.MatchString(pf.ИмяСлужбы) {
+		return nil, fmt.Errorf("%s: сборка.имя_службы %q - допустимы только латинские буквы, цифры, \"_\", \"-\" и \".\" (так требуют systemd и диспетчер служб Windows)", path, pf.ИмяСлужбы)
+	}
 	if !buildTypes[pf.Тип] {
-		return nil, fmt.Errorf("%s: сборка.тип %q не распознан - допустимо \"консольное\", \"оконное\", \"библиотека\" или \"статическая_библиотека\"", path, pf.Тип)
+		return nil, fmt.Errorf("%s: сборка.тип %q не распознан - допустимо \"консольное\", \"оконное\", \"библиотека\", \"статическая_библиотека\" или \"служба\"", path, pf.Тип)
 	}
 	return pf, nil
 }
@@ -496,13 +506,18 @@ const (
 	buildTypeWindowed = "оконное"
 	buildTypeLibrary  = "библиотека"
 	buildTypeStatic   = "статическая_библиотека"
+	buildTypeService  = "служба"
 )
+
+// serviceNamePattern - допустимое "сборка.имя_службы".
+var serviceNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
 var buildTypes = map[string]bool{
 	buildTypeConsole:  true,
 	buildTypeWindowed: true,
 	buildTypeLibrary:  true,
 	buildTypeStatic:   true,
+	buildTypeService:  true,
 }
 
 // IsLibrary отражает "сборка.тип": "библиотека"/"статическая_библиотека" -
@@ -515,6 +530,13 @@ func (pf *File) IsLibrary() bool {
 // объектного кода (.a) вместо разделяемой библиотеки.
 func (pf *File) IsStaticLibrary() bool {
 	return pf.Тип == buildTypeStatic
+}
+
+// IsService отражает "сборка.тип": "служба" - фоновая программа под
+// управлением системы (служба Windows, юнит systemd): на Windows запуск
+// из диспетчера служб, остановка - "запрошена_остановка()".
+func (pf *File) IsService() bool {
+	return pf.Тип == buildTypeService
 }
 
 // IsWindowed отражает "сборка.тип": "оконное" - исполняемый файл для
@@ -849,7 +871,10 @@ const Template = `проект:
   режим: отладка
   платформа: текущая
   # тип: консольное (по умолчанию), оконное (без консоли на Windows),
-  # библиотека (разделяемая .so/.dylib/.dll), статическая_библиотека (.a)
+  # библиотека (разделяемая .so/.dylib/.dll), статическая_библиотека (.a),
+  # служба (служба Windows / юнит systemd)
+  # имя_службы: my-service (имя службы/юнита латиницей для "тип: служба";
+  # по умолчанию - транслитерация проект.имя)
 %[3]s  # библиотеки: curl, ssl (внешние библиотеки для линковки, через запятую)
   # путь_библиотек: ../моя_библиотека/сборка (локальные каталоги для поиска
   # библиотек из "библиотеки:" выше, через запятую - для тех, что НЕ

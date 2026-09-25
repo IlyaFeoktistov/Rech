@@ -143,7 +143,10 @@ type irGenCtx struct {
 	// не для обычной программы - см. package doc generateSource. Включает
 	// атрибут видимости у C-функций, соответствующих экспортированным
 	// Rech-функциям (exportAttr).
-	libMode  bool
+	libMode bool
+	// service - "сборка.тип: служба" (ir.Program.Service): тело "главная"
+	// - process.ServiceBodyName, main() - process.ServiceMainCode.
+	service  bool
 	entities map[string]*ir.Entity
 	// generics - имена generic-инстанциаций (Список<T>/Стопка<T>/
 	// Очередь<T>/Словарь<К, В>) из prog.Generics - entityIsRef обращается
@@ -656,6 +659,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		usesGC:                usesGC,
 		usesStateFlags:        usesStateFlags,
 		libMode:               libMode,
+		service:               prog.Service,
 		interfaces:            interfaces,
 		interfaceImplementors: prog.InterfaceImplementors,
 		entityInterfaces:      prog.EntityInterfaces,
@@ -693,6 +697,11 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// исключения, а паника возможна в любой программе - рантайм
 	// исключений нужен всегда.
 	ctx.usesExceptions = true
+	// Служба останавливается через тот же флаг, что и SIGINT/SIGTERM
+	// (process.ServiceMainCode), даже если программа его не опрашивает.
+	if ctx.service {
+		ctx.usesShutdownFlag = true
+	}
 	if ctx.usesStateFlags {
 		// rech_require_state (typestate.go) бросает через rech_throw -
 		// сущность со "состояние:" почти всегда участвует и в
@@ -2122,6 +2131,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	appendCodeIf(&sb, ctors.Len() > 0, ctors.String())
 
 	sb.WriteString(body.String())
+	appendCodeIf(&sb, ctx.service, process.ServiceMainCode)
 	return sb.String(), nil
 }
 

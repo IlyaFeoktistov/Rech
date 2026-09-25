@@ -26,6 +26,11 @@ var initKinds = map[string]initKind{
 		mainFile:   "главный.rech",
 		source:     windowedMainTemplate,
 	},
+	"--service": {
+		buildLines: "  тип: служба\n",
+		mainFile:   "главный.rech",
+		source:     serviceMainTemplate,
+	},
 	"--library": {
 		buildLines: "  тип: библиотека\n",
 		mainFile:   "библиотека.rech",
@@ -239,6 +244,21 @@ const windowedMainTemplate = `// Оконное приложение ("сбор�
     публичная функция главная
     {
         вывести ` + "`" + `${ЗАГОЛОВОК} (окно на этой ОС в шаблоне пока не сделано)\n` + "`" + `
+    }
+}
+`
+
+const serviceMainTemplate = `// Служба ("сборка.тип: служба"): работает в фоне, пока система не попросит
+// остановиться - SIGTERM от systemd, "Остановить" в диспетчере служб
+// Windows, Ctrl+C при запуске из консоли. "rech build" кладёт рядом с
+// программой файлы установки (юнит systemd / .cmd с sc.exe).
+константа ПАУЗА_МС = 1000
+
+/** Точка входа службы. */
+публичная функция главная
+{
+    пока не запрошена_остановка() {
+        спать_мс(ПАУЗА_МС)
     }
 }
 `
