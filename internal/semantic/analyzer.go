@@ -443,7 +443,7 @@ func (a *Analyzer) collectOneEntity(entities map[string]entitySig, methods map[s
 			return diagnostics.Wrap(err, "сущность %q: поле %q", ent.Name, f.Name)
 		}
 		if ent.IsExternStruct && !isFFIType(entities, methods, aliases, a.interfaces, enums, typ) && !ffiCallableResult(entities, methods, aliases, a.interfaces, enums, typ) {
-			return errNoPos(CodeEntityDecl, "внешняя структура %q: поле %q имеет тип %s - допустимы только примитивы (Целое/Целое8/16/32/64/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\") и \"Указатель<T>\" над FFI-совместимым T - иначе реальный размер C-структуры был бы искажён", ent.Name, f.Name, typ)
+			return errNoPos(CodeEntityDecl, "внешняя структура %q: поле %q имеет тип %s - допустимы только примитивы (Целое/Целое8/16/32/64/Натуральное/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\") и \"Указатель<T>\" над FFI-совместимым T - иначе реальный размер C-структуры был бы искажён", ent.Name, f.Name, typ)
 		}
 		if f.IsStatic {
 			if ent.IsExternStruct {
@@ -866,7 +866,7 @@ func (a *Analyzer) collectExternFuncSigs(bag *diagnostics.Bag, funcs map[string]
 				break
 			}
 			if !isFFIType(entities, methods, aliases, a.interfaces, enums, typ) {
-				bag.AddErr(errNoPos(CodeEntityDecl, "%s: параметр %q имеет тип %s - у внешней функции допустимы только примитивы (Целое/Целое8/16/32/64/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\"), \"Указатель<T>\" над FFI-совместимым T и \"Вызываемый(...)\" с FFI-совместимыми параметрами/результатом", label, p.Name, typ))
+				bag.AddErr(errNoPos(CodeEntityDecl, "%s: параметр %q имеет тип %s - у внешней функции допустимы только примитивы (Целое/Целое8/16/32/64/Натуральное/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\"), \"Указатель<T>\" над FFI-совместимым T и \"Вызываемый(...)\" с FFI-совместимыми параметрами/результатом", label, p.Name, typ))
 				failed = true
 				break
 			}
@@ -890,7 +890,7 @@ func (a *Analyzer) collectExternFuncSigs(bag *diagnostics.Bag, funcs map[string]
 			// превращается в вызываемое Rech-значение (демаршалинг,
 			// ffi_callback.go обоих backend'ов).
 			if !ffiCallableResult(entities, methods, aliases, a.interfaces, enums, typ) && !isFFIType(entities, methods, aliases, a.interfaces, enums, typ) {
-				bag.AddErr(errNoPos(CodeEntityDecl, "%s: тип результата %s не поддерживается - у внешней функции допустимы только примитивы (Целое/Целое8/16/32/64/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\") и \"Указатель<T>\" над FFI-совместимым T", label, typ))
+				bag.AddErr(errNoPos(CodeEntityDecl, "%s: тип результата %s не поддерживается - у внешней функции допустимы только примитивы (Целое/Целое8/16/32/64/Натуральное/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\") и \"Указатель<T>\" над FFI-совместимым T", label, typ))
 				funcs[ext.Alias] = sig
 				continue
 			}

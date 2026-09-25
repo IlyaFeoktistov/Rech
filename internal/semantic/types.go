@@ -723,7 +723,7 @@ func isFFIScalar(t ir.Type) bool {
 	switch t.Kind {
 	case ir.KindInt, ir.KindFloat, ir.KindFloat32, ir.KindString, ir.KindBool, ir.KindByte, ir.KindChar,
 		ir.KindInt8, ir.KindInt16, ir.KindInt32, ir.KindInt64,
-		ir.KindUint8, ir.KindUint16, ir.KindUint32, ir.KindUint64:
+		ir.KindUint, ir.KindUint8, ir.KindUint16, ir.KindUint32, ir.KindUint64:
 		return true
 	default:
 		return false
