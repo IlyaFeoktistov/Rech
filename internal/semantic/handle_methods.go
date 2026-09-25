@@ -31,6 +31,8 @@ import (
 // набором полей) - префикс сохранён, иначе имена метода столкнулись бы
 // (например "http2_статус"/"grpc_статус" - оба на одном получателе).
 var handleMethodSugar = map[ir.Type]map[string]string{
+	ir.TypeFloat:   floatCheckMethods,
+	ir.TypeFloat32: floatCheckMethods,
 	ir.TypeDB: {
 		"запросить": "запросить",
 		"выполнить": "выполнить",
@@ -111,6 +113,14 @@ var handleMethodSugar = map[ir.Type]map[string]string{
 	},
 }
 
+// floatCheckMethods - проверки особых значений IEEE 754 у Действительное/
+// Дробное ("x.не_число()").
+var floatCheckMethods = map[string]string{
+	"бесконечно": "бесконечно",
+	"не_число":   "не_число",
+	"конечно":    "конечно",
+}
+
 // handleSugarMethodNames - объединение всех имён методов из
 // handleMethodSugar - быстрая проверка ДО анализа получателя (та же
 // причина, что у dateTimeSugarMethodNames: подавляющее большинство вызовов
@@ -149,9 +159,15 @@ func maybeDesugarHandleMethod(sc *ctx, e *ast.MethodCallExpr) (result ir.Expr, h
 	if !ok {
 		return nil, false, nil
 	}
+	recv := e.Receiver
+	if ir.TypeOf(receiver) == ir.TypeFloat32 {
+		// Builtin-проверки принимают Действительное - Дробное расширяется
+		// без потерь, бесконечность и NaN сохраняются.
+		recv = &ast.CastExpr{Type: "Действительное", Value: e.Receiver, Line: e.Line}
+	}
 	call, cerr := analyzeCallExpr(sc, &ast.CallExpr{
 		Callee: funcName,
-		Args:   append([]ast.Expr{e.Receiver}, e.Args...),
+		Args:   append([]ast.Expr{recv}, e.Args...),
 		Line:   e.Line,
 	})
 	return call, true, cerr

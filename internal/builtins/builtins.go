@@ -101,6 +101,11 @@ var All = []Func{
 	{Name: "экспонента_минус_один", Params: []Kind{KindFloat}, ReturnKind: KindFloat, HasReturn: true},
 	{Name: "логарифм_плюс_один", Params: []Kind{KindFloat}, ReturnKind: KindFloat, HasReturn: true},
 	{Name: "гипотенуза", Params: []Kind{KindFloat, KindFloat}, ReturnKind: KindFloat, HasReturn: true},
+	// Проверки особых значений IEEE 754 - и как методы числа
+	// ("x.бесконечно()", internal/semantic/handle_methods.go).
+	{Name: "бесконечно", Params: []Kind{KindFloat}, ReturnKind: KindBool, HasReturn: true},
+	{Name: "не_число", Params: []Kind{KindFloat}, ReturnKind: KindBool, HasReturn: true},
+	{Name: "конечно", Params: []Kind{KindFloat}, ReturnKind: KindBool, HasReturn: true},
 
 	// Случайные числа (криптографически стойкий источник - arc4random* в
 	// cbackend, crypto/rand в интерпретаторе - НЕ math/rand/rand(), см.

@@ -2,6 +2,7 @@ package cbackend
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -28,7 +29,10 @@ func printCall(ctx *irGenCtx, typ valueType, code string) string {
 		// INT64_MAX, которое (long long) отобразил бы как отрицательное.
 		return fmt.Sprintf(`printf("%%llu", (unsigned long long)(%s));`, code)
 	case typeFloat, typeFloat32:
-		return fmt.Sprintf(`printf("%%g", (double)(%s));`, code)
+		// NaN - "nan" без знака: знак NaN из вычисления (0.0/0.0 даёт
+		// "-nan" у glibc на x86) не часть значения для языка, и interp
+		// печатает так же (formatFloatForPrint).
+		return fmt.Sprintf(`{ double rech_pf = (double)(%s); printf(rech_pf != rech_pf ? "nan" : "%%g", rech_pf); }`, code)
 	case typeBool:
 		return fmt.Sprintf(`printf("%%s", (%s) ? "истина" : "ложь");`, code)
 	case typeChar:
@@ -89,6 +93,14 @@ func printedTextCode(ctx *irGenCtx, typ valueType, code string) string {
 }
 
 func formatFloatLiteral(v float64) string {
+	switch {
+	case math.IsInf(v, 1):
+		return "__builtin_inf()"
+	case math.IsInf(v, -1):
+		return "(-__builtin_inf())"
+	case math.IsNaN(v):
+		return "__builtin_nan(\"\")"
+	}
 	s := strconv.FormatFloat(v, 'g', -1, 64)
 	if !strings.ContainsAny(s, ".eE") {
 		s += ".0"

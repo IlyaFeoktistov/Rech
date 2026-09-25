@@ -442,6 +442,15 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 	case "гипотенуза":
 		flags.usesMath = true
 		return fmt.Sprintf("hypot(%s, %s)", args[0], args[1]), true
+	case "бесконечно":
+		flags.usesMath = true
+		return fmt.Sprintf("(isinf(%s) != 0)", args[0]), true
+	case "не_число":
+		flags.usesMath = true
+		return fmt.Sprintf("(isnan(%s) != 0)", args[0]), true
+	case "конечно":
+		flags.usesMath = true
+		return fmt.Sprintf("(isfinite(%s) != 0)", args[0]), true
 	case "прочитать_строку":
 		flags.usesConsoleInput = true
 		flags.usesPanic = true

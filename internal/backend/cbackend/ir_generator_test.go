@@ -410,7 +410,7 @@ func TestGenerateFromIRFloat32ArithmeticTracksFloat32Type(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, `printf("%g",`) {
+	if !strings.Contains(out, `"nan" : "%g", rech_pf)`) {
 		t.Fatalf("ожидался printf с %%g (Дробное), получено:\n%s", out)
 	}
 	if strings.Contains(out, "(long long)") {

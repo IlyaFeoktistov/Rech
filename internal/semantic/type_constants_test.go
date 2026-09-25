@@ -1,6 +1,7 @@
 package semantic
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -105,5 +106,39 @@ func TestAnalyzeTypeConstantAssignmentFails(t *testing.T) {
 	_, err = Analyze(prog)
 	if err == nil || !strings.Contains(err.Error(), "ей нельзя присвоить заново") {
 		t.Fatalf("ожидалась ошибка про присваивание константе, получено: %v", err)
+	}
+}
+
+func TestAnalyzeFloatInfinityAndNaNConstants(t *testing.T) {
+	irProg := parseProgram(t, `
+функция главная
+{
+    Действительное б = Действительное::БЕСКОНЕЧНОСТЬ
+    Действительное н = Действительное::НЕ_ЧИСЛО
+    Дробное д = Дробное::БЕСКОНЕЧНОСТЬ
+    Логическое л = б.бесконечно() и н.не_число() и не д.конечно()
+}
+`)
+	body := irProg.Functions[0].Body
+	if v := body[0].(*ir.VarDecl).Value.(*ir.FloatLiteral).Value; !math.IsInf(v, 1) {
+		t.Fatalf("Действительное::БЕСКОНЕЧНОСТЬ: получено %v", v)
+	}
+	if v := body[1].(*ir.VarDecl).Value.(*ir.FloatLiteral).Value; !math.IsNaN(v) {
+		t.Fatalf("Действительное::НЕ_ЧИСЛО: получено %v", v)
+	}
+	if got := ir.TypeOf(body[2].(*ir.VarDecl).Value); got != ir.TypeFloat32 {
+		t.Fatalf("Дробное::БЕСКОНЕЧНОСТЬ: ожидался тип Дробное, получено %s", got)
+	}
+}
+
+func TestAnalyzeIntTypeHasNoInfinity(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция главная
+{
+    переменная а = Целое::БЕСКОНЕЧНОСТЬ
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "доступны МАКСИМУМ/МИНИМУМ/ШИРИНА)") {
+		t.Fatalf("ожидалась ошибка про отсутствие константы у Целое, получено: %v", err)
 	}
 }

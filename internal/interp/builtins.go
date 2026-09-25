@@ -122,6 +122,12 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return floatValue(math.Log1p(args[0].F)), true
 	case "гипотенуза":
 		return floatValue(math.Hypot(args[0].F, args[1].F)), true
+	case "бесконечно":
+		return boolValue(math.IsInf(args[0].F, 0)), true
+	case "не_число":
+		return boolValue(math.IsNaN(args[0].F)), true
+	case "конечно":
+		return boolValue(!math.IsInf(args[0].F, 0) && !math.IsNaN(args[0].F)), true
 	case "прочитать_строку":
 		return stringValue(in.readLine()), true
 	case "прочитать_целое":

@@ -160,7 +160,7 @@ static char *rech_cast_ptr_to_str(void *v) {
 
 static char *rech_cast_float_to_str(double v) {
     char buf[64];
-    snprintf(buf, sizeof(buf), "%g", v);
+    snprintf(buf, sizeof(buf), v != v ? "nan" : "%g", v);
     return rech_cast_alloc(buf, strlen(buf));
 }
 

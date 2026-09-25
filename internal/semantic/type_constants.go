@@ -1,5 +1,5 @@
 // Константы числовых примитивных типов ("Целое8::МАКСИМУМ"/"МИНИМУМ"/
-// "ШИРИНА") - тот же синтаксис "Тип::имя", что уже есть у статических
+// "ШИРИНА", у Дробное/Действительное ещё "БЕСКОНЕЧНОСТЬ"/"НЕ_ЧИСЛО") - тот же синтаксис "Тип::имя", что уже есть у статических
 // членов сущности (statics.go), но получатель - не объявленная
 // сущность/структура, а один из встроенных числовых типов (primitiveTypes,
 // types.go): Целое/Целое8/16/32/64, Натуральное/8/16/32/64, Дробное,
@@ -10,18 +10,25 @@ package semantic
 
 import (
 	"math"
+	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
-// numericTypeConstantNames - единственные три признанных константы у
-// числового примитива - остальные имена справа от "::" для такого типа
-// считаются ошибкой (primitiveTypeConstant возвращает found=true с
-// error != nil), а не "тип не объявлен".
+// Признанные константы числового примитива - остальные имена справа от
+// "::" для такого типа считаются ошибкой (primitiveTypeConstant возвращает
+// found=true с error != nil), а не "тип не объявлен".
 const (
 	typeConstMax   = "МАКСИМУМ"
 	typeConstMin   = "МИНИМУМ"
 	typeConstWidth = "ШИРИНА"
+	typeConstInf   = "БЕСКОНЕЧНОСТЬ"
+	typeConstNaN   = "НЕ_ЧИСЛО"
+)
+
+var (
+	intTypeConstNames   = []string{typeConstMax, typeConstMin, typeConstWidth}
+	floatTypeConstNames = []string{typeConstMax, typeConstMin, typeConstWidth, typeConstInf, typeConstNaN}
 )
 
 // primitiveTypeConstant - см. package doc. found=false означает "typeName -
@@ -44,7 +51,7 @@ func primitiveTypeConstant(typeName, field string, line int) (expr ir.Expr, foun
 		case typeConstWidth:
 			return &ir.IntLiteral{Value: int64(bits)}, true, nil
 		default:
-			return nil, true, unknownTypeConstError(typeName, field, line)
+			return nil, true, unknownTypeConstError(typeName, field, intTypeConstNames, line)
 		}
 	}
 	if t == ir.TypeFloat || t == ir.TypeFloat32 {
@@ -59,8 +66,12 @@ func primitiveTypeConstant(typeName, field string, line int) (expr ir.Expr, foun
 			return floatConstAs(-maxV, t), true, nil
 		case typeConstWidth:
 			return &ir.IntLiteral{Value: int64(bits)}, true, nil
+		case typeConstInf:
+			return floatConstAs(math.Inf(1), t), true, nil
+		case typeConstNaN:
+			return floatConstAs(math.NaN(), t), true, nil
 		default:
-			return nil, true, unknownTypeConstError(typeName, field, line)
+			return nil, true, unknownTypeConstError(typeName, field, floatTypeConstNames, line)
 		}
 	}
 	// Примитив есть (Строка/Логическое/Символ/Байт/...), но у него нет
@@ -70,8 +81,8 @@ func primitiveTypeConstant(typeName, field string, line int) (expr ir.Expr, foun
 	return nil, false, nil
 }
 
-func unknownTypeConstError(typeName, field string, line int) error {
-	return errAtLine(line, CodeSemanticOther, "у типа %q нет константы %q (доступны %s/%s/%s)", typeName, field, typeConstMax, typeConstMin, typeConstWidth)
+func unknownTypeConstError(typeName, field string, available []string, line int) error {
+	return errAtLine(line, CodeSemanticOther, "у типа %q нет константы %q (доступны %s)", typeName, field, strings.Join(available, "/"))
 }
 
 // intWidthMinMax - минимальное/максимальное представимое значение
