@@ -185,17 +185,6 @@ var All = []Func{
 	{Name: "стандартный_вывод", Params: nil, ReturnKind: KindFile, HasReturn: true},
 	{Name: "стандартный_вывод_ошибок", Params: nil, ReturnKind: KindFile, HasReturn: true},
 
-	// Аргументы командной строки, переданные самому собранному бинарнику
-	// (argv, без argv[0] - имени самой программы) - без этого нельзя
-	// написать типичную Unix-утилиту вида "mygrep <шаблон>". Индексация с
-	// 0, как и у "получить" встроенных коллекций. "rech test" (интерпретатор)
-	// не имеет способа передать программе свои аргументы (аргументы после
-	// "rech test <файл>" - аргументы самого rech, не интерпретируемой
-	// программы) - там "количество_аргументов" всегда 0, "аргумент" всегда
-	// паникует диапазоном.
-	{Name: "количество_аргументов", Params: nil, ReturnKind: KindInt, HasReturn: true},
-	{Name: "аргумент", Params: []Kind{KindInt}, ReturnKind: KindString, HasReturn: true},
-
 	// "опции:" .rechproj - сырой, НЕ разобранный этим пакетом YAML-текст
 	// (произвольная вложенность/списки, extractOptionsSection, internal/
 	// project/project.go) - Rech-программа сама решает, во что его

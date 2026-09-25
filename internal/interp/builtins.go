@@ -234,14 +234,6 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return fileValue(os.Stdout), true
 	case "стандартный_вывод_ошибок":
 		return fileValue(os.Stderr), true
-	case "количество_аргументов":
-		// "rech test <файл>" не передаёт интерпретируемой программе своих
-		// аргументов (аргументы после <файл> - аргументы самого rech, не
-		// программы) - всегда 0, "аргумент" ниже всегда паникует диапазоном.
-		return intValue(0), true
-	case "аргумент":
-		panicRuntime("%s", rtmsg.ArgIndexOutOfRangeFormat(args[0].I))
-		return Value{}, true
 	case "текущая_ос":
 		// ast.CurrentPlatform - тот же общий источник (GOOS хоста ->
 		// "Linux"/"Windows"/"MacOS"), что использует и internal/module

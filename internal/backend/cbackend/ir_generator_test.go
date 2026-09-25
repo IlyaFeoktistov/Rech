@@ -1003,25 +1003,24 @@ func TestGenerateFromIRContainsBuiltinCall(t *testing.T) {
 	}
 }
 
-// TestGenerateFromIRArgsBuiltinCalls - "количество_аргументов"/"аргумент" -
-// главная всегда получает настоящие argc/argv (не "void"), независимо от
-// того, что вызывающая сторона видит только фиксированную сигнатуру без
-// параметров на уровне самого Rech (docs/SPEC.md).
-func TestGenerateFromIRArgsBuiltinCalls(t *testing.T) {
-	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
-		&ir.PrintStmt{Value: &ir.CallExpr{Callee: "количество_аргументов", Type: ir.TypeInt, HasReturn: true}},
-		&ir.PrintStmt{Value: &ir.CallExpr{Callee: "аргумент", Args: []ir.Expr{&ir.IntLiteral{Value: 0}}, Type: ir.TypeString, HasReturn: true}},
-	}}
-	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
+// TestGenerateFromIREntryArgsParam - "главная(аргументы: Список<Строка>):
+// Целое": C-сигнатура остаётся main(int argc, char **argv) с результатом
+// int, параметр собирается rech_main_args из argv без имени программы.
+func TestGenerateFromIREntryArgsParam(t *testing.T) {
+	list := ir.EntityType("Список<Строка>")
+	main := &ir.Function{Name: "главная", Params: []ir.Param{{Name: "аргументы", Type: list}},
+		HasReturn: true, ReturnType: ir.TypeInt,
+		Body: []ir.Stmt{&ir.ReturnStmt{Value: &ir.IntLiteral{Value: 3}}}}
+	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main},
+		Generics: []ir.GenericInstantiation{{Name: "Список<Строка>", Template: "Список", ElemType: ir.TypeString}}})
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 	for _, want := range []string{
 		"int main(int argc, char **argv) {",
 		"rech_init_args(argc, argv);",
-		"(rech_argc - 1)",
-		"rech_arg(0LL)",
-		"static const char *rech_arg(long long i)",
+		"= rech_main_args();",
+		"for (int i = 1; i < rech_argc; i++)",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("ожидалось %q в выводе, получено:\n%s", want, out)
@@ -1030,9 +1029,8 @@ func TestGenerateFromIRArgsBuiltinCalls(t *testing.T) {
 }
 
 // TestGenerateFromIRArgsGlobalsAlwaysPresent - rech_argc/rech_argv
-// объявлены, даже когда программа вообще не использует "аргумент"/
-// "количество_аргументов" - main() всё равно безусловно присваивает их и
-// должен видеть объявление раньше присваивания.
+// объявлены и у "главная" без параметров - main() всё равно присваивает их
+// и должен видеть объявление раньше присваивания.
 func TestGenerateFromIRArgsGlobalsAlwaysPresent(t *testing.T) {
 	main := &ir.Function{Name: "главная", Body: []ir.Stmt{}}
 	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
@@ -1042,8 +1040,8 @@ func TestGenerateFromIRArgsGlobalsAlwaysPresent(t *testing.T) {
 	if !strings.Contains(out, "static int rech_argc = 0;") {
 		t.Fatalf("ожидалось безусловное объявление rech_argc, получено:\n%s", out)
 	}
-	if strings.Contains(out, "rech_arg(long long i)") {
-		t.Fatalf("rech_arg не должен генерироваться, когда \"аргумент\" не используется:\n%s", out)
+	if strings.Contains(out, "rech_main_args") {
+		t.Fatalf("rech_main_args не нужен у \"главная\" без параметров:\n%s", out)
 	}
 }
 

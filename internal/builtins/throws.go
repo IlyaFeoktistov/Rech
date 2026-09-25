@@ -94,7 +94,6 @@ var FuncThrows = map[string][]string{
 	"получен_сигнал":               {rtmsg.PanicEntity},
 
 	"подстрока":       {rtmsg.PanicEntity},
-	"аргумент":        {rtmsg.PanicEntity},
 	"случайное_целое": {rtmsg.PanicEntity},
 	"разбить":         {rtmsg.PanicEntity},
 	"регулярное":      {rtmsg.PanicEntity},

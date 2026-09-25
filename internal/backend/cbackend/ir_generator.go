@@ -1128,7 +1128,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// ниже собирает "#include <...>", ir_generator.go, sb) - единственное
 	// место, где эти флаги взводятся, поэтому раньше их не узнать.
 	// Точки входа внешних байт в Строку - используют strutil.TextCode.
-	ctx.usesText = ctx.usesText || ctx.usesFileIO || ctx.usesConsoleInput || ctx.usesByteStringConv || ctx.usesBytesIO || ctx.usesSockets || ctx.usesEnv || ctx.usesArgs || ctx.usesSubprocess || prog.UsesDB || ctx.usesHTTP || ctx.usesHTTPServer || ctx.usesHTTP2 || ctx.usesMultipart || ctx.usesUDPDatagram || ctx.usesCrypto || ctx.usesAES || hasStructTargets || ctx.usesQueryParams
+	ctx.usesText = ctx.usesText || ctx.usesFileIO || ctx.usesConsoleInput || ctx.usesByteStringConv || ctx.usesBytesIO || ctx.usesSockets || ctx.usesEnv || ctx.usesSubprocess || prog.UsesDB || ctx.usesHTTP || ctx.usesHTTPServer || ctx.usesHTTP2 || ctx.usesMultipart || ctx.usesUDPDatagram || ctx.usesCrypto || ctx.usesAES || hasStructTargets || ctx.usesQueryParams
 	ctx.includesStringH = ctx.usesText || ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesExceptions || ctx.usesStringSplit || ctx.usesRegex || ctx.usesHTTPHeaders || ctx.usesHTTPHeaderValues || ctx.usesColor || ctx.usesSubprocess || ctx.usesCwd || hasStructTargets || prog.UsesReflection || ctx.usesTZ || ctx.usesDateParse
 	// usesNullables/prog.UsesReflection - те же два условия, что у panicGate
 	// (ниже) сверх её собственных: panicGate решает, эмитить ли panicPrototypes
@@ -1519,7 +1519,6 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// plainSocketOpsCode, Шаг 132) - программа без обоих вовсе не платит
 	// за ucontext/epoll/kqueue рантайм.
 	appendCodeIf(&sb, ctx.usesCoroutines || ctx.usesSockets, concurrency.CoroutineRuntimeCode)
-	appendCodeIf(&sb, ctx.usesArgs, argFuncHelper)
 	appendCodeIf(&sb, ctx.usesCurrentOS, currentOSHelper)
 	appendCodeIf(&sb, ctx.usesCast, castHelpers)
 	appendCodeIf(&sb, ctx.usesIntSign, rechSignHelper)

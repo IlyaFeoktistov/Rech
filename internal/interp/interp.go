@@ -623,7 +623,7 @@ func Run(prog *ir.Program, out io.Writer, stdin io.Reader) (err error) {
 
 // entryArgs - аргументы вызова "главная": у "главная(имя: Список<Строка>)"
 // - аргументы командной строки программы. "rech test" своих аргументов
-// программе не передаёт (как и "количество_аргументов" - 0), список пуст.
+// программе не передаёт - список пуст.
 func entryArgs(main *ir.Function) []Value {
 	if len(main.Params) == 0 {
 		return nil

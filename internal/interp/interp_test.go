@@ -728,41 +728,19 @@ func TestRunContainsBuiltin(t *testing.T) {
 	}
 }
 
-// TestRunArgsBuiltinsHaveNoProgramArgs - "rech test" не передаёт
-// интерпретируемой программе аргументов - "количество_аргументов" всегда
-// 0, "аргумент" любого индекса паникует диапазоном.
-func TestRunArgsBuiltinsHaveNoProgramArgs(t *testing.T) {
+// TestRunEntryArgsEmpty - "rech test" не передаёт интерпретируемой
+// программе аргументов: у "главная(аргументы: Список<Строка>)" список пуст.
+func TestRunEntryArgsEmpty(t *testing.T) {
 	got := runSrc(t, `
-функция главная
+функция главная(аргументы: Список<Строка>): Целое
 {
-    вывести `+"`${"+`количество_аргументов()}\n`+"`"+`
+    вывести `+"`${"+`аргументы.длина()}\n`+"`"+`
+
+    вернуть 0
 }
 `)
 	if got != "0\n" {
 		t.Fatalf("получили %q, хотели \"0\\n\"", got)
-	}
-
-	toks, err := lexer.New(`
-функция главная
-{
-    вывести ` + "`${" + `аргумент(0)}\n` + "`" + `
-}
-`).Tokenize()
-	if err != nil {
-		t.Fatalf("лексер: %v", err)
-	}
-	prog, err := parser.New(toks).ParseProgram()
-	if err != nil {
-		t.Fatalf("парсер: %v", err)
-	}
-	irProg, err := semantic.Analyze(prog)
-	if err != nil {
-		t.Fatalf("семантический анализ: %v", err)
-	}
-	var buf bytes.Buffer
-	err = Run(irProg, &buf, strings.NewReader(""))
-	if err == nil || !strings.Contains(err.Error(), "аргумент: индекс 0 вне диапазона") {
-		t.Fatalf("ожидалась паника про индекс вне диапазона, получено: %v", err)
 	}
 }
 

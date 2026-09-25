@@ -72,11 +72,6 @@ type builtinFlags struct {
 	// же стандартный C. Подразумевает usesPanic (ошибка открытия/чтения -
 	// тот же rech_panic).
 	usesFileIO bool
-	// usesArgs - нужна ли rech_arg (встроенная функция "аргумент") -
-	// rech_argc/rech_argv (argsGlobals) сами по себе всегда объявлены
-	// безусловно (см. argsGlobals), этот флаг - только про саму индексную
-	// функцию (нужен ей panicPrototypes).
-	usesArgs bool
 	// usesCurrentOS - нужен ли rech_current_os (встроенная функция
 	// "текущая_ос") - см. currentOSHelper.
 	usesCurrentOS bool
@@ -947,12 +942,6 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 	case "стандартный_вывод_ошибок":
 		flags.usesFileIO = true
 		return "stderr", true
-	case "количество_аргументов":
-		return "(rech_argc - 1)", true
-	case "аргумент":
-		flags.usesArgs = true
-		flags.usesPanic = true
-		return fmt.Sprintf("rech_arg(%s)", args[0]), true
 	case "текущая_ос":
 		flags.usesCurrentOS = true
 		return "rech_current_os", true
@@ -1043,14 +1032,10 @@ static void rech_init_console(void) {}
 #endif
 `
 
-// argsGlobals - rech_argc/rech_argv + rech_init_args, всегда объявлены
-// безусловно (не под usesArgs, в отличие от argFuncHelper ниже) - main()
-// зовёт rech_init_args(argc, argv) на этапе генерации ЕЁ тела, то есть
-// раньше, чем стало известно, использует ли программа "аргумент"/
-// "количество_аргументов" где-либо вообще (эти флаги считаются по итогам
-// генерации ВСЕХ функций, а преамбула, где обычно решается "включать или
-// нет", печатается уже после этого - но сама main() пишется по ходу того
-// же прохода).
+// argsGlobals - rech_argc/rech_argv + rech_init_args, объявлены всегда:
+// main() зовёт rech_init_args(argc, argv) в начале "главная", параметр
+// "главная(аргументы: Список<Строка>)" собирается из них (rech_main_args,
+// main_args.go).
 //
 // На Windows игнорирует свои же параметры и вместо этого перечитывает
 // аргументы через CommandLineToArgvW (нужен -lshell32, internal/toolchain)
@@ -1086,24 +1071,6 @@ static void rech_init_args(int argc, char **argv) {
 #endif
 `
 
-// argFuncHelper - "аргумент" (сама индексная функция, вызывает rech_panic
-// при выходе за диапазон - в отличие от argsGlobals выше, требует
-// panicPrototypes, поэтому под usesArgs, как и остальные необязательные
-// helper'ы). Индексация с 0, как и у "получить" встроенных коллекций -
-// rech_arg(i) читает argv[i+1]. Текст сообщения об ошибке должен совпадать
-// байт-в-байт с rtmsg.ArgIndexOutOfRangeFormat - Go "%d" и C "%lld"
-// печатают одно и то же десятичное число для любого int64, включая
-// отрицательные.
-const argFuncHelper = `static const char *rech_arg(long long i) {
-    if (i < 0 || i >= (long long)rech_argc - 1) {
-        char msg[128];
-        snprintf(msg, sizeof(msg), "аргумент: индекс %lld вне диапазона", i);
-        rech_panic(msg);
-    }
-    return rech_text_z(rech_argv[i + 1]);
-}
-`
-
 // currentOSHelper - "текущая_ос" (встроенная функция, ir/type.go, Целое,
 // значения - индексы в StandardEnums["ОС"], internal/semantic/types.go, тот
 // же принцип, что и СигналОС/СетевойПротокол) - целевая платформа СБОРКИ
@@ -1111,8 +1078,7 @@ const argFuncHelper = `static const char *rech_arg(long long i) {
 // возможна) известна уже на этапе компиляции через стандартные
 // предопределённые макросы препроцессора C, поэтому это просто константа,
 // не настоящий рантайм-запрос ОС - ноль накладных расходов. Без
-// зависимостей (в отличие от argFuncHelper выше), emитируется безусловно
-// под usesCurrentOS, без panicPrototypes.
+// зависимостей, эмитируется под usesCurrentOS, без panicPrototypes.
 const currentOSHelper = `#if defined(_WIN32)
 static const long long rech_current_os = 1;
 #elif defined(__APPLE__)

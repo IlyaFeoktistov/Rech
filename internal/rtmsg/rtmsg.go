@@ -387,15 +387,6 @@ func UncaughtExceptionFormat(typeName, message string) string {
 	return fmt.Sprintf("необработанное исключение %s: %s", typeName, message)
 }
 
-// ArgIndexOutOfRangeFormat - сообщение при "аргумент", если индекс вне
-// диапазона [0, количество_аргументов()) - тот же принцип, что и у
-// IndexOutOfRange для встроенных коллекций, но с самим индексом в
-// сообщении (у коллекций - только имя типа, здесь заведомо интереснее
-// увидеть, какой именно индекс запрошен).
-func ArgIndexOutOfRangeFormat(index int64) string {
-	return fmt.Sprintf("аргумент: индекс %d вне диапазона", index)
-}
-
 // TraceHeader - строка-заголовок перед стеком вызовов, который печатается
 // вслед за сообщением об аварийном завершении/необработанном исключении.
 // Формат должен совпадать байт-в-байт между cbackend (internal/backend/
