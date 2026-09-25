@@ -34,6 +34,9 @@ type chainElem struct {
 type completionCtx struct {
 	kind  completionKind
 	chain []chainElem
+	// prefix - значимые токены строки до набираемого слова (для
+	// completionGeneral - место курсора, completion_place.go).
+	prefix []lexer.Token
 }
 
 // completionContextAt - см. package doc выше; (line, col) - 1-индексные.
@@ -64,6 +67,7 @@ func (d *doc) completionContextAt(line, col int) completionCtx {
 	if i < 0 {
 		return completionCtx{}
 	}
+	general := completionCtx{prefix: sig[:i+1]}
 	switch sig[i].Type {
 	case lexer.DOT:
 		return completionCtx{kind: completionMember, chain: chainBack(sig, i-1)}
@@ -75,12 +79,12 @@ func (d *doc) completionContextAt(line, col int) completionCtx {
 		// "а ? б : <курсор>" - ветка тернарного оператора, не тип.
 		for _, t := range sig[:i] {
 			if t.Type == lexer.QUESTION {
-				return completionCtx{}
+				return general
 			}
 		}
 		return completionCtx{kind: completionType}
 	}
-	return completionCtx{}
+	return general
 }
 
 // templateInsertionTail - у курсора внутри незакрытой вставки "${" шаблонной
@@ -197,11 +201,11 @@ type chainTarget struct {
 // методы встроенных коллекций. Сужение "?Тип" после проверки на Ничто
 // принимается без проверки - автодополнение показывает члены внутреннего
 // типа.
-func (d *doc) resolveCompletionChain(chain []chainElem, line int) (chainTarget, bool) {
+func (d *doc) resolveCompletionChain(chain []chainElem, line int, blocks []textBlock) (chainTarget, bool) {
 	if len(chain) == 0 {
 		return chainTarget{}, false
 	}
-	scope := d.scopeAt(line)
+	scope := d.scopeForBlocks(blocks, line)
 	head := chain[0]
 	var cur ir.Type
 	switch {
@@ -214,7 +218,7 @@ func (d *doc) resolveCompletionChain(chain []chainElem, line int) (chainTarget, 
 		}
 		cur = fn.ReturnType
 	default:
-		if t, ok := localsAt(scope, line)[head.name]; ok {
+		if t, ok := d.visibleLocals(blocks, line)[head.name]; ok && t.Kind != ir.KindUnknown {
 			cur = t
 		} else if len(chain) == 1 {
 			if _, ok := d.astEnums[head.name]; ok {

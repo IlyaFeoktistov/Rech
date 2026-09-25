@@ -122,7 +122,7 @@ type doc struct {
 	displayName map[string]string
 
 	// localNames - имена, реально ПРЕДЪЯВИМЫЕ пользователю этого файла для
-	// автодополнения (generalCompletion, completion.go) - собственные
+	// автодополнения (addValues, completion_place.go) - собственные
 	// объявления ЭТОГО файла плюс алиасы его собственных импортов. В
 	// отличие от entities/funcs выше (которые ради resolveChain/
 	// implementation.go обязаны нести ЕЩЁ и смангленные внутренние ключи

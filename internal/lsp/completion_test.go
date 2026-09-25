@@ -40,7 +40,7 @@ func TestCompletionAfterDotListsFieldsAndMethods(t *testing.T) {
 	}
 }
 
-// TestCompletionGeneralIncludesInterfaces - живой баг: generalCompletion
+// TestCompletionGeneralIncludesInterfaces - живой баг: общий список
 // перечислял функции/сущности верхнего уровня, но никогда - интерфейсы
 // (d.astInterfaces вообще не участвовал в цикле) - импортированный или
 // объявленный в этом же файле интерфейс не показывался в автодополнении
@@ -119,7 +119,8 @@ func TestCompletionGeneralListsLocalsAndFunctions(t *testing.T) {
 	if !labels["Точка"] {
 		t.Fatalf("ожидалась сущность Точка в автодополнении")
 	}
-	if !labels["если"] {
-		t.Fatalf("ожидалось ключевое слово если в автодополнении")
+	// После "вернуть" - выражение: значения, не инструкции.
+	if labels["если"] || !labels["новый"] {
+		t.Fatalf("в выражении ожидалось \"новый\" без \"если\", получено %v", labels)
 	}
 }

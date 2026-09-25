@@ -60,20 +60,21 @@ func (d *doc) completion(line, col int) []CompletionItem {
 		}
 		return nil
 	}
+	blocks := enclosingBlocks(d.text, line, col)
 	switch ctx.kind {
 	case completionMember:
-		return ad.memberCompletion(ctx.chain, line)
+		return ad.memberCompletion(ctx.chain, line, blocks)
 	case completionStatic:
 		return ad.staticCompletion(ctx.chain[0].name)
 	case completionType:
 		return ad.typeCompletion()
 	}
-	return ad.generalCompletion(line)
+	return ad.placeCompletion(ad.placeAt(ctx.prefix, blocks), line, blocks)
 }
 
 // memberCompletion - члены того, во что разрешилась цепочка получателя.
-func (d *doc) memberCompletion(chain []chainElem, line int) []CompletionItem {
-	target, ok := d.resolveCompletionChain(chain, line)
+func (d *doc) memberCompletion(chain []chainElem, line int, blocks []textBlock) []CompletionItem {
+	target, ok := d.resolveCompletionChain(chain, line, blocks)
 	if !ok {
 		return nil
 	}
@@ -95,7 +96,7 @@ func (d *doc) memberCompletion(chain []chainElem, line int) []CompletionItem {
 		return out
 	}
 	viewer := ""
-	if scope := d.scopeAt(line); scope != nil {
+	if scope := d.scopeForBlocks(blocks, line); scope != nil {
 		viewer = scope.entityName
 	}
 	return d.valueMembers(target.typ, viewer)
@@ -285,75 +286,6 @@ func (d *doc) staticCompletion(typeName string) []CompletionItem {
 	}
 	for _, c := range ent.Constants {
 		out = append(out, d.constantItem(c))
-	}
-	return out
-}
-
-// generalCompletion - всё, что можно написать голым именем в строке line:
-// "этот", локальные переменные и параметры, функции/сущности/интерфейсы/
-// перечисления/константы/синонимы документа, встроенные функции и типы,
-// ключевые слова. Имена документа - из d.funcs/d.entities, отфильтрованные
-// по d.localNames: при многофайловом обогащении (multifile.go) эти карты
-// несут ещё и внутренние смангленные ключи из других файлов, которые
-// пользователь написать не может (см. package doc display.go).
-func (d *doc) generalCompletion(line int) []CompletionItem {
-	var out []CompletionItem
-	// "этот" вне метода не пишут - и ключевым словом не предлагается.
-	seen := map[string]bool{"этот": true}
-	add := func(it CompletionItem) {
-		if !seen[it.Label] {
-			seen[it.Label] = true
-			out = append(out, it)
-		}
-	}
-	if scope := d.scopeAt(line); scope != nil {
-		if scope.entityName != "" {
-			out = append(out, CompletionItem{Label: "этот", Kind: kindVariable, Detail: scope.entityName})
-		}
-		for name, t := range localsAt(scope, line) {
-			add(CompletionItem{Label: name, Kind: kindVariable, Detail: d.dispType(t)})
-		}
-	}
-	for label, fn := range d.funcs {
-		if d.localNames[label] {
-			add(CompletionItem{Label: label, Kind: kindFunction, Detail: d.functionSignature(label, fn.Params, fn.HasReturn, fn.ReturnType), Documentation: strings.TrimSpace(fn.Doc)})
-		}
-	}
-	for label, ent := range d.entities {
-		if !d.localNames[label] {
-			continue
-		}
-		kind := kindClass
-		if ent.IsStruct {
-			kind = kindStruct
-		}
-		add(CompletionItem{Label: label, Kind: kind, Documentation: strings.TrimSpace(ent.Doc)})
-	}
-	for label := range d.astInterfaces {
-		if d.localNames[label] {
-			add(CompletionItem{Label: label, Kind: kindInterface})
-		}
-	}
-	for label := range d.astEnums {
-		add(CompletionItem{Label: label, Kind: kindEnum})
-	}
-	for label := range d.astConsts {
-		add(CompletionItem{Label: label, Kind: kindConstant})
-	}
-	for label := range d.astSynonyms {
-		add(CompletionItem{Label: label, Kind: kindClass, Detail: "синоним"})
-	}
-	for _, f := range builtins.All {
-		add(CompletionItem{Label: f.Name, Kind: kindFunction, Detail: builtinFuncSignature(f), Documentation: builtinFuncShortDoc[f.Name]})
-	}
-	for name := range builtins.ReservedFuncNames {
-		add(CompletionItem{Label: name, Kind: kindFunction, Detail: builtinFuncDetail(name)})
-	}
-	for _, name := range builtinTypeNames() {
-		add(CompletionItem{Label: name, Kind: kindClass, Documentation: builtinTypeDocs[name]})
-	}
-	for _, it := range keywordItems() {
-		add(it)
 	}
 	return out
 }

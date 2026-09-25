@@ -16,8 +16,10 @@ import (
 
 // Analyzer инкапсулирует состояние семантического анализа.
 type Analyzer struct {
-	// noFlowChecks - не проверять недостижимый код и "вернуть" на каждом
-	// пути (AnalyzeForCompletion: тело обрезано у курсора).
+	// noFlowChecks - анализ для автодополнения (AnalyzeForCompletion): код
+	// дописывается, поэтому не проверяются недостижимый код, "вернуть" на
+	// каждом пути и полнота реализации (методы интерфейса, абстрактные
+	// методы) - сущность, которую пишут прямо сейчас, ещё не закончена.
 	noFlowChecks bool
 	// inference - вывод аргументов типа (generic_infer.go), общий для всех
 	// проходов анализа одной программы.
@@ -586,7 +588,7 @@ func (a *Analyzer) collectOneEntity(entities map[string]entitySig, methods map[s
 		return err
 	}
 	a.methodOverloads[ent.Name] = methodOverloads
-	if !ent.IsAbstract {
+	if !ent.IsAbstract && !a.noFlowChecks {
 		for name, msig := range flatMethods {
 			if msig.IsAbstract {
 				return errNoPos(CodeEntityDecl, "сущность %q: не реализован абстрактный метод %q - дайте ему тело или объявите саму сущность абстрактной", ent.Name, name)

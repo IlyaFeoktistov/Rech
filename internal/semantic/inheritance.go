@@ -140,6 +140,9 @@ func (a *Analyzer) applyInheritance(entities map[string]entitySig, methods map[s
 	}
 
 	for _, ifaceName := range ent.Interfaces {
+		if a.noFlowChecks {
+			break
+		}
 		if err := checkImplements(a.interfaces, ent.Name, flatMethods, ifaceName, ent.Line); err != nil {
 			return entitySig{}, nil, nil, err
 		}
