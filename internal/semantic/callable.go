@@ -297,7 +297,7 @@ func analyzeLambdaExpr(sc *ctx, e *ast.LambdaExpr) (*ir.LambdaExpr, error) {
 	if err != nil {
 		return nil, err
 	}
-	unreachable, fallsThrough := analyzeFlow(body)
+	unreachable, fallsThrough := lc.a.flow(body)
 	if unreachable != nil {
 		return nil, unreachable
 	}

@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"github.com/IlyaFeoktistov/Rech/internal/builtins"
 	"os"
 	"path/filepath"
 	"strings"
@@ -170,6 +171,9 @@ func TestMultiFileCompletionExcludesManglesNames(t *testing.T) {
 	items := d.completion(line, 4)
 	foundAlias := false
 	for _, it := range items {
+		if _, builtin := builtins.ByName(it.Label); builtin || builtins.ReservedFuncNames[it.Label] {
+			continue
+		}
 		if strings.Contains(it.Label, "_") {
 			t.Fatalf("автодополнение не должно содержать смангленное имя, получено %q", it.Label)
 		}

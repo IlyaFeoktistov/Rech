@@ -13,6 +13,17 @@ import (
 
 // Analyze производит IR из AST.
 func Analyze(prog *ast.Program) (*ir.Program, error) {
+	return analyze(prog, false)
+}
+
+// AnalyzeForCompletion - Analyze без проверок потока управления
+// (недостижимый код, "вернуть" на каждом пути): для автодополнения LSP,
+// которое анализирует тело функции, обрезанное перед строкой курсора.
+func AnalyzeForCompletion(prog *ast.Program) (*ir.Program, error) {
+	return analyze(prog, true)
+}
+
+func analyze(prog *ast.Program, noFlowChecks bool) (*ir.Program, error) {
 	// "#если ОС.<Член> { ... }" (docs/SPEC.md) - обычно уже разрешён
 	// раньше, для КАЖДОГО отдельного файла, ДО их слияния в один prog
 	// (internal/module, package doc ast.ResolvePlatformBlocks) -
@@ -35,7 +46,7 @@ func Analyze(prog *ast.Program) (*ir.Program, error) {
 	inf := &genericInference{table: map[string][]string{}}
 	for range maxInferencePasses {
 		inf.found = false
-		irProg, err := analyzeOnce(prog, inf)
+		irProg, err := analyzeOnce(prog, inf, noFlowChecks)
 		if !inf.found {
 			return irProg, err
 		}
@@ -45,7 +56,7 @@ func Analyze(prog *ast.Program) (*ir.Program, error) {
 
 // analyzeOnce - один проход анализа (см. Analyze) с уже известными
 // выводами аргументов типа inf.
-func analyzeOnce(prog *ast.Program, inf *genericInference) (*ir.Program, error) {
+func analyzeOnce(prog *ast.Program, inf *genericInference, noFlowChecks bool) (*ir.Program, error) {
 	// Пользовательские generic-сущности/функции ("Коробка<T>") - раскрыты
 	// в обычные объявления ДО всего остального: дальше по конвейеру ничего
 	// не знает, что они когда-то были generic (см. package doc
@@ -65,6 +76,7 @@ func analyzeOnce(prog *ast.Program, inf *genericInference) (*ir.Program, error) 
 	prog = &withStringer
 
 	a := &Analyzer{
+		noFlowChecks:          noFlowChecks,
 		resolvedConsts:        map[string]ir.Expr{},
 		resolvingConsts:       map[string]bool{},
 		resolvedFieldDefaults: map[string]ir.Expr{},

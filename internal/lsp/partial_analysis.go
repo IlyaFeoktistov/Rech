@@ -8,7 +8,6 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
-	"github.com/IlyaFeoktistov/Rech/internal/semantic"
 )
 
 // maxSalvageRounds - сколько раз analyzeSalvaging повторяет анализ, каждый
@@ -34,11 +33,11 @@ type declSpan struct {
 // Результат - IR всего остального файла: hover/completion/definition по
 // исправным объявлениям работают, пока в другом месте файла есть ошибка.
 // prog не меняется - анализируется поверхностная копия.
-func analyzeSalvaging(prog *ast.Program) (*ir.Program, bool) {
+func analyzeSalvaging(prog *ast.Program, analyze func(*ast.Program) (*ir.Program, error)) (*ir.Program, bool) {
 	work := cloneProgramShallow(prog)
 	stubbed := map[int]bool{}
 	for range maxSalvageRounds {
-		irProg, err := semantic.Analyze(work)
+		irProg, err := analyze(work)
 		if err == nil {
 			return irProg, true
 		}

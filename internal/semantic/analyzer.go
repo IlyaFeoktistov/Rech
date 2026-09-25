@@ -16,6 +16,9 @@ import (
 
 // Analyzer инкапсулирует состояние семантического анализа.
 type Analyzer struct {
+	// noFlowChecks - не проверять недостижимый код и "вернуть" на каждом
+	// пути (AnalyzeForCompletion: тело обрезано у курсора).
+	noFlowChecks bool
 	// inference - вывод аргументов типа (generic_infer.go), общий для всех
 	// проходов анализа одной программы.
 	inference *genericInference
@@ -1149,7 +1152,7 @@ func (a *Analyzer) analyzeMethod(ent *ast.EntityDecl, m *ast.MethodDecl) (*ir.Me
 	if err != nil {
 		return nil, err
 	}
-	if !m.IsAbstract {
+	if !m.IsAbstract && !a.noFlowChecks {
 		unreachable, fallsThrough := analyzeFlow(body)
 		if unreachable != nil {
 			return nil, unreachable
@@ -1189,7 +1192,7 @@ func (a *Analyzer) analyzeFunction(fn *ast.FunctionDecl) (*ir.Function, error) {
 	if err != nil {
 		return nil, err
 	}
-	unreachable, fallsThrough := analyzeFlow(body)
+	unreachable, fallsThrough := a.flow(body)
 	if unreachable != nil {
 		return nil, unreachable
 	}
@@ -1608,4 +1611,13 @@ func (a *Analyzer) collectCallables(prog *ir.Program) error {
 		}
 	}
 	return nil
+}
+
+// flow - analyzeFlow, если проверки потока включены (см. noFlowChecks);
+// иначе - ничего не найдено.
+func (a *Analyzer) flow(body []ir.Stmt) (error, bool) {
+	if a.noFlowChecks {
+		return nil, false
+	}
+	return analyzeFlow(body)
 }

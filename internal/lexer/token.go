@@ -1,5 +1,7 @@
 package lexer
 
+import "sort"
+
 // TokenType перечисляет виды токенов, которые умеет распознавать лексер Rech v0.1.
 type TokenType int
 
@@ -273,6 +275,17 @@ func KeywordTokenTypes() []TokenType {
 			out = append(out, tt)
 		}
 	}
+	return out
+}
+
+// KeywordWords - все ключевые слова со всеми словоформами ("новый"/
+// "новая"/...), по алфавиту - для автодополнения internal/lsp.
+func KeywordWords() []string {
+	out := make([]string, 0, len(keywords))
+	for w := range keywords {
+		out = append(out, w)
+	}
+	sort.Strings(out)
 	return out
 }
 

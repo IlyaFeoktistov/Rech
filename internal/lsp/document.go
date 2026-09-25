@@ -63,8 +63,11 @@ type doc struct {
 	// по которому он построен: новый irProg - индекс строится заново.
 	throws     *throwsIndex
 	throwsProg *ir.Program
-	tokens     []lexer.Token
-	scopes     []funcScope
+	// forCompletion - документ-копия для автодополнения (completionDoc):
+	// анализ без проверок потока управления.
+	forCompletion bool
+	tokens        []lexer.Token
+	scopes        []funcScope
 
 	entities      map[string]*ir.Entity
 	funcs         map[string]*ir.Function
@@ -196,7 +199,7 @@ func (d *doc) update(text string) {
 	d.tokens = toks
 	d.foreignTokenCache = map[string][]lexer.Token{}
 
-	irProg, semErr := semantic.Analyze(astProg)
+	irProg, semErr := d.analyze(astProg)
 	linked, linkOK, linkErr := tryLink(d.path)
 	if semErr != nil && !linkOK {
 		// linkErr, если линковка вообще пыталась (см. package doc tryLink) -
@@ -210,7 +213,7 @@ func (d *doc) update(text string) {
 		// точнее старого "последнего удачного" состояния: строки совпадают
 		// с текущим текстом, и он есть даже у файла, открытого сразу с
 		// ошибкой.
-		salvaged, ok := analyzeSalvaging(astProg)
+		salvaged, ok := analyzeSalvaging(astProg, d.analyze)
 		if !ok {
 			return
 		}
@@ -277,6 +280,14 @@ func (d *doc) update(text string) {
 // newDoc строит документ сразу (didOpen получает готовый текст, не пустой,
 // который потом "обновляется" - но update делает ровно то же самое, что
 // нужно и в момент открытия).
+// analyze - семантический анализ документа (см. forCompletion).
+func (d *doc) analyze(prog *ast.Program) (*ir.Program, error) {
+	if d.forCompletion {
+		return semantic.AnalyzeForCompletion(prog)
+	}
+	return semantic.Analyze(prog)
+}
+
 func newDoc(uri, text string) *doc {
 	d := &doc{uri: uri, path: uriToPath(uri)}
 	d.update(text)

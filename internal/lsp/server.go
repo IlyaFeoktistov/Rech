@@ -58,7 +58,7 @@ func (s *server) handleRequest(msg *Message) {
 				"codeActionProvider":        true,
 				"codeLensProvider":          map[string]any{},
 				"completionProvider": map[string]any{
-					"triggerCharacters": []string{".", "\""},
+					"triggerCharacters": []string{".", "\"", ":"},
 				},
 				"signatureHelpProvider": map[string]any{
 					"triggerCharacters": []string{"(", ","},
