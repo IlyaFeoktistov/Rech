@@ -104,3 +104,17 @@ func TestGenerateHeaderOpaqueEntityTypedef(t *testing.T) {
 		t.Fatalf("ожидался прототип, возвращающий указатель на сущность по настоящему имени, получено:\n%s", header)
 	}
 }
+
+// TestExportedSymbolsListsOnlyExported - список глобальных символов
+// статической библиотеки: экспортированные функции (настоящее имя), не
+// остальные.
+func TestExportedSymbolsListsOnlyExported(t *testing.T) {
+	prog := &ir.Program{Functions: []*ir.Function{
+		{Name: "публичная", Exported: true},
+		{Name: "приватная", Exported: false},
+	}}
+	got := ExportedSymbols(prog)
+	if len(got) != 1 || got[0] != "публичная" {
+		t.Fatalf("ожидалось [публичная], получено %q", got)
+	}
+}

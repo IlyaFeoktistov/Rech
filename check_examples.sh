@@ -145,7 +145,7 @@ while IFS= read -r proj; do
     fi
     check "$proj"
     project_dirs+=("$pd")
-    if grep -qE '^[[:space:]]*тип:[[:space:]]*библиотека' "$proj"; then
+    if grep -qE '^[[:space:]]*тип:[[:space:]]*(статическая_)?библиотека' "$proj"; then
         outdir=$(awk -F: '/^[[:space:]]*выход:/{gsub(/^[ \t]+|[ \t]+$/,"",$2); print $2; exit}' "$proj")
         [ -n "$outdir" ] && add_lib_search_path "$pd/$outdir"
     fi

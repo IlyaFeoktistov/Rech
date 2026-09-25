@@ -21,7 +21,8 @@ func (fakeToolchain) CompileLib(cPath, libPath string, b CBuild) error {
 	return os.WriteFile(libPath, []byte{}, 0o755)
 }
 
-func (fakeToolchain) LibExtension() string { return ".so" }
+func (fakeToolchain) LibExtension() string                               { return ".so" }
+func (fakeToolchain) ConsumerLinkFlags(string, CBuild) ([]string, error) { return nil, nil }
 
 func newTestCompiler() *Compiler {
 	return NewCompiler(NewFrontend(), NewBackend(), fakeToolchain{})
@@ -51,7 +52,8 @@ func (c capturingToolchain) CompileLib(cPath, libPath string, b CBuild) error {
 	return os.WriteFile(libPath, []byte{}, 0o755)
 }
 
-func (capturingToolchain) LibExtension() string { return ".so" }
+func (capturingToolchain) LibExtension() string                               { return ".so" }
+func (capturingToolchain) ConsumerLinkFlags(string, CBuild) ([]string, error) { return nil, nil }
 
 // exeAppendingToolchain имитирует mingw gcc на Windows - сам добавляет
 // ".exe" к выходному файлу, даже если -o дан без расширения.
@@ -65,7 +67,8 @@ func (exeAppendingToolchain) CompileLib(cPath, libPath string, b CBuild) error {
 	return os.WriteFile(libPath, []byte{}, 0o755)
 }
 
-func (exeAppendingToolchain) LibExtension() string { return ".so" }
+func (exeAppendingToolchain) LibExtension() string                               { return ".so" }
+func (exeAppendingToolchain) ConsumerLinkFlags(string, CBuild) ([]string, error) { return nil, nil }
 
 func newExeAppendingTestCompiler() *Compiler {
 	return NewCompiler(NewFrontend(), NewBackend(), exeAppendingToolchain{})

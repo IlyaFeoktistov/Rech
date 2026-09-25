@@ -90,9 +90,10 @@ type File struct {
 	Режим     string
 	Платформа string
 	// Тип - "консольное" (по умолчанию, исполняемый файл с консолью),
-	// "оконное" (исполняемый файл без консоли на Windows - см. IsWindowed)
-	// или "библиотека" (`rech build --lib` без явного флага - разделяемая
-	// библиотека .so/.dylib/.dll + C-заголовок .h, см. IsLibrary).
+	// "оконное" (исполняемый файл без консоли на Windows - см. IsWindowed),
+	// "библиотека" (`rech build --lib` без явного флага - разделяемая
+	// библиотека .so/.dylib/.dll + C-заголовок .h, см. IsLibrary) или
+	// "статическая_библиотека" (.a + .h, см. IsStaticLibrary).
 	Тип string
 	// librariesRaw - "сборка.библиотеки" как есть, через запятую ("curl,
 	// ssl") - см. Библиотеки.
@@ -431,7 +432,7 @@ func Load(path string) (*File, error) {
 		pf.Тип = buildTypeConsole
 	}
 	if !buildTypes[pf.Тип] {
-		return nil, fmt.Errorf("%s: сборка.тип %q не распознан - допустимо \"консольное\", \"оконное\" или \"библиотека\"", path, pf.Тип)
+		return nil, fmt.Errorf("%s: сборка.тип %q не распознан - допустимо \"консольное\", \"оконное\", \"библиотека\" или \"статическая_библиотека\"", path, pf.Тип)
 	}
 	return pf, nil
 }
@@ -494,18 +495,26 @@ const (
 	buildTypeConsole  = "консольное"
 	buildTypeWindowed = "оконное"
 	buildTypeLibrary  = "библиотека"
+	buildTypeStatic   = "статическая_библиотека"
 )
 
 var buildTypes = map[string]bool{
 	buildTypeConsole:  true,
 	buildTypeWindowed: true,
 	buildTypeLibrary:  true,
+	buildTypeStatic:   true,
 }
 
-// IsLibrary отражает "сборка.тип": "библиотека" - собирать разделяемую
-// библиотеку (`rech build --lib`), не исполняемый файл.
+// IsLibrary отражает "сборка.тип": "библиотека"/"статическая_библиотека" -
+// собирать библиотеку (`rech build --lib`), не исполняемый файл.
 func (pf *File) IsLibrary() bool {
-	return pf.Тип == buildTypeLibrary
+	return pf.Тип == buildTypeLibrary || pf.Тип == buildTypeStatic
+}
+
+// IsStaticLibrary отражает "сборка.тип": "статическая_библиотека" - архив
+// объектного кода (.a) вместо разделяемой библиотеки.
+func (pf *File) IsStaticLibrary() bool {
+	return pf.Тип == buildTypeStatic
 }
 
 // IsWindowed отражает "сборка.тип": "оконное" - исполняемый файл для
@@ -833,7 +842,8 @@ const Template = `проект:
   режим: отладка
   платформа: текущая
   # тип: консольное (по умолчанию; "оконное" - без консоли на Windows,
-  # "библиотека" - разделяемая библиотека вместо исполняемого файла)
+  # "библиотека" - разделяемая библиотека вместо исполняемого файла,
+  # "статическая_библиотека" - архив .a)
   # библиотеки: curl, ssl (внешние библиотеки для линковки, через запятую)
   # путь_библиотек: ../моя_библиотека/сборка (локальные каталоги для поиска
   # библиотек из "библиотеки:" выше, через запятую - для тех, что НЕ

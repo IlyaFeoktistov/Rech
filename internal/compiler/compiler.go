@@ -82,18 +82,27 @@ type Backend interface {
 	// optionsYAML - "опции:" файла проекта (internal/project.File.Опции) -
 	// см. ir.Program.OptionsYAML, тем же принципом, что и externHeaders.
 	Generate(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int, externHeaders []string, optionsYAML string) (string, error)
-	// GenerateLib - как Generate, но для разделяемой библиотеки (`rech
-	// build --lib`): второй результат - текст C-заголовка (.h) с
-	// прототипами объявлений, помеченных "экспортировать"; третий - тот же
-	// публичный интерфейс в синтаксисе Rech (.rechi, docs/SPEC.md,
-	// "Закрытые (бинарные) пакеты") - потребитель подключает его через
-	// "использовать" без единой ручной строки FFI, РАЗБИТЫЙ по исходным
-	// файлам библиотеки (ключ - путь файла относительно libRoot без
-	// расширения) - интерфейс сохраняет ту же структуру подкаталогов, что
-	// исходники автора, не схлопывается в один плоский файл. libRoot == "" -
-	// нет файла проекта (BuildLibSource) - один плоский результат под
-	// ключом "".
-	GenerateLib(prog *ast.Program, libRoot string, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int, externHeaders []string, optionsYAML string) (cSource, header string, interfaceStubs map[string]string, err error)
+	// GenerateLib - как Generate, но для библиотеки (`rech build --lib`),
+	// см. LibSource. libRoot == "" - нет файла проекта (BuildLibSource) -
+	// интерфейс одним плоским результатом под ключом "".
+	GenerateLib(prog *ast.Program, libRoot string, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int, externHeaders []string, optionsYAML string) (LibSource, error)
+}
+
+// LibSource - результат Backend.GenerateLib.
+//
+// Header - C-заголовок (.h) с прототипами объявлений, помеченных
+// "экспортировать". InterfaceStubs - тот же публичный интерфейс в
+// синтаксисе Rech (.rechi, docs/SPEC.md, "Закрытые (бинарные) пакеты") -
+// потребитель подключает его через "использовать" без единой ручной строки
+// FFI, РАЗБИТЫЙ по исходным файлам библиотеки (ключ - путь файла
+// относительно libRoot без расширения) - интерфейс сохраняет структуру
+// подкаталогов исходников автора. Exports - C-имена символов из Header:
+// только они остаются глобальными в статической библиотеке.
+type LibSource struct {
+	C              string
+	Header         string
+	InterfaceStubs map[string]string
+	Exports        []string
 }
 
 // Toolchain отвечает за финальную сборку сгенерированного исходника
@@ -109,6 +118,10 @@ type Toolchain interface {
 	// платформе (".so"/".dylib"/".dll") - Compiler называет им итоговый
 	// файл, сам не завися от runtime.GOOS.
 	LibExtension() string
+	// ConsumerLinkFlags - флаги линковки, которые нужны программе,
+	// подключающей статическую библиотеку из cPath: архив не несёт
+	// собственных зависимостей (-lgc, -lm, ...).
+	ConsumerLinkFlags(cPath string, b CBuild) ([]string, error)
 }
 
 // CBuild - параметры вызова компилятора C.
@@ -134,7 +147,20 @@ type CBuild struct {
 	// Windowed - "сборка.тип: оконное": на Windows исполняемый файл
 	// собирается для оконной подсистемы (без консоли).
 	Windowed bool
+	// StaticLib - "сборка.тип: статическая_библиотека": CompileLib пишет
+	// архив объектного кода (StaticLibExtension) вместо разделяемой
+	// библиотеки.
+	StaticLib bool
+	// Exports - C-имена экспортируемых символов библиотеки
+	// (LibSource.Exports): у статической библиотеки остальные глобальные
+	// символы архива делаются локальными, чтобы рантайм библиотеки не
+	// конфликтовал с рантаймом программы-потребителя.
+	Exports []string
 }
+
+// StaticLibExtension - расширение статической библиотеки (архив ar) на
+// любой платформе: gcc/clang, в том числе MinGW, ищут "lib<имя>.a".
+const StaticLibExtension = ".a"
 
 type defaultBackend struct{}
 
@@ -176,10 +202,10 @@ func (defaultBackend) Generate(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, d
 	return src, nil
 }
 
-func (defaultBackend) GenerateLib(prog *ast.Program, libRoot string, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int, externHeaders []string, optionsYAML string) (string, string, map[string]string, error) {
+func (defaultBackend) GenerateLib(prog *ast.Program, libRoot string, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int, externHeaders []string, optionsYAML string) (LibSource, error) {
 	irProg, err := semantic.Analyze(prog)
 	if err != nil {
-		return "", "", nil, err
+		return LibSource{}, err
 	}
 	if dbPoolSize > 0 {
 		irProg.DBPoolSize = dbPoolSize
@@ -200,9 +226,9 @@ func (defaultBackend) GenerateLib(prog *ast.Program, libRoot string, dbPoolSize,
 
 	cSource, header, stubs, err := cbackend.GenerateLibFromIR(irProg, libRoot)
 	if err != nil {
-		return "", "", nil, diagnostics.Internal(err)
+		return LibSource{}, diagnostics.Internal(err)
 	}
-	return cSource, header, stubs, nil
+	return LibSource{C: cSource, Header: header, InterfaceStubs: stubs, Exports: cbackend.ExportedSymbols(irProg)}, nil
 }
 
 // Compiler связывает Frontend, Backend и Toolchain в единый пайплайн
@@ -371,10 +397,11 @@ func writeInterfaceStubs(stubs map[string]string, base, stubDir string) ([]strin
 // keepC - оба часть публичного API библиотеки, а не техническая заготовка
 // вроде .c.
 func (c *Compiler) compileLibProgram(prog *ast.Program, base, libRoot, stubDir string, keepC bool, extraLibs, extraLibPaths []string) (libPath, hPath string, rechiPaths []string, err error) {
-	cSource, header, interfaceStubs, err := c.Backend.GenerateLib(prog, libRoot, c.DBPoolSize, c.DBPoolTimeoutMs, c.DBSQLiteBusyTimeoutMs, c.PoolShrinkEnabled, c.PoolIdleTimeoutMs, c.HTTPMaxRequestBytes, c.ExternHeaders, c.OptionsYAML)
+	lib, err := c.Backend.GenerateLib(prog, libRoot, c.DBPoolSize, c.DBPoolTimeoutMs, c.DBSQLiteBusyTimeoutMs, c.PoolShrinkEnabled, c.PoolIdleTimeoutMs, c.HTTPMaxRequestBytes, c.ExternHeaders, c.OptionsYAML)
 	if err != nil {
 		return "", "", nil, fmt.Errorf("генерация C: %w", err)
 	}
+	cSource, header, interfaceStubs := lib.C, lib.Header, lib.InterfaceStubs
 
 	tmpDir, err := os.MkdirTemp("", "rech-build-")
 	if err != nil {
@@ -388,9 +415,21 @@ func (c *Compiler) compileLibProgram(prog *ast.Program, base, libRoot, stubDir s
 		return "", "", nil, fmt.Errorf("не удалось записать %s: %w", tmpCPath, err)
 	}
 	libExt := c.Toolchain.LibExtension()
+	if c.CBuild.StaticLib {
+		libExt = StaticLibExtension
+	}
 	tmpLibPath := tmpBase + libExt
-	if err := c.Toolchain.CompileLib(tmpCPath, tmpLibPath, c.cBuild(extraLibs, extraLibPaths)); err != nil {
+	build := c.cBuild(extraLibs, extraLibPaths)
+	build.Exports = lib.Exports
+	if err := c.Toolchain.CompileLib(tmpCPath, tmpLibPath, build); err != nil {
 		return "", "", nil, diagnostics.Internal(err)
+	}
+	if c.CBuild.StaticLib {
+		flags, err := c.Toolchain.ConsumerLinkFlags(tmpCPath, build)
+		if err != nil {
+			return "", "", nil, err
+		}
+		header = staticLinkNote(flags) + header
 	}
 
 	libPath = base + libExt
@@ -415,6 +454,15 @@ func (c *Compiler) compileLibProgram(prog *ast.Program, base, libRoot, stubDir s
 		}
 	}
 	return libPath, hPath, rechiPaths, nil
+}
+
+// staticLinkNote - шапка заголовка статической библиотеки: какие флаги
+// линковки нужны программе, которая её подключает.
+func staticLinkNote(flags []string) string {
+	if len(flags) == 0 {
+		return ""
+	}
+	return "/* Статическая библиотека. При линковке программы добавьте: " + strings.Join(flags, " ") + " */\n"
 }
 
 // ParseSource разбирает srcPath (файл .rech или каталог) в *ast.Program -

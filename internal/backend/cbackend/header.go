@@ -73,23 +73,7 @@ func cDocComment(doc string) string {
 // его напрямую (тот же принцип непрозрачного дескриптора, что у FILE* в
 // стандартной библиотеке C).
 func generateHeader(prog *ir.Program) (string, error) {
-	entities := map[string]*ir.Entity{}
-	exportedEntityNames := map[string]bool{}
-	for _, ent := range prog.Entities {
-		entities[ent.Name] = ent
-		if ent.Exported {
-			exportedEntityNames[ent.Name] = true
-		}
-	}
-	exportedFuncNames := map[string]bool{}
-	for _, fn := range prog.Functions {
-		if fn.Exported {
-			exportedFuncNames[fn.Name] = true
-		}
-	}
-	exportedMethods := buildExportedMethods(prog)
-	exportedCtors := buildExportedCtors(prog)
-	ctx := &irGenCtx{entities: entities, exportedEntityNames: exportedEntityNames, exportedFuncNames: exportedFuncNames, exportedMethods: exportedMethods, exportedCtors: exportedCtors}
+	ctx := headerCtx(prog)
 
 	var typedefs strings.Builder
 	for _, ent := range prog.Entities {
@@ -133,4 +117,50 @@ func generateHeader(prog *ir.Program) (string, error) {
 	sb.WriteString(protos.String())
 	sb.WriteString("\n#ifdef __cplusplus\n}\n#endif\n\n#endif\n")
 	return sb.String(), nil
+}
+
+// headerCtx - контекст имён для заголовка библиотеки и ExportedSymbols:
+// какие сущности/функции/методы/конструкторы помечены "экспортировать".
+func headerCtx(prog *ir.Program) *irGenCtx {
+	entities := map[string]*ir.Entity{}
+	exportedEntityNames := map[string]bool{}
+	for _, ent := range prog.Entities {
+		entities[ent.Name] = ent
+		if ent.Exported {
+			exportedEntityNames[ent.Name] = true
+		}
+	}
+	exportedFuncNames := map[string]bool{}
+	for _, fn := range prog.Functions {
+		if fn.Exported {
+			exportedFuncNames[fn.Name] = true
+		}
+	}
+	exportedMethods := buildExportedMethods(prog)
+	exportedCtors := buildExportedCtors(prog)
+	return &irGenCtx{entities: entities, exportedEntityNames: exportedEntityNames, exportedFuncNames: exportedFuncNames, exportedMethods: exportedMethods, exportedCtors: exportedCtors}
+}
+
+// ExportedSymbols - C-имена всего, что объявляет заголовок библиотеки
+// (функции, методы, конструкторы с "экспортировать"): при сборке
+// статической библиотеки остальные символы архива делаются локальными.
+func ExportedSymbols(prog *ir.Program) []string {
+	ctx := headerCtx(prog)
+	var names []string
+	for _, fn := range prog.Functions {
+		if fn.Exported {
+			names = append(names, funcCName(ctx, fn.Name))
+		}
+	}
+	for _, ent := range prog.Entities {
+		for _, m := range ent.Methods {
+			if m.Exported {
+				names = append(names, methodCName(ctx, ent.Name, m.Name))
+			}
+		}
+		if ent.Ctor != nil && ent.Ctor.Exported {
+			names = append(names, ctorCName(ctx, ent.Name))
+		}
+	}
+	return names
 }

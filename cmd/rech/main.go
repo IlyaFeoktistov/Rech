@@ -244,6 +244,7 @@ func main() {
 			extraHeaders = pf.Заголовки()
 			cBuild.CCompiler = pf.КомпиляторC()
 			cBuild.Windowed = pf.IsWindowed()
+			cBuild.StaticLib = pf.IsStaticLibrary()
 			if cBuild.CFlags, cBuild.CFlagsSet, perr = pf.ФлагиC(); perr != nil {
 				fmt.Fprintln(os.Stderr, "ошибка:", perr)
 				os.Exit(1)
@@ -350,7 +351,7 @@ func main() {
 		}
 	case "run":
 		if isLib {
-			fmt.Fprintln(os.Stderr, "ошибка: библиотека (--lib/сборка.тип: библиотека) не исполняется как программа - соберите её через \"rech build --lib\" и подключите из внешнего кода")
+			fmt.Fprintln(os.Stderr, "ошибка: библиотека (--lib/сборка.тип: библиотека или статическая_библиотека) не исполняется как программа - соберите её через \"rech build --lib\" и подключите из внешнего кода")
 			os.Exit(2)
 		}
 		binPath, err := build()
