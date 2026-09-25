@@ -67,6 +67,10 @@ func substituteTypeString(s string, subst map[string]string) string {
 	if repl, ok := subst[s]; ok {
 		return repl
 	}
+	// "?T" - nullable от параметра типа.
+	if inner, ok := strings.CutPrefix(s, "?"); ok {
+		return "?" + substituteTypeString(inner, subst)
+	}
 	// "Вызываемый<...>..." - отдельная форма (ParseGenericTypeNameMulti
 	// требует, чтобы имя заканчивалось на ">", а тут после закрывающей
 	// "<...>" может идти ещё тип результата без разделителя) - разбирается
@@ -147,7 +151,7 @@ func substStmt(s ast.Stmt, subst map[string]string) ast.Stmt {
 	case *ast.ShowStmt:
 		return &ast.ShowStmt{Value: substExpr(s.Value, subst), Line: s.Line}
 	case *ast.VarDecl:
-		return &ast.VarDecl{Name: s.Name, Type: s.Type, Value: substExpr(s.Value, subst), IsStatic: s.IsStatic, Line: s.Line}
+		return &ast.VarDecl{Name: s.Name, Type: substituteTypeString(s.Type, subst), Value: substExpr(s.Value, subst), IsStatic: s.IsStatic, Line: s.Line}
 	case *ast.ConstDecl:
 		return &ast.ConstDecl{Name: s.Name, Value: substExpr(s.Value, subst), Visibility: s.Visibility, Line: s.Line}
 	case *ast.Assign:

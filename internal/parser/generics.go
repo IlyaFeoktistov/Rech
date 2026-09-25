@@ -102,3 +102,35 @@ func (p *Parser) parseGenericCallExpr() (*ast.CallExpr, error) {
 	}
 	return &ast.CallExpr{Callee: name.Value, Args: args, TypeArgs: typeArgs, Line: name.Line}, nil
 }
+
+// looksLikeGenericCall - с текущего IDENT начинается "имя<Тип, ...>(":
+// явные аргументы типа у функции, о которой парсер не знает, что она
+// generic (импортирована из другого файла - парсер однофайловый). Как
+// сравнение это прочитать нельзя: сравнения не цепочные, "а < б > (в)" -
+// не выражение. Внутри "<...>" - только то, из чего пишутся имена типов.
+func (p *Parser) looksLikeGenericCall() bool {
+	if p.cur().Type != lexer.IDENT || p.peekAt(1).Type != lexer.LT {
+		return false
+	}
+	depth := 0
+	for i := 1; i < 64; i++ {
+		switch p.peekAt(i).Type {
+		case lexer.LT:
+			depth++
+		case lexer.GT:
+			depth--
+		case lexer.SHR:
+			depth -= 2
+		case lexer.IDENT, lexer.COMMA, lexer.QUESTION, lexer.STAR, lexer.LBRACKET, lexer.RBRACKET, lexer.NEWLINE:
+		default:
+			return false
+		}
+		if depth < 0 {
+			return false
+		}
+		if depth == 0 {
+			return p.peekAt(i+1).Type == lexer.LPAREN
+		}
+	}
+	return false
+}

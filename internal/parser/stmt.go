@@ -184,7 +184,7 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 			}
 			return p.finishCallChainStmt(call)
 		}
-		if p.genericFuncs[p.cur().Value] && p.peekAt(1).Type == lexer.LT {
+		if (p.genericFuncs[p.cur().Value] && p.peekAt(1).Type == lexer.LT) || p.looksLikeGenericCall() {
 			call, err := p.parseGenericCallExpr()
 			if err != nil {
 				return nil, err

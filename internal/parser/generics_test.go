@@ -189,3 +189,28 @@ func TestParseBitwiseShiftStillWorksAfterAngleSplitting(t *testing.T) {
 		t.Fatalf("ожидался BinaryExpr \">>\", получено %+v", decl.Value)
 	}
 }
+
+// Явные аргументы типа у функции, не объявленной в этом файле
+// (импортированной): "имя<Тип>(" - generic-вызов, не сравнение; обычное
+// "а < б" разбирается как раньше.
+func TestParseExplicitTypeArgsOfUnknownFunction(t *testing.T) {
+	prog, err := parseSource(t, `
+функция главная
+{
+    Целое а = чужая<Целое>(1)
+    вывести `+"`${чужая<Список<Строка>>([])}`"+`
+    Логическое м = а < 2
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	body := prog.Functions[0].Body
+	call, ok := body[0].(*ast.VarDecl).Value.(*ast.CallExpr)
+	if !ok || call.Callee != "чужая" || len(call.TypeArgs) != 1 || call.TypeArgs[0] != "Целое" {
+		t.Fatalf("ожидался вызов чужая<Целое>, получено %#v", body[0].(*ast.VarDecl).Value)
+	}
+	if _, ok := body[2].(*ast.VarDecl).Value.(*ast.BinaryExpr); !ok {
+		t.Fatalf("\"а < 2\" должно остаться сравнением, получено %#v", body[2].(*ast.VarDecl).Value)
+	}
+}
