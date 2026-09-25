@@ -60,9 +60,9 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 	case "логарифм10":
 		return floatValue(math.Log10(args[0].F)), true
 	case "минимум":
-		return floatValue(math.Min(args[0].F, args[1].F)), true
+		return floatValue(ieeeMinMax(math.Min, args[0].F, args[1].F)), true
 	case "максимум":
-		return floatValue(math.Max(args[0].F, args[1].F)), true
+		return floatValue(ieeeMinMax(math.Max, args[0].F, args[1].F)), true
 	case "пи":
 		return floatValue(math.Pi), true
 	case "абсолютное_значение_целого":
@@ -723,4 +723,17 @@ func intPow(base, exp int64) int64 {
 		exp >>= 1
 	}
 	return result
+}
+
+// ieeeMinMax - fmin/fmax из C (cbackend): NaN в одном аргументе
+// пропускается, результат - другой аргумент (IEEE 754 minNum/maxNum), а не
+// NaN, как у math.Min/math.Max.
+func ieeeMinMax(pick func(a, b float64) float64, a, b float64) float64 {
+	if math.IsNaN(a) {
+		return b
+	}
+	if math.IsNaN(b) {
+		return a
+	}
+	return pick(a, b)
 }
