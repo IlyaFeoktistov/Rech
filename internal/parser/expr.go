@@ -229,7 +229,13 @@ func (p *Parser) parseIsExpr(left ast.Expr) (ast.Expr, error) {
 	if err != nil {
 		return nil, diagnostics.Wrap(err, "после \"относится к\" ожидалось имя типа")
 	}
-	return &ast.IsExpr{Value: left, Target: target.Value, Line: kw.Line}, nil
+	// "относится к Коробка<Целое>" - "<" здесь не сравнение: логическое
+	// значение с числом не сравнивают.
+	name, err := p.parseTypeArgsSuffix(target.Value)
+	if err != nil {
+		return nil, diagnostics.Wrap(err, "после \"относится к\"")
+	}
+	return &ast.IsExpr{Value: left, Target: name, Line: kw.Line}, nil
 }
 
 // parseBitOr/parseBitXor/parseBitAnd/parseShift - побитовые операторы

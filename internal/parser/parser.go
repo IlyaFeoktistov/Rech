@@ -861,6 +861,11 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 		if err != nil {
 			return nil, diagnostics.Wrap(err, "%s %q", label, name.Value)
 		}
+		// "наследует Коробку<Целое>" / "Коробку<T>" - база-инстанциация
+		// generic-сущности, склоняется только имя шаблона.
+		if baseName, err = p.parseTypeArgsSuffix(baseName); err != nil {
+			return nil, diagnostics.Wrap(err, "%s %q: базовая сущность", label, name.Value)
+		}
 	}
 	if p.cur().Type == lexer.KwImplements {
 		verb := p.advance() // "реализует"
@@ -883,9 +888,6 @@ func (p *Parser) parseEntity() (*ast.EntityDecl, error) {
 	}
 	if kw.Type == lexer.KwStruct && (baseName != "" || len(interfaces) > 0) {
 		return nil, errAt(name.Line, name.Col, CodeEntityInvariant, "структура %q: \"наследует\"/\"реализует\" допустимы только у \"сущность\"/\"класс\" (наследование/интерфейсы ограничены ссылочными типами)", name.Value)
-	}
-	if typeParams != nil && (baseName != "" || len(interfaces) > 0) {
-		return nil, errAt(name.Line, name.Col, CodeEntityInvariant, "%s %q: generic-%s (с параметром типа) не может наследовать/реализовывать - не реализовано в этом срезе", label, name.Value, label)
 	}
 	if typeParams != nil && abstractTok != nil {
 		return nil, errAt(name.Line, name.Col, CodeEntityInvariant, "%s %q: generic-%s не может быть абстрактной - её нельзя ни унаследовать, ни (тем более) создать экземпляр", label, name.Value, label)

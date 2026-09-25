@@ -40,8 +40,12 @@ func (p *Parser) collectEntitySignature(entityMethods map[string]map[string][]as
 	}
 	if p.cur().Type == lexer.KwInherits {
 		p.advance()
-		if _, err := p.expect(lexer.IDENT); err != nil {
+		base, err := p.expect(lexer.IDENT)
+		if err != nil {
 			return diagnostics.Wrap(err, "сущность %q: после \"наследует\" ожидалось имя", name.Value)
+		}
+		if _, err := p.parseTypeArgsSuffix(base.Value); err != nil {
+			return diagnostics.Wrap(err, "сущность %q: базовая сущность", name.Value)
 		}
 	}
 	if p.cur().Type == lexer.KwImplements {

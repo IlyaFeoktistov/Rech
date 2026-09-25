@@ -53,18 +53,34 @@ func TestParseGenericEntityMultipleParamsWithConstraints(t *testing.T) {
 	}
 }
 
-func TestParseGenericEntityRejectsInheritance(t *testing.T) {
-	_, err := parseSource(t, `
-сущность Исключение
+func TestParseGenericEntityInheritsAndImplements(t *testing.T) {
+	prog, err := parseSource(t, `
+интерфейс Описываемый
+{
+    описание(): Строка
+}
+сущность Коробка<T> реализует Описываемый
 {
 }
-сущность Коробка<T> наследует Исключение
+сущность Подписанная<T> наследует Коробку<T>
+{
+}
+сущность ЦелаяКоробка наследует Коробку<Целое>
 {
 }
 функция главная { вывести "ок" }
 `)
-	if err == nil || !strings.Contains(err.Error(), "не может наследовать") {
-		t.Fatalf("ожидалась ошибка про generic+наследование, получено: %v", err)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	want := map[string]string{"Подписанная": "Коробка<T>", "ЦелаяКоробка": "Коробка<Целое>"}
+	for _, ent := range prog.Entities {
+		if base, ok := want[ent.Name]; ok && ent.BaseName != base {
+			t.Errorf("%s: база %q, ожидалась %q", ent.Name, ent.BaseName, base)
+		}
+		if ent.Name == "Коробка" && (len(ent.Interfaces) != 1 || ent.Interfaces[0] != "Описываемый") {
+			t.Errorf("Коробка: интерфейсы %v", ent.Interfaces)
+		}
 	}
 }
 

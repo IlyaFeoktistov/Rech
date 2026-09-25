@@ -442,34 +442,9 @@ func (p *Parser) parseTypeName() (string, error) {
 	if name.Value == callableTypeName {
 		return p.parseCallableTypeName(name)
 	}
-	result := name.Value
-	if p.cur().Type == lexer.LT {
-		p.advance() // "<"
-		p.skipNewlines()
-		var args []string
-		for {
-			arg, err := p.parseTypeName()
-			if err != nil {
-				return "", diagnostics.Wrap(err, "в аргументе типа %q", name.Value)
-			}
-			args = append(args, arg)
-			if p.cur().Type != lexer.COMMA {
-				break
-			}
-			p.advance() // ","
-			atClose, err := p.skipNewlinesAfterAngleComma()
-			if err != nil {
-				return "", err
-			}
-			if atClose {
-				break // висячая запятая перед ">"
-			}
-		}
-		p.skipNewlines()
-		if err := p.expectCloseAngle(); err != nil {
-			return "", diagnostics.Wrap(err, "после аргументов типа %q<%s>", name.Value, strings.Join(args, ", "))
-		}
-		result = fmt.Sprintf("%s<%s>", name.Value, strings.Join(args, ", "))
+	result, err := p.parseTypeArgsSuffix(name.Value)
+	if err != nil {
+		return "", err
 	}
 	// Лукахед на ОБА токена ("[" и сразу за ним "]"), не только на "[" -
 	// "[" сразу после имени типа результата у лямбды - синтаксически то же
@@ -485,6 +460,40 @@ func (p *Parser) parseTypeName() (string, error) {
 		result = fmt.Sprintf("Список<%s>", result)
 	}
 	return result, nil
+}
+
+// parseTypeArgsSuffix - "<Тип, ...>" сразу после имени типа name (уже
+// прочитанного), если он есть: "Коробка<Целое>"; иначе name как есть.
+func (p *Parser) parseTypeArgsSuffix(name string) (string, error) {
+	if p.cur().Type != lexer.LT {
+		return name, nil
+	}
+	p.advance() // "<"
+	p.skipNewlines()
+	var args []string
+	for {
+		arg, err := p.parseTypeName()
+		if err != nil {
+			return "", diagnostics.Wrap(err, "в аргументе типа %q", name)
+		}
+		args = append(args, arg)
+		if p.cur().Type != lexer.COMMA {
+			break
+		}
+		p.advance() // ","
+		atClose, err := p.skipNewlinesAfterAngleComma()
+		if err != nil {
+			return "", err
+		}
+		if atClose {
+			break // висячая запятая перед ">"
+		}
+	}
+	p.skipNewlines()
+	if err := p.expectCloseAngle(); err != nil {
+		return "", diagnostics.Wrap(err, "после аргументов типа %q<%s>", name, strings.Join(args, ", "))
+	}
+	return fmt.Sprintf("%s<%s>", name, strings.Join(args, ", ")), nil
 }
 
 // parseParam разбирает параметр в одной из форм:

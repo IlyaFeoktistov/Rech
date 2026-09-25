@@ -437,18 +437,24 @@ func (inst *instantiator) ensureEntity(name string, line int) error {
 			checks = append(checks, constraintCheck{ParamName: tp.Name, ArgType: args[i], Constraints: tp.Constraints, Line: line})
 		}
 	}
+	interfaces := make([]string, len(template.Interfaces))
+	for i, iface := range template.Interfaces {
+		interfaces[i] = substituteTypeString(iface, subst)
+	}
 	synthesized := &ast.EntityDecl{
-		Name:      name,
-		IsStruct:  template.IsStruct,
-		Constants: substConstants(template.Constants, subst),
-		States:    template.States,
-		Fields:    substFields(template.Fields, subst),
-		Methods:   substMethods(template.Methods, subst),
-		Ctor:      substCtor(template.Ctor, subst),
-		Line:      line,
-		File:      template.File,
-		Doc:       template.Doc,
-		Tag:       template.Tag,
+		Name:       name,
+		IsStruct:   template.IsStruct,
+		BaseName:   substituteTypeString(template.BaseName, subst),
+		Interfaces: interfaces,
+		Constants:  substConstants(template.Constants, subst),
+		States:     template.States,
+		Fields:     substFields(template.Fields, subst),
+		Methods:    substMethods(template.Methods, subst),
+		Ctor:       substCtor(template.Ctor, subst),
+		Line:       line,
+		File:       template.File,
+		Doc:        template.Doc,
+		Tag:        template.Tag,
 	}
 	inst.entities[name] = synthesized
 	if len(checks) > 0 {
@@ -509,6 +515,14 @@ func (inst *instantiator) scanEntity(ent *ast.EntityDecl) error {
 	prevScope := inst.scope
 	defer func() { inst.scope = prevScope }()
 	inst.scope = ent.Name
+	// База "наследует Коробку<Целое>" (или "Коробку<T>" у generic-шаблона,
+	// уже с подставленным аргументом) - такая же инстанциация, как у типа
+	// поля.
+	if ent.BaseName != "" {
+		if err := inst.ensureEntity(ent.BaseName, ent.Line); err != nil {
+			return err
+		}
+	}
 	for _, f := range ent.Fields {
 		if err := inst.ensureEntity(f.Type, f.Line); err != nil {
 			return err
@@ -907,8 +921,23 @@ func instantiateGenerics(prog *ast.Program, inf *genericInference) (*ast.Program
 	}
 
 	out := &ast.Program{Uses: prog.Uses, ExternFuncs: prog.ExternFuncs, Enums: prog.Enums, Interfaces: prog.Interfaces, Consts: prog.Consts}
+	// База объявляется раньше наследника: инстанциация, от которой
+	// наследует обычная сущность ("наследует Коробку<Целое>"), ставится
+	// прямо перед ней вместе со своими базами-инстанциациями.
+	emitted := map[string]bool{}
+	var emitInstance func(name string)
+	emitInstance = func(name string) {
+		ent, ok := inst.entities[name]
+		if !ok || emitted[name] {
+			return
+		}
+		emitted[name] = true
+		emitInstance(ent.BaseName)
+		out.Entities = append(out.Entities, ent)
+	}
 	for _, ent := range prog.Entities {
 		if len(ent.TypeParams) == 0 {
+			emitInstance(ent.BaseName)
 			out.Entities = append(out.Entities, ent)
 		}
 	}
@@ -918,7 +947,7 @@ func instantiateGenerics(prog *ast.Program, inf *genericInference) (*ast.Program
 		}
 	}
 	for _, name := range inst.entityOrder {
-		out.Entities = append(out.Entities, inst.entities[name])
+		emitInstance(name)
 	}
 	for _, name := range inst.funcOrder {
 		out.Functions = append(out.Functions, inst.funcs[name])
