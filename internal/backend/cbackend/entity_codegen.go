@@ -316,7 +316,13 @@ func generateIRFunction(ctx *irGenCtx, fn *ir.Function) (string, error) {
 		// из главная.
 		paramList = "int argc, char **argv"
 	}
-	fmt.Fprintf(&sb, "%s%s %s(%s) {\n", exportAttr(ctx, fn.Exported), cReturnTypeFor(ctx, fn.HasReturn, fn.ReturnType), cName, paramList)
+	returnType := cReturnTypeFor(ctx, fn.HasReturn, fn.ReturnType)
+	if isEntry {
+		// Результат "главная(...): Целое" - код завершения процесса: у C
+		// main он int.
+		returnType = "int"
+	}
+	fmt.Fprintf(&sb, "%s%s %s(%s) {\n", exportAttr(ctx, fn.Exported), returnType, cName, paramList)
 	fmt.Fprintf(&sb, "    %s", tracePush(fn.Name))
 	if isEntry {
 		if ctx.usesGC {
@@ -327,6 +333,7 @@ func generateIRFunction(ctx *irGenCtx, fn *ir.Function) (string, error) {
 		if ctx.usesStaticInit {
 			sb.WriteString("    rech_init_statics();\n")
 		}
+		sb.WriteString(entryPrologue(ctx, fn))
 	}
 	for _, s := range fn.Body {
 		if err := generateIRStmt(&sb, ctx, s, 1); err != nil {

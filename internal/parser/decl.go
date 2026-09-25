@@ -254,8 +254,8 @@ func (p *Parser) parseFunction(isAsync bool) (*ast.FunctionDecl, error) {
 		returnType = normalizeReturnType(returnType)
 	}
 
-	if name.Value == entryPointName && (len(params) > 0 || returnType != "") {
-		return nil, errAtLine(kw.Line, CodeEntryPoint, "%q - точка входа программы, у неё фиксированная сигнатура: нельзя объявить параметры или тип результата", entryPointName)
+	if name.Value == entryPointName && !validEntrySignature(params, returnType) {
+		return nil, errAtLine(kw.Line, CodeEntryPoint, "%q - точка входа программы: допустимы только \"главная()\" и \"главная(имя: %s)\" (аргументы командной строки), результат - нет или \": %s\" (код завершения)", entryPointName, EntryArgsType, EntryResultType)
 	}
 
 	var tag string
@@ -606,4 +606,30 @@ func (p *Parser) parseTwoWordCaseParam(animateWord, inanimateWord string) (ast.P
 		return ast.Param{}, err
 	}
 	return ast.Param{Name: name.Value, CaseWord: caseWord, Type: typeName, Line: withTok.Line, Default: def}, nil
+}
+
+// EntryArgsType/EntryResultType - единственные допустимые тип параметра и
+// тип результата "главная" (как Main(string[] args)/int Main в C#):
+// аргументы командной строки без имени программы, результат - код
+// завершения процесса.
+const (
+	EntryArgsType   = "Список<Строка>"
+	EntryResultType = "Целое"
+)
+
+// validEntrySignature - сигнатура "главная": без параметров или с одним
+// обычным параметром EntryArgsType, без результата или с EntryResultType.
+func validEntrySignature(params []ast.Param, returnType string) bool {
+	if returnType != "" && returnType != EntryResultType {
+		return false
+	}
+	switch len(params) {
+	case 0:
+		return true
+	case 1:
+		p := params[0]
+		return p.Type == EntryArgsType && !p.Variadic && p.Default == nil && p.CaseWord == ""
+	default:
+		return false
+	}
 }

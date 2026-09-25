@@ -58,5 +58,5 @@ func headerValues(headers, name string) Value {
 		}
 		elems = append(elems, stringValue(value))
 	}
-	return Value{Type: ir.EntityType(splitResultType), Obj: &entityObj{typeName: splitResultType, coll: &collection{template: "Список", elems: elems}}}
+	return stringListValue(elems)
 }

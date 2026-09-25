@@ -146,8 +146,11 @@ type irGenCtx struct {
 	libMode bool
 	// service - "сборка.тип: служба" (ir.Program.Service): тело "главная"
 	// - process.ServiceBodyName, main() - process.ServiceMainCode.
-	service  bool
-	entities map[string]*ir.Entity
+	service bool
+	// mainArgsType - тип параметра "главная(имя: Список<Строка>)", "" - без
+	// параметра: нужен ли rech_main_args (main_args.go).
+	mainArgsType string
+	entities     map[string]*ir.Entity
 	// generics - имена generic-инстанциаций (Список<T>/Стопка<T>/
 	// Очередь<T>/Словарь<К, В>) из prog.Generics - entityIsRef обращается
 	// сюда для ЛЮБОГО имени, не найденного в entities (значит это либо
@@ -1855,6 +1858,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// "добавить" Список<Строка>, уже эмитированные там (splitResultType
 	// зарегистрирован в prog.Generics принудительно, см. internal/semantic/
 	// stringsplit.go).
+	appendCodeIf(&sb, ctx.mainArgsType != "", mainArgsHelper(mangleType(ctx.mainArgsType), mangleMethod(ctx.mainArgsType, "добавить")))
 	appendCodeIf(&sb, ctx.usesStringSplit, stringsplit.Helper(mangleType(stringsplit.ResultType),
 		mangleMethod(stringsplit.ResultType, "добавить"), rtmsg.SplitEmptySeparator))
 	// rech_header_values - "значения_заголовка" (httpheaders.go) - та же

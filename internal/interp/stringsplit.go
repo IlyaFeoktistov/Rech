@@ -27,5 +27,10 @@ func stringSplit(s, sep string) Value {
 	for i, p := range parts {
 		elems[i] = stringValue(p)
 	}
+	return stringListValue(elems)
+}
+
+// stringListValue - значение "Список<Строка>" из готовых элементов.
+func stringListValue(elems []Value) Value {
 	return Value{Type: ir.EntityType(splitResultType), Obj: &entityObj{typeName: splitResultType, coll: &collection{template: "Список", elems: elems}}}
 }

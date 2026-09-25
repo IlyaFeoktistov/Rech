@@ -1998,3 +1998,28 @@ func TestParseMethodWithoutBodyOutsideAbstractEntityRejected(t *testing.T) {
 		t.Fatalf("ожидалась ошибка - у метода не указано тело, получено: %v", err)
 	}
 }
+
+// TestEntrySignatureForms - допустимые и недопустимые сигнатуры "главная".
+func TestEntrySignatureForms(t *testing.T) {
+	ok := []string{
+		"функция главная\n{\n}\n",
+		"функция главная(аргументы: Список<Строка>)\n{\n}\n",
+		"функция главная(аргументы: Список<Строка>): Целое\n{\n    вернуть 0\n}\n",
+		"функция главная(): Целое\n{\n    вернуть 0\n}\n",
+	}
+	bad := []string{
+		"функция главная(н: Целое)\n{\n}\n",
+		"функция главная(а: Список<Строка>, б: Целое)\n{\n}\n",
+		"функция главная(): Строка\n{\n    вернуть \"\"\n}\n",
+	}
+	for _, src := range ok {
+		if _, err := parseSource(t, src); err != nil {
+			t.Errorf("ожидалось принять %q: %v", src, err)
+		}
+	}
+	for _, src := range bad {
+		if _, err := parseSource(t, src); err == nil {
+			t.Errorf("ожидалась ошибка для %q", src)
+		}
+	}
+}

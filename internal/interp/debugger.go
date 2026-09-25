@@ -290,7 +290,7 @@ func (d *Debugger) Start(stopOnEntry bool) {
 			d.sendEvent(DebugEvent{Kind: "exited", ExitCode: code})
 			d.sendEvent(DebugEvent{Kind: "terminated"})
 		}()
-		if _, err := d.in.callFunction(d.main, nil, thread); err != nil {
+		if _, err := d.in.callFunction(d.main, entryArgs(d.main), thread); err != nil {
 			d.setExitErr(err)
 		}
 	}()
