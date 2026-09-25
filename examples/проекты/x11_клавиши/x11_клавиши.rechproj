@@ -4,9 +4,9 @@
 # (internal/interp/keycode_linux.go) для сессий без прав на /dev/input, но
 # с рабочим X11 ($DISPLAY) - SSH с "-X", WSLg, Xvfb.
 #
-# Собирается ТОЛЬКО на Linux ("_linux" ниже - libX11 там нет на Windows/
-# macOS) - тот же принцип, что и у examples/проекты/windows_окна (WinAPI
-# наоборот, только Windows).
+# Собирается на любой ОС: код X11 - под "#если ОС.Linux" в главный.rech,
+# libX11 линкуется только на Linux ("библиотеки_linux"); на Windows/macOS
+# программа только сообщает, что пример для Linux.
 проект:
   имя: x11_клавиши
   версия: 0.1.0

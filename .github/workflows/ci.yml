@@ -70,7 +70,7 @@ jobs:
       - name: Установить библиотеки сборки
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libgc-dev libssl-dev libnghttp2-dev libpng-dev libjpeg-dev libsqlite3-dev libpq-dev libmysqlclient-dev
+          sudo apt-get install -y build-essential libgc-dev libssl-dev libnghttp2-dev libpng-dev libjpeg-dev libsqlite3-dev libpq-dev libmysqlclient-dev libx11-dev
       - run: ./check_examples.sh
 
   # Homebrew-имена библиотек - те же, что уже задокументированы в README.md
