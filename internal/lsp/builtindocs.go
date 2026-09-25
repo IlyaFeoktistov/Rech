@@ -462,7 +462,7 @@ func hoverBuiltinFunc(name string) (string, bool) {
 		if short, ok := builtinFuncShortDoc[name]; ok {
 			block += "\n\n" + short
 		}
-		return block, true
+		return withThrows(block, describeBuiltinThrows(name)), true
 	}
 	if full, ok := reservedFuncSignatures[name]; ok {
 		// НАЙДЕННЫЙ БАГ (репортнуто пользователем - "для" подсвечивается как
@@ -478,9 +478,9 @@ func hoverBuiltinFunc(name string) (string, bool) {
 		// (та же форма, что и у ветки builtins.ByName выше).
 		sig, doc, found := strings.Cut(full, " — ")
 		if !found {
-			return codeBlock(full), true
+			return withThrows(codeBlock(full), describeBuiltinThrows(name)), true
 		}
-		return codeBlock(sig) + "\n\n" + doc, true
+		return withThrows(codeBlock(sig)+"\n\n"+doc, describeBuiltinThrows(name)), true
 	}
 	return "", false
 }

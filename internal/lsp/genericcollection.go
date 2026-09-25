@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/IlyaFeoktistov/Rech/internal/builtins"
 	"github.com/IlyaFeoktistov/Rech/internal/semantic"
 )
 
@@ -138,7 +139,8 @@ func hoverGenericCollectionMember(typeName, name string) (string, bool) {
 	}
 	for _, m := range methods {
 		if m.Name == name {
-			return codeBlock(typeName + "." + collectionMethodSignature(m.Name, m)), true
+			base, _, _ := strings.Cut(typeName, "<")
+			return withThrows(codeBlock(typeName+"."+collectionMethodSignature(m.Name, m)), describeNames(builtins.CollectionMethodThrows[base][name])), true
 		}
 	}
 	return "", false

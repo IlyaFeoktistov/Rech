@@ -96,7 +96,7 @@ func (d *doc) hoverBareName(name string, line int) (string, bool) {
 	}
 	if fn, ok := d.funcs[name]; ok {
 		block := withDoc(codeBlock(d.functionSignature(d.disp(fn.Name), fn.Params, fn.HasReturn, fn.ReturnType)), fn.Doc)
-		return block, true
+		return withThrows(block, d.throwsOf(throwsFuncKey(fn.Name))), true
 	}
 	if block, ok := d.hoverExternFunc(name); ok {
 		return block, true
@@ -132,7 +132,7 @@ func (d *doc) hoverBareName(name string, line int) (string, bool) {
 			entDoc = builtinTypeDocs[name]
 		}
 		block := withDoc(codeBlock(header), entDoc)
-		return block, true
+		return withThrows(block, d.throwsOf(throwsCtorKey(ent.Name))), true
 	}
 	if doc, ok := builtinTypeDocs[name]; ok {
 		header := name
@@ -351,7 +351,7 @@ func (d *doc) hoverMember(ent *ir.Entity, name string) (string, bool) {
 		if m.Name == name {
 			doc := d.resolvedMethodDoc(ent, name, m.Doc)
 			block := withDoc(codeBlock(d.functionSignature(entName+"."+m.Name, m.Params, m.HasReturn, m.ReturnType)), doc)
-			return block, true
+			return withThrows(block, d.throwsOf(throwsMethodKey(ent.Name, m.Name))), true
 		}
 	}
 	return "", false

@@ -37,7 +37,7 @@ func TestHoverOnListGetReturnsElementType(t *testing.T) {
 	if !ok {
 		t.Fatalf("ожидался hover")
 	}
-	if text != "```rech\nСписок<Строка>.получить(индекс: Целое): Строка\n```" {
+	if text != "```rech\nСписок<Строка>.получить(индекс: Целое): Строка\n```\n\nПаники: `ВыходЗаГраницы`" {
 		t.Fatalf("неожиданный текст: %q", text)
 	}
 }

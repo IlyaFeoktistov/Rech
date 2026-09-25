@@ -59,8 +59,12 @@ type doc struct {
 	goodText string
 	astProg  *ast.Program
 	irProg   *ir.Program
-	tokens   []lexer.Token
-	scopes   []funcScope
+	// throws/throwsProg - ленивый индекс "что бросает" (throws.go) и IR,
+	// по которому он построен: новый irProg - индекс строится заново.
+	throws     *throwsIndex
+	throwsProg *ir.Program
+	tokens     []lexer.Token
+	scopes     []funcScope
 
 	entities      map[string]*ir.Entity
 	funcs         map[string]*ir.Function
