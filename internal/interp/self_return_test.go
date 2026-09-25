@@ -21,7 +21,7 @@ func TestRunSelfReturnChainsThroughInheritedMethod(t *testing.T) {
         вернуть этот
     }
 }
-сущность СтроительБ наследует СтроительА
+сущность СтроительБ наследует СтроителяА
 {
     имеет:
         доп_поле: Целое

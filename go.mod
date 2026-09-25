@@ -7,7 +7,6 @@ require github.com/google/wire v0.7.0
 require (
 	github.com/ebitengine/purego v0.11.0
 	github.com/go-sql-driver/mysql v1.10.0
-	github.com/jus1d/gomorphy v0.2.3
 	github.com/lib/pq v1.12.3
 	golang.org/x/net v0.58.0
 	golang.org/x/sys v0.47.0

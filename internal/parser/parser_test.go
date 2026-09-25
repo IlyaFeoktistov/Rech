@@ -324,13 +324,10 @@ func TestVariableRegisteredAsNounInDictionary(t *testing.T) {
 	}
 }
 
-func TestVariableWithUnclassifiableNameIsNotRegistered(t *testing.T) {
-	// "чай" оканчивается на "-й" - в Фазе A движка (internal/morph) это
-	// неоднозначное окончание (ClassifyByEnding возвращает ok=false), слова
-	// нет ни в курируемых исключениях, ни в словаре OpenCorpora для "-й"
-	// (тот справочник подключён только для слов на "-ь") - поэтому
-	// RegisterNoun не может его классифицировать. Это ожидаемо: такая
-	// переменная просто недоступна для естественного вызова.
+// TestVariableNameFromDictionaryIsRegistered - "чай" оканчивается на "-й",
+// правилам (ClassifyByEnding) такое окончание неоднозначно, но словарь
+// OpenCorpora знает слово - имя регистрируется со словарными формами.
+func TestVariableNameFromDictionaryIsRegistered(t *testing.T) {
 	p, _, err := parseSourceWithParser(t, `
 функция главная {
     переменная чай = "зелёный"
@@ -340,8 +337,8 @@ func TestVariableWithUnclassifiableNameIsNotRegistered(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if _, ok := p.dict.Lookup("чай"); ok {
-		t.Fatalf("слово с неоднозначным для Фазы A окончанием не должно регистрироваться как существительное")
+	if form, ok := p.dict.FormOf("чай", morph.Instrumental); !ok || form != "чаем" {
+		t.Fatalf("ожидалась словарная форма \"чаем\", получено %q, %v", form, ok)
 	}
 }
 

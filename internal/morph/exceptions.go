@@ -365,6 +365,9 @@ func NounAgreement(nomSg string) (gender Gender, number Number, ok bool) {
 	if exc, found := nounGenderExceptions[lower]; found {
 		return exc.Gender, Singular, true
 	}
+	if e, found := lexiconWord(lower, Inanimate); found {
+		return e.gender, e.number, true
+	}
 	if hasPluralEnding(lower) {
 		return 0, Plural, true
 	}

@@ -89,6 +89,9 @@ func (d *Dictionary) RegisterNoun(nomSg string, animacy Animacy) error {
 	if exc, ok := nounFullExceptions[nomSg]; ok {
 		return d.registerNounWithParadigm(nomSg, exc.Gender, animacy, exc.Paradigm)
 	}
+	if e, ok := lexiconLookup(nomSg, animacy); ok {
+		return d.registerLexiconNoun(nomSg, e)
+	}
 	if exc, ok := nounGenderExceptions[nomSg]; ok {
 		return d.RegisterNounExplicit(nomSg, exc.Class, exc.Gender, animacy)
 	}
@@ -96,6 +99,9 @@ func (d *Dictionary) RegisterNoun(nomSg string, animacy Animacy) error {
 		return d.RegisterNounExplicit(nomSg, class, GenderOf(class), animacy)
 	}
 	if strings.HasSuffix(nomSg, "ь") {
+		if isAgentNoun(nomSg) {
+			return d.RegisterNounExplicit(nomSg, ClassFirstSoft, Masculine, animacy)
+		}
 		if gender, ok := lookupGenderViaGomorphy(nomSg); ok {
 			if gender == Masculine {
 				return d.RegisterNounExplicit(nomSg, ClassFirstSoft, Masculine, animacy)
@@ -125,14 +131,68 @@ func (d *Dictionary) RegisterNoun(nomSg string, animacy Animacy) error {
 				return d.registerNounFromSingular(nomSg, singular, class, GenderOf(class), animacy)
 			}
 		}
+		if singular, ok := guessLoanwordSingular(nomSg); ok {
+			if class, ok := ClassifyByEnding(singular); ok {
+				return d.registerNounFromSingular(nomSg, singular, class, GenderOf(class), animacy)
+			}
+		}
 	}
-	return fmt.Errorf("не удалось автоматически определить склонение %q (окончание неоднозначно в Фазе A, слова в словаре OpenCorpora не нашлось) - зарегистрируйте через RegisterNounExplicit или добавьте в словарь исключений", nomSg)
+	return fmt.Errorf("не удалось автоматически определить склонение %q (слова нет в словаре OpenCorpora, окончание неоднозначно) - зарегистрируйте через RegisterNounExplicit или добавьте в словарь исключений", nomSg)
 }
 
 // RegisterNounExplicit регистрирует существительное с явно заданным
 // классом склонения и родом - минуя классификатор. Нужен для слов, которые
 // ClassifyByEnding не берётся классифицировать, и для будущих разносклоняемых
 // исключений.
+// isAgentNoun - "-тель" ("оповещатель", "получатель"): существительное
+// мужского рода, даже когда словарь его не знает.
+func isAgentNoun(nomSg string) bool {
+	return strings.HasSuffix(strings.ToLower(nomSg), "тель")
+}
+
+// guessLoanwordSingular - единственное число слова во множественном числе,
+// которого нет в словаре (обычно заимствование: "токены", "коммиты",
+// "биндинги"): "-ы" после твёрдой согласной и "-и" после г/к/х/ж/ш/ч/щ -
+// основа мужского рода без окончания. У "-ки" это может быть и женский род
+// ("вкладки" - "вкладка"), но дательный, творительный и предложный
+// множественного числа ("вкладкам", "вкладками", "вкладках") от этого не
+// меняются.
+func guessLoanwordSingular(plural string) (string, bool) {
+	runes := []rune(strings.ToLower(plural))
+	if len(runes) < 3 {
+		return "", false
+	}
+	last, prev := runes[len(runes)-1], runes[len(runes)-2]
+	stem := string([]rune(plural)[:len(runes)-1])
+	switch {
+	case last == 'ы' && strings.ContainsRune("бвдзклмнпрстфх", prev):
+		return stem, true
+	case last == 'и' && strings.ContainsRune("гкхжшчщ", prev):
+		return stem, true
+	}
+	return "", false
+}
+
+// registerLexiconNoun - имя с парадигмой из словаря OpenCorpora
+// (lexicon.go): все формы и их варианты попадают в обратный индекс.
+func (d *Dictionary) registerLexiconNoun(name string, e lexiconEntry) error {
+	if _, exists := d.lemmas[name]; exists {
+		return fmt.Errorf("лемма %q уже зарегистрирована", name)
+	}
+	d.lemmas[name] = &Lemma{
+		Text:  name,
+		POS:   Noun,
+		Noun:  &NounInfo{Class: ClassIrregular, Gender: e.gender, Animacy: e.animacy},
+		Forms: e.paradigm,
+	}
+	for tag, forms := range e.variants {
+		for _, form := range forms {
+			d.addReverse(form, Analysis{Lemma: name, POS: Noun, Tag: tag})
+		}
+	}
+	return nil
+}
+
 func (d *Dictionary) RegisterNounExplicit(nomSg string, class DeclensionClass, gender Gender, animacy Animacy) error {
 	return d.registerNounFromSingular(nomSg, nomSg, class, gender, animacy)
 }

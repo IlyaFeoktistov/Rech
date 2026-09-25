@@ -28,15 +28,9 @@ func tagFields(tag string) []string {
 // lookupGenderViaGomorphy просто ничего не находит, деградация мягкая.
 var sharedGomorphy gomorphyAnalyzer
 
-// lookupGenderViaGomorphy - **узкое** использование gomorphy: только род
-// существительного, ничего больше. Не используется как источник парадигмы
-// или падежного разбора - у публичного API gomorphy нет надёжного способа
-// получить все словоформы с привязкой к падежу/числу (WordForms не
-// привязывает форму к тегу и дедуплицирует омонимичные формы, Tag отдаёт
-// только одну "лучшую" трактовку, теряя синкретизм) - см. docs/MORPHOLOGY_DESIGN.md,
-// "gomorphy: узкое использование". Парадигму всё равно строит наш
-// BuildNounParadigm, gomorphy здесь - только замена/расширение словаря
-// исключений для слов на "-ь", где окончание не определяет род однозначно.
+// lookupGenderViaGomorphy - род слова на "-ь" для правил по окончанию
+// (RegisterNoun): до них слово уже искалось в словаре целиком
+// (lexicon.go) и не нашлось как имя - здесь только его род.
 func lookupGenderViaGomorphy(nomSg string) (Gender, bool) {
 	if sharedGomorphy == nil {
 		return 0, false

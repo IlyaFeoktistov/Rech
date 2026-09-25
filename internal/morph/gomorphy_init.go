@@ -1,6 +1,6 @@
 package morph
 
-import gomorphy "github.com/jus1d/gomorphy"
+import "github.com/IlyaFeoktistov/Rech/internal/thirdparty/gomorphy"
 
 // init загружает встроенный словарь gomorphy (OpenCorpora) один раз при
 // старте. Изолировано в отдельном файле, чтобы весь остальной пакет morph
@@ -9,6 +9,7 @@ import gomorphy "github.com/jus1d/gomorphy"
 func init() {
 	if a, err := gomorphy.Default(); err == nil {
 		sharedGomorphy = a
+		sharedLexicon = a
 	}
 	// err игнорируется намеренно: если словарь не загрузился, sharedGomorphy
 	// остаётся nil, lookupGenderViaGomorphy тихо ничего не находит - это не
