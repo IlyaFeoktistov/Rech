@@ -118,7 +118,7 @@ func osPathToURIPath(path string) string {
 // attemptErr как диагностику (см. diagnostics.go), она обычно куда
 // информативнее однофайлового semErr (тот часто просто каскад "неизвестный
 // тип" от самого факта отсутствия разрешения импорта).
-func tryLink(path string) (res linkResult, ok bool, attemptErr error) {
+func tryLink(path, text string) (res linkResult, ok bool, attemptErr error) {
 	if path == "" || !module.HasSourceExtension(path) {
 		return linkResult{}, false, nil
 	}
@@ -134,7 +134,9 @@ func tryLink(path string) (res linkResult, ok bool, attemptErr error) {
 	if err != nil {
 		return linkResult{}, false, err
 	}
-	prog, err := module.LoadWithRoot(path, frontend.NewFrontend(), nil, nil, root)
+	// Сам документ - из буфера редактора, не с диска (может быть не сохранён).
+	overlay := map[string]string{filepath.Clean(path): text}
+	prog, err := module.LoadWithOverlay(path, frontend.NewFrontend(), nil, nil, root, overlay)
 	if err != nil {
 		return linkResult{}, false, err
 	}

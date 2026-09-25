@@ -49,7 +49,13 @@ func (s *server) handleRequest(msg *Message) {
 	case "initialize":
 		_ = s.rpc.Reply(msg.ID, map[string]any{
 			"capabilities": map[string]any{
-				"textDocumentSync":          1, // Full - didChange несёт весь текст целиком, не диффы
+				// Full - didChange несёт весь текст целиком, не диффы;
+				// willSaveWaitUntil - автоимпорт перед записью (autoimport.go).
+				"textDocumentSync": map[string]any{
+					"openClose":         true,
+					"change":            1,
+					"willSaveWaitUntil": true,
+				},
 				"hoverProvider":             true,
 				"definitionProvider":        true,
 				"implementationProvider":    true,
@@ -84,6 +90,8 @@ func (s *server) handleRequest(msg *Message) {
 		s.handleReferences(msg)
 	case "textDocument/documentHighlight":
 		s.handleDocumentHighlight(msg)
+	case "textDocument/willSaveWaitUntil":
+		s.handleWillSaveWaitUntil(msg)
 	case "textDocument/codeAction":
 		s.handleCodeAction(msg)
 	case "textDocument/codeLens":
@@ -459,6 +467,35 @@ func (s *server) handleDocumentHighlight(msg *Message) {
 // ВСЕ найденные в файле упрощения разом, не только то, что под курсором
 // (репортнуто пользователем - "j = j + 1" на одной строке показывало
 // quick fix ещё и для "i++"/"+=" с других, ничем не связанных строк файла).
+// handleWillSaveWaitUntil - правки перед сохранением: недостающие
+// "использовать" (autoimport.go).
+func (s *server) handleWillSaveWaitUntil(msg *Message) {
+	var p struct {
+		TextDocument struct {
+			URI string `json:"uri"`
+		} `json:"textDocument"`
+	}
+	if err := json.Unmarshal(msg.Params, &p); err != nil {
+		_ = s.rpc.Reply(msg.ID, nil, err)
+		return
+	}
+	d := s.getDoc(p.TextDocument.URI)
+	if d == nil {
+		_ = s.rpc.Reply(msg.ID, []any{}, nil)
+		return
+	}
+	line, text := d.autoImportEdit()
+	if text == "" {
+		_ = s.rpc.Reply(msg.ID, []any{}, nil)
+		return
+	}
+	pos := map[string]any{"line": line - 1, "character": 0}
+	_ = s.rpc.Reply(msg.ID, []any{map[string]any{
+		"range":   map[string]any{"start": pos, "end": pos},
+		"newText": text,
+	}}, nil)
+}
+
 func (s *server) handleCodeAction(msg *Message) {
 	var p struct {
 		TextDocument struct {

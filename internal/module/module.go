@@ -257,7 +257,14 @@ func LoadWithGraph(entryPath string, frontend Frontend, rootDeps map[string]stri
 // projectRoot для такого файла обязана вызывающая сторона, обычно через
 // internal/project.RootFor).
 func LoadWithRoot(entryPath string, frontend Frontend, rootDeps map[string]string, scopes map[string]map[string]string, projectRoot string) (*Program, error) {
-	l := &loader{frontend: frontend, loaded: map[string]*Module{}, inProgress: map[string]bool{}, scopes: scopes}
+	return LoadWithOverlay(entryPath, frontend, rootDeps, scopes, projectRoot, nil)
+}
+
+// LoadWithOverlay - LoadWithRoot, где файлы из overlay (очищенный путь ->
+// текст) читаются из памяти, а не с диска: так LSP разбирает граф импортов
+// с несохранённым текстом открытого документа.
+func LoadWithOverlay(entryPath string, frontend Frontend, rootDeps map[string]string, scopes map[string]map[string]string, projectRoot string, overlay map[string]string) (*Program, error) {
+	l := &loader{frontend: frontend, loaded: map[string]*Module{}, inProgress: map[string]bool{}, scopes: scopes, overlay: overlay}
 	root := projectRoot
 	if root == "" {
 		root = filepath.Dir(filepath.Clean(entryPath))
@@ -279,6 +286,9 @@ type loader struct {
 	// для файла, который сейчас обрабатывается (у корневой программы - это
 	// rootDeps; после перехода в файл зависимости - её запись в scopes).
 	scopes map[string]map[string]string
+	// overlay - путь -> текст, который читается вместо файла на диске
+	// (LoadWithOverlay: несохранённый буфер редактора).
+	overlay map[string]string
 }
 
 func (l *loader) load(path string, stack []string, deps map[string]string, root string) (*Module, error) {
@@ -291,11 +301,15 @@ func (l *loader) load(path string, stack []string, deps map[string]string, root 
 	l.inProgress[path] = true
 	defer delete(l.inProgress, path)
 
-	src, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("не удалось прочитать файл %q: %w", path, err)
+	src, ok := l.overlay[path]
+	if !ok {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("не удалось прочитать файл %q: %w", path, err)
+		}
+		src = string(data)
 	}
-	prog, err := l.frontend.Parse(string(src))
+	prog, err := l.frontend.Parse(src)
 	if err != nil {
 		return nil, diagnostics.WithFile(err, path)
 	}

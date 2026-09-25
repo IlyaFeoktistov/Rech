@@ -200,7 +200,7 @@ func (d *doc) update(text string) {
 	d.foreignTokenCache = map[string][]lexer.Token{}
 
 	irProg, semErr := d.analyze(astProg)
-	linked, linkOK, linkErr := tryLink(d.path)
+	linked, linkOK, linkErr := tryLink(d.path, text)
 	if semErr != nil && !linkOK {
 		// linkErr, если линковка вообще пыталась (см. package doc tryLink) -
 		// обычно информативнее одиночного semErr одного файла.
