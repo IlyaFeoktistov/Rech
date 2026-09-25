@@ -71,25 +71,54 @@ static void rech_panic(const char *msg) {
 // бинарника - без остального рантайма Rech (ни IR, ни исключения) вообще,
 // см. package doc coroutine.go. GC (-lgc) - настоящий, не заглушка: GC-
 // корни стека корутины (Шаг 130) - часть того, что эти тесты проверяют.
+// coroutineDriverPreludeWindows - то же для Windows-рантайма (волокна,
+// concurrency.CoroutineRuntimeWindowsCode).
+const coroutineDriverPreludeWindows = `#define GC_THREADS
+#define WIN32_LEAN_AND_MEAN
+#include <winsock2.h>
+#include <windows.h>
+#include <gc.h>
+#include <stdio.h>
+#include <stdlib.h>
+static void rech_panic(const char *msg) {
+    fprintf(stderr, "panic: %s\n", msg);
+    exit(1);
+}
+`
+
+// skipPOSIXOnlyDriver - driver теста использует pipe(2)/pthread напрямую.
+func skipPOSIXOnlyDriver(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("driver теста использует pipe(2)/pthread - только POSIX")
+	}
+}
+
 func compileAndRunCoroutineDriver(t *testing.T, driver string) string {
 	t.Helper()
 	if runtime.GOOS == "windows" {
-		t.Skip("concurrency.CoroutineRuntimeCode - POSIX-only (ucontext.h), на Windows не собирается")
+		return compileAndRunDriverSource(t, coroutineDriverPreludeWindows+concurrency.CoroutineRuntimeWindowsCode+"\n"+driver, "-lgc", "-lws2_32")
 	}
-	ccPath := findTestCCompiler(t)
-	dir := t.TempDir()
-	cPath := filepath.Join(dir, "driver.c")
 	// "#define _XOPEN_SOURCE" - обязан идти ДО первого системного заголовка
 	// вообще (glibc feature-test macro), включая <gc.h> из прелюдии -
 	// concurrency.CoroutineRuntimeCode ниже определяет её же повторно (то же
 	// значение - легальный повторный #define), но здесь нужно раньше.
-	src := "#define _XOPEN_SOURCE 700\n" + coroutineDriverPrelude + concurrency.CoroutineRuntimeCode + "\n" + driver
+	return compileAndRunDriverSource(t, "#define _XOPEN_SOURCE 700\n"+coroutineDriverPrelude+concurrency.CoroutineRuntimeCode+"\n"+driver, "-lgc", "-pthread")
+}
+
+// compileAndRunDriverSource собирает src системным cc с флагами linkFlags и
+// возвращает stdout запуска.
+func compileAndRunDriverSource(t *testing.T, src string, linkFlags ...string) string {
+	t.Helper()
+	ccPath := findTestCCompiler(t)
+	dir := t.TempDir()
+	cPath := filepath.Join(dir, "driver.c")
 	if err := os.WriteFile(cPath, []byte(src), 0o644); err != nil {
 		t.Fatalf("запись driver.c: %v", err)
 	}
 	binPath := filepath.Join(dir, "driver")
 	// #nosec G204 -- ccPath найден локальным поиском (CC/cc/clang/gcc), cPath - файл, только что написанный этим же тестом.
-	cmd := exec.Command(ccPath, cPath, "-o", binPath, "-lgc", "-pthread")
+	cmd := exec.Command(ccPath, append([]string{cPath, "-o", binPath}, linkFlags...)...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("сборка driver.c: %v\n%s", err, out)
 	}
@@ -102,7 +131,8 @@ func compileAndRunCoroutineDriver(t *testing.T, driver string) string {
 	if err != nil {
 		t.Fatalf("запуск собранного driver: %v", err)
 	}
-	return string(out)
+	// stdout C на Windows - текстовый режим, "\n" там пишется как "\r\n".
+	return strings.ReplaceAll(string(out), "\r\n", "\n")
 }
 
 // TestCoroutineYieldInterleaves - две корутины, каждая печатает три
@@ -250,6 +280,7 @@ int main(void) {
 // есть событие, которое делает fd читающей корутины готовым уже ПОСЛЕ
 // того, как та приостановилась.
 func TestCoroutineWaitReadableSuspendsUntilDataArrives(t *testing.T) {
+	skipPOSIXOnlyDriver(t)
 	driver := `
 #include <unistd.h>
 static int rech_test_pipe[2];
@@ -292,6 +323,7 @@ int main(void) {
 // записываемости не падает и не виснет, не порядок приостановки/
 // возобновления (та проверена для чтения выше).
 func TestCoroutineWaitWritableFiresOnFreshPipe(t *testing.T) {
+	skipPOSIXOnlyDriver(t)
 	driver := `
 #include <unistd.h>
 static int rech_test_pipe[2];
@@ -328,6 +360,7 @@ int main(void) {
 // гарантирован (один epoll_wait/kevent может вернуть оба события сразу, в
 // любом порядке) - сравнивается набор строк, не точная строка.
 func TestCoroutineWaitDemuxesToCorrectCoroutine(t *testing.T) {
+	skipPOSIXOnlyDriver(t)
 	driver := `
 #include <unistd.h>
 typedef struct { int fd; const char *label; } reader_arg_t;
@@ -445,6 +478,7 @@ int main(void) {
 // сверяется главным потоком ПОСЛЕ join, а не текстом stdout (не нужно
 // синхронизировать printf между потоками, проверка детерминирована).
 func TestCoroutineSchedulerIsolatedPerThread(t *testing.T) {
+	skipPOSIXOnlyDriver(t)
 	driver := `
 #define RECH_TEST_NTHREADS 8
 #define RECH_TEST_ITERS 500

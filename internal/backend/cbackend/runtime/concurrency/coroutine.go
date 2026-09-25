@@ -10,11 +10,9 @@
 // инстанс сообщит о реальной готовности fd - именно этот механизм и даёт
 // экономию по сравнению с потоком ОС на соединение: тысячи корутин могут
 // ждать разных сокетов одновременно, ничего не блокируя, кроме одного
-// вызова epoll_wait/kevent на всех сразу. POSIX-only (ucontext.h/epoll/
-// kqueue не существуют на Windows) - согласовано заранее с пользователем:
-// первая итерация не включает Windows вовсе (см.
-// [[project_language_gaps_priority_plan]] в памяти сессии, не дублируется
-// в самом репозитории).
+// вызова epoll_wait/kevent на всех сразу. Этот вариант - POSIX
+// (ucontext.h/epoll/kqueue); Windows - CoroutineRuntimeWindowsCode
+// (coroutine_win32.go: волокна + WSAPoll) с тем же интерфейсом.
 //
 // Инкремент 4 (Шаг 130) - ПЕРВОЕ реальное подключение: "дождаться
 // <асинхронная функция>(...)" (internal/backend/cbackend/coroutine_task.go,
@@ -78,6 +76,10 @@
 // сценария, который бы их потребовал уже сейчас (TCP-builtin'ы ещё не
 // переведены на эту модель - открытый пункт следующего инкремента).
 package concurrency
+
+// schedulerEmptyMsg - паника rech_coro_wait_done, если очередь опустела
+// раньше, чем завершилась ожидаемая задача (обе реализации рантайма).
+const schedulerEmptyMsg = "внутренняя ошибка: планировщик корутин опустел, не завершив задачу"
 
 // CoroutineRuntimeCode - см. package doc выше. RECH_CORO_STACK_SIZE -
 // намеренно консервативный дефолт (256 КБ) - фиксированный, не растущий
@@ -271,7 +273,9 @@ static void rech_coro_stack_free(void *stack) {
 // выполнению - не запускает немедленно, реальный первый запуск - только
 // внутри rech_coro_step.
 static void rech_coro_spawn(void (*fn)(void *), void *arg) {
-    rech_coro_t *co = (rech_coro_t *)malloc(sizeof(rech_coro_t));
+    // Сборщик сканирует структуру, но не освобождает её сам: arg (задача,
+    // GC_MALLOC) живёт, даже если результат "поручить" никто не сохранил.
+    rech_coro_t *co = (rech_coro_t *)GC_MALLOC_UNCOLLECTABLE(sizeof(rech_coro_t));
     co->stack = rech_coro_stack_alloc();
     co->resume_ctx = NULL;
     co->fn = fn;
@@ -453,7 +457,7 @@ static int rech_coro_step(void) {
     rech_coro_current = rech_prev_current;
     if (co->finished) {
         rech_coro_stack_free(co->stack);
-        free(co);
+        GC_FREE(co);
     }
     return 1;
 }
@@ -493,7 +497,7 @@ static void rech_coro_run_all(void) {
 static void rech_coro_wait_done(int *done) {
     while (!*done) {
         if (!rech_coro_step()) {
-            rech_panic("внутренняя ошибка: планировщик корутин опустел, не завершив задачу");
+            rech_panic("` + schedulerEmptyMsg + `");
         }
     }
 }

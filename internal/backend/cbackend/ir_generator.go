@@ -1519,6 +1519,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// plainSocketOpsCode, Шаг 132) - программа без обоих вовсе не платит
 	// за ucontext/epoll/kqueue рантайм.
 	appendCodeIf(&sb, ctx.usesCoroutines || ctx.usesSockets, concurrency.CoroutineRuntimeCode)
+	appendCodeIf(&sb, ctx.usesCoroutines || ctx.usesSockets, concurrency.CoroutineRuntimeWindowsCode)
 	appendCodeIf(&sb, ctx.usesCurrentOS, currentOSHelper)
 	appendCodeIf(&sb, ctx.usesCast, castHelpers)
 	appendCodeIf(&sb, ctx.usesIntSign, rechSignHelper)

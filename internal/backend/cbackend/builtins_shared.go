@@ -1754,6 +1754,12 @@ var plainSocketOpsCode = fmt.Sprintf(`static %[5]s rech_accept(rech_socket_t s) 
             rech_error_as(RECH_ERR_NETWORK, "%[1]s");
         }
     }
+#else
+    // На корутине - дождаться входящего соединения через планировщик
+    // (WSAPoll), тогда accept ниже не блокирует поток.
+    if (rech_coro_current != NULL) {
+        rech_coro_wait_readable(s);
+    }
 #endif
     rech_socket_t c = accept(s, NULL, NULL);
     if (c == RECH_INVALID_SOCKET) {
@@ -1801,6 +1807,10 @@ static void rech_send_raw(rech_socket_t s, const char *data, long long len) {
             sent += n;
             continue;
         }
+#else
+        if (rech_coro_current != NULL) {
+            rech_coro_wait_writable(s);
+        }
 #endif
         long long n = send(s, data + sent, (int)(len - sent), 0);
         if (n <= 0) {
@@ -1842,6 +1852,10 @@ static long long rech_socket_read_raw(rech_socket_t s, char *buf, long long max)
             }
             return n;
         }
+    }
+#else
+    if (rech_coro_current != NULL) {
+        rech_coro_wait_readable(s);
     }
 #endif
     return recv(s, buf, (int)max, 0);
