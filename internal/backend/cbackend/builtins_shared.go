@@ -1554,13 +1554,26 @@ static void rech_append_file(const char *path, const char *content) {
 // (в отличие от остального socketTypeAndConnectCode) самодостаточен - сам
 // несёт свой #include <winsock2.h> на Windows (SOCKET нужен уже здесь, а
 // не только там, где winsock2.h подключается условно, ниже).
+//
+// rech_net_init - Winsock требует WSAStartup до первого socket()/
+// getaddrinfo() в процессе, иначе оба падают с WSANOTINITIALISED. Зовётся
+// в начале каждой функции, создающей сокет или разрешающей адрес;
+// повторные вызовы ничего не делают. На POSIX - пустая.
 const rechSocketTypedef = `#ifdef _WIN32
 #include <winsock2.h>
 typedef SOCKET rech_socket_t;
 #define RECH_INVALID_SOCKET INVALID_SOCKET
+static inline void rech_net_init(void) {
+    static volatile LONG done = 0;
+    if (InterlockedCompareExchange(&done, 1, 0) == 0) {
+        WSADATA wsa;
+        WSAStartup(MAKEWORD(2, 2), &wsa);
+    }
+}
 #else
 typedef int rech_socket_t;
 #define RECH_INVALID_SOCKET (-1)
+static inline void rech_net_init(void) {}
 #endif
 
 `
@@ -1589,6 +1602,7 @@ typedef int rech_socket_t;
 // вредит). rech_socket_t сам по себе - см.
 // rechSocketTypedef выше, эмитируется отдельно и раньше.
 var socketTypeAndConnectCode = fmt.Sprintf(`static rech_socket_t rech_listen_tcp(long long port) {
+    rech_net_init();
 #ifndef _WIN32
     signal(SIGPIPE, SIG_IGN);
 #endif
@@ -1641,6 +1655,7 @@ static void rech_set_timeout(rech_socket_t s, long long ms) {
 // ПРОИЗВОЛЬНОГО отправителя (см. udpDatagramHelpers) вместо
 // rech_connect_udp ниже, который фиксирует ОДНОГО адресата через connect().
 static rech_socket_t rech_listen_udp(long long port) {
+    rech_net_init();
 #ifndef _WIN32
     signal(SIGPIPE, SIG_IGN);
 #endif
@@ -1662,6 +1677,7 @@ static rech_socket_t rech_listen_udp(long long port) {
 }
 
 static rech_socket_t rech_connect(const char *host, long long port, int type) {
+    rech_net_init();
 #ifndef _WIN32
     signal(SIGPIPE, SIG_IGN);
 #endif
