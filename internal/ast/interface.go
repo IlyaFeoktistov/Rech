@@ -28,6 +28,8 @@ type InterfaceDecl struct {
 	Line    int
 	// File - см. EntityDecl.File.
 	File string
+	// Doc - doc-комментарий перед "интерфейс", "" - его не было.
+	Doc string
 }
 
 func (*InterfaceDecl) node() {}
@@ -45,4 +47,6 @@ type InterfaceMethod struct {
 	// месте вызова", не сам интерфейс дословно.
 	SelfReturn bool
 	Line       int
+	// Doc - doc-комментарий перед сигнатурой метода, "" - его не было.
+	Doc string
 }

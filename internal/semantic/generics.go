@@ -151,9 +151,9 @@ func substStmt(s ast.Stmt, subst map[string]string) ast.Stmt {
 	case *ast.ShowStmt:
 		return &ast.ShowStmt{Value: substExpr(s.Value, subst), Line: s.Line}
 	case *ast.VarDecl:
-		return &ast.VarDecl{Name: s.Name, Type: substituteTypeString(s.Type, subst), Value: substExpr(s.Value, subst), IsStatic: s.IsStatic, Line: s.Line}
+		return &ast.VarDecl{Name: s.Name, Type: substituteTypeString(s.Type, subst), Value: substExpr(s.Value, subst), IsStatic: s.IsStatic, Line: s.Line, Doc: s.Doc}
 	case *ast.ConstDecl:
-		return &ast.ConstDecl{Name: s.Name, Value: substExpr(s.Value, subst), Visibility: s.Visibility, Line: s.Line}
+		return &ast.ConstDecl{Name: s.Name, Value: substExpr(s.Value, subst), Visibility: s.Visibility, Line: s.Line, Doc: s.Doc}
 	case *ast.Assign:
 		return &ast.Assign{Name: s.Name, Value: substExpr(s.Value, subst), Line: s.Line}
 	case *ast.FieldAssign:

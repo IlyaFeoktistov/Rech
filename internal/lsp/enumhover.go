@@ -50,6 +50,9 @@ func (d *doc) hoverEnumType(name string) (string, bool) {
 		lines[i] = fmt.Sprintf("%s = %d", m, members[m])
 	}
 	block := codeBlock(fmt.Sprintf("перечисление %s\n{\n    %s\n}", name, joinWithComma(lines)))
+	if ed, ok := d.astEnums[name]; ok {
+		block = withDoc(block, ed.Doc)
+	}
 	return block, true
 }
 

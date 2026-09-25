@@ -3,6 +3,8 @@ package parser
 import (
 	"strings"
 	"testing"
+
+	"github.com/IlyaFeoktistov/Rech/internal/ast"
 )
 
 func TestParseDocCommentOnFunction(t *testing.T) {
@@ -70,19 +72,71 @@ func TestParseDocCommentOnEntityFieldMethodConst(t *testing.T) {
 }
 
 // TestParseDocCommentBeforeStatementInsideBodyIsError - "/** ... */"
-// перед инструкцией внутри тела - ошибка: документируются только
-// объявления.
+// перед инструкцией, которая ничего не объявляет, - ошибка.
 func TestParseDocCommentBeforeStatementInsideBodyIsError(t *testing.T) {
-	src := `
-функция главная
-{
-    /** это не объявление */
-    переменная число = 1
-    вывести число
-}
-`
+	src := "функция главная\n{\n    /** не объявление */\n    вывести `1\\n`\n}\n"
 	if _, err := parseSource(t, src); err == nil || !strings.Contains(err.Error(), "RECH2016") {
 		t.Fatalf("ожидалась ошибка RECH2016, получено %v", err)
+	}
+}
+
+// TestParseDocCommentOnLocalsInterfaceEnum - doc-комментарий у локальной
+// переменной (в том числе отложенной "переменная X" и типом первым),
+// локальной константы, интерфейса, метода интерфейса и перечисления.
+func TestParseDocCommentOnLocalsInterfaceEnum(t *testing.T) {
+	src := `
+/** Фигура. */
+интерфейс Фигура
+{
+    /** Площадь фигуры. */
+    площадь(): Действительное
+}
+
+/** Цвет. */
+перечисление Цвет { Красный, Зелёный }
+
+функция главная
+{
+    /** Счётчик. */
+    переменная счётчик = 1
+    /** Имя. */
+    Строка имя = "а"
+    /** Предел. */
+    константа ПРЕДЕЛ = 10
+    /** Отложенная. */
+    переменная позже
+    позже = 2
+    вывести счётчик + ПРЕДЕЛ + позже
+    вывести имя
+}
+`
+	prog, err := parseSource(t, src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if prog.Interfaces[0].Doc != "Фигура." || prog.Interfaces[0].Methods[0].Doc != "Площадь фигуры." {
+		t.Errorf("doc интерфейса/метода: %q / %q", prog.Interfaces[0].Doc, prog.Interfaces[0].Methods[0].Doc)
+	}
+	if prog.Enums[0].Doc != "Цвет." {
+		t.Errorf("doc перечисления: %q", prog.Enums[0].Doc)
+	}
+	want := map[string]string{"счётчик": "Счётчик.", "имя": "Имя.", "ПРЕДЕЛ": "Предел.", "позже": "Отложенная."}
+	for _, st := range prog.Functions[0].Body {
+		switch s := st.(type) {
+		case *ast.VarDecl:
+			if s.Doc != want[s.Name] {
+				t.Errorf("doc %s: %q", s.Name, s.Doc)
+			}
+			delete(want, s.Name)
+		case *ast.ConstDecl:
+			if s.Doc != want[s.Name] {
+				t.Errorf("doc %s: %q", s.Name, s.Doc)
+			}
+			delete(want, s.Name)
+		}
+	}
+	if len(want) != 0 {
+		t.Errorf("не найдены объявления: %v", want)
 	}
 }
 

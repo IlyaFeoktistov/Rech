@@ -4,10 +4,9 @@
 // тело, поэтому попал в Entity.Methods - см. её package doc,
 // internal/ir/decl.go, Entity.BaseName), но не написавший СВОЙ
 // doc-комментарий (только тег) - hover показывает doc БАЗОВОГО метода
-// вместо пустого/тега как есть. Не работает для методов интерфейса
-// ("реализует") - у ast.InterfaceMethod/ir.InterfaceMethod нет поля Doc
-// вовсе (сигнатура контракта, не место для doc-комментария в текущем
-// срезе парсера) - известное, более узкое ограничение этой фичи.
+// вместо пустого/тега как есть. Метод без своего doc-комментария
+// наследует его так же, без тега. После цепочки предков ищется метод
+// реализуемого интерфейса ("реализует", ast.InterfaceMethod.Doc).
 package lsp
 
 import (
@@ -36,7 +35,7 @@ func hasInheritTag(doc string) bool {
 // возвращает ownDoc как есть (тег останется виден буквально - честнее,
 // чем молча показать пустоту).
 func (d *doc) resolvedMethodDoc(ent *ir.Entity, name, ownDoc string) string {
-	if !hasInheritTag(ownDoc) {
+	if ownDoc != "" && !hasInheritTag(ownDoc) {
 		return ownDoc
 	}
 	if inherited := d.inheritedMethodDoc(ent, name); inherited != "" {
@@ -51,18 +50,27 @@ func (d *doc) resolvedMethodDoc(ent *ir.Entity, name, ownDoc string) string {
 // (либо доступной по имени сущности вовсе нет в этом документе - см.
 // d.entities, multifile.go, включает и сущности из других файлов).
 func (d *doc) inheritedMethodDoc(ent *ir.Entity, name string) string {
+	chain := []*ir.Entity{ent}
 	baseName := ent.BaseName
 	for baseName != "" {
 		base, ok := d.entities[baseName]
 		if !ok {
-			return ""
+			break
 		}
 		for _, m := range base.Methods {
 			if m.Name == name && m.Doc != "" {
 				return m.Doc
 			}
 		}
+		chain = append(chain, base)
 		baseName = base.BaseName
+	}
+	for _, e := range chain {
+		for _, iface := range e.Interfaces {
+			if m, _, ok := d.findInterfaceMethod(iface, name, map[string]bool{}); ok && m.Doc != "" {
+				return m.Doc
+			}
+		}
 	}
 	return ""
 }

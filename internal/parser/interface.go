@@ -52,21 +52,15 @@ func (p *Parser) parseInterfaceDecl() (*ast.InterfaceDecl, error) {
 
 	var methods []ast.InterfaceMethod
 	for p.cur().Type != lexer.RBRACE {
-		if p.cur().Type == lexer.DOC_COMMENT {
-			// Интерфейс пока не несёт doc-комментариев у своих сигнатур
-			// (ast.InterfaceMethod без поля Doc) - "/** ... */" здесь ведёт
-			// себя как обычный комментарий, просто пропускается.
-			if err := p.checkDocAttached(); err != nil {
-				return nil, err
-			}
-			p.advance()
-			p.skipSeparators()
-			continue
+		doc, err := p.consumeDoc()
+		if err != nil {
+			return nil, err
 		}
 		m, err := p.parseInterfaceMethod()
 		if err != nil {
 			return nil, diagnostics.Wrap(err, "интерфейс %q", name.Value)
 		}
+		m.Doc = doc
 		methods = append(methods, m)
 		p.skipSeparators()
 	}

@@ -144,10 +144,13 @@ func (p *Parser) parseSwitchCaseBody() ([]ast.Stmt, error) {
 		if t == lexer.KwWhen || t == lexer.KwElse || t == lexer.RBRACE || t == lexer.EOF {
 			break
 		}
-		if t == lexer.DOC_COMMENT {
-			return nil, p.errDocInBody()
+		var stmt ast.Stmt
+		var err error
+		if p.cur().Type == lexer.DOC_COMMENT {
+			stmt, err = p.parseDocumentedStatement()
+		} else {
+			stmt, err = p.parseStatement()
 		}
-		stmt, err := p.parseStatement()
 		if err != nil {
 			return nil, err
 		}

@@ -23,11 +23,13 @@ func (p *Parser) parseBlock() ([]ast.Stmt, error) {
 		if p.cur().Type == lexer.EOF {
 			return nil, errAtLine(p.cur().Line, CodeUnclosedBracket, "не найдена закрывающая }")
 		}
+		var stmt ast.Stmt
+		var err error
 		if p.cur().Type == lexer.DOC_COMMENT {
-			// Инструкция - не объявление, документировать нечего.
-			return nil, p.errDocInBody()
+			stmt, err = p.parseDocumentedStatement()
+		} else {
+			stmt, err = p.parseStatement()
 		}
-		stmt, err := p.parseStatement()
 		if err != nil {
 			return nil, err
 		}

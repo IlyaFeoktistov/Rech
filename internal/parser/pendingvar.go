@@ -16,6 +16,9 @@ import (
 type pendingVarDecl struct {
 	name string
 	tok  lexer.Token
+	// doc - doc-комментарий перед "переменная X" (parseStatementWithDoc),
+	// переходит в ast.VarDecl при первом заполнении.
+	doc string
 }
 
 // beginPendingScope открывает новую область отложенных объявлений - см.
@@ -58,7 +61,7 @@ func (p *Parser) resolveAssignTarget(name lexer.Token, value ast.Expr) ast.Stmt 
 		if pending.name == name.Value {
 			p.pendingVarDecls = append(p.pendingVarDecls[:i], p.pendingVarDecls[i+1:]...)
 			p.registerNoun(name.Value)
-			return &ast.VarDecl{Name: name.Value, Value: value, Line: name.Line}
+			return &ast.VarDecl{Name: name.Value, Value: value, Line: name.Line, Doc: pending.doc}
 		}
 	}
 	return &ast.Assign{Name: name.Value, Value: value, Line: name.Line}

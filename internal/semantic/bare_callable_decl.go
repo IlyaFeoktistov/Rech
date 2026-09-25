@@ -28,5 +28,5 @@ func analyzeBareCallableVarDecl(sc *ctx, s *ast.VarDecl) (ir.Stmt, error) {
 		return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: s.Line})
 	}
 	sc.setEstablished(s.Name, newEstablished)
-	return &ir.VarDecl{Name: s.Name, Value: value, Line: s.Line}, nil
+	return &ir.VarDecl{Name: s.Name, Value: value, Line: s.Line, Doc: s.Doc}, nil
 }

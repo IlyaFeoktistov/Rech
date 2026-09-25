@@ -135,15 +135,13 @@ func (d *doc) bareNameDeclPos(name string, line int, scope *funcScope) (definiti
 // localDeclPos - место объявления локальной переменной/параметра name,
 // ДЕЙСТВУЮЩЕЕ в строке line внутри scope - то же правило "последнее
 // объявление до этой строки побеждает" (не моделирует область видимости
-// вложенных блоков по-настоящему), что и у localsAt/collectVarDecls
+// вложенных блоков по-настоящему), что и у localsAt/walkLocals
 // (document.go) - только здесь нужно ме́сто объявления, не тип. Переменная
 // (`переменная x = ...`) - её собственная строка; параметр - строка
 // объявления самой функции/метода (весь список параметров предполагается
 // на этой же строке - тот же приём, что и у declPos везде в пакете).
 func (d *doc) localDeclPos(scope *funcScope, line int, name string) (definitionPos, bool) {
-	lines := map[string]int{}
-	collectVarDeclLines(scope.body, line, lines)
-	if declLine, ok := lines[name]; ok {
+	if declLine, ok := localDeclLines(scope, line)[name]; ok {
 		return d.declPos(declLine, name)
 	}
 	for _, p := range scope.params {
@@ -154,49 +152,16 @@ func (d *doc) localDeclPos(scope *funcScope, line int, name string) (definitionP
 	return definitionPos{}, false
 }
 
-// collectVarDeclLines - как collectVarDecls (document.go), но копит СТРОКУ
-// объявления вместо типа - структурно идентичный обход (тот же порядок
-// рекурсии в те же вложенные тела), чтобы результат совпадал с тем, что
-// показывает hover для того же имени в той же точке.
-func collectVarDeclLines(stmts []ir.Stmt, maxLine int, out map[string]int) {
-	for _, s := range stmts {
-		switch s := s.(type) {
-		case *ir.VarDecl:
-			if s.Line <= maxLine {
-				out[s.Name] = s.Line
-			}
-		case *ir.IfStmt:
-			collectVarDeclLines(s.Then, maxLine, out)
-			collectVarDeclLines(s.Else, maxLine, out)
-		case *ir.WhileStmt:
-			collectVarDeclLines(s.Body, maxLine, out)
-		case *ir.ForStmt:
-			if s.Line <= maxLine {
-				out[s.Var] = s.Line
-			}
-			collectVarDeclLines(s.Body, maxLine, out)
-		case *ir.ForEachStmt:
-			if s.Line <= maxLine {
-				if s.KeyVar != "" {
-					out[s.KeyVar] = s.Line
-				}
-				out[s.Var] = s.Line
-			}
-			collectVarDeclLines(s.Body, maxLine, out)
-		case *ir.CStyleForStmt:
-			if s.Init != nil && s.Line <= maxLine {
-				out[s.Init.Name] = s.Line
-			}
-			collectVarDeclLines(s.Body, maxLine, out)
-		case *ir.TryStmt:
-			collectVarDeclLines(s.Body, maxLine, out)
-			collectVarDeclLines(s.CatchBody, maxLine, out)
-		case *ir.GerundStmt:
-			collectVarDeclLines(s.Body, maxLine, out)
-		case *ir.BlockStmt:
-			collectVarDeclLines(s.Body, maxLine, out)
+// localDeclLines - строки объявлений локальных имён scope, действующих на
+// строке line (тот же обход walkLocals, что у hover).
+func localDeclLines(scope *funcScope, line int) map[string]int {
+	lines := map[string]int{}
+	walkLocals(scope.body, line, func(name string, _ ir.Type, _ *ir.VarDecl, declLine int) {
+		if declLine > 0 {
+			lines[name] = declLine
 		}
-	}
+	})
+	return lines
 }
 
 // declPos - позиция первого IDENT-токена строки line со значением name В

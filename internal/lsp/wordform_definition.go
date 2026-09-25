@@ -28,9 +28,7 @@ import (
 // движок, что и wordformMatchesLemma/occurrences.go) - word (сама лемма или
 // любая её падежная форма) - "", false, если ни одна не совпала.
 func (d *doc) localWordform(scope *funcScope, line int, word string) (name string, ok bool) {
-	lines := map[string]int{}
-	collectVarDeclLines(scope.body, line, lines)
-	for n := range lines {
+	for n := range localDeclLines(scope, line) {
 		if d.wordformMatchesLemma(word, n) {
 			return n, true
 		}

@@ -188,7 +188,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			sc.a.nextStaticVarID++
 			staticID = sc.a.nextStaticVarID
 		}
-		return &ir.VarDecl{Name: s.Name, Value: value, IsStatic: s.IsStatic, StaticID: staticID, Line: s.Line}, nil
+		return &ir.VarDecl{Name: s.Name, Value: value, IsStatic: s.IsStatic, StaticID: staticID, Line: s.Line, Doc: s.Doc}, nil
 
 	case *ast.ConstDecl:
 		// Полностью тот же код, что и VarDecl выше (одна и та же ir.VarDecl -
@@ -205,7 +205,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		}
 		sc.setEstablished(s.Name, newEstablished)
 		sc.markConst(s.Name)
-		return &ir.VarDecl{Name: s.Name, Value: value, Line: s.Line}, nil
+		return &ir.VarDecl{Name: s.Name, Value: value, Line: s.Line, IsConst: true, Doc: s.Doc}, nil
 
 	case *ast.Assign:
 		declared, exists := sc.lookup(s.Name)

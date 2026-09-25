@@ -54,6 +54,9 @@ type VarDecl struct {
 	// отличие от видимости поля) - всегда "статическая".
 	IsStatic bool
 	Line     int
+	// Doc - doc-комментарий ("/** ... */") прямо перед объявлением, "" -
+	// его не было (hover показывает его у переменной).
+	Doc string
 }
 
 func (*VarDecl) node() {}

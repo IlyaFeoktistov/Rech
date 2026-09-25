@@ -58,6 +58,9 @@ func (d *doc) hoverText(line, col int) (string, bool) {
 		}
 		return "", false
 	}
+	if container.Kind == ir.KindInterface {
+		return d.hoverInterfaceMember(container.Entity, name)
+	}
 	if container.Kind != ir.KindEntity {
 		return "", false
 	}
@@ -91,7 +94,14 @@ func (d *doc) hoverBareName(name string, line int) (string, bool) {
 			}
 		}
 		if t, ok := localsAt(scope, line)[name]; ok {
-			return codeBlock(fmt.Sprintf("переменная %s: %s", name, d.dispType(t))), true
+			kind, doc := "переменная", ""
+			if decl := localDeclsAt(scope, line)[name]; decl != nil {
+				doc = decl.Doc
+				if decl.IsConst {
+					kind = "константа"
+				}
+			}
+			return withDoc(codeBlock(fmt.Sprintf("%s %s: %s", kind, name, d.dispType(t))), doc), true
 		}
 	}
 	if fn, ok := d.funcs[name]; ok {
@@ -142,6 +152,9 @@ func (d *doc) hoverBareName(name string, line int) (string, bool) {
 		return codeBlock(header) + "\n\n" + doc, true
 	}
 	if block, ok := hoverBuiltinFunc(name); ok {
+		return block, true
+	}
+	if block, ok := d.hoverInterface(name); ok {
 		return block, true
 	}
 	if block, ok := d.hoverEnumType(name); ok {

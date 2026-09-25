@@ -106,6 +106,11 @@ type VarDecl struct {
 	// IsStatic == false.
 	StaticID int
 	Line     int
+	// IsConst - объявлена "константа" (для инструментов: hover пишет
+	// "константа", не "переменная"); backend'ы её не различают.
+	IsConst bool
+	// Doc - doc-комментарий объявления (ast.VarDecl/ConstDecl.Doc).
+	Doc string
 }
 
 func (*VarDecl) stmt() {}

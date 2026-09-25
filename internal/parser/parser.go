@@ -342,10 +342,48 @@ func (p *Parser) consumeDoc() (string, error) {
 	return doc, nil
 }
 
-// errDocInBody - doc-комментарий перед инструкцией в теле функции/метода/
-// ветки "когда": документируются только объявления.
-func (p *Parser) errDocInBody() error {
-	return errAtLine(p.cur().Line, CodeFloatingDoc, "doc-комментарий \"/** ... */\" внутри тела ни к чему не относится - документируются только объявления (функция, метод, сущность, поле, константа); для обычного комментария используйте \"//\"")
+// parseDocumentedStatement - инструкция тела с doc-комментарием перед ней
+// (текущий токен - DOC_COMMENT): см. parseStatementWithDoc.
+func (p *Parser) parseDocumentedStatement() (ast.Stmt, error) {
+	docLine := p.cur().Line
+	doc, err := p.consumeDoc()
+	if err != nil {
+		return nil, err
+	}
+	return p.parseStatementWithDoc(doc, docLine)
+}
+
+// parseStatementWithDoc - parseStatement, doc (если не "") привязывается к
+// объявлению переменной/константы, в том числе отложенному "переменная X"
+// без значения (pendingVarDecl.doc). Перед любой другой инструкцией
+// doc-комментарий - ошибка: документируются только объявления.
+func (p *Parser) parseStatementWithDoc(doc string, docLine int) (ast.Stmt, error) {
+	pendingBefore := len(p.pendingVarDecls)
+	stmt, err := p.parseStatement()
+	if err != nil || doc == "" {
+		return stmt, err
+	}
+	switch s := stmt.(type) {
+	case *ast.VarDecl:
+		s.Doc = doc
+	case *ast.ConstDecl:
+		s.Doc = doc
+	case nil:
+		if len(p.pendingVarDecls) > pendingBefore {
+			p.pendingVarDecls[len(p.pendingVarDecls)-1].doc = doc
+			return nil, nil
+		}
+		return nil, errDocNotDeclaration(docLine)
+	default:
+		return nil, errDocNotDeclaration(docLine)
+	}
+	return stmt, nil
+}
+
+// errDocNotDeclaration - doc-комментарий перед инструкцией, которая ничего
+// не объявляет.
+func errDocNotDeclaration(line int) error {
+	return errAtLine(line, CodeFloatingDoc, "doc-комментарий \"/** ... */\" стоит перед инструкцией, а документируются только объявления (переменная, константа, функция, метод, сущность, поле, интерфейс, перечисление); для обычного комментария используйте \"//\"")
 }
 
 // checkDocAttached - текущий токен DOC_COMMENT обязан стоять вплотную перед
@@ -697,6 +735,7 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 // конце файла, не перед объявлением - обычный комментарий, ни к чему не
 // привязанный (doc уже прочитан и отброшен), разбирать нечего.
 func (p *Parser) parseTopLevelItem(prog *ast.Program, topLevelStmts *[]ast.Stmt, explicitMain **ast.FunctionDecl) (skip bool, err error) {
+	docLine := p.cur().Line
 	doc, err := p.consumeDoc()
 	if err != nil {
 		return false, err
@@ -800,12 +839,14 @@ func (p *Parser) parseTopLevelItem(prog *ast.Program, topLevelStmts *[]ast.Stmt,
 			return false, err
 		}
 		enum.Visibility = vis
+		enum.Doc = doc
 		prog.Enums = append(prog.Enums, enum)
 	case lexer.KwInterface:
 		iface, err := p.parseInterfaceDecl()
 		if err != nil {
 			return false, err
 		}
+		iface.Doc = doc
 		prog.Interfaces = append(prog.Interfaces, iface)
 	case lexer.KwConst:
 		// Отдельная ветка, не "default" -> parseStatement: константа
@@ -830,7 +871,7 @@ func (p *Parser) parseTopLevelItem(prog *ast.Program, topLevelStmts *[]ast.Stmt,
 		syn.Visibility = vis
 		prog.Synonyms = append(prog.Synonyms, syn)
 	default:
-		stmt, err := p.parseStatement()
+		stmt, err := p.parseStatementWithDoc(doc, docLine)
 		if err != nil {
 			return false, err
 		}

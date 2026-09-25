@@ -374,7 +374,7 @@ func (d *doc) scopeAt(line int) *funcScope {
 
 // localsAt - параметры функции/метода scope плюс переменные, объявленные в
 // её теле НЕ ПОЗЖЕ line (обход рекурсивный, по всем вложенным блокам без
-// разбора настоящей границы блока - см. package doc collectVarDecls).
+// разбора настоящей границы блока - см. package doc walkLocals).
 func localsAt(scope *funcScope, line int) map[string]ir.Type {
 	out := map[string]ir.Type{}
 	if scope == nil {
@@ -383,47 +383,72 @@ func localsAt(scope *funcScope, line int) map[string]ir.Type {
 	for _, p := range scope.params {
 		out[p.Name] = p.Type
 	}
-	collectVarDecls(scope.body, line, out)
+	walkLocals(scope.body, line, func(name string, t ir.Type, _ *ir.VarDecl, _ int) { out[name] = t })
 	return out
 }
 
-// collectVarDecls - см. localsAt. Затенение (переменная objявлена дважды
-// в разных ветках "если") не моделируется отдельно - последняя увиденная
-// побеждает, для подсказки типа при hover/completion этого достаточно.
-func collectVarDecls(stmts []ir.Stmt, maxLine int, out map[string]ir.Type) {
+// localDeclsAt - объявления локальных переменных/констант, видимые на
+// строке line (для doc-комментария и "переменная"/"константа" в hover).
+// Переменные циклов и "поймать" объявлений не имеют - их здесь нет.
+func localDeclsAt(scope *funcScope, line int) map[string]*ir.VarDecl {
+	out := map[string]*ir.VarDecl{}
+	if scope == nil {
+		return out
+	}
+	walkLocals(scope.body, line, func(name string, _ ir.Type, decl *ir.VarDecl, _ int) {
+		if decl != nil {
+			out[name] = decl
+		} else {
+			delete(out, name)
+		}
+	})
+	return out
+}
+
+// walkLocals - обход локальных имён тела до строки maxLine (см. localsAt):
+// visit получает имя, тип, объявление (nil - переменная цикла/"поймать") и
+// строку объявления (0 - неизвестна, у переменной "поймать"). Затенение
+// (переменная объявлена дважды в разных ветках "если") не моделируется
+// отдельно - последняя увиденная побеждает, для подсказки при hover/
+// completion/definition этого достаточно.
+func walkLocals(stmts []ir.Stmt, maxLine int, visit func(name string, t ir.Type, decl *ir.VarDecl, line int)) {
 	for _, s := range stmts {
 		switch s := s.(type) {
 		case *ir.VarDecl:
 			if s.Line <= maxLine {
-				out[s.Name] = ir.TypeOf(s.Value)
+				visit(s.Name, ir.TypeOf(s.Value), s, s.Line)
 			}
 		case *ir.IfStmt:
-			collectVarDecls(s.Then, maxLine, out)
-			collectVarDecls(s.Else, maxLine, out)
+			walkLocals(s.Then, maxLine, visit)
+			walkLocals(s.Else, maxLine, visit)
 		case *ir.WhileStmt:
-			collectVarDecls(s.Body, maxLine, out)
+			walkLocals(s.Body, maxLine, visit)
 		case *ir.ForStmt:
-			out[s.Var] = ir.TypeInt
-			collectVarDecls(s.Body, maxLine, out)
+			if s.Line <= maxLine {
+				visit(s.Var, ir.TypeInt, nil, s.Line)
+			}
+			walkLocals(s.Body, maxLine, visit)
 		case *ir.ForEachStmt:
-			if s.KeyVar != "" {
-				out[s.KeyVar] = s.KeyType
+			if s.Line <= maxLine {
+				if s.KeyVar != "" {
+					visit(s.KeyVar, s.KeyType, nil, s.Line)
+				}
+				visit(s.Var, s.ElemType, nil, s.Line)
 			}
-			out[s.Var] = s.ElemType
-			collectVarDecls(s.Body, maxLine, out)
+			walkLocals(s.Body, maxLine, visit)
 		case *ir.CStyleForStmt:
-			if s.Init != nil {
-				out[s.Init.Name] = ir.TypeOf(s.Init.Value)
+			if s.Init != nil && s.Line <= maxLine {
+				visit(s.Init.Name, ir.TypeOf(s.Init.Value), s.Init, s.Line)
 			}
-			collectVarDecls(s.Body, maxLine, out)
+			walkLocals(s.Body, maxLine, visit)
 		case *ir.TryStmt:
-			collectVarDecls(s.Body, maxLine, out)
-			out[s.CatchVar] = s.CatchVarType
-			collectVarDecls(s.CatchBody, maxLine, out)
+			walkLocals(s.Body, maxLine, visit)
+			visit(s.CatchVar, s.CatchVarType, nil, 0)
+			walkLocals(s.CatchBody, maxLine, visit)
 		case *ir.GerundStmt:
-			collectVarDecls(s.Body, maxLine, out)
+			walkLocals(s.Body, maxLine, visit)
 		case *ir.BlockStmt:
-			collectVarDecls(s.Body, maxLine, out)
+			walkLocals(s.Body, maxLine, visit)
 		}
 	}
 }
