@@ -89,7 +89,7 @@ func TestAnalyzeSerializeExprYAMLTarget(t *testing.T) {
 	}
 }
 
-func TestAnalyzeParseExprAbsentWithoutUse(t *testing.T) {
+func TestAnalyzeParseErrorAlwaysRegistered(t *testing.T) {
 	prog, err := AnalyzeSource(t, `
 функция главная { вывести 1 }
 `)
@@ -98,9 +98,10 @@ func TestAnalyzeParseExprAbsentWithoutUse(t *testing.T) {
 	}
 	for _, ent := range prog.Entities {
 		if ent.Name == "ОшибкаРазбора" {
-			t.Fatal("ОшибкаРазбора не должна регистрироваться без использования \"разобрать\"")
+			return
 		}
 	}
+	t.Fatal("ОшибкаРазбора - встроенное исключение, есть в любой программе")
 }
 
 func TestAnalyzeParseExprListOfPrimitivesTarget(t *testing.T) {

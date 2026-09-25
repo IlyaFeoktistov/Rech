@@ -158,8 +158,12 @@ func (in *Interp) runCatch(s *ir.TryStmt, env *Env, cc *callCtx, v Value) (ctrl,
 }
 
 // panicValue - объект встроенной паники re.kind ("" - корень "Паника") с
-// сообщением без служебного префикса.
+// сообщением без служебного префикса, или встроенного исключения
+// (re.exception).
 func (in *Interp) panicValue(re *runtimeError) Value {
+	if re.exception {
+		return newSystemException(re.kind, re.text).value
+	}
 	kind := re.kind
 	if kind == "" {
 		kind = rtmsg.PanicEntity

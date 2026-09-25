@@ -49,7 +49,7 @@ func GRPCSessionOpsCode(streamC, byteListC, nullableByteListC, optStringC string
     int32_t id = nghttp2_submit_request(sess->ng, NULL, nva, 5, &prd, st);
     if (id < 0) {
         pthread_mutex_unlock(&sess->lock);
-        rech_panic("%[5]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[5]s");
     }
     st->id = id;
     rech_http2_register_stream(sess, st);
@@ -204,7 +204,7 @@ static %[7]s rech_grpc_read_message(%[1]s potok) {
             if (got == 0) {
                 return %[6]s();
             }
-            rech_panic("%[11]s");
+            rech_error_as(RECH_ERR_NETWORK, "%[11]s");
         }
         memcpy(header + got, chunk->data, (size_t)chunk->len);
         got += chunk->len;
@@ -217,7 +217,7 @@ static %[7]s rech_grpc_read_message(%[1]s potok) {
     while (bgot < msg_len) {
         %[2]s *chunk = rech_http2_read_data(potok, msg_len - bgot);
         if (chunk->len == 0) {
-            rech_panic("%[11]s");
+            rech_error_as(RECH_ERR_NETWORK, "%[11]s");
         }
         memcpy(body + bgot, chunk->data, (size_t)chunk->len);
         bgot += chunk->len;
@@ -228,7 +228,7 @@ static %[7]s rech_grpc_read_message(%[1]s potok) {
     long long plain_len = 0;
     unsigned char *plain = msg_len > 0 ? rech_gzip_decompress(body, msg_len, &plain_len) : NULL;
     if (msg_len > 0 && plain == NULL) {
-        rech_panic("%[12]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[12]s");
     }
     return %[8]s(rech_bytes_wrap(plain, plain_len));
 }
@@ -252,12 +252,12 @@ static void rech_grpc_finish(%[1]s potok, long long code, const char *message) {
 static long long rech_grpc_status(%[1]s potok) {
     %[13]s raw = rech_http2_header(potok, "grpc-status");
     if (!raw.has) {
-        rech_panic("%[14]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[14]s");
     }
     char *endptr = NULL;
     long long code = strtoll(raw.value, &endptr, 10);
     if (endptr == raw.value || *endptr != '\x00') {
-        rech_panic("%[15]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[15]s");
     }
     return code;
 }

@@ -91,12 +91,12 @@ func (in *Interp) acceptWithTimeout(sock Value) Value {
 		if ne, ok := err.(net.Error); ok && ne.Timeout() {
 			return Value{Type: nullableType}
 		}
-		panicRuntime("%s", rtmsg.SocketAcceptFailed)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.SocketAcceptFailed)
 	}
 	if tc, ok := c.(*tls.Conn); ok {
 		if err := tc.Handshake(); err != nil {
 			c.Close()
-			panicRuntime("%s", rtmsg.TLSHandshakeFailed)
+			throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.TLSHandshakeFailed)
 		}
 	}
 	v := connValue(c)

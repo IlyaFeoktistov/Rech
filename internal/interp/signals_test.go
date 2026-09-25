@@ -49,10 +49,10 @@ func TestSignalSendDeliversToOwnProcess(t *testing.T) {
 	}
 }
 
-// TestSignalSendInvalidPidPanics - kill() несуществующему pid возвращает
-// ESRCH - "отправить_сигнал" обязан паниковать (rtmsg.SignalSendFailed), не
+// TestSignalSendInvalidPidThrows - kill() несуществующему pid возвращает
+// ESRCH - "отправить_сигнал" обязан бросить ОшибкаПроцесса (rtmsg.SignalSendFailed), не
 // молчать - иначе программа решила бы, что сигнал доставлен.
-func TestSignalSendInvalidPidPanics(t *testing.T) {
+func TestSignalSendInvalidPidThrows(t *testing.T) {
 	// PID 999999999 - гарантированно не существует (Linux pid_max по
 	// умолчанию значительно меньше).
 	err := runSrcExpectRuntimeError(t, `функция главная
@@ -61,7 +61,7 @@ func TestSignalSendInvalidPidPanics(t *testing.T) {
 }
 `)
 	if err == nil {
-		t.Fatal("ожидалась паника у отправить_сигнал несуществующему pid")
+		t.Fatal("ожидалась ОшибкаПроцесса у отправить_сигнал несуществующему pid")
 	}
 	if !strings.Contains(err.Error(), "не удалось отправить сигнал") {
 		t.Fatalf("ожидалось сообщение про SignalSendFailed, получено: %v", err)

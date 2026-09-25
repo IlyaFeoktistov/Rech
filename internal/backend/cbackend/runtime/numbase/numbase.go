@@ -66,7 +66,7 @@ func FromStringHelpers(hexMsg, octMsg, binMsg string) string {
     if (end == digits || *end != '\0') {
         char msg[256];
         snprintf(msg, sizeof(msg), "%[1]s", s);
-        rech_panic(msg);
+        rech_error_as(RECH_ERR_PARSE, msg);
     }
     return (long long)v;
 }
@@ -81,7 +81,7 @@ static long long rech_int_from_oct(const char *s) {
     if (end == digits || *end != '\0') {
         char msg[256];
         snprintf(msg, sizeof(msg), "%[2]s", s);
-        rech_panic(msg);
+        rech_error_as(RECH_ERR_PARSE, msg);
     }
     return (long long)v;
 }
@@ -96,7 +96,7 @@ static long long rech_int_from_bin(const char *s) {
     if (end == digits || *end != '\0') {
         char msg[256];
         snprintf(msg, sizeof(msg), "%[3]s", s);
-        rech_panic(msg);
+        rech_error_as(RECH_ERR_PARSE, msg);
     }
     return (long long)v;
 }

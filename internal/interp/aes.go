@@ -44,7 +44,7 @@ func aesEncryptHex(plaintext, passphrase string) string {
 	}
 	nonce := make([]byte, gcm.NonceSize())
 	if _, err := cryptorand.Read(nonce); err != nil {
-		panicRuntime("%s", rtmsg.AESRandomFailed)
+		throwRuntimeError(rtmsg.ErrorCrypto, "%s", rtmsg.AESRandomFailed)
 	}
 	sealed := gcm.Seal(nil, nonce, []byte(plaintext), nil)
 	return hex.EncodeToString(append(nonce, sealed...))
@@ -53,7 +53,7 @@ func aesEncryptHex(plaintext, passphrase string) string {
 func aesDecryptHex(ciphertextHex, passphrase string) string {
 	raw, err := hex.DecodeString(ciphertextHex)
 	if err != nil {
-		panicRuntime("%s", rtmsg.AESCiphertextInvalid)
+		throwRuntimeError(rtmsg.ErrorParse, "%s", rtmsg.AESCiphertextInvalid)
 	}
 	block, err := aes.NewCipher(aesKeyFromPassphrase(passphrase))
 	if err != nil {
@@ -65,12 +65,12 @@ func aesDecryptHex(ciphertextHex, passphrase string) string {
 	}
 	nonceSize := gcm.NonceSize()
 	if len(raw) < nonceSize+gcm.Overhead() {
-		panicRuntime("%s", rtmsg.AESCiphertextInvalid)
+		throwRuntimeError(rtmsg.ErrorParse, "%s", rtmsg.AESCiphertextInvalid)
 	}
 	nonce, sealed := raw[:nonceSize], raw[nonceSize:]
 	plaintext, err := gcm.Open(nil, nonce, sealed, nil)
 	if err != nil {
-		panicRuntime("%s", rtmsg.AESAuthenticationFailed)
+		throwRuntimeError(rtmsg.ErrorCrypto, "%s", rtmsg.AESAuthenticationFailed)
 	}
 	return string(plaintext)
 }

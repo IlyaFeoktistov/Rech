@@ -97,7 +97,7 @@ func dbtxRunSimpleCode(backends dbscheme.Set) string {
 		fmt.Fprintf(&sb, `    case RECH_DB_SQLITE: {
         char *errmsg = NULL;
         if (sqlite3_exec(conn, sql, NULL, NULL, &errmsg) != 0) {
-            rech_panic("%s");
+            rech_error_as(RECH_ERR_DB, "%s");
         }
         break;
     }
@@ -109,7 +109,7 @@ func dbtxRunSimpleCode(backends dbscheme.Set) string {
         int status = PQresultStatus(res);
         PQclear(res);
         if (status != 1 && status != 2) {
-            rech_panic("%s");
+            rech_error_as(RECH_ERR_DB, "%s");
         }
         break;
     }
@@ -118,7 +118,7 @@ func dbtxRunSimpleCode(backends dbscheme.Set) string {
 	if backends.NeedsMySQL() {
 		fmt.Fprintf(&sb, `    case RECH_DB_MYSQL: {
         if (mysql_real_query(conn, sql, (unsigned long)strlen(sql)) != 0) {
-            rech_panic("%s");
+            rech_error_as(RECH_ERR_DB, "%s");
         }
         break;
     }

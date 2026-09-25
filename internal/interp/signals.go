@@ -128,20 +128,20 @@ func signalReceived(ordinal int64) bool {
 // kill(pid, sig) через signalKill (per-OS - см. signals_linux.go/
 // signals_darwin.go/signals_windows.go), не signalReceived - НЕ паникует на
 // SIGKILL/SIGSTOP (в отличие от получения, отправить их другому процессу -
-// обычное дело, "kill -9"), паникует, если сама отправка не удалась (процесс
+// обычное дело, "kill -9"), бросает ОшибкаПроцесса, если сама отправка не удалась (процесс
 // не существует, нет прав, ordinal не поддержан этой ОС - windows умеет
 // доставить только 13 из полного списка). ensureSignalHandlers ПЕРЕД
 // signalKill - см. её package doc про TOCTOU-гонку, которую это закрывает.
 func signalSend(pid, ordinal int64) {
 	if ordinal < 0 || ordinal >= signalOrdinalCount {
-		panicRuntime("%s", rtmsg.SignalSendFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.SignalSendFailed)
 	}
 	sig := signalOrdinalToOS[ordinal]
 	if sig == sigUnsupported {
-		panicRuntime("%s", rtmsg.SignalSendFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.SignalSendFailed)
 	}
 	ensureSignalHandlers()
 	if err := signalKill(int(pid), sig); err != nil {
-		panicRuntime("%s", rtmsg.SignalSendFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.SignalSendFailed)
 	}
 }

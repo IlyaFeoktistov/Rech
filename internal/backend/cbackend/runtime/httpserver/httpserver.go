@@ -140,12 +140,12 @@ static char *rech_recv_http_request(rech_socket_t s, long long *out_len) {
                     long long header_bytes = (long long)(body_start - buf);
                     if (header_bytes + content_length > RECH_HTTP_MAX_REQUEST_BYTES) {
                         free(buf);
-                        rech_panic("%[12]s");
+                        rech_error_as(RECH_ERR_NETWORK, "%[12]s");
                     }
                 }
             } else if ((long long)len >= RECH_HTTP_MAX_REQUEST_BYTES) {
                 free(buf);
-                rech_panic("%[12]s");
+                rech_error_as(RECH_ERR_NETWORK, "%[12]s");
             }
         }
         if (body_start != NULL) {
@@ -168,7 +168,7 @@ static char *rech_recv_http_request(rech_socket_t s, long long *out_len) {
         // длины тела нет).
         if ((long long)len >= RECH_HTTP_MAX_REQUEST_BYTES) {
             free(buf);
-            rech_panic("%[12]s");
+            rech_error_as(RECH_ERR_NETWORK, "%[12]s");
         }
         if (len + 1 >= cap) {
             cap *= 2;
@@ -177,7 +177,7 @@ static char *rech_recv_http_request(rech_socket_t s, long long *out_len) {
         long long n = rech_socket_read_raw(s, buf + len, (long long)(cap - len - 1));
         if (n < 0) {
             free(buf);
-            rech_panic("%[10]s");
+            rech_error_as(RECH_ERR_NETWORK, "%[10]s");
         }
         if (n == 0) {
             break;

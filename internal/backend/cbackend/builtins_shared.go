@@ -1306,7 +1306,7 @@ var readHelpers = fmt.Sprintf(`static char *rech_read_line(void) {
     int ok = 0;
     char *line = rech_file_read_line(stdin, &ok);
     if (!ok) {
-        rech_panic("%s");
+        rech_error_as(RECH_ERR_FILE, "%s");
     }
     return line;
 }
@@ -1334,7 +1334,7 @@ static long long rech_read_int(void) {
     if (end == line || *end != '\0') {
         char msg[256];
         snprintf(msg, sizeof(msg), "прочитать_целое: \"%%s\" не является целым числом", line);
-        rech_panic(msg);
+        rech_error_as(RECH_ERR_PARSE, msg);
     }
     return v;
 }
@@ -1346,7 +1346,7 @@ static double rech_read_float(void) {
     if (end == line || *end != '\0') {
         char msg[256];
         snprintf(msg, sizeof(msg), "прочитать_число: \"%%s\" не является числом", line);
-        rech_panic(msg);
+        rech_error_as(RECH_ERR_PARSE, msg);
     }
     return v;
 }
@@ -1389,7 +1389,7 @@ static rech_file_t rech_open_mode(const char *path, const char *mode, const wcha
     if (!f) {
         char msg[512];
         snprintf(msg, sizeof(msg), "%%s: не удалось открыть файл \"%%s\"", op, path);
-        rech_panic(msg);
+        rech_error_as(RECH_ERR_FILE, msg);
     }
     return f;
 }
@@ -1422,7 +1422,7 @@ static char *rech_read(rech_file_t f, long long max) {
     }
     n += fread(buf + n, 1, (size_t)max - n, f);
     if (n == 0 && ferror(f)) {
-        rech_panic("%[2]s");
+        rech_error_as(RECH_ERR_FILE, "%[2]s");
     }
     size_t tail = rech_utf8_incomplete_tail(buf, n);
     if (tail > 0 && !feof(f)) {
@@ -1441,7 +1441,7 @@ static char *rech_read(rech_file_t f, long long max) {
 static void rech_write(rech_file_t f, const char *s) {
     size_t len = strlen(s);
     if (fwrite(s, 1, len, f) != len) {
-        rech_panic("%[3]s");
+        rech_error_as(RECH_ERR_FILE, "%[3]s");
     }
 }
 
@@ -1490,7 +1490,7 @@ static char *rech_read_whole_file(const char *path) {
         }
     }
     if (ferror(f)) {
-        rech_panic("%[2]s");
+        rech_error_as(RECH_ERR_FILE, "%[2]s");
     }
     fclose(f);
     return rech_text_take(buf, len);
@@ -1594,7 +1594,7 @@ var socketTypeAndConnectCode = fmt.Sprintf(`static rech_socket_t rech_listen_tcp
 #endif
     rech_socket_t s = socket(AF_INET, SOCK_STREAM, 0);
     if (s == RECH_INVALID_SOCKET) {
-        rech_panic("%[1]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[1]s");
     }
     int yes = 1;
     setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (const char *)&yes, sizeof(yes));
@@ -1604,10 +1604,10 @@ var socketTypeAndConnectCode = fmt.Sprintf(`static rech_socket_t rech_listen_tcp
     addr.sin_addr.s_addr = INADDR_ANY;
     addr.sin_port = htons((unsigned short)port);
     if (bind(s, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
-        rech_panic("%[2]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[2]s");
     }
     if (listen(s, SOMAXCONN) != 0) {
-        rech_panic("%[3]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[3]s");
     }
     return s;
 }
@@ -1646,7 +1646,7 @@ static rech_socket_t rech_listen_udp(long long port) {
 #endif
     rech_socket_t s = socket(AF_INET, SOCK_DGRAM, 0);
     if (s == RECH_INVALID_SOCKET) {
-        rech_panic("%[1]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[1]s");
     }
     int yes = 1;
     setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (const char *)&yes, sizeof(yes));
@@ -1656,7 +1656,7 @@ static rech_socket_t rech_listen_udp(long long port) {
     addr.sin_addr.s_addr = INADDR_ANY;
     addr.sin_port = htons((unsigned short)port);
     if (bind(s, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
-        rech_panic("%[2]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[2]s");
     }
     return s;
 }
@@ -1672,16 +1672,16 @@ static rech_socket_t rech_connect(const char *host, long long port, int type) {
     char portbuf[16];
     snprintf(portbuf, sizeof(portbuf), "%%lld", port);
     if (getaddrinfo(host, portbuf, &hints, &res) != 0) {
-        rech_panic("%[5]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[5]s");
     }
     rech_socket_t s = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
     if (s == RECH_INVALID_SOCKET) {
         freeaddrinfo(res);
-        rech_panic("%[6]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[6]s");
     }
     if (connect(s, res->ai_addr, (int)res->ai_addrlen) != 0) {
         freeaddrinfo(res);
-        rech_panic("%[7]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[7]s");
     }
     freeaddrinfo(res);
     return s;
@@ -1769,7 +1769,7 @@ var plainSocketOpsCode = fmt.Sprintf(`static %[5]s rech_accept(rech_socket_t s) 
             if (errno == EINTR) {
                 return %[5]s_empty();
             }
-            rech_panic("%[1]s");
+            rech_error_as(RECH_ERR_NETWORK, "%[1]s");
         }
     }
 #endif
@@ -1791,7 +1791,7 @@ var plainSocketOpsCode = fmt.Sprintf(`static %[5]s rech_accept(rech_socket_t s) 
             return %[5]s_empty();
         }
 #endif
-        rech_panic("%[1]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[1]s");
     }
     return %[5]s_wrap(c);
 }
@@ -1814,7 +1814,7 @@ static void rech_send_raw(rech_socket_t s, const char *data, long long len) {
                     rech_coro_wait_writable(s);
                     continue;
                 }
-                rech_panic("%[2]s");
+                rech_error_as(RECH_ERR_NETWORK, "%[2]s");
             }
             sent += n;
             continue;
@@ -1822,7 +1822,7 @@ static void rech_send_raw(rech_socket_t s, const char *data, long long len) {
 #endif
         long long n = send(s, data + sent, (int)(len - sent), 0);
         if (n <= 0) {
-            rech_panic("%[2]s");
+            rech_error_as(RECH_ERR_NETWORK, "%[2]s");
         }
         sent += n;
     }
@@ -1896,7 +1896,7 @@ static char *rech_recv(rech_socket_t s, long long max) {
         long long k = rech_socket_read_raw(s, (char *)buf + n, max - n);
         if (k < 0) {
             free(buf);
-            rech_panic("%[2]s");
+            rech_error_as(RECH_ERR_NETWORK, "%[2]s");
         }
         eof = k == 0;
         n += k;
@@ -1973,7 +1973,7 @@ var httpHelpers = fmt.Sprintf(`static char *rech_recv_until_close(rech_socket_t 
         long long n = rech_socket_read_raw(s, buf + len, (long long)(cap - len - 1));
         if (n < 0) {
             free(buf);
-            rech_panic("%[10]s");
+            rech_error_as(RECH_ERR_NETWORK, "%[10]s");
         }
         if (n == 0) {
             break;

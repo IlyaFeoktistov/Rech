@@ -615,10 +615,11 @@ var ReservedEntityNames = map[string]bool{
 	"СостояниеБД": true,
 }
 
-// Встроенная иерархия паник (internal/semantic/panic_entities.go) -
+// Встроенные паники и исключения (internal/semantic/panic_entities.go,
+// error_entities.go) -
 // наследовать можно, объявить свою сущность с тем же именем нельзя.
 func init() {
-	for _, name := range rtmsg.PanicKinds {
+	for _, name := range append(append([]string{}, rtmsg.PanicKinds...), rtmsg.ErrorKinds...) {
 		ReservedEntityNames[name] = true
 	}
 }

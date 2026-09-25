@@ -450,8 +450,13 @@ type callCtx struct {
 type runtimeError struct {
 	msg string
 	// kind - встроенный тип паники (rtmsg.Panic*); "" - корень "Паника".
-	kind  string
-	trace []traceFrame
+	// У исключения (exception) - встроенное исключение (rtmsg.Error*).
+	kind string
+	// exception - встроенное исключение рантайма (throwRuntimeError), не
+	// паника; text - его сообщение без служебного текста.
+	exception bool
+	text      string
+	trace     []traceFrame
 }
 
 func (e *runtimeError) Error() string { return e.msg + traceSuffix(e.trace) }
@@ -471,6 +476,20 @@ func panicRuntime(format string, args ...any) {
 // (rtmsg.Panic*), который ловится по имени.
 func panicRuntimeAs(kind, format string, args ...any) {
 	panic(&runtimeError{msg: rtmsg.PanicPrefix + fmt.Sprintf(format, args...), kind: kind})
+}
+
+// throwRuntimeError - встроенное исключение kind (rtmsg.Error*: файл, сеть,
+// БД, разбор, ...) из builtin'а: ловится "поймать(Исключение)"/по имени, а
+// не дошедшее до верха печатается как необработанное исключение - тот же
+// текст, что у cbackend (rech_error_as).
+func throwRuntimeError(kind, format string, args ...any) {
+	text := fmt.Sprintf(format, args...)
+	panic(&runtimeError{
+		msg:       rtmsg.PanicPrefix + rtmsg.UncaughtExceptionFormat(kind, text),
+		kind:      kind,
+		exception: true,
+		text:      text,
+	})
 }
 
 // Interp - состояние интерпретатора одной программы. debugger - непусто

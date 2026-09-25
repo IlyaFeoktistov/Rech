@@ -61,14 +61,14 @@ func RuntimeCode(procType, splitResultC, pidField, resultType, outputField, erro
 #ifndef _WIN32
     int errpipe[2];
     if (pipe(errpipe) != 0) {
-        rech_panic("%[8]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[8]s");
     }
     fcntl(errpipe[1], F_SETFD, FD_CLOEXEC);
     pid_t pid = fork();
     if (pid < 0) {
         close(errpipe[0]);
         close(errpipe[1]);
-        rech_panic("%[8]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[8]s");
     }
     if (pid == 0) {
         close(errpipe[0]);
@@ -90,7 +90,7 @@ func RuntimeCode(procType, splitResultC, pidField, resultType, outputField, erro
     ssize_t n = read(errpipe[0], &child_errno, sizeof(child_errno));
     close(errpipe[0]);
     if (n > 0) {
-        rech_panic("%[8]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[8]s");
     }
     %[1]s out;
     out.%[3]s = (long long)pid;
@@ -117,7 +117,7 @@ func RuntimeCode(procType, splitResultC, pidField, resultType, outputField, erro
         strcat(cmdline, "\"");
     }
     if (!CreateProcessA(NULL, cmdline, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
-        rech_panic("%[8]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[8]s");
     }
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
@@ -131,7 +131,7 @@ static long long rech_wait_process(%[1]s p) {
 #ifndef _WIN32
     int status;
     if (waitpid((pid_t)p.%[3]s, &status, 0) < 0) {
-        rech_panic("%[9]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[9]s");
     }
     if (WIFEXITED(status)) {
         return (long long)WEXITSTATUS(status);
@@ -143,16 +143,16 @@ static long long rech_wait_process(%[1]s p) {
 #else
     HANDLE h = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_INFORMATION, FALSE, (DWORD)p.%[3]s);
     if (h == NULL) {
-        rech_panic("%[9]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[9]s");
     }
     if (WaitForSingleObject(h, INFINITE) != WAIT_OBJECT_0) {
         CloseHandle(h);
-        rech_panic("%[9]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[9]s");
     }
     DWORD code = 0;
     if (!GetExitCodeProcess(h, &code)) {
         CloseHandle(h);
-        rech_panic("%[9]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[9]s");
     }
     CloseHandle(h);
     return (long long)code;
@@ -190,11 +190,11 @@ static %[4]s rech_run_command(const char *cmd, const char *dir) {
 #ifndef _WIN32
     int out_pipe[2], err_pipe[2];
     if (pipe(out_pipe) != 0 || pipe(err_pipe) != 0) {
-        rech_panic("%[10]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[10]s");
     }
     pid_t pid = fork();
     if (pid < 0) {
-        rech_panic("%[10]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[10]s");
     }
     if (pid == 0) {
         close(out_pipe[0]);
@@ -289,7 +289,7 @@ static %[4]s rech_run_command(const char *cmd, const char *dir) {
 
     HANDLE out_read, out_write, err_read, err_write;
     if (!CreatePipe(&out_read, &out_write, &sa, 0) || !CreatePipe(&err_read, &err_write, &sa, 0)) {
-        rech_panic("%[10]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[10]s");
     }
     SetHandleInformation(out_read, HANDLE_FLAG_INHERIT, 0);
     SetHandleInformation(err_read, HANDLE_FLAG_INHERIT, 0);
@@ -315,7 +315,7 @@ static %[4]s rech_run_command(const char *cmd, const char *dir) {
     if (!started) {
         CloseHandle(out_read);
         CloseHandle(err_read);
-        rech_panic("%[10]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[10]s");
     }
 
     rech_pipe_reader_arg out_arg = {out_read, NULL};

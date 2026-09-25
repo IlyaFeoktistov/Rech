@@ -35,7 +35,7 @@ func PNGHelpers(mangledType, widthField, heightField, pixelsField, mangledByteLi
     if (!png_image_begin_read_from_file(&image, path)) {
         char errbuf[512];
         snprintf(errbuf, sizeof(errbuf), "%[6]s: %%s", image.message);
-        rech_panic(errbuf);
+        rech_error_as(RECH_ERR_PARSE, errbuf);
     }
     image.format = PNG_FORMAT_RGBA;
     size_t size = PNG_IMAGE_SIZE(image);
@@ -45,7 +45,7 @@ func PNGHelpers(mangledType, widthField, heightField, pixelsField, mangledByteLi
         snprintf(errbuf, sizeof(errbuf), "%[6]s: %%s", image.message);
         free(buffer);
         png_image_free(&image);
-        rech_panic(errbuf);
+        rech_error_as(RECH_ERR_PARSE, errbuf);
     }
     %[1]s out;
     out.%[2]s = (long long)image.width;
@@ -67,7 +67,7 @@ static void rech_png_encode_file(const char *path, long long width, long long he
         char errbuf[512];
         snprintf(errbuf, sizeof(errbuf), "%[7]s: %%s", image.message);
         png_image_free(&image);
-        rech_panic(errbuf);
+        rech_error_as(RECH_ERR_FILE, errbuf);
     }
     png_image_free(&image);
 }

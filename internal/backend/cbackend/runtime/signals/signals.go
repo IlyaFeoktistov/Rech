@@ -191,10 +191,10 @@ static void rech_send_signal(long long pid, long long ordinal) {
     case 29: sig = SIGPWR; break;
 #endif
     case 30: sig = SIGSYS; break;
-    default: rech_panic("` + sendFailedMsg + `");
+    default: rech_error_as(RECH_ERR_PROCESS, "` + sendFailedMsg + `");
     }
     if (kill((pid_t)pid, sig) != 0) {
-        rech_panic("` + sendFailedMsg + `");
+        rech_error_as(RECH_ERR_PROCESS, "` + sendFailedMsg + `");
     }
 #else
     /* Windows не знает POSIX-сигналов между процессами - лучшее доступное
@@ -202,11 +202,11 @@ static void rech_send_signal(long long pid, long long ordinal) {
        что и Ctrl+C в реальном терминале, работает только с процессами
        собственной консольной группы), SIGKILL/SIGTERM - через
        TerminateProcess (безусловное завершение, ближайший аналог "убить
-       процесс" на этой платформе). Остальные ordinal - паника, POSIX-
+       процесс" на этой платформе). Остальные ordinal - ОшибкаПроцесса, POSIX-
        сигнал без аналога послать некому. */
     if (ordinal == 1) {
         if (!GenerateConsoleCtrlEvent(CTRL_C_EVENT, (DWORD)pid)) {
-            rech_panic("` + sendFailedMsg + `");
+            rech_error_as(RECH_ERR_PROCESS, "` + sendFailedMsg + `");
         }
         return;
     }
@@ -214,12 +214,12 @@ static void rech_send_signal(long long pid, long long ordinal) {
         HANDLE h = OpenProcess(PROCESS_TERMINATE, FALSE, (DWORD)pid);
         if (h == NULL || !TerminateProcess(h, 1)) {
             if (h != NULL) CloseHandle(h);
-            rech_panic("` + sendFailedMsg + `");
+            rech_error_as(RECH_ERR_PROCESS, "` + sendFailedMsg + `");
         }
         CloseHandle(h);
         return;
     }
-    rech_panic("` + sendFailedMsg + `");
+    rech_error_as(RECH_ERR_PROCESS, "` + sendFailedMsg + `");
 #endif
 }
 

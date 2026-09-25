@@ -23,7 +23,7 @@ func CwdHelper(cwdFailedMsgCLiteral string) string {
     wchar_t wbuf[MAX_PATH];
     DWORD wlen = GetCurrentDirectoryW(MAX_PATH, wbuf);
     if (wlen == 0 || wlen >= MAX_PATH) {
-        rech_panic("%[1]s");
+        rech_error_as(RECH_ERR_FILE, "%[1]s");
     }
     int ulen = WideCharToMultiByte(CP_UTF8, 0, wbuf, -1, NULL, 0, NULL, NULL);
     char *out = malloc((size_t)ulen);
@@ -32,7 +32,7 @@ func CwdHelper(cwdFailedMsgCLiteral string) string {
 #else
     char buf[4096];
     if (!getcwd(buf, sizeof(buf))) {
-        rech_panic("%[1]s");
+        rech_error_as(RECH_ERR_FILE, "%[1]s");
     }
     size_t n = strlen(buf);
     char *out = malloc(n + 1);

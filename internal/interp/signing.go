@@ -47,7 +47,7 @@ func generatePrivateKeyPEM(algorithm int) string {
 		panicRuntime("%s", rtmsg.UnknownSignatureAlgorithm)
 	}
 	if err != nil {
-		panicRuntime("%s", rtmsg.SigningKeyGenFailed)
+		throwRuntimeError(rtmsg.ErrorCrypto, "%s", rtmsg.SigningKeyGenFailed)
 	}
 	block := &pem.Block{Type: "PRIVATE KEY", Bytes: der}
 	return string(pem.EncodeToMemory(block))
@@ -56,15 +56,15 @@ func generatePrivateKeyPEM(algorithm int) string {
 func parsePrivateKeyPEM(privateKeyPEM string) crypto.Signer {
 	block, _ := pem.Decode([]byte(privateKeyPEM))
 	if block == nil {
-		panicRuntime("%s", rtmsg.SigningInvalidPrivateKey)
+		throwRuntimeError(rtmsg.ErrorParse, "%s", rtmsg.SigningInvalidPrivateKey)
 	}
 	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 	if err != nil {
-		panicRuntime("%s", rtmsg.SigningInvalidPrivateKey)
+		throwRuntimeError(rtmsg.ErrorParse, "%s", rtmsg.SigningInvalidPrivateKey)
 	}
 	signer, ok := key.(crypto.Signer)
 	if !ok {
-		panicRuntime("%s", rtmsg.SigningInvalidPrivateKey)
+		throwRuntimeError(rtmsg.ErrorParse, "%s", rtmsg.SigningInvalidPrivateKey)
 	}
 	return signer
 }
@@ -73,7 +73,7 @@ func getPublicKeyPEM(privateKeyPEM string) string {
 	signer := parsePrivateKeyPEM(privateKeyPEM)
 	der, err := x509.MarshalPKIXPublicKey(signer.Public())
 	if err != nil {
-		panicRuntime("%s", rtmsg.SigningInvalidPrivateKey)
+		throwRuntimeError(rtmsg.ErrorParse, "%s", rtmsg.SigningInvalidPrivateKey)
 	}
 	block := &pem.Block{Type: "PUBLIC KEY", Bytes: der}
 	return string(pem.EncodeToMemory(block))
@@ -93,7 +93,7 @@ func signHex(data, privateKeyPEM string) string {
 		sig, err = signer.Sign(cryptorand.Reader, hashed[:], crypto.SHA256)
 	}
 	if err != nil {
-		panicRuntime("%s", rtmsg.SigningKeyGenFailed)
+		throwRuntimeError(rtmsg.ErrorCrypto, "%s", rtmsg.SigningKeyGenFailed)
 	}
 	return hex.EncodeToString(sig)
 }
@@ -101,15 +101,15 @@ func signHex(data, privateKeyPEM string) string {
 func verifySignatureHex(data, signatureHex, publicKeyPEM string) bool {
 	block, _ := pem.Decode([]byte(publicKeyPEM))
 	if block == nil {
-		panicRuntime("%s", rtmsg.SigningInvalidPublicKey)
+		throwRuntimeError(rtmsg.ErrorParse, "%s", rtmsg.SigningInvalidPublicKey)
 	}
 	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
 	if err != nil {
-		panicRuntime("%s", rtmsg.SigningInvalidPublicKey)
+		throwRuntimeError(rtmsg.ErrorParse, "%s", rtmsg.SigningInvalidPublicKey)
 	}
 	sig, err := hex.DecodeString(signatureHex)
 	if err != nil {
-		panicRuntime("%s", rtmsg.SigningInvalidSignatureHex)
+		throwRuntimeError(rtmsg.ErrorParse, "%s", rtmsg.SigningInvalidSignatureHex)
 	}
 	switch key := pub.(type) {
 	case ed25519.PublicKey:
@@ -118,7 +118,7 @@ func verifySignatureHex(data, signatureHex, publicKeyPEM string) bool {
 		hashed := sha256.Sum256([]byte(data))
 		return rsa.VerifyPKCS1v15(key, crypto.SHA256, hashed[:], sig) == nil
 	default:
-		panicRuntime("%s", rtmsg.SigningInvalidPublicKey)
+		throwRuntimeError(rtmsg.ErrorParse, "%s", rtmsg.SigningInvalidPublicKey)
 		return false
 	}
 }

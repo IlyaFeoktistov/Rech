@@ -55,7 +55,7 @@ const (
 func (in *Interp) dbConnect(connStr string) Value {
 	driverName, dsn, ok := dbDriverAndDSN(connStr)
 	if !ok {
-		panicRuntime("%s", rtmsg.DBUnsupportedScheme)
+		throwRuntimeError(rtmsg.ErrorDB, "%s", rtmsg.DBUnsupportedScheme)
 	}
 	poolSize := in.dbPoolSize
 	isSQLiteMemory := driverName == "sqlite" && dsn == ":memory:"
@@ -67,7 +67,7 @@ func (in *Interp) dbConnect(connStr string) Value {
 		err = db.Ping()
 	}
 	if err != nil {
-		panicRuntime("%s", rtmsg.DBConnectFailed)
+		throwRuntimeError(rtmsg.ErrorDB, "%s", rtmsg.DBConnectFailed)
 	}
 	if isSQLiteMemory {
 		poolSize = 1
@@ -177,14 +177,14 @@ func (in *Interp) dbQuery(db *sql.DB, sqlText string, params []Value) Value {
 	rows, err := db.QueryContext(ctx, dbRewritePlaceholders(db, sqlText), args...)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			panicRuntime("%s", rtmsg.DBCheckoutTimeout)
+			throwRuntimeError(rtmsg.ErrorDB, "%s", rtmsg.DBCheckoutTimeout)
 		}
-		panicRuntime("%s", rtmsg.DBQueryFailedFormat(sqlText))
+		throwRuntimeError(rtmsg.ErrorDB, "%s", rtmsg.DBQueryFailedFormat(sqlText))
 	}
 	defer rows.Close()
 	cols, err := rows.Columns()
 	if err != nil {
-		panicRuntime("%s", rtmsg.DBQueryFailedFormat(sqlText))
+		throwRuntimeError(rtmsg.ErrorDB, "%s", rtmsg.DBQueryFailedFormat(sqlText))
 	}
 	scanTargets := make([]any, len(cols))
 	scanValues := make([]any, len(cols))
@@ -194,7 +194,7 @@ func (in *Interp) dbQuery(db *sql.DB, sqlText string, params []Value) Value {
 	rowElems := make([]Value, 0)
 	for rows.Next() {
 		if err := rows.Scan(scanTargets...); err != nil {
-			panicRuntime("%s", rtmsg.DBQueryFailedFormat(sqlText))
+			throwRuntimeError(rtmsg.ErrorDB, "%s", rtmsg.DBQueryFailedFormat(sqlText))
 		}
 		pairs := newDictPairs()
 		for i, col := range cols {
@@ -206,7 +206,7 @@ func (in *Interp) dbQuery(db *sql.DB, sqlText string, params []Value) Value {
 		})
 	}
 	if err := rows.Err(); err != nil {
-		panicRuntime("%s", rtmsg.DBQueryFailedFormat(sqlText))
+		throwRuntimeError(rtmsg.ErrorDB, "%s", rtmsg.DBQueryFailedFormat(sqlText))
 	}
 	return Value{
 		Type: ir.EntityType(dbResultType),
@@ -226,13 +226,13 @@ func (in *Interp) dbExec(db *sql.DB, sqlText string, params []Value) Value {
 	result, err := db.ExecContext(ctx, dbRewritePlaceholders(db, sqlText), args...)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			panicRuntime("%s", rtmsg.DBCheckoutTimeout)
+			throwRuntimeError(rtmsg.ErrorDB, "%s", rtmsg.DBCheckoutTimeout)
 		}
-		panicRuntime("%s", rtmsg.DBExecFailedFormat(sqlText))
+		throwRuntimeError(rtmsg.ErrorDB, "%s", rtmsg.DBExecFailedFormat(sqlText))
 	}
 	affected, err := result.RowsAffected()
 	if err != nil {
-		panicRuntime("%s", rtmsg.DBExecFailedFormat(sqlText))
+		throwRuntimeError(rtmsg.ErrorDB, "%s", rtmsg.DBExecFailedFormat(sqlText))
 	}
 	return intValue(affected)
 }

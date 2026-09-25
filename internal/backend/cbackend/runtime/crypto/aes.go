@@ -40,7 +40,7 @@ static char *rech_aes_encrypt_hex(const char *plaintext, const char *passphrase)
 
     unsigned char nonce[12];
     if (RAND_bytes(nonce, sizeof(nonce)) != 1) {
-        rech_panic("%[1]s");
+        rech_error_as(RECH_ERR_CRYPTO, "%[1]s");
     }
 
     size_t plen = strlen(plaintext);
@@ -77,7 +77,7 @@ static char *rech_aes_decrypt_hex(const char *ciphertext_hex, const char *passph
         if (raw != NULL) {
             free(raw);
         }
-        rech_panic("%[2]s");
+        rech_error_as(RECH_ERR_PARSE, "%[2]s");
     }
 
     unsigned char *nonce = raw;
@@ -103,7 +103,7 @@ static char *rech_aes_decrypt_hex(const char *ciphertext_hex, const char *passph
 
     if (ok <= 0) {
         free(plaintext);
-        rech_panic("%[3]s");
+        rech_error_as(RECH_ERR_CRYPTO, "%[3]s");
     }
     outlen += tmplen;
     return rech_text_take((char *)plaintext, (size_t)outlen);

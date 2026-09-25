@@ -44,8 +44,7 @@ const parseErrorEntity = "ОшибкаРазбора"
 // - иначе программа, использующая оба формата, получила бы два одинаковых
 // определения этой функции.
 func structParseThrowHelperCode() string {
-	return fmt.Sprintf("static void rech_struct_throw(const char *msg) {\n    rech_throw(%s(msg), \"%s\");\n}\n\n",
-		mangleCtor(parseErrorEntity), escapeCString(parseErrorEntity))
+	return fmt.Sprintf("static void rech_struct_throw(const char *msg) {\n    rech_error_as(%s, msg);\n}\n\n", rtmsg.ErrorKindMacros[rtmsg.ErrorParse])
 }
 
 func mangleJSONExtractor(name string) string {

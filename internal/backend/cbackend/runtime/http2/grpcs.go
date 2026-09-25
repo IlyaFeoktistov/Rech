@@ -53,12 +53,12 @@ static rech_socket_t rech_listen_tcp_grpcs(long long port, const char *certfile,
 #endif
     SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
     if (ctx == NULL) {
-        rech_panic("%[2]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[2]s");
     }
     if (SSL_CTX_use_certificate_file(ctx, certfile, SSL_FILETYPE_PEM) <= 0 ||
         SSL_CTX_use_PrivateKey_file(ctx, keyfile, SSL_FILETYPE_PEM) <= 0) {
         SSL_CTX_free(ctx);
-        rech_panic("%[2]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[2]s");
     }
     SSL_CTX_set_alpn_select_cb(ctx, rech_grpcs_alpn_select_cb, NULL);
     rech_socket_t s = rech_listen_tcp(port);
@@ -70,14 +70,14 @@ static rech_http2_session_t *rech_grpcs_new_session(const char *host, long long 
     rech_socket_t fd = rech_connect_tcp(host, port);
     SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());
     if (ctx == NULL) {
-        rech_panic("%[3]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[3]s");
     }
     static const unsigned char h2[] = %[1]s;
     SSL_CTX_set_alpn_protos(ctx, h2, sizeof(h2) - 1);
     SSL *ssl = SSL_new(ctx);
     SSL_CTX_free(ctx);
     if (ssl == NULL) {
-        rech_panic("%[3]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[3]s");
     }
     SSL_set_fd(ssl, (int)fd);
     if (SSL_connect(ssl) <= 0) {
@@ -87,7 +87,7 @@ static rech_http2_session_t *rech_grpcs_new_session(const char *host, long long 
 #else
         close(fd);
 #endif
-        rech_panic("%[3]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[3]s");
     }
     const unsigned char *negotiated = NULL;
     unsigned int negotiated_len = 0;
@@ -99,7 +99,7 @@ static rech_http2_session_t *rech_grpcs_new_session(const char *host, long long 
 #else
         close(fd);
 #endif
-        rech_panic("%[4]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[4]s");
     }
 
     rech_http2_session_t *sess = GC_MALLOC(sizeof(rech_http2_session_t));
@@ -113,7 +113,7 @@ static rech_http2_session_t *rech_grpcs_new_session(const char *host, long long 
     int rv = nghttp2_session_client_new(&sess->ng, cbs, sess);
     nghttp2_session_callbacks_del(cbs);
     if (rv != 0) {
-        rech_panic("%[3]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[3]s");
     }
     nghttp2_submit_settings(sess->ng, NGHTTP2_FLAG_NONE, NULL, 0);
     nghttp2_session_send(sess->ng);

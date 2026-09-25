@@ -129,26 +129,26 @@ static %[1]s rech_proc_attach(long long pid) {
     out.%[2]s = pid;
 #if defined(__linux__)
     if (ptrace(PTRACE_ATTACH, (pid_t)pid, NULL, NULL) != 0) {
-        rech_panic("%[3]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[3]s");
     }
     int status;
     if (waitpid((pid_t)pid, &status, 0) < 0) {
-        rech_panic("%[3]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[3]s");
     }
 #elif defined(_WIN32)
     rech_enable_debug_privilege();
     if (!DebugActiveProcess((DWORD)pid)) {
-        rech_panic("%[3]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[3]s");
     }
     rech_win_dbg_t *s = rech_win_session_add(pid);
     if (!WaitForDebugEvent(&s->pending, INFINITE)) {
         rech_win_session_remove(pid);
-        rech_panic("%[3]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[3]s");
     }
     s->tid = s->pending.dwThreadId;
     s->has_pending = 1;
 #else
-    rech_panic("%[3]s");
+    rech_error_as(RECH_ERR_PROCESS, "%[3]s");
 #endif
     return out;
 }
@@ -156,7 +156,7 @@ static %[1]s rech_proc_attach(long long pid) {
 static void rech_proc_detach(%[1]s p) {
 #if defined(__linux__)
     if (ptrace(PTRACE_DETACH, (pid_t)p.%[2]s, NULL, NULL) != 0) {
-        rech_panic("%[4]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[4]s");
     }
 #elif defined(_WIN32)
     rech_win_dbg_t *s = rech_win_session_find(p.%[2]s);
@@ -167,17 +167,17 @@ static void rech_proc_detach(%[1]s p) {
         rech_win_session_remove(p.%[2]s);
     }
     if (!DebugActiveProcessStop((DWORD)p.%[2]s)) {
-        rech_panic("%[4]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[4]s");
     }
 #else
     (void)p;
-    rech_panic("%[4]s");
+    rech_error_as(RECH_ERR_PROCESS, "%[4]s");
 #endif
 }
 
 static %[5]s *rech_proc_read(%[1]s p, long long addr, long long size) {
     if (size <= 0) {
-        rech_panic("%[6]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[6]s");
     }
     unsigned char *buf = malloc((size_t)size);
 #if defined(__linux__)
@@ -186,24 +186,24 @@ static %[5]s *rech_proc_read(%[1]s p, long long addr, long long size) {
     ssize_t n = process_vm_readv((pid_t)p.%[2]s, &local, 1, &remote, 1, 0);
     if (n != (ssize_t)size) {
         free(buf);
-        rech_panic("%[6]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[6]s");
     }
 #elif defined(_WIN32)
     HANDLE h = OpenProcess(PROCESS_VM_READ, FALSE, (DWORD)p.%[2]s);
     if (h == NULL) {
         free(buf);
-        rech_panic("%[6]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[6]s");
     }
     SIZE_T got = 0;
     BOOL ok = ReadProcessMemory(h, (LPCVOID)(intptr_t)addr, buf, (SIZE_T)size, &got);
     CloseHandle(h);
     if (!ok || got != (SIZE_T)size) {
         free(buf);
-        rech_panic("%[6]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[6]s");
     }
 #else
     free(buf);
-    rech_panic("%[6]s");
+    rech_error_as(RECH_ERR_PROCESS, "%[6]s");
     return NULL;
 #endif
     %[5]s *out = rech_bytes_wrap(buf, size);
@@ -217,24 +217,24 @@ static void rech_proc_write(%[1]s p, long long addr, %[5]s *b) {
     struct iovec remote = {(void *)(intptr_t)addr, (size_t)b->len};
     ssize_t n = process_vm_writev((pid_t)p.%[2]s, &local, 1, &remote, 1, 0);
     if (n != (ssize_t)b->len) {
-        rech_panic("%[7]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[7]s");
     }
 #elif defined(_WIN32)
     HANDLE h = OpenProcess(PROCESS_VM_WRITE | PROCESS_VM_OPERATION, FALSE, (DWORD)p.%[2]s);
     if (h == NULL) {
-        rech_panic("%[7]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[7]s");
     }
     SIZE_T written = 0;
     BOOL ok = WriteProcessMemory(h, (LPVOID)(intptr_t)addr, b->data, (SIZE_T)b->len, &written);
     CloseHandle(h);
     if (!ok || written != (SIZE_T)b->len) {
-        rech_panic("%[7]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[7]s");
     }
 #else
     (void)p;
     (void)addr;
     (void)b;
-    rech_panic("%[7]s");
+    rech_error_as(RECH_ERR_PROCESS, "%[7]s");
 #endif
 }
 `, procType, pidField,

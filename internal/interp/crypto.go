@@ -99,7 +99,7 @@ func base64URLEncode(s string) string {
 func base64URLDecode(s string) string {
 	out, err := base64.RawURLEncoding.DecodeString(s)
 	if err != nil {
-		panicRuntime("%s", rtmsg.Base64URLInvalidInput)
+		throwRuntimeError(rtmsg.ErrorParse, "%s", rtmsg.Base64URLInvalidInput)
 	}
 	return string(out)
 }

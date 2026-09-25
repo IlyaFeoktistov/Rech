@@ -98,7 +98,7 @@ func isUnsignedFixedWidth(vt valueType) bool {
 // же кастов. rech_cast_alloc - выделение результирующей строки (аналог
 // rech_dup из httpHelpers, но не завязан на usesHTTP - кастам он нужен
 // независимо от того, используется ли HTTP-клиент).
-var castHelpers = strings.ReplaceAll(castHelpersText, "rech_panic(msg);", panicCallC(rtmsg.PanicBadCast, "msg")+";")
+var castHelpers = strings.ReplaceAll(castHelpersText, "rech_panic(msg);", errorCallC(rtmsg.ErrorParse, "msg")+";")
 
 const castHelpersText = `static char *rech_cast_alloc(const char *s, size_t len) {
     char *r = malloc(len + 1);

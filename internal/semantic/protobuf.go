@@ -50,7 +50,6 @@ func analyzeProtobufParseExpr(sc *ctx, e *ast.ParseExpr, source ir.Expr) (ir.Exp
 	if err := protobufTopLevelMessage(sc.entities, target); err != nil {
 		return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "\"разобрать %s\" в %s", protobufFormat, target)
 	}
-	registerParseErrorEntity(sc.entities)
 	if err := registerByteListTypeOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
 		return nil, err
 	}

@@ -146,11 +146,11 @@ func setThreadContext(tid uint32, ctx *winContext) error {
 func procRegsGet(pid int64) map[string]int64 {
 	v, ok := winDbgSessions.Load(pid)
 	if !ok {
-		panicRuntime("%s", rtmsg.ProcRegsReadFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcRegsReadFailed)
 	}
 	ctx, err := getThreadContext(v.(*winDbgSession).tid)
 	if err != nil {
-		panicRuntime("%s", rtmsg.ProcRegsReadFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcRegsReadFailed)
 	}
 	return contextToMap(&ctx)
 }
@@ -162,16 +162,16 @@ func procRegsGet(pid int64) map[string]int64 {
 func procRegsSet(pid int64, vals map[string]int64) {
 	v, ok := winDbgSessions.Load(pid)
 	if !ok {
-		panicRuntime("%s", rtmsg.ProcRegsWriteFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcRegsWriteFailed)
 	}
 	tid := v.(*winDbgSession).tid
 	ctx, err := getThreadContext(tid)
 	if err != nil {
-		panicRuntime("%s", rtmsg.ProcRegsWriteFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcRegsWriteFailed)
 	}
 	applyMapToContext(&ctx, vals)
 	if err := setThreadContext(tid, &ctx); err != nil {
-		panicRuntime("%s", rtmsg.ProcRegsWriteFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcRegsWriteFailed)
 	}
 }
 
@@ -182,13 +182,13 @@ func procRegsSet(pid int64, vals map[string]int64) {
 func procBreakpointSet(pid int64, addr int64) {
 	h, err := windows.OpenProcess(windows.PROCESS_VM_READ|windows.PROCESS_VM_WRITE|windows.PROCESS_VM_OPERATION, false, uint32(pid))
 	if err != nil {
-		panicRuntime("%s", rtmsg.ProcBreakpointSetFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcBreakpointSetFailed)
 	}
 	defer windows.CloseHandle(h)
 	var orig [1]byte
 	var n uintptr
 	if err := windows.ReadProcessMemory(h, uintptr(addr), &orig[0], 1, &n); err != nil || n != 1 {
-		panicRuntime("%s", rtmsg.ProcBreakpointSetFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcBreakpointSetFailed)
 	}
 	var oldProtect uint32
 	protectedOK := windows.VirtualProtectEx(h, uintptr(addr), 1, windows.PAGE_EXECUTE_READWRITE, &oldProtect) == nil
@@ -199,7 +199,7 @@ func procBreakpointSet(pid int64, addr int64) {
 		windows.VirtualProtectEx(h, uintptr(addr), 1, oldProtect, &unused)
 	}
 	if writeErr != nil || n != 1 {
-		panicRuntime("%s", rtmsg.ProcBreakpointSetFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcBreakpointSetFailed)
 	}
 	procFlushInstructionCache.Call(uintptr(h), uintptr(addr), 1)
 	bpTable.Store(bpKey{pid, addr}, orig[0])
@@ -240,7 +240,7 @@ func procBreakpointRemove(pid int64, addr int64) {
 func procResume(pid int64) int64 {
 	v, ok := winDbgSessions.Load(pid)
 	if !ok {
-		panicRuntime("%s", rtmsg.ProcResumeFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcResumeFailed)
 	}
 	s := v.(*winDbgSession)
 
@@ -266,7 +266,7 @@ func procResume(pid int64) int64 {
 					r, _, _ := procWaitForDebugEvent.Call(uintptr(unsafe.Pointer(&stepEv)), infinite)
 					if r == 0 {
 						windows.CloseHandle(h)
-						panicRuntime("%s", rtmsg.ProcResumeFailed)
+						throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcResumeFailed)
 					}
 					if stepEv.DebugEventCode == debugEventException && stepEv.exceptionCode() == exceptionSingleStep {
 						s.tid, s.pending, s.hasPending = stepEv.ThreadId, stepEv, true
@@ -295,7 +295,7 @@ func procResume(pid int64) int64 {
 		var ev winDebugEvent
 		r, _, _ := procWaitForDebugEvent.Call(uintptr(unsafe.Pointer(&ev)), infinite)
 		if r == 0 {
-			panicRuntime("%s", rtmsg.ProcResumeFailed)
+			throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcResumeFailed)
 		}
 		s.tid, s.pending, s.hasPending = ev.ThreadId, ev, true
 		if ev.DebugEventCode == exitProcessDebugEvent {

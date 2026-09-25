@@ -39,7 +39,7 @@ func procRegsGet(pid int64) map[string]int64 {
 		return syscall.PtraceGetRegs(int(pid), &regs)
 	})
 	if !ok || err != nil {
-		panicRuntime("%s", rtmsg.ProcRegsReadFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcRegsReadFailed)
 	}
 	return ptraceRegsToMap(&regs)
 }
@@ -57,7 +57,7 @@ func procRegsSet(pid int64, vals map[string]int64) {
 		return syscall.PtraceSetRegs(int(pid), &regs)
 	})
 	if !ok || err != nil {
-		panicRuntime("%s", rtmsg.ProcRegsWriteFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcRegsWriteFailed)
 	}
 }
 
@@ -79,7 +79,7 @@ func procBreakpointSet(pid int64, addr int64) {
 		return e
 	})
 	if !ok || err != nil {
-		panicRuntime("%s", rtmsg.ProcBreakpointSetFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcBreakpointSetFailed)
 	}
 	bpTable.Store(bpKey{pid, addr}, orig[0])
 }
@@ -145,7 +145,7 @@ func procResume(pid int64) int64 {
 		return fmt.Errorf("неожиданная остановка процесса")
 	})
 	if !ok || err != nil {
-		panicRuntime("%s", rtmsg.ProcResumeFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcResumeFailed)
 	}
 	return result
 }

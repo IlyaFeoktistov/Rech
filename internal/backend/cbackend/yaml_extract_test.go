@@ -37,7 +37,7 @@ func TestGenerateFromIRYAMLParseExprEntityAndList(t *testing.T) {
 		"rech_yaml_extract_spisok_of_celoe(rech_yv v)",
 		"static rech_yv rech_yaml_parse(",
 		"static void rech_struct_throw(const char *msg)",
-		mangleCtor("ОшибкаРазбора") + "(msg)",
+		"rech_error_as(RECH_ERR_PARSE, msg)",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("ожидалось вхождение %q, получено:\n%s", want, out)

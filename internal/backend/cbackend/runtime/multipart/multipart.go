@@ -170,7 +170,7 @@ static char *rech_multipart_part_content_type(const char *part_headers) {
 static %[3]s *rech_parse_multipart(%[1]s *body, const char *headers) {
     char *boundary = rech_multipart_extract_boundary(headers);
     if (!boundary) {
-        rech_panic("%[9]s");
+        rech_error_as(RECH_ERR_PARSE, "%[9]s");
     }
     size_t blen = strlen(boundary);
     long long delim_len = (long long)blen + 2;

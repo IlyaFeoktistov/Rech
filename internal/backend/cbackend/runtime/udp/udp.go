@@ -27,7 +27,7 @@ func DatagramHelpers(datagramC, dataField, addrField, portField string) string {
     long long n = recvfrom(s, buf, (int)max, 0, (struct sockaddr *)&from, &fromlen);
     if (n < 0) {
         free(buf);
-        rech_panic("%[7]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[7]s");
     }
     %[1]s d;
     d.%[2]s = rech_text_take(buf, (size_t)n);
@@ -44,12 +44,12 @@ static void rech_send_to(rech_socket_t s, const char *data, const char *addr, lo
     char portbuf[16];
     snprintf(portbuf, sizeof(portbuf), "%%lld", port);
     if (getaddrinfo(addr, portbuf, &hints, &res) != 0) {
-        rech_panic("%[8]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[8]s");
     }
     long long n = sendto(s, data, (int)strlen(data), 0, res->ai_addr, (int)res->ai_addrlen);
     freeaddrinfo(res);
     if (n < 0) {
-        rech_panic("%[5]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[5]s");
     }
 }
 `, datagramC, dataField, addrField, portField,

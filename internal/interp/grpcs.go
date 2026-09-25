@@ -30,12 +30,12 @@ import (
 func listenGRPCS(port int64, certFile, keyFile string) Value {
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
-		panicRuntime("%s", rtmsg.GRPCSCertLoadFailed)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.GRPCSCertLoadFailed)
 	}
 	cfg := &tls.Config{Certificates: []tls.Certificate{cert}, NextProtos: []string{"h2"}}
 	rawL, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
-		panicRuntime("%s", rtmsg.SocketBindFailed)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.SocketBindFailed)
 	}
 	l := tls.NewListener(rawL, cfg)
 	return Value{Type: ir.TypeSocket, Listener: l, RawListener: rawL}
@@ -50,17 +50,17 @@ func (in *Interp) grpcsNewSession(host string, port int64) Value {
 	addr := net.JoinHostPort(host, strconv.FormatInt(port, 10))
 	conn, err := tls.Dial("tcp", addr, &tls.Config{NextProtos: []string{"h2"}})
 	if err != nil {
-		panicRuntime("%s", rtmsg.GRPCSClientHandshakeFailed)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.GRPCSClientHandshakeFailed)
 	}
 	if conn.ConnectionState().NegotiatedProtocol != "h2" {
 		conn.Close()
-		panicRuntime("%s", rtmsg.GRPCSALPNRejected)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.GRPCSALPNRejected)
 	}
 	transport := &http2.Transport{}
 	clientConn, err := transport.NewClientConn(conn)
 	if err != nil {
 		conn.Close()
-		panicRuntime("%s", rtmsg.HTTP2ClientConnFailed)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.HTTP2ClientConnFailed)
 	}
 	return sessionValue(&http2Session{conn: conn, clientConn: clientConn, authority: addr, streams: map[int64]*http2StreamState{}})
 }

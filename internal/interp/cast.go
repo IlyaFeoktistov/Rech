@@ -47,13 +47,13 @@ func (in *Interp) evalCastExpr(e *ir.CastExpr, env *Env, cc *callCtx) (Value, er
 			if isUnsignedFixedWidth(to.Kind) {
 				n, err := strconv.ParseUint(v.S, 10, 64)
 				if err != nil {
-					panicRuntimeAs(rtmsg.PanicBadCast, "%s", rtmsg.CastStrToIntFailedFormat(to.String(), v.S))
+					throwRuntimeError(rtmsg.ErrorParse, "%s", rtmsg.CastStrToIntFailedFormat(to.String(), v.S))
 				}
 				return Value{Type: to, I: wrapFixedWidth(to.Kind, int64(n))}, nil
 			}
 			n, err := strconv.ParseInt(v.S, 10, 64)
 			if err != nil {
-				panicRuntimeAs(rtmsg.PanicBadCast, "%s", rtmsg.CastStrToIntFailedFormat(to.String(), v.S))
+				throwRuntimeError(rtmsg.ErrorParse, "%s", rtmsg.CastStrToIntFailedFormat(to.String(), v.S))
 			}
 			return Value{Type: to, I: wrapFixedWidth(to.Kind, n)}, nil
 		case ir.KindInt, ir.KindByte, ir.KindChar,
@@ -78,7 +78,7 @@ func (in *Interp) evalCastExpr(e *ir.CastExpr, env *Env, cc *callCtx) (Value, er
 		case from.Kind == ir.KindString:
 			n, err := strconv.ParseInt(v.S, 10, 64)
 			if err != nil {
-				panicRuntimeAs(rtmsg.PanicBadCast, "%s", rtmsg.CastStrToIntFailedFormat(to.String(), v.S))
+				throwRuntimeError(rtmsg.ErrorParse, "%s", rtmsg.CastStrToIntFailedFormat(to.String(), v.S))
 			}
 			return intValue(n), nil
 		}
@@ -89,7 +89,7 @@ func (in *Interp) evalCastExpr(e *ir.CastExpr, env *Env, cc *callCtx) (Value, er
 		case from.Kind == ir.KindString:
 			n, err := strconv.ParseInt(v.S, 10, 64)
 			if err != nil {
-				panicRuntimeAs(rtmsg.PanicBadCast, "%s", rtmsg.CastStrToIntFailedFormat(to.String(), v.S))
+				throwRuntimeError(rtmsg.ErrorParse, "%s", rtmsg.CastStrToIntFailedFormat(to.String(), v.S))
 			}
 			return byteValue(n), nil
 		}
@@ -102,7 +102,7 @@ func (in *Interp) evalCastExpr(e *ir.CastExpr, env *Env, cc *callCtx) (Value, er
 		case from.Kind == ir.KindString:
 			f, err := strconv.ParseFloat(v.S, 64)
 			if err != nil {
-				panicRuntimeAs(rtmsg.PanicBadCast, "%s", rtmsg.CastStrToFloatFailedFormat(to.String(), v.S))
+				throwRuntimeError(rtmsg.ErrorParse, "%s", rtmsg.CastStrToFloatFailedFormat(to.String(), v.S))
 			}
 			return float32Value(f), nil
 		}
@@ -115,7 +115,7 @@ func (in *Interp) evalCastExpr(e *ir.CastExpr, env *Env, cc *callCtx) (Value, er
 		case from.Kind == ir.KindString:
 			f, err := strconv.ParseFloat(v.S, 64)
 			if err != nil {
-				panicRuntimeAs(rtmsg.PanicBadCast, "%s", rtmsg.CastStrToFloatFailedFormat(to.String(), v.S))
+				throwRuntimeError(rtmsg.ErrorParse, "%s", rtmsg.CastStrToFloatFailedFormat(to.String(), v.S))
 			}
 			return floatValue(f), nil
 		}
@@ -142,7 +142,7 @@ func (in *Interp) evalCastExpr(e *ir.CastExpr, env *Env, cc *callCtx) (Value, er
 		case from.Kind == ir.KindString:
 			r, ok := singleRune(v.S)
 			if !ok {
-				panicRuntimeAs(rtmsg.PanicBadCast, "%s", rtmsg.CastStrToCharFailedFormat(v.S))
+				throwRuntimeError(rtmsg.ErrorParse, "%s", rtmsg.CastStrToCharFailedFormat(v.S))
 			}
 			return charValue(r), nil
 		}
@@ -158,7 +158,7 @@ func (in *Interp) evalCastExpr(e *ir.CastExpr, env *Env, cc *callCtx) (Value, er
 			case "ложь":
 				return boolValue(false), nil
 			}
-			panicRuntimeAs(rtmsg.PanicBadCast, "%s", rtmsg.CastStrToBoolFailedFormat(v.S))
+			throwRuntimeError(rtmsg.ErrorParse, "%s", rtmsg.CastStrToBoolFailedFormat(v.S))
 		}
 	}
 	return Value{}, fmt.Errorf("каст: неподдерживаемое приведение %s -> %s", from, to)

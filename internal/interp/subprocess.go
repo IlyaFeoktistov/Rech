@@ -30,7 +30,7 @@ func spawnProcess(command string, args []string) Value {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
-		panicRuntime("%s", rtmsg.ProcessSpawnFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcessSpawnFailed)
 	}
 	return processValue(int64(cmd.Process.Pid))
 }
@@ -66,11 +66,11 @@ func waitProcess(process Value) Value {
 	pid := int(process.Obj.fields["pid"].I)
 	proc, err := os.FindProcess(pid)
 	if err != nil {
-		panicRuntime("%s", rtmsg.SubprocessWaitFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.SubprocessWaitFailed)
 	}
 	state, err := proc.Wait()
 	if err != nil {
-		panicRuntime("%s", rtmsg.SubprocessWaitFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.SubprocessWaitFailed)
 	}
 	if ws, ok := state.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
 		return intValue(int64(128 + int(ws.Signal())))
@@ -113,7 +113,7 @@ func runCommand(command, dir string) Value {
 	if err != nil {
 		exitErr, ok := err.(*exec.ExitError)
 		if !ok {
-			panicRuntime("%s", rtmsg.CommandRunFailed)
+			throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.CommandRunFailed)
 		}
 		exitCode = exitErr.ExitCode()
 	}

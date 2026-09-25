@@ -55,9 +55,9 @@ func decodeImageFile(path string, format int64) Value {
 	f, err := os.Open(path)
 	if err != nil {
 		if format == imageFormatJPEG {
-			panicRuntime("%s", rtmsg.JPEGOpenFailed)
+			throwRuntimeError(rtmsg.ErrorFile, "%s", rtmsg.JPEGOpenFailed)
 		}
-		panicRuntime("%s", rtmsg.PNGDecodeFailed)
+		throwRuntimeError(rtmsg.ErrorParse, "%s", rtmsg.PNGDecodeFailed)
 	}
 	defer f.Close()
 
@@ -66,12 +66,12 @@ func decodeImageFile(path string, format int64) Value {
 	case imageFormatPNG:
 		img, err = png.Decode(f)
 		if err != nil {
-			panicRuntime("%s: %s", rtmsg.PNGDecodeFailed, err)
+			throwRuntimeError(rtmsg.ErrorParse, "%s: %s", rtmsg.PNGDecodeFailed, err)
 		}
 	case imageFormatJPEG:
 		img, err = jpeg.Decode(f)
 		if err != nil {
-			panicRuntime("%s: %s", rtmsg.JPEGDecodeFailed, err)
+			throwRuntimeError(rtmsg.ErrorParse, "%s: %s", rtmsg.JPEGDecodeFailed, err)
 		}
 	default:
 		panicRuntime("%s", rtmsg.ImageCodecUnknownFormat)
@@ -98,20 +98,20 @@ func encodeImageFile(path string, width, height int64, pixelsRGBA []byte, format
 	f, err := os.Create(path)
 	if err != nil {
 		if format == imageFormatJPEG {
-			panicRuntime("%s", rtmsg.JPEGEncodeOpenFailed)
+			throwRuntimeError(rtmsg.ErrorFile, "%s", rtmsg.JPEGEncodeOpenFailed)
 		}
-		panicRuntime("%s", rtmsg.PNGEncodeFailed)
+		throwRuntimeError(rtmsg.ErrorFile, "%s", rtmsg.PNGEncodeFailed)
 	}
 	defer f.Close()
 
 	switch format {
 	case imageFormatPNG:
 		if err := png.Encode(f, img); err != nil {
-			panicRuntime("%s: %s", rtmsg.PNGEncodeFailed, err)
+			throwRuntimeError(rtmsg.ErrorFile, "%s: %s", rtmsg.PNGEncodeFailed, err)
 		}
 	case imageFormatJPEG:
 		if err := jpeg.Encode(f, img, &jpeg.Options{Quality: int(quality)}); err != nil {
-			panicRuntime("%s: %s", rtmsg.JPEGEncodeFailed, err)
+			throwRuntimeError(rtmsg.ErrorFile, "%s: %s", rtmsg.JPEGEncodeFailed, err)
 		}
 	default:
 		panicRuntime("%s", rtmsg.ImageCodecUnknownFormat)

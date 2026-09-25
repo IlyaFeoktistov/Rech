@@ -529,7 +529,7 @@ func acceptSessionAcceptCode(usesTLS bool, acceptFailedMsg, optSocketC string) s
 	if !usesTLS {
 		return fmt.Sprintf(`rech_socket_t fd = accept(listener, NULL, NULL);
     if (fd < 0) {
-        rech_panic("%[1]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[1]s");
     }`, acceptFailedMsg)
 	}
 	return fmt.Sprintf(`%[1]s accepted = rech_accept(listener);
@@ -611,7 +611,7 @@ static rech_http2_session_t *rech_http2_accept_session(rech_socket_t listener) {
     int rv = nghttp2_session_server_new(&sess->ng, cbs, sess);
     nghttp2_session_callbacks_del(cbs);
     if (rv != 0) {
-        rech_panic("%[2]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[2]s");
     }
     nghttp2_submit_settings(sess->ng, NGHTTP2_FLAG_NONE, NULL, 0);
     nghttp2_session_send(sess->ng);
@@ -631,7 +631,7 @@ static rech_http2_session_t *rech_http2_new_session(const char *host, long long 
     int rv = nghttp2_session_client_new(&sess->ng, cbs, sess);
     nghttp2_session_callbacks_del(cbs);
     if (rv != 0) {
-        rech_panic("%[3]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[3]s");
     }
     // nghttp2_session_client_new САМА ставит клиентский connection preface
     // ("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n") в очередь на отправку - НАЙДЕННЫЙ
@@ -661,7 +661,7 @@ static %[13]s rech_http2_accept_stream(rech_http2_session_t *sess) {
     }
     if (sess->incoming_off >= sess->incoming_len) {
         pthread_mutex_unlock(&sess->lock);
-        rech_panic("%[4]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[4]s");
     }
     int32_t id = sess->incoming[sess->incoming_off++];
     pthread_mutex_unlock(&sess->lock);
@@ -697,7 +697,7 @@ static %[13]s rech_http2_open_stream(rech_http2_session_t *sess, const char *met
     int32_t id = nghttp2_submit_request(sess->ng, NULL, nva, 4, &prd, st);
     if (id < 0) {
         pthread_mutex_unlock(&sess->lock);
-        rech_panic("%[7]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[7]s");
     }
     st->id = id;
     rech_http2_register_stream(sess, st);

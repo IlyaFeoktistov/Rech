@@ -93,7 +93,7 @@ func TestDBTransactionRollsBackOnThrownException(t *testing.T) {
 	}
 }
 
-func TestDBTransactionRollsBackOnPanic(t *testing.T) {
+func TestDBTransactionRollsBackOnError(t *testing.T) {
 	out := runSrc(t, `
 функция главная
 {
@@ -109,17 +109,17 @@ func TestDBTransactionRollsBackOnPanic(t *testing.T) {
             тр.выполнить("INSERT INTO несуществующая_таблица (id) VALUES (?)", параметры)
         })
     }
-    поймать (сообщение: Паника)
+    поймать (сообщение: ОшибкаБД)
     {
-        вывести `+"`"+`паника поймана\n`+"`"+`
+        вывести `+"`"+`ошибка поймана\n`+"`"+`
     }
     переменная строки = запросить(бд, "select id from t", новый Список<Значение>())
     вывести `+"`${"+`строки.длина()}\n`+"`"+`
     закрыть_бд(бд)
 }
 `)
-	if out != "паника поймана\n0\n" {
-		t.Fatalf("ожидалось \"паника поймана\\n0\\n\", получено %q", out)
+	if out != "ошибка поймана\n0\n" {
+		t.Fatalf("ожидалось \"ошибка поймана\\n0\\n\", получено %q", out)
 	}
 }
 

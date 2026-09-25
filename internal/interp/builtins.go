@@ -134,14 +134,14 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		line := in.readLine()
 		v, err := strconv.ParseInt(line, 10, 64)
 		if err != nil {
-			panicRuntime("%s", rtmsg.ReadIntFormat(line))
+			throwRuntimeError(rtmsg.ErrorParse, "%s", rtmsg.ReadIntFormat(line))
 		}
 		return intValue(v), true
 	case "прочитать_число":
 		line := in.readLine()
 		v, err := strconv.ParseFloat(line, 64)
 		if err != nil {
-			panicRuntime("%s", rtmsg.ReadFloatFormat(line))
+			throwRuntimeError(rtmsg.ErrorParse, "%s", rtmsg.ReadFloatFormat(line))
 		}
 		return floatValue(v), true
 	case "открыть":
@@ -157,13 +157,13 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		}
 		text, err := in.readTextChunk(args[0].File, args[0].File, int(max), true)
 		if err != nil {
-			panicRuntime("%s", rtmsg.ReadIOFailed)
+			throwRuntimeError(rtmsg.ErrorFile, "%s", rtmsg.ReadIOFailed)
 		}
 		return stringValue(text), true
 	case "записать":
 		n, err := args[0].File.WriteString(args[1].S)
 		if err != nil || n != len(args[1].S) {
-			panicRuntime("%s", rtmsg.WriteIOFailed)
+			throwRuntimeError(rtmsg.ErrorFile, "%s", rtmsg.WriteIOFailed)
 		}
 		return Value{}, true
 	case "закрыть":
@@ -175,7 +175,7 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		data, err := io.ReadAll(f)
 		f.Close()
 		if err != nil {
-			panicRuntime("%s", rtmsg.ReadIOFailed)
+			throwRuntimeError(rtmsg.ErrorFile, "%s", rtmsg.ReadIOFailed)
 		}
 		return stringValue(string(data)), true
 	case "записать_в_файл":
@@ -193,14 +193,14 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		n := copy(buf, in.pending.take(args[0].File))
 		k, err := io.ReadFull(args[0].File, buf[n:])
 		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
-			panicRuntime("%s", rtmsg.ReadBytesIOFailed)
+			throwRuntimeError(rtmsg.ErrorFile, "%s", rtmsg.ReadBytesIOFailed)
 		}
 		return bytesValue(buf[:n+k]), true
 	case "записать_байты":
 		data := bytesFromValue(args[1])
 		n, err := args[0].File.Write(data)
 		if err != nil || n != len(data) {
-			panicRuntime("%s", rtmsg.WriteBytesIOFailed)
+			throwRuntimeError(rtmsg.ErrorFile, "%s", rtmsg.WriteBytesIOFailed)
 		}
 		return Value{}, true
 	case "прочитать_файл_байты":
@@ -208,7 +208,7 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		data, err := io.ReadAll(f)
 		f.Close()
 		if err != nil {
-			panicRuntime("%s", rtmsg.ReadBytesIOFailed)
+			throwRuntimeError(rtmsg.ErrorFile, "%s", rtmsg.ReadBytesIOFailed)
 		}
 		return bytesValue(data), true
 	case "записать_в_файл_байты":
@@ -217,7 +217,7 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		n, err := f.Write(data)
 		f.Close()
 		if err != nil || n != len(data) {
-			panicRuntime("%s", rtmsg.WriteBytesIOFailed)
+			throwRuntimeError(rtmsg.ErrorFile, "%s", rtmsg.WriteBytesIOFailed)
 		}
 		return Value{}, true
 	case "стандартный_ввод":
@@ -251,7 +251,7 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 	case "текущий_каталог":
 		wd, err := os.Getwd()
 		if err != nil {
-			panicRuntime("%s", rtmsg.CwdFailed)
+			throwRuntimeError(rtmsg.ErrorFile, "%s", rtmsg.CwdFailed)
 		}
 		return stringValue(wd), true
 	case "содержит":
@@ -317,7 +317,7 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 			panicRuntime("%s", rtmsg.SocketWrongKind)
 		}
 		if _, err := io.WriteString(args[0].Conn, args[1].S); err != nil {
-			panicRuntime("%s", rtmsg.SocketSendFailed)
+			throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.SocketSendFailed)
 		}
 		return Value{}, true
 	case "получить":
@@ -331,7 +331,7 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		applyDeadline(args[0].Conn, args[0].Conn)
 		text, err := in.readTextChunk(args[0].Conn, args[0].Conn, int(max), false)
 		if err != nil {
-			panicRuntime("%s", rtmsg.SocketRecvFailed)
+			throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.SocketRecvFailed)
 		}
 		return stringValue(text), true
 	case "запрос":
@@ -579,7 +579,7 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 func (in *Interp) openFile(name, path string, flag int, perm os.FileMode) Value {
 	f, err := os.OpenFile(path, flag, perm)
 	if err != nil {
-		panicRuntime("%s", rtmsg.OpenFailedFormat(name, path))
+		throwRuntimeError(rtmsg.ErrorFile, "%s", rtmsg.OpenFailedFormat(name, path))
 	}
 	return fileValue(f)
 }
@@ -593,7 +593,7 @@ func (in *Interp) writeWholeFile(name, path, content string, flag int) {
 	n, err := f.WriteString(content)
 	f.Close()
 	if err != nil || n != len(content) {
-		panicRuntime("%s", rtmsg.WriteIOFailed)
+		throwRuntimeError(rtmsg.ErrorFile, "%s", rtmsg.WriteIOFailed)
 	}
 }
 
@@ -607,7 +607,7 @@ func (in *Interp) writeWholeFile(name, path, content string, flag int) {
 func (in *Interp) readLine() string {
 	line, err := in.stdin.ReadString('\n')
 	if err != nil && line == "" {
-		panicRuntime("%s", rtmsg.ReadEOF)
+		throwRuntimeError(rtmsg.ErrorFile, "%s", rtmsg.ReadEOF)
 	}
 	return strings.Trim(line, " \t\r\n")
 }
@@ -648,12 +648,12 @@ func (in *Interp) httpRequest(req Value) Value {
 		// для проверки сертификата берётся из host (SNI).
 		conn, err = tls.Dial("tcp", addr, &tls.Config{ServerName: host})
 		if err != nil {
-			panicRuntime("%s", rtmsg.TLSClientHandshakeFailed)
+			throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.TLSClientHandshakeFailed)
 		}
 	} else {
 		conn, err = net.Dial("tcp", addr)
 		if err != nil {
-			panicRuntime("%s", rtmsg.SocketConnectFailed)
+			throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.SocketConnectFailed)
 		}
 	}
 	defer conn.Close()
@@ -665,11 +665,11 @@ func (in *Interp) httpRequest(req Value) Value {
 	head := fmt.Sprintf("%s %s HTTP/1.1\r\nHost: %s\r\n%s%sConnection: close\r\nContent-Length: %d\r\n\r\n",
 		method, path, host, headers, hdrSep, len(body))
 	if _, err := io.WriteString(conn, head+body); err != nil {
-		panicRuntime("%s", rtmsg.SocketSendFailed)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.SocketSendFailed)
 	}
 	raw, err := io.ReadAll(conn)
 	if err != nil {
-		panicRuntime("%s", rtmsg.HTTPRecvFailed)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.HTTPRecvFailed)
 	}
 	rawS := string(raw)
 

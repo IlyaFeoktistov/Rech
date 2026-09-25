@@ -14,36 +14,6 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/structtag"
 )
 
-// parseErrorEntity - встроенное исключение, выбрасываемое "разобрать JSON"
-// при ошибке (некорректный текст, отсутствующее поле, несовпадение типа) -
-// наследник systemExceptionEntity. В отличие от Запрос/Ответ/ДатаВремя,
-// регистрируется НЕ безусловно в каждой программе (registerParseErrorEntity
-// вызывается только из analyzeParseExpr, при первом "разобрать") - иначе
-// любая программа, ни разу не использующая эту конструкцию, платила бы за
-// участие "Исключение" в диспетчеризации (vtable/isa-таблица - см.
-// internal/backend/cbackend/vtable.go, computeDispatch) без всякой причины.
-const parseErrorEntity = "ОшибкаРазбора"
-
-func registerParseErrorEntity(entities map[string]entitySig) {
-	if _, exists := entities[parseErrorEntity]; exists {
-		return
-	}
-	names, types, vis := systemExceptionSigFields()
-	entities[parseErrorEntity] = entitySig{
-		BaseName:        systemExceptionEntity,
-		FieldNames:      names,
-		FieldTypes:      types,
-		FieldVisibility: vis,
-		// HasCtor/CtorParams - тот же принцип, что и у "Исключение" самой
-		// (analyzer.go, collectEntities) - "новая ОшибкаРазбора(сообщение)"
-		// не должна требовать пустых аргументов, даже если пользователь
-		// (не только rech_struct_throw) когда-нибудь создаст её сам.
-		HasCtor:        true,
-		CtorParams:     []ir.Type{ir.TypeString},
-		CtorParamNames: []string{"сообщение"},
-	}
-}
-
 // supportedFormats - форматы, поддержанные "разобрать"/"сериализовать".
 // "PROTOBUF" - особый случай (internal/semantic/protobuf.go): Source/
 // значение "Список<Байт>", не "Строка", проверяется отдельной веткой в
@@ -77,7 +47,6 @@ func analyzeParseExpr(sc *ctx, e *ast.ParseExpr) (ir.Expr, error) {
 	if err := structCompatible(sc.entities, target, nil, e.Format); err != nil {
 		return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "\"разобрать %s\" в %s", e.Format, target)
 	}
-	registerParseErrorEntity(sc.entities)
 	switch e.Format {
 	case "XML":
 		sc.a.registerXMLParseTarget(target)

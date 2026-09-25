@@ -27,7 +27,7 @@ func intFromBaseString(op, s, prefixLower string, base int) Value {
 	}
 	n, err := strconv.ParseUint(digits, base, 64)
 	if err != nil {
-		panicRuntime("%s", rtmsg.NumBaseParseFailedFormat(op, s))
+		throwRuntimeError(rtmsg.ErrorParse, "%s", rtmsg.NumBaseParseFailedFormat(op, s))
 	}
 	return intValue(int64(n))
 }

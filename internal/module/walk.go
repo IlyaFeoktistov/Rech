@@ -73,7 +73,6 @@ var builtinTypeBases = map[string]bool{
 	"Словарь":        true,
 	"ДатаВремя":      true,
 	"RGBЦвет":        true,
-	"ОшибкаРазбора":  true,
 	"Блокировка":     true,
 	"Семафор":        true,
 	"Транзакция":     true,
@@ -110,9 +109,9 @@ var builtinTypeBases = map[string]bool{
 	"Значение":         true,
 }
 
-// Встроенная иерархия паник - тем же списком, что у семантики/backend'ов.
+// Встроенные паники и исключения - тем же списком, что у семантики/backend'ов.
 func init() {
-	for _, name := range rtmsg.PanicKinds {
+	for _, name := range append(append([]string{}, rtmsg.PanicKinds...), rtmsg.ErrorKinds...) {
 		builtinTypeBases[name] = true
 	}
 }

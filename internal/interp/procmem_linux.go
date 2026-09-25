@@ -90,7 +90,7 @@ func procAttach(pid int64) {
 		}
 	}()
 	if err := <-started; err != nil {
-		panicRuntime("%s", rtmsg.ProcAttachFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcAttachFailed)
 	}
 	ptraceSessions.Store(pid, ch)
 }
@@ -103,7 +103,7 @@ func procAttach(pid int64) {
 func procDetach(pid int64) {
 	v, loaded := ptraceSessions.LoadAndDelete(pid)
 	if !loaded {
-		panicRuntime("%s", rtmsg.ProcDetachFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcDetachFailed)
 	}
 	ch := v.(chan ptraceCmd)
 	done := make(chan error, 1)
@@ -111,7 +111,7 @@ func procDetach(pid int64) {
 	err := <-done
 	close(ch)
 	if err != nil {
-		panicRuntime("%s", rtmsg.ProcDetachFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcDetachFailed)
 	}
 }
 
@@ -120,7 +120,7 @@ func procDetach(pid int64) {
 // ограниченного словом машинного размера за вызов).
 func procRead(pid int64, addr int64, size int64) []byte {
 	if size <= 0 {
-		panicRuntime("%s", rtmsg.ProcMemReadFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcMemReadFailed)
 	}
 	buf := make([]byte, size)
 	local := []unix.Iovec{{Base: &buf[0]}}
@@ -128,7 +128,7 @@ func procRead(pid int64, addr int64, size int64) []byte {
 	remote := []unix.RemoteIovec{{Base: uintptr(addr), Len: int(size)}}
 	n, err := unix.ProcessVMReadv(int(pid), local, remote, 0)
 	if err != nil || n != int(size) {
-		panicRuntime("%s", rtmsg.ProcMemReadFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcMemReadFailed)
 	}
 	return buf
 }
@@ -144,7 +144,7 @@ func procWrite(pid int64, addr int64, data []byte) {
 	remote := []unix.RemoteIovec{{Base: uintptr(addr), Len: len(data)}}
 	n, err := unix.ProcessVMWritev(int(pid), local, remote, 0)
 	if err != nil || n != len(data) {
-		panicRuntime("%s", rtmsg.ProcMemWriteFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcMemWriteFailed)
 	}
 }
 

@@ -260,17 +260,57 @@ func panicRuntimeCode() string {
 	sb.WriteString("static void rech_panic(const char *msg) {\n")
 	sb.WriteString("    rech_panic_as(0, msg);\n")
 	sb.WriteString("}\n\n")
+	sb.WriteString(errorRuntimeCode())
+	return sb.String()
+}
+
+// errorRuntimeCode - rech_error_as(вид, сообщение): встроенное исключение
+// rtmsg.ErrorKinds[вид] (ожидаемая ситуация - файл, сеть, БД, разбор, ...)
+// тем же rech_throw, что и "выбросить"; сообщение копируется до размотки,
+// как у rech_panic_as.
+func errorRuntimeCode() string {
+	var sb strings.Builder
+	sb.WriteString("static void rech_error_as(int kind, const char *msg) {\n")
+	sb.WriteString("    size_t len = strlen(msg);\n")
+	sb.WriteString("    char *copy = GC_MALLOC_ATOMIC(len + 1);\n")
+	sb.WriteString("    memcpy(copy, msg, len + 1);\n")
+	sb.WriteString("    switch (kind) {\n")
+	for _, name := range rtmsg.ErrorKinds {
+		fmt.Fprintf(&sb, "    case %s: %s(%s(copy), \"%s\"); break;\n", rtmsg.ErrorKindMacros[name], throwFunc, mangleCtor(name), escapeCString(name))
+	}
+	fmt.Fprintf(&sb, "    default: %s(%s(copy), \"%s\"); break;\n", throwFunc, mangleCtor(systemExceptionEntity), escapeCString(systemExceptionEntity))
+	sb.WriteString("    }\n")
+	sb.WriteString("    exit(1);\n")
+	sb.WriteString("}\n\n")
+	return sb.String()
+}
+
+// errorKindDefines - #define RECH_ERR_* для каждого встроенного исключения
+// (код вида rech_error_as - индекс в rtmsg.ErrorKinds).
+func errorKindDefines() string {
+	var sb strings.Builder
+	for i, name := range rtmsg.ErrorKinds {
+		fmt.Fprintf(&sb, "#define %s %d\n", rtmsg.ErrorKindMacros[name], i)
+	}
 	return sb.String()
 }
 
 // panicPrototypes - объявления rech_panic/rech_panic_as до первого
 // хелпера, который их вызывает (определения - panicRuntimeCode, позже).
-const panicPrototypes = "static void rech_panic_as(int kind, const char *msg);\nstatic void rech_panic(const char *msg);\n"
+// rech_error_as и коды видов RECH_ERR_* - там же (errorRuntimeCode).
+var panicPrototypes = "static void rech_panic_as(int kind, const char *msg);\nstatic void rech_panic(const char *msg);\n" +
+	errorKindDefines() + "static void rech_error_as(int kind, const char *msg);\n"
 
 // panicCallC - C-вызов, бросающий встроенную панику kind (rtmsg.Panic*) с
 // уже экранированным C-литералом/выражением msgC.
 func panicCallC(kind, msgC string) string {
 	return fmt.Sprintf("rech_panic_as(%d, %s)", rtmsg.PanicKind(kind), msgC)
+}
+
+// errorCallC - C-вызов, бросающий встроенное исключение kind (rtmsg.Error*)
+// с уже экранированным C-литералом/выражением msgC.
+func errorCallC(kind, msgC string) string {
+	return fmt.Sprintf("rech_error_as(%s, %s)", rtmsg.ErrorKindMacros[kind], msgC)
 }
 
 // isaTableVar - имя C-массива rech_isa (см. exceptionRuntimeCode/

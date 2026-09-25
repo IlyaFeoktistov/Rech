@@ -87,7 +87,7 @@ func TestGenerateFromIRDBPoolTimeoutMsEmitsBoundedCheckout(t *testing.T) {
 			t.Fatalf("ожидался фрагмент %q, получено:\n%s", want, out)
 		}
 	}
-	wantPanic := `rech_panic("` + escapeCString(rtmsg.DBCheckoutTimeout) + `");`
+	wantPanic := `rech_error_as(RECH_ERR_DB, "` + escapeCString(rtmsg.DBCheckoutTimeout) + `");`
 	if strings.Count(out, wantPanic) != 2 {
 		t.Fatalf("ожидались РОВНО два вызова %q (Windows-ветка + POSIX-ветка), получено %d, текст:\n%s",
 			wantPanic, strings.Count(out, wantPanic), out)
@@ -95,7 +95,7 @@ func TestGenerateFromIRDBPoolTimeoutMsEmitsBoundedCheckout(t *testing.T) {
 }
 
 // TestGenerateFromIRDBPoolTimeoutMsPanicUsesConfiguredMsgBuffer -
-// rech_db_panicf использует RECH_DB_PANIC_MSG_MAX, не голое число.
+// rech_db_errorf использует RECH_DB_PANIC_MSG_MAX, не голое число.
 func TestGenerateFromIRDBPoolTimeoutMsPanicUsesConfiguredMsgBuffer(t *testing.T) {
 	out := generateFromSrcWithDBPoolTimeoutMs(t, dbTimeoutTestSrc, 0)
 	if !strings.Contains(out, "#define RECH_DB_PANIC_MSG_MAX 1024") {

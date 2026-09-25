@@ -77,7 +77,7 @@ func IOHelpers(mangledByteList string) string {
     n += fread(buf + n, 1, (size_t)max - n, f);
     if (n == 0 && ferror(f)) {
         free(buf);
-        rech_panic("%[3]s");
+        rech_error_as(RECH_ERR_FILE, "%[3]s");
     }
     %[1]s *out = rech_bytes_wrap(buf, (long long)n);
     free(buf);
@@ -86,7 +86,7 @@ func IOHelpers(mangledByteList string) string {
 
 static void rech_write_bytes(rech_file_t f, %[1]s *b) {
     if (b->len > 0 && fwrite(b->data, 1, (size_t)b->len, f) != (size_t)b->len) {
-        rech_panic("%[4]s");
+        rech_error_as(RECH_ERR_FILE, "%[4]s");
     }
 }
 
@@ -113,7 +113,7 @@ static %[1]s *rech_read_whole_file_bytes(const char *path) {
     if (ferror(f)) {
         free(buf);
         fclose(f);
-        rech_panic("%[3]s");
+        rech_error_as(RECH_ERR_FILE, "%[3]s");
     }
     fclose(f);
     %[1]s *out = rech_bytes_wrap(buf, (long long)len);

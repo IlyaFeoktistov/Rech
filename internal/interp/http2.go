@@ -136,12 +136,12 @@ func (in *Interp) http2AcceptSession(listenerVal Value) Value {
 	}
 	conn, err := listenerVal.Listener.Accept()
 	if err != nil {
-		panicRuntime("%s", rtmsg.HTTP2AcceptFailed)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.HTTP2AcceptFailed)
 	}
 	if tc, ok := conn.(*tls.Conn); ok {
 		if err := tc.Handshake(); err != nil {
 			conn.Close()
-			panicRuntime("%s", rtmsg.HTTP2HandshakeFailed)
+			throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.HTTP2HandshakeFailed)
 		}
 	}
 	sess := &http2Session{conn: conn, incoming: make(chan *http2StreamState, 256), streams: map[int64]*http2StreamState{}}
@@ -170,7 +170,7 @@ func (in *Interp) http2NewSession(host string, port int64) Value {
 	addr := net.JoinHostPort(host, strconv.FormatInt(port, 10))
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
-		panicRuntime("%s", rtmsg.HTTP2DialFailed)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.HTTP2DialFailed)
 	}
 	transport := &http2.Transport{
 		AllowHTTP: true,
@@ -181,7 +181,7 @@ func (in *Interp) http2NewSession(host string, port int64) Value {
 	clientConn, err := transport.NewClientConn(conn)
 	if err != nil {
 		conn.Close()
-		panicRuntime("%s", rtmsg.HTTP2ClientConnFailed)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.HTTP2ClientConnFailed)
 	}
 	return sessionValue(&http2Session{conn: conn, clientConn: clientConn, authority: addr, streams: map[int64]*http2StreamState{}})
 }
@@ -209,7 +209,7 @@ func (in *Interp) http2OpenStream(sessVal Value, method, path string) Value {
 	st := &http2StreamState{reqWriter: pw, headersReady: make(chan struct{})}
 	req, err := http.NewRequest(method, "http://"+sess.authority+path, pr)
 	if err != nil {
-		panicRuntime("%s", rtmsg.HTTP2OpenStreamFailed)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.HTTP2OpenStreamFailed)
 	}
 	go func() {
 		resp, err := sess.clientConn.RoundTrip(req)
@@ -228,7 +228,7 @@ func (in *Interp) http2OpenStream(sessVal Value, method, path string) Value {
 func awaitClientResponse(st *http2StreamState) *http.Response {
 	<-st.headersReady
 	if st.respErr != nil {
-		panicRuntime("%s", rtmsg.HTTP2OpenStreamFailed)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.HTTP2OpenStreamFailed)
 	}
 	return st.resp
 }
@@ -306,7 +306,7 @@ func (in *Interp) http2ReadData(v Value, max int64) Value {
 	buf := make([]byte, max)
 	n, err := reader.Read(buf)
 	if err != nil && err != io.EOF {
-		panicRuntime("%s", rtmsg.HTTP2RecvFailed)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.HTTP2RecvFailed)
 	}
 	return bytesValue(buf[:n])
 }
@@ -327,7 +327,7 @@ func (in *Interp) http2ReadAll(v Value) Value {
 	}
 	data, err := io.ReadAll(reader)
 	if err != nil {
-		panicRuntime("%s", rtmsg.HTTP2ReadAllFailed)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.HTTP2ReadAllFailed)
 	}
 	return bytesValue(data)
 }
@@ -350,7 +350,7 @@ func (in *Interp) http2SendData(v Value, dataVal Value) {
 	data := bytesFromValue(dataVal)
 	if st.w != nil {
 		if _, err := st.w.Write(data); err != nil {
-			panicRuntime("%s", rtmsg.HTTP2SendFailed)
+			throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.HTTP2SendFailed)
 		}
 		if st.flusher != nil {
 			st.flusher.Flush()
@@ -358,7 +358,7 @@ func (in *Interp) http2SendData(v Value, dataVal Value) {
 		return
 	}
 	if _, err := st.reqWriter.Write(data); err != nil {
-		panicRuntime("%s", rtmsg.HTTP2SendFailed)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.HTTP2SendFailed)
 	}
 }
 

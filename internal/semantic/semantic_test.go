@@ -963,13 +963,13 @@ func TestAnalyzeEntityFieldsConstructorAndFieldAccess(t *testing.T) {
 `)
 	// 1 пользовательская + "Запрос"/"Ответ"/"ДатаВремя"/"ОпцииКуки"/
 	// "Дейтаграмма"/"RGBЦвет"/"Процесс"/"РезультатКоманды"/"СостояниеБД"/
-	// "Регистры" (структуры-данные) + "Исключение" + 7 встроенных паник
-	// (rtmsg.PanicKinds) - Analyze добавляет их
+	// "Регистры" (структуры-данные) + "Исключение" + встроенные паники
+	// (rtmsg.PanicKinds) и исключения (rtmsg.ErrorKinds) - Analyze добавляет их
 	// во все out.Entities всегда, не только когда программа их использует -
 	// см. package doc registerHTTPEntity и buildIR (internal/semantic/
 	// analyzer.go).
-	if want := 12 + len(rtmsg.PanicKinds); len(irProg.Entities) != want {
-		t.Fatalf("ожидалась 1 пользовательская сущность + 11 встроенных (Запрос/Ответ/ДатаВремя/ОпцииКуки/Дейтаграмма/RGBЦвет/Процесс/РезультатКоманды/СостояниеБД/Регистры/Исключение) + паники, получено %d", len(irProg.Entities))
+	if want := 12 + len(rtmsg.PanicKinds) + len(rtmsg.ErrorKinds); len(irProg.Entities) != want {
+		t.Fatalf("ожидалась 1 пользовательская сущность + 11 встроенных (Запрос/Ответ/ДатаВремя/ОпцииКуки/Дейтаграмма/RGBЦвет/Процесс/РезультатКоманды/СостояниеБД/Регистры/Исключение) + паники и исключения, получено %d", len(irProg.Entities))
 	}
 	entity := irProg.Entities[0]
 	if entity.Name != "Пользователь" || len(entity.Fields) != 2 {

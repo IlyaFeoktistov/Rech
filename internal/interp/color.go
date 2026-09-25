@@ -15,13 +15,13 @@ import (
 func hexToColor(hex string) Value {
 	s := strings.TrimPrefix(hex, "#")
 	if len(s) != 6 {
-		panicRuntime("%s", rtmsg.HexColorInvalidFormat)
+		throwRuntimeError(rtmsg.ErrorParse, "%s", rtmsg.HexColorInvalidFormat)
 	}
 	r, errR := strconv.ParseUint(s[0:2], 16, 8)
 	g, errG := strconv.ParseUint(s[2:4], 16, 8)
 	b, errB := strconv.ParseUint(s[4:6], 16, 8)
 	if errR != nil || errG != nil || errB != nil {
-		panicRuntime("%s", rtmsg.HexColorInvalidFormat)
+		throwRuntimeError(rtmsg.ErrorParse, "%s", rtmsg.HexColorInvalidFormat)
 	}
 	fields := map[string]Value{
 		"красный": byteValue(int64(r)), "зелёный": byteValue(int64(g)), "синий": byteValue(int64(b)),

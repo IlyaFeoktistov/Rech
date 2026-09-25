@@ -93,7 +93,7 @@ func extractPartContentType(partHeaders string) string {
 func parseMultipart(body []byte, headers string) Value {
 	boundary, ok := extractBoundary(headers)
 	if !ok {
-		panicRuntime("%s", rtmsg.MultipartMissingBoundary)
+		throwRuntimeError(rtmsg.ErrorParse, "%s", rtmsg.MultipartMissingBoundary)
 	}
 	delim := []byte("--" + boundary)
 	var parts []Value

@@ -39,7 +39,7 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
-// dbPanicMsgMax - размер буфера "rech_db_panicf" (RECH_DB_PANIC_MSG_MAX,
+// dbPanicMsgMax - размер буфера "rech_db_errorf" (RECH_DB_PANIC_MSG_MAX,
 // dbHandleTypedefCode) - с запасом на сформированный snprintf текст ошибки
 // БД (сообщение rtmsg + текст SQL-запроса пользователя, см. её вызовы).
 const dbPanicMsgMax = 1024
@@ -242,17 +242,17 @@ typedef struct rech_db {
 // rtmsg.DBCheckoutTimeout - единственное место в этом куске кода, которому
 // нужен параметр вообще (остальной текст - const).
 func dbCommonHelperFuncsCode() string {
-	// timeoutPanic - изолированный fmt.Sprintf ровно на одну подстановку
+	// timeoutErr - изолированный fmt.Sprintf ровно на одну подстановку
 	// (сообщение rtmsg), а не единый Sprintf на весь текст функции целиком -
 	// timespec.DeadlineCode ниже сама уже возвращает готовый C-текст с
 	// настоящими "%" (деление по модулю), которые сломались бы, пройдя ЕЩЁ
 	// раз через внешний fmt.Sprintf (интерпретировались бы как чужие
 	// verb'ы) - конкатенация строк, не вложенные форматирования.
-	timeoutPanic := fmt.Sprintf(`rech_panic("%s");`, escapeCString(rtmsg.DBCheckoutTimeout))
-	return `static void rech_db_panicf(const char *tmpl, const char *arg) {
+	timeoutErr := fmt.Sprintf(`rech_error_as(RECH_ERR_DB, "%s");`, escapeCString(rtmsg.DBCheckoutTimeout))
+	return `static void rech_db_errorf(const char *tmpl, const char *arg) {
     char msg[RECH_DB_PANIC_MSG_MAX];
     snprintf(msg, sizeof msg, tmpl, arg);
-    rech_panic(msg);
+    rech_error_as(RECH_ERR_DB, msg);
 }
 
 // rech_db_checkout/rech_db_checkin - берут/возвращают ОДНО свободное
@@ -263,7 +263,7 @@ func dbCommonHelperFuncsCode() string {
 // который нужно передать обратно в checkin (какой именно слот освободить) -
 // вызывающий код держит его в локальной переменной между checkout и
 // checkin, соединение использует МОНОПОЛЬНО до этого момента. Ни один
-// вызов "rech_panic"/"rech_db_panicf" не должен происходить, пока
+// вызов "rech_panic"/"rech_db_errorf" не должен происходить, пока
 // соединение ещё не возвращено в пул (checkin) - перехваченная (docs/
 // SPEC.md, "поймать (x: Паника)") паника разворачивается через longjmp мимо
 // парного checkin, иначе оставила бы это соединение НАВСЕГДА помеченным
@@ -274,9 +274,9 @@ func dbCommonHelperFuncsCode() string {
 // кодом, что и до появления этой настройки (#if сворачивает лишнюю ветку
 // целиком, а не проверяет её условием в рантайме - тот же приём, что и у
 // ctx.usesTLS в другом месте этого backend'а). Не дождался за отведённое
-// время - "rech_panic(rtmsg.DBCheckoutTimeout)" вместо возврата: вызывающий
+// время - ОшибкаБД (rtmsg.DBCheckoutTimeout) вместо возврата: вызывающий
 // код (rech_db_query/rech_db_exec) и так ничего не проверяет после
-// checkout, паника просто не даёт дойти до использования несуществующего
+// checkout, исключение просто не даёт дойти до использования несуществующего
 // соединения. Абсолютный дедлайн (не относительный таймаут на каждой
 // итерации цикла) - тем же приёмом, что и rech_wait_all_tasks
 // (active_tasks.go) на POSIX; на Windows SleepConditionVariableCS всё равно
@@ -297,7 +297,7 @@ static void *rech_db_checkout(rech_db_t *db, int *out_idx) {
 #if RECH_DB_POOL_TIMEOUT_MS > 0
         if (!SleepConditionVariableCS(&db->cond, &db->mutex, RECH_DB_POOL_TIMEOUT_MS)) {
             LeaveCriticalSection(&db->mutex);
-            ` + timeoutPanic + `
+            ` + timeoutErr + `
         }
 #else
         SleepConditionVariableCS(&db->cond, &db->mutex, INFINITE);
@@ -320,7 +320,7 @@ static void *rech_db_checkout(rech_db_t *db, int *out_idx) {
 #if RECH_DB_POOL_TIMEOUT_MS > 0
         if (pthread_cond_timedwait(&db->cond, &db->mutex, &rech_db_deadline) != 0) {
             pthread_mutex_unlock(&db->mutex);
-            ` + timeoutPanic + `
+            ` + timeoutErr + `
         }
 #else
         pthread_cond_wait(&db->cond, &db->mutex);
@@ -411,7 +411,7 @@ static void rech_db_parse_mysql_url(const char *conn, char **user, char **pass, 
     const char *p = conn + 8; /* strlen("mysql://") */
     const char *slash = strchr(p, '/');
     if (!slash) {
-        rech_panic("%[1]s");
+        rech_error_as(RECH_ERR_DB, "%[1]s");
     }
     const char *authority = p;
     long long authority_len = (long long)(slash - p);
@@ -488,7 +488,7 @@ func dbConnectCloseCode(backends dbscheme.Set) string {
         for (int i = 0; i < db->pool_size; i++) {
             sqlite3 *h;
             if (sqlite3_open(path, &h) != 0) {
-                rech_panic("%[3]s");
+                rech_error_as(RECH_ERR_DB, "%[3]s");
             }
             // busy_timeout - НЕСКОЛЬКО реальных соединений (pool_size > 1)
             // теперь могут одновременно писать в один и тот же файл - без
@@ -512,7 +512,7 @@ func dbConnectCloseCode(backends dbscheme.Set) string {
         for (int i = 0; i < db->pool_size; i++) {
             db->conns[i] = PQconnectdb(conn);
             if (PQstatus(db->conns[i]) != 0) {
-                rech_panic("%[5]s");
+                rech_error_as(RECH_ERR_DB, "%[5]s");
             }
             db->in_use[i] = 0;
         }
@@ -530,7 +530,7 @@ func dbConnectCloseCode(backends dbscheme.Set) string {
         for (int i = 0; i < db->pool_size; i++) {
             void *h = mysql_init(NULL);
             if (!mysql_real_connect(h, host, user, pass, dbname, port ? (unsigned int)port : 3306, NULL, 0)) {
-                rech_panic("%[3]s");
+                rech_error_as(RECH_ERR_DB, "%[3]s");
             }
             db->conns[i] = h;
             db->in_use[i] = 0;
@@ -539,7 +539,7 @@ func dbConnectCloseCode(backends dbscheme.Set) string {
     }
 `, dbscheme.MySQLPrefix, len(dbscheme.MySQLPrefix), escapeCString(rtmsg.DBConnectFailed))
 	}
-	fmt.Fprintf(&sb, `    rech_panic("%s");
+	fmt.Fprintf(&sb, `    rech_error_as(RECH_ERR_DB, "%s");
     return NULL;
 }
 
@@ -667,7 +667,7 @@ func sqliteQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictC
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(conn, sql, -1, &stmt, NULL) != 0) {
         rech_db_checkin(db, rech_db_idx);
-        rech_db_panicf("%[5]s", sql);
+        rech_db_errorf("%[5]s", sql);
     }
     int ncols = sqlite3_column_count(stmt);
     int rc;
@@ -694,7 +694,7 @@ func sqliteQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictC
     if (rc != 101) {
         sqlite3_finalize(stmt);
         rech_db_checkin(db, rech_db_idx);
-        rech_db_panicf("%[5]s", sql);
+        rech_db_errorf("%[5]s", sql);
     }
     sqlite3_finalize(stmt);
     rech_db_checkin(db, rech_db_idx);
@@ -707,7 +707,7 @@ static long long rech_db_sqlite_exec(rech_db_t *db, const char *sql) {
     char *errmsg = NULL;
     if (sqlite3_exec(conn, sql, NULL, NULL, &errmsg) != 0) {
         rech_db_checkin(db, rech_db_idx);
-        rech_db_panicf("%[10]s", sql);
+        rech_db_errorf("%[10]s", sql);
     }
     long long changes = (long long)sqlite3_changes(conn);
     rech_db_checkin(db, rech_db_idx);
@@ -741,7 +741,7 @@ func pgQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCtor 
     int status = PQresultStatus(res);
     if (status != 1 && status != 2) {
         PQclear(res);
-        rech_db_panicf("%[5]s", sql);
+        rech_db_errorf("%[5]s", sql);
     }
     int nrows = PQntuples(res);
     int ncols = PQnfields(res);
@@ -781,7 +781,7 @@ static long long rech_db_pg_exec(rech_db_t *db, const char *sql) {
     int status = PQresultStatus(res);
     if (status != 1 && status != 2) {
         PQclear(res);
-        rech_db_panicf("%[11]s", sql);
+        rech_db_errorf("%[11]s", sql);
     }
     long long affected = atoll(PQcmdTuples(res));
     PQclear(res);
@@ -816,7 +816,7 @@ func mysqlQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCt
     void *conn = rech_db_checkout(db, &rech_db_idx);
     if (mysql_real_query(conn, sql, (unsigned long)strlen(sql)) != 0) {
         rech_db_checkin(db, rech_db_idx);
-        rech_db_panicf("%[5]s", sql);
+        rech_db_errorf("%[5]s", sql);
     }
     MYSQL_RES *res = mysql_store_result(conn);
     rech_db_checkin(db, rech_db_idx);
@@ -862,7 +862,7 @@ static long long rech_db_mysql_exec(rech_db_t *db, const char *sql) {
     void *conn = rech_db_checkout(db, &rech_db_idx);
     if (mysql_real_query(conn, sql, (unsigned long)strlen(sql)) != 0) {
         rech_db_checkin(db, rech_db_idx);
-        rech_db_panicf("%[10]s", sql);
+        rech_db_errorf("%[10]s", sql);
     }
     long long affected = (long long)mysql_affected_rows(conn);
     rech_db_checkin(db, rech_db_idx);

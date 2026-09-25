@@ -57,7 +57,7 @@ func (s *dbTxState) finish(commit bool) {
 	if s.parent == nil {
 		if commit {
 			if err := s.tx.Commit(); err != nil {
-				panicRuntime("%s", rtmsg.DBExecFailedFormat("COMMIT"))
+				throwRuntimeError(rtmsg.ErrorDB, "%s", rtmsg.DBExecFailedFormat("COMMIT"))
 			}
 		} else {
 			s.tx.Rollback()
@@ -70,7 +70,7 @@ func (s *dbTxState) finish(commit bool) {
 	}
 	for _, stmt := range stmts {
 		if _, err := s.tx.Exec(stmt); err != nil {
-			panicRuntime("%s", rtmsg.DBExecFailedFormat(stmt))
+			throwRuntimeError(rtmsg.ErrorDB, "%s", rtmsg.DBExecFailedFormat(stmt))
 		}
 	}
 }
@@ -85,7 +85,7 @@ func (s *dbTxState) finish(commit bool) {
 func (in *Interp) dbBeginTransaction(db *sql.DB, callback Value, dbg *dbgThread) (Value, error) {
 	tx, err := db.Begin()
 	if err != nil {
-		panicRuntime("%s", rtmsg.DBConnectFailed)
+		throwRuntimeError(rtmsg.ErrorDB, "%s", rtmsg.DBConnectFailed)
 	}
 	return in.dbRunTransaction(&dbTxState{tx: tx, db: db}, callback, dbg)
 }
@@ -100,7 +100,7 @@ func (in *Interp) dbBeginNestedTransaction(parent *dbTxState, callback Value, db
 	depth := parent.depth + 1
 	state := &dbTxState{tx: parent.tx, db: parent.db, parent: parent, depth: depth, savepoint: fmt.Sprintf("rech_sp_%d", depth)}
 	if _, err := parent.tx.Exec("SAVEPOINT " + state.savepoint); err != nil {
-		panicRuntime("%s", rtmsg.DBExecFailedFormat("SAVEPOINT "+state.savepoint))
+		throwRuntimeError(rtmsg.ErrorDB, "%s", rtmsg.DBExecFailedFormat("SAVEPOINT "+state.savepoint))
 	}
 	return in.dbRunTransaction(state, callback, dbg)
 }
@@ -143,12 +143,12 @@ func (in *Interp) dbTxQuery(state *dbTxState, sqlText string, params []Value) Va
 	}
 	rows, err := state.tx.Query(dbRewritePlaceholders(state.db, sqlText), args...)
 	if err != nil {
-		panicRuntime("%s", rtmsg.DBQueryFailedFormat(sqlText))
+		throwRuntimeError(rtmsg.ErrorDB, "%s", rtmsg.DBQueryFailedFormat(sqlText))
 	}
 	defer rows.Close()
 	cols, err := rows.Columns()
 	if err != nil {
-		panicRuntime("%s", rtmsg.DBQueryFailedFormat(sqlText))
+		throwRuntimeError(rtmsg.ErrorDB, "%s", rtmsg.DBQueryFailedFormat(sqlText))
 	}
 	scanTargets := make([]any, len(cols))
 	scanValues := make([]any, len(cols))
@@ -158,7 +158,7 @@ func (in *Interp) dbTxQuery(state *dbTxState, sqlText string, params []Value) Va
 	rowElems := make([]Value, 0)
 	for rows.Next() {
 		if err := rows.Scan(scanTargets...); err != nil {
-			panicRuntime("%s", rtmsg.DBQueryFailedFormat(sqlText))
+			throwRuntimeError(rtmsg.ErrorDB, "%s", rtmsg.DBQueryFailedFormat(sqlText))
 		}
 		pairs := newDictPairs()
 		for i, col := range cols {
@@ -170,7 +170,7 @@ func (in *Interp) dbTxQuery(state *dbTxState, sqlText string, params []Value) Va
 		})
 	}
 	if err := rows.Err(); err != nil {
-		panicRuntime("%s", rtmsg.DBQueryFailedFormat(sqlText))
+		throwRuntimeError(rtmsg.ErrorDB, "%s", rtmsg.DBQueryFailedFormat(sqlText))
 	}
 	return Value{
 		Type: ir.EntityType(dbResultType),
@@ -185,11 +185,11 @@ func (in *Interp) dbTxExec(state *dbTxState, sqlText string, params []Value) Val
 	}
 	result, err := state.tx.Exec(dbRewritePlaceholders(state.db, sqlText), args...)
 	if err != nil {
-		panicRuntime("%s", rtmsg.DBExecFailedFormat(sqlText))
+		throwRuntimeError(rtmsg.ErrorDB, "%s", rtmsg.DBExecFailedFormat(sqlText))
 	}
 	affected, err := result.RowsAffected()
 	if err != nil {
-		panicRuntime("%s", rtmsg.DBExecFailedFormat(sqlText))
+		throwRuntimeError(rtmsg.ErrorDB, "%s", rtmsg.DBExecFailedFormat(sqlText))
 	}
 	return intValue(affected)
 }

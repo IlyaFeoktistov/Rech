@@ -79,13 +79,13 @@ func procAttach(pid int64) {
 	enableDebugPrivilege()
 	ok, _, _ := procDebugActiveProcess.Call(uintptr(pid))
 	if ok == 0 {
-		panicRuntime("%s", rtmsg.ProcAttachFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcAttachFailed)
 	}
 	s := &winDbgSession{}
 	r, _, _ := procWaitForDebugEvent.Call(uintptr(unsafe.Pointer(&s.pending)), infinite)
 	if r == 0 {
 		procDebugActiveProcessStop.Call(uintptr(pid))
-		panicRuntime("%s", rtmsg.ProcAttachFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcAttachFailed)
 	}
 	s.tid = s.pending.ThreadId
 	s.hasPending = true
@@ -100,7 +100,7 @@ func procAttach(pid int64) {
 func procDetach(pid int64) {
 	v, ok := winDbgSessions.LoadAndDelete(pid)
 	if !ok {
-		panicRuntime("%s", rtmsg.ProcDetachFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcDetachFailed)
 	}
 	s := v.(*winDbgSession)
 	if s.hasPending {
@@ -108,7 +108,7 @@ func procDetach(pid int64) {
 	}
 	ok2, _, _ := procDebugActiveProcessStop.Call(uintptr(pid))
 	if ok2 == 0 {
-		panicRuntime("%s", rtmsg.ProcDetachFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcDetachFailed)
 	}
 }
 
@@ -117,17 +117,17 @@ func procDetach(pid int64) {
 // тот же принцип, что и rech_wait_process в cbackend, subprocess.go).
 func procRead(pid int64, addr int64, size int64) []byte {
 	if size <= 0 {
-		panicRuntime("%s", rtmsg.ProcMemReadFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcMemReadFailed)
 	}
 	h, err := windows.OpenProcess(windows.PROCESS_VM_READ, false, uint32(pid))
 	if err != nil {
-		panicRuntime("%s", rtmsg.ProcMemReadFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcMemReadFailed)
 	}
 	defer windows.CloseHandle(h)
 	buf := make([]byte, size)
 	var got uintptr
 	if err := windows.ReadProcessMemory(h, uintptr(addr), &buf[0], uintptr(size), &got); err != nil || got != uintptr(size) {
-		panicRuntime("%s", rtmsg.ProcMemReadFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcMemReadFailed)
 	}
 	return buf
 }
@@ -140,12 +140,12 @@ func procWrite(pid int64, addr int64, data []byte) {
 	}
 	h, err := windows.OpenProcess(windows.PROCESS_VM_WRITE|windows.PROCESS_VM_OPERATION, false, uint32(pid))
 	if err != nil {
-		panicRuntime("%s", rtmsg.ProcMemWriteFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcMemWriteFailed)
 	}
 	defer windows.CloseHandle(h)
 	var written uintptr
 	if err := windows.WriteProcessMemory(h, uintptr(addr), &data[0], uintptr(len(data)), &written); err != nil || written != uintptr(len(data)) {
-		panicRuntime("%s", rtmsg.ProcMemWriteFailed)
+		throwRuntimeError(rtmsg.ErrorProcess, "%s", rtmsg.ProcMemWriteFailed)
 	}
 }
 

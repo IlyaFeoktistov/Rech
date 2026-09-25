@@ -315,6 +315,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 	}
 	methods["Исключение"] = map[string]funcSig{}
 	registerPanicEntities(entities, methods)
+	registerErrorEntities(entities, methods)
 	// bag - собирает диагностики НЕЗАВИСИМЫХ объявлений (и "внешняя
 	// сущность" ниже, и обычных сущностей дальше) за один прогон, вместо
 	// остановки на первой - тем же принципом, что и buildIR (см. её package
@@ -1320,6 +1321,7 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 		&ir.Entity{Name: "Исключение", Fields: systemExceptionFields(), Ctor: systemExceptionCtor()},
 	)
 	out.Entities = append(out.Entities, panicIREntities()...)
+	out.Entities = append(out.Entities, errorIREntities()...)
 	for _, fn := range prog.Functions {
 		currentFile = fn.File
 		irFn, err := a.analyzeFunction(fn)
@@ -1398,27 +1400,7 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 		})
 	}
 
-	// "ОшибкаРазбора" - в отличие от Запрос/Ответ/ДатаВремя/Исключение выше,
-	// НЕ добавлена безусловно - зарегистрирована в a.entities только если
-	// программа хоть раз использовала "разобрать JSON" (см.
-	// registerParseErrorEntity) - добавление её в out.Entities для КАЖДОЙ
-	// программы сделало бы "Исключение" безусловным участником
-	// диспетчеризации (computeDispatch) даже там, где исключения вообще не
-	// используются.
-	if _, ok := a.entities[parseErrorEntity]; ok {
-		out.Entities = append(out.Entities, &ir.Entity{
-			Name: parseErrorEntity, BaseName: systemExceptionEntity,
-			Fields: systemExceptionFields(),
-			// Ctor - тот же принцип, что и у "Исключение" (systemExceptionCtor) -
-			// rech_struct_throw (internal/backend/cbackend/json_extract.go)
-			// вызывает mangleCtor(parseErrorEntity) с одним аргументом
-			// (сообщением) напрямую, минуя "новый" - конструктор обязан
-			// принимать ровно этот один параметр.
-			Ctor: systemExceptionCtor(),
-		})
-	}
-	// "Совпадение" - тот же принцип лениво-условной регистрации, что и
-	// "ОшибкаРазбора" выше - добавлена в out.Entities,
+	// "Совпадение" - лениво-условная регистрация - добавлена в out.Entities,
 	// только если программа хоть раз упомянула "Совпадение" (вызовом
 	// "регулярное" или явной аннотацией типа, см. её case в
 	// resolveTypeName). Её собственное поле "группы" (Список<Строка>) не
@@ -1459,8 +1441,8 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	// началу этой функции, через collectEntities), но и внутри тела метода/
 	// функции/конструктора ("переменная м = новая Блокировка()" без единого
 	// поля такого типа нигде) - тела анализируются как раз в циклах выше.
-	// В отличие от "ОшибкаРазбора" (просто append, ссылка на неё не бывает
-	// типом ПОЛЯ другой сущности) - "Блокировка" ставится ПЕРВОЙ в
+	// В отличие от лениво-условных сущностей выше (просто append) -
+	// "Блокировка" ставится ПЕРВОЙ в
 	// out.Entities (не последней): если сущность, объявленная в файле
 	// раньше, несёт поле типа "Блокировка", её C-структура (typedefs,
 	// cbackend) ссылается на "rech_T_blokirovka" - этот typedef обязан идти

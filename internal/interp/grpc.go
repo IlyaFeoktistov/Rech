@@ -28,7 +28,7 @@ func (in *Interp) grpcOpenStream(sessVal Value, path string) Value {
 	st := &http2StreamState{reqWriter: pw, headersReady: make(chan struct{})}
 	req, err := http.NewRequest(http.MethodPost, "http://"+sess.authority+path, pr)
 	if err != nil {
-		panicRuntime("%s", rtmsg.HTTP2OpenStreamFailed)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.HTTP2OpenStreamFailed)
 	}
 	req.Header.Set("content-type", grpcContentType)
 	go func() {
@@ -102,7 +102,7 @@ func (in *Interp) grpcReadMessage(v Value) Value {
 	}
 	plain, err := gzipDecompress(body)
 	if err != nil {
-		panicRuntime("%s", rtmsg.GRPCCompressedUnsupported)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.GRPCCompressedUnsupported)
 	}
 	inner := bytesValue(plain)
 	return Value{Type: nullableType, Nullable: &inner}
@@ -138,7 +138,7 @@ func (in *Interp) grpcReadExactly(v Value, n int64, allowCleanEOF bool) []byte {
 			if allowCleanEOF && len(buf) == 0 {
 				return nil
 			}
-			panicRuntime("%s", rtmsg.GRPCFramingError)
+			throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.GRPCFramingError)
 		}
 		buf = append(buf, chunk...)
 	}
@@ -163,11 +163,11 @@ func (in *Interp) grpcFinish(v Value, code int64, message string) {
 func (in *Interp) grpcStatus(v Value) Value {
 	raw := in.http2HeaderOf(v, "grpc-status")
 	if raw.Nullable == nil {
-		panicRuntime("%s", rtmsg.GRPCStatusMissing)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.GRPCStatusMissing)
 	}
 	code, err := strconv.ParseInt(raw.Nullable.S, 10, 64)
 	if err != nil {
-		panicRuntime("%s", rtmsg.GRPCStatusInvalid)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.GRPCStatusInvalid)
 	}
 	return intValue(code)
 }

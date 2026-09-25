@@ -145,7 +145,7 @@ var tlsSocketOpsCode = fmt.Sprintf(`static %[6]s rech_accept(rech_socket_t s) {
             return %[6]s_empty();
         }
 #endif
-        rech_panic("%[1]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[1]s");
     }
     SSL_CTX *listen_ctx = rech_tls_listen_ctx(s);
     if (listen_ctx != NULL) {
@@ -158,7 +158,7 @@ var tlsSocketOpsCode = fmt.Sprintf(`static %[6]s rech_accept(rech_socket_t s) {
 #else
             close(c);
 #endif
-            rech_panic("%[2]s");
+            rech_error_as(RECH_ERR_NETWORK, "%[2]s");
         }
         rech_tls_register(c, NULL, ssl);
     }
@@ -176,7 +176,7 @@ static void rech_send_raw(rech_socket_t s, const char *data, long long len) {
             ? SSL_write(ssl, data + sent, (int)(len - sent))
             : send(s, data + sent, (int)(len - sent), 0);
         if (n <= 0) {
-            rech_panic("%[3]s");
+            rech_error_as(RECH_ERR_NETWORK, "%[3]s");
         }
         sent += n;
     }
@@ -240,12 +240,12 @@ var tlsListenSecureCode = fmt.Sprintf(`static rech_socket_t rech_listen_tcp_secu
 #endif
     SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
     if (ctx == NULL) {
-        rech_panic("%[1]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[1]s");
     }
     if (SSL_CTX_use_certificate_file(ctx, certfile, SSL_FILETYPE_PEM) <= 0 ||
         SSL_CTX_use_PrivateKey_file(ctx, keyfile, SSL_FILETYPE_PEM) <= 0) {
         SSL_CTX_free(ctx);
-        rech_panic("%[1]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[1]s");
     }
     rech_socket_t s = rech_listen_tcp(port);
     rech_tls_register(s, ctx, NULL);
@@ -288,14 +288,14 @@ var tlsConnectCode = fmt.Sprintf(`static rech_socket_t rech_connect_tcp_tls(cons
     rech_socket_t s = rech_connect_tcp(host, port);
     SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());
     if (ctx == NULL) {
-        rech_panic("%[1]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[1]s");
     }
     SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
     SSL_CTX_set_default_verify_paths(ctx);
     SSL *ssl = SSL_new(ctx);
     SSL_CTX_free(ctx);
     if (ssl == NULL) {
-        rech_panic("%[1]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[1]s");
     }
     SSL_set_tlsext_host_name(ssl, host);
     SSL_set1_host(ssl, host);
@@ -307,7 +307,7 @@ var tlsConnectCode = fmt.Sprintf(`static rech_socket_t rech_connect_tcp_tls(cons
 #else
         close(s);
 #endif
-        rech_panic("%[1]s");
+        rech_error_as(RECH_ERR_NETWORK, "%[1]s");
     }
     rech_tls_register(s, NULL, ssl);
     return s;

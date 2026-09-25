@@ -164,26 +164,26 @@ static %[1]s rech_proc_get_regs(%[2]s p) {
 #if defined(__linux__)
     struct user_regs_struct regs;
     if (ptrace(PTRACE_GETREGS, (pid_t)p.%[3]s, NULL, &regs) != 0) {
-        rech_panic("%[4]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[4]s");
     }
 %[5]s#elif defined(_WIN32)
     rech_win_dbg_t *s = rech_win_session_find(p.%[3]s);
     if (s == NULL) {
-        rech_panic("%[4]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[4]s");
     }
     HANDLE th = OpenThread(THREAD_GET_CONTEXT | THREAD_SET_CONTEXT, FALSE, s->tid);
     if (th == NULL) {
-        rech_panic("%[4]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[4]s");
     }
     CONTEXT ctx;
     ctx.ContextFlags = CONTEXT_FULL;
     if (!GetThreadContext(th, &ctx)) {
         CloseHandle(th);
-        rech_panic("%[4]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[4]s");
     }
     CloseHandle(th);
 %[6]s#else
-    rech_panic("%[4]s");
+    rech_error_as(RECH_ERR_PROCESS, "%[4]s");
 #endif
     return out;
 }
@@ -192,35 +192,35 @@ static void rech_proc_set_regs(%[2]s p, %[1]s r) {
 #if defined(__linux__)
     struct user_regs_struct regs;
     if (ptrace(PTRACE_GETREGS, (pid_t)p.%[3]s, NULL, &regs) != 0) {
-        rech_panic("%[7]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[7]s");
     }
 %[8]s    if (ptrace(PTRACE_SETREGS, (pid_t)p.%[3]s, NULL, &regs) != 0) {
-        rech_panic("%[7]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[7]s");
     }
 #elif defined(_WIN32)
     rech_win_dbg_t *s = rech_win_session_find(p.%[3]s);
     if (s == NULL) {
-        rech_panic("%[7]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[7]s");
     }
     HANDLE th = OpenThread(THREAD_GET_CONTEXT | THREAD_SET_CONTEXT, FALSE, s->tid);
     if (th == NULL) {
-        rech_panic("%[7]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[7]s");
     }
     CONTEXT ctx;
     ctx.ContextFlags = CONTEXT_FULL;
     if (!GetThreadContext(th, &ctx)) {
         CloseHandle(th);
-        rech_panic("%[7]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[7]s");
     }
 %[9]s    if (!SetThreadContext(th, &ctx)) {
         CloseHandle(th);
-        rech_panic("%[7]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[7]s");
     }
     CloseHandle(th);
 #else
     (void)p;
     (void)r;
-    rech_panic("%[7]s");
+    rech_error_as(RECH_ERR_PROCESS, "%[7]s");
 #endif
 }
 
@@ -229,17 +229,17 @@ static void rech_proc_set_breakpoint(%[2]s p, long long addr) {
     unsigned char orig;
 #if defined(__linux__)
     if (!rech_ptrace_peek_byte((pid_t)pid, addr, &orig) || !rech_ptrace_poke_byte((pid_t)pid, addr, 0xCC)) {
-        rech_panic("%[10]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[10]s");
     }
 #elif defined(_WIN32)
     HANDLE h = OpenProcess(PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_VM_OPERATION, FALSE, (DWORD)pid);
     if (h == NULL) {
-        rech_panic("%[10]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[10]s");
     }
     SIZE_T n;
     if (!ReadProcessMemory(h, (LPCVOID)(intptr_t)addr, &orig, 1, &n) || n != 1) {
         CloseHandle(h);
-        rech_panic("%[10]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[10]s");
     }
     // VirtualProtectEx - страница кода почти всегда PAGE_EXECUTE_READ (без
     // записи) - WriteProcessMemory сама по себе не гарантирует обход этого
@@ -256,12 +256,12 @@ static void rech_proc_set_breakpoint(%[2]s p, long long addr) {
     }
     if (!wrote) {
         CloseHandle(h);
-        rech_panic("%[10]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[10]s");
     }
     FlushInstructionCache(h, (LPCVOID)(intptr_t)addr, 1);
     CloseHandle(h);
 #else
-    rech_panic("%[10]s");
+    rech_error_as(RECH_ERR_PROCESS, "%[10]s");
 #endif
     rech_bp_add(pid, addr, orig);
 }
@@ -306,11 +306,11 @@ static long long rech_proc_resume(%[2]s p) {
         }
     }
     if (ptrace(PTRACE_CONT, (pid_t)pid, NULL, NULL) != 0) {
-        rech_panic("%[12]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[12]s");
     }
     int status;
     if (waitpid((pid_t)pid, &status, 0) < 0) {
-        rech_panic("%[12]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[12]s");
     }
     if (WIFEXITED(status) || WIFSIGNALED(status)) {
         return -1;
@@ -322,12 +322,12 @@ static long long rech_proc_resume(%[2]s p) {
         ptrace(PTRACE_SETREGS, (pid_t)pid, NULL, &after);
         return (long long)after.rip;
     }
-    rech_panic("%[12]s");
+    rech_error_as(RECH_ERR_PROCESS, "%[12]s");
     return -1;
 #elif defined(_WIN32)
     rech_win_dbg_t *s = rech_win_session_find(pid);
     if (s == NULL) {
-        rech_panic("%[12]s");
+        rech_error_as(RECH_ERR_PROCESS, "%[12]s");
     }
     {
         HANDLE th = OpenThread(THREAD_GET_CONTEXT | THREAD_SET_CONTEXT, FALSE, s->tid);
@@ -352,7 +352,7 @@ static long long rech_proc_resume(%[2]s p) {
                     DEBUG_EVENT step_ev;
                     for (;;) {
                         if (!WaitForDebugEvent(&step_ev, INFINITE)) {
-                            rech_panic("%[12]s");
+                            rech_error_as(RECH_ERR_PROCESS, "%[12]s");
                         }
                         if (step_ev.dwDebugEventCode == EXCEPTION_DEBUG_EVENT &&
                             step_ev.u.Exception.ExceptionRecord.ExceptionCode == EXCEPTION_SINGLE_STEP) {
@@ -383,7 +383,7 @@ static long long rech_proc_resume(%[2]s p) {
     for (;;) {
         DEBUG_EVENT ev;
         if (!WaitForDebugEvent(&ev, INFINITE)) {
-            rech_panic("%[12]s");
+            rech_error_as(RECH_ERR_PROCESS, "%[12]s");
         }
         s->tid = ev.dwThreadId;
         s->pending = ev;
@@ -425,7 +425,7 @@ static long long rech_proc_resume(%[2]s p) {
         s->has_pending = 0;
     }
 #else
-    rech_panic("%[12]s");
+    rech_error_as(RECH_ERR_PROCESS, "%[12]s");
     return -1;
 #endif
 }

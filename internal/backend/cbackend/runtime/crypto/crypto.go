@@ -738,7 +738,7 @@ static char *rech_base64url_decode(const char *s) {
     for (size_t i = 0; i < len; i++) {
         int v = rech_base64url_val(s[i]);
         if (v < 0) {
-            rech_panic("%[1]s");
+            rech_error_as(RECH_ERR_PARSE, "%[1]s");
         }
         vals[vi++] = v;
         if (vi == 4) {
@@ -749,7 +749,7 @@ static char *rech_base64url_decode(const char *s) {
         }
     }
     if (vi == 1) {
-        rech_panic("%[1]s");
+        rech_error_as(RECH_ERR_PARSE, "%[1]s");
     } else if (vi == 2) {
         out[oi++] = (char)((vals[0] << 2) | (vals[1] >> 4));
     } else if (vi == 3) {

@@ -24,7 +24,7 @@ func Helpers(mangledType, redField, greenField, blueField, invalidFormatMsg stri
     }
     unsigned int r, g, b;
     if (strlen(s) != 6 || sscanf(s, "%%2x%%2x%%2x", &r, &g, &b) != 3) {
-        rech_panic("%[5]s");
+        rech_error_as(RECH_ERR_PARSE, "%[5]s");
     }
     %[1]s out;
     out.%[2]s = (unsigned char)r;

@@ -44,13 +44,13 @@ static char *rech_generate_private_key_pem(int algorithm) {
         if (pctx == NULL || EVP_PKEY_keygen_init(pctx) <= 0 ||
             EVP_PKEY_CTX_set_rsa_keygen_bits(pctx, 2048) <= 0 ||
             EVP_PKEY_keygen(pctx, &pkey) <= 0) {
-            rech_panic("%[1]s");
+            rech_error_as(RECH_ERR_CRYPTO, "%[1]s");
         }
     } else if (algorithm == 1) {
         pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_ED25519, NULL);
         if (pctx == NULL || EVP_PKEY_keygen_init(pctx) <= 0 ||
             EVP_PKEY_keygen(pctx, &pkey) <= 0) {
-            rech_panic("%[1]s");
+            rech_error_as(RECH_ERR_CRYPTO, "%[1]s");
         }
     } else {
         rech_panic("%[2]s");
@@ -59,7 +59,7 @@ static char *rech_generate_private_key_pem(int algorithm) {
 
     BIO *bio = BIO_new(BIO_s_mem());
     if (PEM_write_bio_PrivateKey(bio, pkey, NULL, NULL, 0, NULL, NULL) <= 0) {
-        rech_panic("%[1]s");
+        rech_error_as(RECH_ERR_CRYPTO, "%[1]s");
     }
     char *out = rech_bio_to_string(bio);
     BIO_free(bio);
@@ -72,7 +72,7 @@ static EVP_PKEY *rech_read_private_key_pem(const char *private_key_pem) {
     EVP_PKEY *pkey = PEM_read_bio_PrivateKey(bio, NULL, NULL, NULL);
     BIO_free(bio);
     if (pkey == NULL) {
-        rech_panic("%[3]s");
+        rech_error_as(RECH_ERR_PARSE, "%[3]s");
     }
     return pkey;
 }
@@ -82,7 +82,7 @@ static char *rech_get_public_key_pem(const char *private_key_pem) {
     BIO *bio = BIO_new(BIO_s_mem());
     if (PEM_write_bio_PUBKEY(bio, pkey) <= 0) {
         EVP_PKEY_free(pkey);
-        rech_panic("%[1]s");
+        rech_error_as(RECH_ERR_CRYPTO, "%[1]s");
     }
     char *out = rech_bio_to_string(bio);
     BIO_free(bio);
@@ -99,11 +99,11 @@ static char *rech_sign_hex(const char *data, const char *private_key_pem) {
     size_t siglen = 0;
     if (EVP_DigestSignInit(mdctx, NULL, md, NULL, pkey) <= 0 ||
         EVP_DigestSign(mdctx, NULL, &siglen, (const unsigned char *)data, datalen) <= 0) {
-        rech_panic("%[1]s");
+        rech_error_as(RECH_ERR_CRYPTO, "%[1]s");
     }
     unsigned char *sig = malloc(siglen);
     if (EVP_DigestSign(mdctx, sig, &siglen, (const unsigned char *)data, datalen) <= 0) {
-        rech_panic("%[1]s");
+        rech_error_as(RECH_ERR_CRYPTO, "%[1]s");
     }
     EVP_MD_CTX_free(mdctx);
     EVP_PKEY_free(pkey);
@@ -118,14 +118,14 @@ static bool rech_verify_signature_hex(const char *data, const char *signature_he
     EVP_PKEY *pkey = PEM_read_bio_PUBKEY(bio, NULL, NULL, NULL);
     BIO_free(bio);
     if (pkey == NULL) {
-        rech_panic("%[4]s");
+        rech_error_as(RECH_ERR_PARSE, "%[4]s");
     }
 
     size_t siglen = 0;
     unsigned char *sig = rech_hex_decode(signature_hex, &siglen);
     if (sig == NULL) {
         EVP_PKEY_free(pkey);
-        rech_panic("%[5]s");
+        rech_error_as(RECH_ERR_PARSE, "%[5]s");
     }
 
     const EVP_MD *md = (EVP_PKEY_id(pkey) == EVP_PKEY_ED25519) ? NULL : EVP_sha256();

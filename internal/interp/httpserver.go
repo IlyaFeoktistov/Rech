@@ -150,11 +150,11 @@ func recvHTTPRequest(conn net.Conn, maxRequestBytes int) []byte {
 					// её комментарий. Chunked-путь сюда не входит - общая
 					// проверка len(buf) ниже страхует оба пути одинаково.
 					if int64(bodyStart)+contentLength > int64(maxRequestBytes) {
-						panicRuntime("%s", rtmsg.HTTPServerRequestTooLarge)
+						throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.HTTPServerRequestTooLarge)
 					}
 				}
 			} else if len(buf) >= maxRequestBytes {
-				panicRuntime("%s", rtmsg.HTTPServerRequestTooLarge)
+				throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.HTTPServerRequestTooLarge)
 			}
 		}
 		if bodyStart >= 0 {
@@ -171,7 +171,7 @@ func recvHTTPRequest(conn net.Conn, maxRequestBytes int) []byte {
 		// защита от неограниченного роста (заранее известной длины тела
 		// нет), тем же принципом, что и cbackend.rech_recv_http_request.
 		if len(buf) >= maxRequestBytes {
-			panicRuntime("%s", rtmsg.HTTPServerRequestTooLarge)
+			throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.HTTPServerRequestTooLarge)
 		}
 		applyDeadline(conn, conn)
 		n, err := conn.Read(chunk)
@@ -180,7 +180,7 @@ func recvHTTPRequest(conn net.Conn, maxRequestBytes int) []byte {
 		}
 		if err != nil {
 			if err != io.EOF {
-				panicRuntime("%s", rtmsg.HTTPServerRecvFailed)
+				throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.HTTPServerRecvFailed)
 			}
 			break
 		}
@@ -339,7 +339,7 @@ func (in *Interp) sendHTTPResponse(conn net.Conn, resp Value) {
 	code, headers, body := f["код"].I, f["заголовки"].S, f["тело"].S
 	head := httpResponseHead(code, headers, len(body))
 	if _, err := io.WriteString(conn, head+body); err != nil {
-		panicRuntime("%s", rtmsg.SocketSendFailed)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.SocketSendFailed)
 	}
 }
 
@@ -353,9 +353,9 @@ func (in *Interp) sendHTTPResponseBytes(conn net.Conn, resp Value) {
 	code, headers, body := f["код"].I, f["заголовки"].S, bytesFromValue(f["тело"])
 	head := httpResponseHead(code, headers, len(body))
 	if _, err := io.WriteString(conn, head); err != nil {
-		panicRuntime("%s", rtmsg.SocketSendFailed)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.SocketSendFailed)
 	}
 	if _, err := conn.Write(body); err != nil {
-		panicRuntime("%s", rtmsg.SocketSendFailed)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.SocketSendFailed)
 	}
 }

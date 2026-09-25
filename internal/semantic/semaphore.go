@@ -28,7 +28,7 @@
 // В отличие от "Блокировки" - конструктор принимает ОДИН аргумент
 // (начальное число разрешений), поэтому не может быть заведён как совсем
 // пустая entitySig (HasCtor: false, как у "Блокировки") - используется тот
-// же приём, что и у systemExceptionCtor/registerParseErrorEntity
+// же приём, что и у systemExceptionCtor/registerErrorEntities
 // (internal/semantic/exception.go): HasCtor: true с явным CtorParams,
 // синтетическое тело конструктора при этом не нужно вовсе (в отличие от
 // "Исключение") - "Семафор", как и "Блокировка", не выражается ir.Stmt

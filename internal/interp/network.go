@@ -28,26 +28,26 @@ func (in *Interp) networkNode(mode int64, host string, port int64) Value {
 		if listening {
 			l, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 			if err != nil {
-				panicRuntime("%s", rtmsg.SocketBindFailed)
+				throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.SocketBindFailed)
 			}
 			return listenerValue(l)
 		}
 		c, err := net.Dial("tcp", net.JoinHostPort(host, strconv.FormatInt(port, 10)))
 		if err != nil {
-			panicRuntime("%s", rtmsg.SocketConnectFailed)
+			throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.SocketConnectFailed)
 		}
 		return connValue(c)
 	case 1:
 		if listening {
 			pc, err := net.ListenPacket("udp", fmt.Sprintf(":%d", port))
 			if err != nil {
-				panicRuntime("%s", rtmsg.SocketBindFailed)
+				throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.SocketBindFailed)
 			}
 			return packetConnValue(pc)
 		}
 		c, err := net.Dial("udp", net.JoinHostPort(host, strconv.FormatInt(port, 10)))
 		if err != nil {
-			panicRuntime("%s", rtmsg.SocketConnectFailed)
+			throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.SocketConnectFailed)
 		}
 		return connValue(c)
 	default:
@@ -72,12 +72,12 @@ func (in *Interp) networkNode(mode int64, host string, port int64) Value {
 func listenTLS(port int64, certFile, keyFile string) Value {
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
-		panicRuntime("%s", rtmsg.TLSCertLoadFailed)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.TLSCertLoadFailed)
 	}
 	cfg := &tls.Config{Certificates: []tls.Certificate{cert}}
 	rawL, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
-		panicRuntime("%s", rtmsg.SocketBindFailed)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.SocketBindFailed)
 	}
 	l := tls.NewListener(rawL, cfg)
 	return Value{Type: ir.TypeSocket, Listener: l, RawListener: rawL}
@@ -97,15 +97,15 @@ func (in *Interp) recvFrom(sock Value, max int64) Value {
 	buf := make([]byte, max)
 	n, addr, err := sock.PacketConn.ReadFrom(buf)
 	if err != nil {
-		panicRuntime("%s", rtmsg.SocketRecvFailed)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.SocketRecvFailed)
 	}
 	host, portStr, err := net.SplitHostPort(addr.String())
 	if err != nil {
-		panicRuntime("%s", rtmsg.SocketRecvFailed)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.SocketRecvFailed)
 	}
 	port, err := strconv.ParseInt(portStr, 10, 64)
 	if err != nil {
-		panicRuntime("%s", rtmsg.SocketRecvFailed)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.SocketRecvFailed)
 	}
 	return Value{Type: ir.EntityType("Дейтаграмма"), Obj: &entityObj{typeName: "Дейтаграмма", fields: map[string]Value{
 		"данные": stringValue(string(buf[:n])), "адрес": stringValue(host), "порт": intValue(port),
@@ -121,9 +121,9 @@ func (in *Interp) sendTo(sock Value, data, addr string, port int64) {
 	}
 	target, err := net.ResolveUDPAddr("udp", net.JoinHostPort(addr, strconv.FormatInt(port, 10)))
 	if err != nil {
-		panicRuntime("%s", rtmsg.SocketResolveFailed)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.SocketResolveFailed)
 	}
 	if _, err := sock.PacketConn.WriteTo([]byte(data), target); err != nil {
-		panicRuntime("%s", rtmsg.SocketSendFailed)
+		throwRuntimeError(rtmsg.ErrorNetwork, "%s", rtmsg.SocketSendFailed)
 	}
 }

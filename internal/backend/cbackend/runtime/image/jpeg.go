@@ -40,7 +40,7 @@ static void rech_jpeg_error_exit(j_common_ptr cinfo) {
 static %[1]s rech_jpeg_decode_file(const char *path) {
     FILE *f = fopen(path, "rb");
     if (f == NULL) {
-        rech_panic("%[6]s");
+        rech_error_as(RECH_ERR_FILE, "%[6]s");
     }
 
     struct jpeg_decompress_struct cinfo;
@@ -50,7 +50,7 @@ static %[1]s rech_jpeg_decode_file(const char *path) {
     if (setjmp(jerr.setjmp_buffer)) {
         jpeg_destroy_decompress(&cinfo);
         fclose(f);
-        rech_panic("%[7]s");
+        rech_error_as(RECH_ERR_PARSE, "%[7]s");
     }
 
     jpeg_create_decompress(&cinfo);
@@ -94,7 +94,7 @@ static %[1]s rech_jpeg_decode_file(const char *path) {
 static void rech_jpeg_encode_file(const char *path, long long width, long long height, %[5]s *pixels, long long quality) {
     FILE *f = fopen(path, "wb");
     if (f == NULL) {
-        rech_panic("%[8]s");
+        rech_error_as(RECH_ERR_FILE, "%[8]s");
     }
 
     struct jpeg_compress_struct cinfo;
@@ -104,7 +104,7 @@ static void rech_jpeg_encode_file(const char *path, long long width, long long h
     if (setjmp(jerr.setjmp_buffer)) {
         jpeg_destroy_compress(&cinfo);
         fclose(f);
-        rech_panic("%[9]s");
+        rech_error_as(RECH_ERR_FILE, "%[9]s");
     }
 
     jpeg_create_compress(&cinfo);

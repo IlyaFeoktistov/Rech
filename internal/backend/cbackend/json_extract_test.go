@@ -37,7 +37,7 @@ func TestGenerateFromIRParseExprEntityAndList(t *testing.T) {
 		"rech_json_extract_spisok_of_celoe(rech_jv v)",
 		"static rech_jv rech_json_parse(",
 		"static void rech_struct_throw(const char *msg)",
-		mangleCtor("ОшибкаРазбора") + "(msg)",
+		"rech_error_as(RECH_ERR_PARSE, msg)",
 		"#include <string.h>",
 	} {
 		if !strings.Contains(out, want) {
