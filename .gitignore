@@ -22,6 +22,8 @@
 examples/**
 !examples/**/
 !examples/**/*.rech
+!examples/**/*.речь
+!examples/**/*.р
 !examples/**/*.rechproj
 !examples/**/*.yaml
 !examples/**/*.proto
