@@ -58,6 +58,12 @@ func (d *doc) hoverText(line, col int) (string, bool) {
 		}
 		return "", false
 	}
+	if block, ok := d.hoverSugarMethod(container, name); ok {
+		return block, true
+	}
+	if block, ok := hoverDateTimeMethod(container, name); ok {
+		return block, true
+	}
 	if container.Kind == ir.KindInterface {
 		return d.hoverInterfaceMember(container.Entity, name)
 	}

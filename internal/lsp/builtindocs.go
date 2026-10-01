@@ -455,30 +455,32 @@ func builtinFuncSignature(f builtins.Func) string {
 // hoverBuiltinFunc - hover для встроенной функции (не объявленной в
 // документе) по имени - "", false, если name не встроенная функция.
 func hoverBuiltinFunc(name string) (string, bool) {
+	sig, doc, ok := builtinFuncHoverParts(name)
+	if !ok {
+		return "", false
+	}
+	block := codeBlock(sig)
+	if doc != "" {
+		block += "\n\n" + doc
+	}
+	return withThrows(block, describeBuiltinThrows(name)), true
+}
+
+// builtinFuncHoverParts - сигнатура встроенной функции name и её
+// описание (может быть пустым) - общая часть hover функции и hover метода-
+// сахара над ней (sugarhover.go).
+//
+// reservedFuncSignatures несёт СИГНАТУРУ И ОПИСАНИЕ вместе через " — " -
+// в код-блок hover идёт только сигнатура, описание - обычным markdown под
+// ним: целиком в код-блоке редактор подсвечивал бы прозу описания как код
+// Rech (любое совпадение с ключевым словом - "для", "если", "новый").
+func builtinFuncHoverParts(name string) (sig, doc string, ok bool) {
 	if f, ok := builtins.ByName(name); ok {
-		block := codeBlock(builtinFuncSignature(f))
-		if short, ok := builtinFuncShortDoc[name]; ok {
-			block += "\n\n" + short
-		}
-		return withThrows(block, describeBuiltinThrows(name)), true
+		return builtinFuncSignature(f), builtinFuncShortDoc[name], true
 	}
 	if full, ok := reservedFuncSignatures[name]; ok {
-		// НАЙДЕННЫЙ БАГ (репортнуто пользователем - "для" подсвечивается как
-		// ключевое слово внутри описания): full несёт СИГНАТУРУ И ОПИСАНИЕ
-		// вместе через " — " (тот же формат, что уже разбирает
-		// builtinStubParts, builtindefinition.go) - заворачивать его
-		// ЦЕЛИКОМ в codeBlock (```rech ... ```) заставляло редактор
-		// подсвечивать обычный русский текст описания КАК КОД Rech - любое
-		// совпадение с ключевым словом языка ("для", "если", "новый", "этот"
-		// и т. п.) в прозе описания подсвечивалось наравне с настоящим
-		// кодом. Разделяем так же, как и builtinStubParts - в код-блок идёт
-		// только сигнатура, описание - как обычный markdown-текст под ним
-		// (та же форма, что и у ветки builtins.ByName выше).
-		sig, doc, found := strings.Cut(full, " — ")
-		if !found {
-			return withThrows(codeBlock(full), describeBuiltinThrows(name)), true
-		}
-		return withThrows(codeBlock(sig)+"\n\n"+doc, describeBuiltinThrows(name)), true
+		sig, doc, _ := strings.Cut(full, " — ")
+		return sig, doc, true
 	}
-	return "", false
+	return "", "", false
 }
