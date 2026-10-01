@@ -150,6 +150,9 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		var declared ir.Type
 		var hasAnnotation bool
 		if s.Type == bareCallableType {
+			if s.Value == nil {
+				return nil, errAtLine(s.Line, CodeStmtCheck, "у переменной %q без значения нужна полная сигнатура типа: \"Вызываемый(<параметры>): <результат> %s\"", s.Name, s.Name)
+			}
 			return analyzeBareCallableVarDecl(sc, s)
 		}
 		if s.Type != "" {
@@ -158,6 +161,9 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 				return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: s.Line})
 			}
 			declared, hasAnnotation = t, true
+		}
+		if s.Value == nil {
+			return analyzeBareVarDecl(sc, s, declared)
 		}
 		var value ir.Expr
 		var err error
@@ -233,7 +239,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if typ := ir.TypeOf(value); !isAssignable(sc.entities, sc.interfaces, typ, declared) {
 			return nil, errAtLine(s.Line, CodeStmtCheck, "переменной %q типа %s нельзя присвоить значение типа %s", s.Name, declared, typ)
 		}
-		sc.setEstablished(s.Name, establishedForNewBinding(sc, s.Name, value))
+		sc.setEstablished(s.Name, sc.withAssigned(s.Name, establishedForNewBinding(sc, s.Name, value)))
 		// Захвачено лямбдой по ссылке - запись прозрачно идёт через
 		// указатель (DerefAssignStmt), не напрямую - см. package doc
 		// ir.CaptureVar/case *ast.Identifier выше (expr.go).

@@ -56,7 +56,7 @@ func (in *Interp) evalFuncRefExpr(e *ir.FuncRefExpr) (Value, error) {
 // И ТОГО ЖЕ значения лямбды (типичный сценарий - счётчик, растущий от
 // вызова к вызову), а не теряется к следующему вызову.
 func (in *Interp) evalLambdaExpr(e *ir.LambdaExpr, env *Env, cc *callCtx) (Value, error) {
-	capturedEnv := newEnv(nil)
+	capturedEnv := newEnv(in.globals)
 	for _, c := range e.Captures {
 		if c.Init != nil {
 			// Инициализирующий захват (ir.CaptureVar.Init) - значение

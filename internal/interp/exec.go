@@ -60,6 +60,12 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 			env.declareStatic(s.Name, s.StaticID)
 			return ctrl{}, nil
 		}
+		if s.Value == nil {
+			// Объявлена без значения - присваивание до первого чтения
+			// гарантирует семантика.
+			env.declare(s.Name, zeroValue(s.DeclType))
+			return ctrl{}, nil
+		}
 		v, err := in.evalExpr(s.Value, env, cc)
 		if err != nil {
 			return ctrl{}, err

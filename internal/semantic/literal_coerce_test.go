@@ -19,7 +19,7 @@ func TestAnalyzeNumericConstCoercedToDeclaredType(t *testing.T) {
 }
 `)
 	body := irProg.Functions[0].Body
-	want := []ir.Type{ir.TypeInt8, ir.TypeByte, ir.TypeUint64, ir.TypeInt16, ir.TypeFloat32}
+	want := []ir.Type{ir.TypeInt8, ir.TypeByte, ir.TypeUint, ir.TypeInt16, ir.TypeFloat32}
 	for i, typ := range want {
 		cast, ok := body[i].(*ir.VarDecl).Value.(*ir.CastExpr)
 		if !ok || cast.To != typ {

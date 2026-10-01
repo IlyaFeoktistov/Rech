@@ -135,8 +135,8 @@ func elemEquatable(entities map[string]entitySig, t ir.Type) bool {
 // уже существующими числовыми/Строка/Символ/Байт - вручную выписывать ~90
 // пар было бы избыточным риском опечатки/пропуска.
 var fixedWidthIntTypes = []ir.Type{
-	ir.TypeInt8, ir.TypeInt16, ir.TypeInt32, ir.TypeInt64,
-	ir.TypeUint, ir.TypeUint8, ir.TypeUint16, ir.TypeUint32, ir.TypeUint64,
+	ir.TypeInt8, ir.TypeInt16, ir.TypeInt32,
+	ir.TypeUint, ir.TypeUint8, ir.TypeUint16, ir.TypeUint32,
 }
 
 func init() {

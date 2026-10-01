@@ -291,6 +291,9 @@ type irGenCtx struct {
 	// rech_init_statics() из main() (см. internal/backend/cbackend/
 	// statics.go, staticFieldsInitCode).
 	usesStaticInit bool
+	// usesGlobalInit - в программе есть переменные уровня модуля - гейтит
+	// вызов rech_init_globals() из main() (globals.go).
+	usesGlobalInit bool
 
 	// funcRefTrampolines/lambdaFuncsEmitted/callableCode - см.
 	// internal/backend/cbackend/callable.go (ensureFuncRefTrampoline/
@@ -814,6 +817,12 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		return "", err
 	}
 	ctx.usesStaticInit = staticInit != ""
+	globalDecl := globalVarsDecl(ctx, prog)
+	globalInit, err := globalVarsInitCode(ctx, prog)
+	if err != nil {
+		return "", err
+	}
+	ctx.usesGlobalInit = globalInit != ""
 
 	// genericsCode - typedef struct + функции для встроенных generic-
 	// коллекций, использованных в программе - переиспользует
@@ -2004,11 +2013,16 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		appendCodeIf(&sb, true, dbtxRunSimpleCode(prog.DBBackends))
 		appendCodeIf(&sb, true, dbtxRuntimeCode(ctx))
 	}
+	// Переменные модуля - перед прототипами: к этому месту объявлены все
+	// типы, которые могут быть у переменной (тем же требованием, что у
+	// параметров в прототипах).
+	appendCodeIf(&sb, globalDecl != "", globalDecl)
 	appendCodeIf(&sb, protos.Len() > 0, protos.String())
 
 	// vtables - ссылается на &rech_M_... (нужны protos выше).
 	appendCodeIf(&sb, vtables.Len() > 0, vtables.String())
 	appendCodeIf(&sb, staticInit != "", staticInit)
+	appendCodeIf(&sb, globalInit != "", globalInit)
 	// После ctors - функции извлечения ("разобрать JSON"/"разобрать
 	// XML") конструируют целевые сущности через уже сгенерированный
 	// rech_new_<Тип> (mangleCtor) и выбрасывают "ОшибкаРазбора" через

@@ -1,6 +1,9 @@
 package parser
 
 import (
+	"strings"
+	"unicode"
+
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
@@ -13,10 +16,11 @@ import (
 // Список<Целое> = [1, 2, 3]". Строит тот же самый ast.VarDecl, что и
 // parseVarDecl (с непустым Type) - семантика/backend'ы не отличают одну
 // форму от другой, разница только на уровне парсера. Без инициализации
-// ("Тип имя" без "=") эта форма не поддержана вовсе - в отличие от
-// "переменная X" (см. pendingvar.go), у неё нет отдельного сценария
-// отложенного объявления, добавлять его ради формы, которую и так почти
-// всегда пишут вместе со значением, не стоило.
+// ("Тип имя" и конец инструкции) - объявление без значения (Value == nil):
+// значение присваивается позже, чтение до присваивания отвергает
+// семантика. Эта форма требует, чтобы тип был похож на тип (с заглавной
+// буквы, не имя объявленной функции) - иначе "IDENT IDENT" в начале
+// строки - естественный вызов ("напечатать отчёт").
 //
 // Спекулятивный разбор с откатом позиции: parseTypeName сам по себе не
 // может отличить "имя типа" от произвольного IDENT (типы не отмечены
@@ -46,11 +50,35 @@ func (p *Parser) tryParseTypedVarDecl() (ast.Stmt, bool, error) {
 		p.pos = saved
 		return nil, false, nil
 	}
+	if p.cur().Type == lexer.IDENT && isStatementEnd(p.peekAt(1).Type) && p.looksLikeTypeName(typeName) {
+		name := p.advance()
+		p.registerNoun(name.Value)
+		p.registerVarEntityType(name.Value, typeName)
+		return &ast.VarDecl{Name: name.Value, Type: typeName, Line: name.Line}, true, nil
+	}
 	if p.cur().Type != lexer.IDENT || p.peekAt(1).Type != lexer.ASSIGN {
 		p.pos = saved
 		return nil, false, nil
 	}
 	return p.finishTypedVarDecl(typeName)
+}
+
+// isStatementEnd - токен, на котором кончается инструкция.
+func isStatementEnd(t lexer.TokenType) bool {
+	return t == lexer.NEWLINE || t == lexer.SEMICOLON || t == lexer.RBRACE || t == lexer.EOF
+}
+
+// looksLikeTypeName - typeName может быть типом в "Тип имя" без значения:
+// с заглавной буквы (соглашение языка для типов; функции - snake_case) и
+// не имя объявленной функции.
+func (p *Parser) looksLikeTypeName(typeName string) bool {
+	if _, isFunc := p.funcParams[typeName]; isFunc {
+		return false
+	}
+	for _, r := range strings.TrimPrefix(typeName, "?") {
+		return unicode.IsUpper(r)
+	}
+	return false
 }
 
 // finishTypedVarDecl - "<имя> = <выражение>" после уже разобранного типа.

@@ -150,6 +150,12 @@ type Parser struct {
 	// ТЕКУЩЕМ блоке - см. pendingvar.go.
 	pendingVarDecls []pendingVarDecl
 
+	// moduleVarCandidates/topVisibility - переменные верхнего уровня файла
+	// и модификатор видимости текущего объявления верхнего уровня (см.
+	// module_var.go).
+	moduleVarCandidates []moduleVarCandidate
+	topVisibility       moduleVisibility
+
 	// lenient - true только в ParseProgramLenient (LSP, см. recovery.go) -
 	// ошибка внутри ОДНОГО верхнеуровневого объявления не останавливает
 	// разбор всего файла: она копится в errors, а разбор продолжается со
@@ -710,6 +716,12 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 		p.errors = append(p.errors, err)
 		p.pendingVarDecls = savedPending
 	}
+	for _, err := range p.resolveModuleVars(prog, &topLevelStmts, explicitMain != nil) {
+		if !p.lenient {
+			return nil, err
+		}
+		p.errors = append(p.errors, err)
+	}
 	if len(topLevelStmts) > 0 {
 		if explicitMain != nil {
 			err := errAtLine(explicitMain.Line, CodeEntryPoint, "программа объявляет функцию %q явно и одновременно содержит инструкции на верхнем уровне - выберите одну форму", entryPointName)
@@ -873,6 +885,9 @@ func (p *Parser) parseTopLevelItem(prog *ast.Program, topLevelStmts *[]ast.Stmt,
 	default:
 		stmt, err := p.parseStatementWithDoc(doc, docLine)
 		if err != nil {
+			return false, err
+		}
+		if err := p.noteTopLevelStmt(stmt); err != nil {
 			return false, err
 		}
 		if stmt != nil {

@@ -58,10 +58,13 @@ func (d *doc) occurrences(line, col int) ([]occPos, bool) {
 	if _, ok := d.astFuncs[name]; ok {
 		return d.topLevelOccurrences(name), true
 	}
-	if _, ok := d.astEntities[name]; ok {
-		return d.topLevelOccurrences(name), true
+	if lemma, ok := d.typeWordform(name); ok {
+		return d.typeOccurrences(lemma), true
 	}
 	if _, ok := d.astConsts[name]; ok {
+		return d.topLevelOccurrences(name), true
+	}
+	if _, ok := d.astVars[name]; ok {
 		return d.topLevelOccurrences(name), true
 	}
 	return nil, false
@@ -86,6 +89,14 @@ func (d *doc) localOccurrences(scope *funcScope, name string) []occPos {
 func (d *doc) topLevelOccurrences(name string) []occPos {
 	from, to := 1, d.tokens[len(d.tokens)-1].Line
 	return d.tokenOccurrences(from, to, func(word string) bool { return word == name })
+}
+
+// typeOccurrences - все ссылки на тип name в документе по его словоформам
+// (typeNameForms, type_refs.go), плюс само объявление.
+func (d *doc) typeOccurrences(name string) []occPos {
+	from, to := 1, d.tokens[len(d.tokens)-1].Line
+	forms := d.typeNameForms(name)
+	return d.tokenOccurrences(from, to, func(word string) bool { return forms[word] })
 }
 
 // tokenOccurrences - общий проход по токенам документа в диапазоне строк

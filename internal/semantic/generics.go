@@ -717,6 +717,9 @@ func (inst *instantiator) scanStmt(s ast.Stmt) error {
 }
 
 func (inst *instantiator) scanExpr(e ast.Expr) error {
+	if e == nil {
+		return nil
+	}
 	switch e := e.(type) {
 	case *ast.CallExpr:
 		for _, a := range e.Args {

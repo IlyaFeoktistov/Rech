@@ -118,6 +118,18 @@ func (d *doc) bareNameDeclPos(name string, line int, scope *funcScope) (definiti
 	if sd, ok := d.astSynonyms[name]; ok {
 		return d.declPosInFile(sd.File, sd.Line, name)
 	}
+	if id, ok := d.astInterfaces[name]; ok {
+		return d.declPosInFile(id.File, id.Line, name)
+	}
+	if ed, ok := d.astEnums[name]; ok {
+		return d.declPosInFile(ed.File, ed.Line, name)
+	}
+	if cd, ok := d.astConsts[name]; ok {
+		return d.declPosInFile(cd.File, cd.Line, name)
+	}
+	if vd, ok := d.astVars[name]; ok {
+		return d.declPosInFile(vd.File, vd.Line, name)
+	}
 	if scope != nil {
 		if lemma, ok := d.localWordform(scope, line, name); ok {
 			return d.bareNameDeclPos(lemma, line, scope)
@@ -126,7 +138,7 @@ func (d *doc) bareNameDeclPos(name string, line int, scope *funcScope) (definiti
 	if lemma, ok := d.funcGerund(name); ok {
 		return d.bareNameDeclPos(lemma, line, scope)
 	}
-	if lemma, ok := d.entityWordform(name); ok {
+	if lemma, ok := d.typeWordform(name); ok && lemma != name {
 		return d.bareNameDeclPos(lemma, line, scope)
 	}
 	return definitionPos{}, false

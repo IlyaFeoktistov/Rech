@@ -105,12 +105,10 @@ var ffiScalarGoTypes = map[ir.TypeKind]reflect.Type{
 	ir.KindInt8:    reflect.TypeFor[int8](),
 	ir.KindInt16:   reflect.TypeFor[int16](),
 	ir.KindInt32:   reflect.TypeFor[int32](),
-	ir.KindInt64:   reflect.TypeFor[int64](),
 	ir.KindUint:    reflect.TypeFor[uint64](),
 	ir.KindUint8:   reflect.TypeFor[uint8](),
 	ir.KindUint16:  reflect.TypeFor[uint16](),
 	ir.KindUint32:  reflect.TypeFor[uint32](),
-	ir.KindUint64:  reflect.TypeFor[uint64](),
 }
 
 // ffiGoType - Go-тип, которым будет маршалиться значение типа t на границе

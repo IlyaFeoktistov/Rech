@@ -89,6 +89,11 @@ func unmangledCategoryName(prog *ast.Program, name string) bool {
 			return true
 		}
 	}
+	for _, v := range prog.Vars {
+		if v.Name == name {
+			return true
+		}
+	}
 	for _, s := range prog.Synonyms {
 		if s.Name == name {
 			return true
@@ -116,6 +121,7 @@ func (p *Program) Link() (*ast.Program, error) {
 	// (не наша забота, см. её же комментарий).
 	allEnums := map[string]bool{}
 	allConsts := map[string]bool{}
+	allVars := map[string]bool{}
 	for _, m := range p.Modules {
 		for _, e := range m.AST.Enums {
 			allEnums[e.Name] = true
@@ -123,10 +129,22 @@ func (p *Program) Link() (*ast.Program, error) {
 		for _, c := range m.AST.Consts {
 			allConsts[c.Name] = true
 		}
+		for _, v := range m.AST.Vars {
+			allVars[v.Name] = true
+		}
 	}
 	for _, m := range p.Modules {
 		names := buildNames(m, p.Entry)
-		r := &rewriter{names: names, allEnums: allEnums, allConsts: allConsts}
+		r := &rewriter{names: names, allEnums: allEnums, allConsts: allConsts, allVars: allVars}
+		// Переменные модуля - значение может вызывать функции/создавать
+		// сущности этого файла и импортированные - те же имена, что и в
+		// теле функции.
+		for _, v := range m.AST.Vars {
+			r.locals = nil
+			if err := r.rewriteStmt(v); err != nil {
+				return nil, fmt.Errorf("%s: переменная %q: %w", m.Path, v.Name, err)
+			}
+		}
 		for _, fn := range m.AST.Functions {
 			r.locals = nil
 			if err := r.rewriteTypeParams(fn.TypeParams); err != nil {
@@ -297,6 +315,11 @@ func (p *Program) Link() (*ast.Program, error) {
 		merged.Enums = append(merged.Enums, m.AST.Enums...)
 		merged.Interfaces = append(merged.Interfaces, m.AST.Interfaces...)
 		merged.Consts = append(merged.Consts, m.AST.Consts...)
+		// Переменные модуля - тем же принципом, что и константы: без мангла,
+		// единая область имён на программу (одноимённые переменные двух
+		// файлов - ошибка семантики). Порядок модулей - порядок
+		// инициализации.
+		merged.Vars = append(merged.Vars, m.AST.Vars...)
 		merged.Synonyms = append(merged.Synonyms, m.AST.Synonyms...)
 	}
 	return merged, nil

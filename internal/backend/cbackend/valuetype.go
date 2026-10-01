@@ -58,12 +58,10 @@ const (
 	kindInt8
 	kindInt16
 	kindInt32
-	kindInt64
 	kindUint
 	kindUint8
 	kindUint16
 	kindUint32
-	kindUint64
 	// kindAny - "Значение", боксированное значение любого типа (рефлексия,
 	// internal/backend/cbackend/reflect.go) - C-представление rech_any_t
 	// (тег типа + union), по значению, не по указателю - см. cType.
@@ -113,12 +111,10 @@ var (
 	typeInt8   = valueType{kind: kindInt8}
 	typeInt16  = valueType{kind: kindInt16}
 	typeInt32  = valueType{kind: kindInt32}
-	typeInt64  = valueType{kind: kindInt64}
 	typeUint   = valueType{kind: kindUint}
 	typeUint8  = valueType{kind: kindUint8}
 	typeUint16 = valueType{kind: kindUint16}
 	typeUint32 = valueType{kind: kindUint32}
-	typeUint64 = valueType{kind: kindUint64}
 
 	typeAny      = valueType{kind: kindAny}
 	typeTypeInfo = valueType{kind: kindTypeInfo}
@@ -177,12 +173,10 @@ var primitiveCTypes = map[valueType]string{
 	typeInt8:         "int8_t",
 	typeInt16:        "int16_t",
 	typeInt32:        "int32_t",
-	typeInt64:        "int64_t",
 	typeUint:         "uint64_t",
 	typeUint8:        "uint8_t",
 	typeUint16:       "uint16_t",
 	typeUint32:       "uint32_t",
-	typeUint64:       "uint64_t",
 	typeAny:          "rech_any_t",
 	typeTypeInfo:     "const rech_type_meta_t *",
 }

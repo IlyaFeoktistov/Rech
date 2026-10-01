@@ -128,6 +128,9 @@ func declaredNames(prog *ast.Program) map[string]bool {
 	for _, c := range prog.Consts {
 		names[c.Name] = true
 	}
+	for _, v := range prog.Vars {
+		names[v.Name] = true
+	}
 	for _, s := range prog.Synonyms {
 		names[s.Name] = true
 	}
@@ -167,6 +170,9 @@ func moduleVisibility(prog *ast.Program) map[string]ast.Visibility {
 	}
 	for _, c := range prog.Consts {
 		vis[c.Name] = c.Visibility
+	}
+	for _, v := range prog.Vars {
+		vis[v.Name] = v.Visibility
 	}
 	for _, s := range prog.Synonyms {
 		vis[s.Name] = s.Visibility

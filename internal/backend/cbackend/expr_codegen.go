@@ -799,12 +799,10 @@ var irKindToValueType = map[ir.TypeKind]valueType{
 	ir.KindInt8:         typeInt8,
 	ir.KindInt16:        typeInt16,
 	ir.KindInt32:        typeInt32,
-	ir.KindInt64:        typeInt64,
 	ir.KindUint:         typeUint,
 	ir.KindUint8:        typeUint8,
 	ir.KindUint16:       typeUint16,
 	ir.KindUint32:       typeUint32,
-	ir.KindUint64:       typeUint64,
 	ir.KindAny:          typeAny,
 	ir.KindTypeInfo:     typeTypeInfo,
 }

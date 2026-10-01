@@ -331,6 +331,9 @@ func (d *doc) addValues(c *itemSet, line int, blocks []textBlock) {
 	for label := range d.astConsts {
 		c.add(CompletionItem{Label: label, Kind: kindConstant})
 	}
+	for label, v := range d.astVars {
+		c.add(CompletionItem{Label: label, Kind: kindVariable, Documentation: strings.TrimSpace(v.Doc)})
+	}
 	for label := range d.astEnums {
 		c.add(CompletionItem{Label: label, Kind: kindEnum})
 	}

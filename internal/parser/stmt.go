@@ -434,16 +434,20 @@ func (p *Parser) parseVarDecl() (ast.Stmt, error) {
 	if p.cur().Type == lexer.NEWLINE && p.peekPastNewlines().Type == lexer.ASSIGN {
 		p.skipNewlines()
 	}
+	if p.cur().Type != lexer.ASSIGN && typeName != "" && !isStatic {
+		// "переменная X: Тип" без значения - значение присваивается позже;
+		// чтение до присваивания отвергает семантика.
+		p.registerNoun(name.Value)
+		p.registerVarEntityType(name.Value, typeName)
+		return &ast.VarDecl{Name: name.Value, Type: typeName, Line: kw.Line}, nil
+	}
 	if p.cur().Type != lexer.ASSIGN && typeName == "" {
 		if isStatic {
 			return nil, errAt(p.cur().Line, p.cur().Col, CodeStmtRestrict, "\"статическая переменная\" должна содержать инициализацию (\"=\") - без неё непонятно, каким значением она заполнится ровно один раз")
 		}
 		// Отложенное объявление (pendingvar.go, "переменная X" без "=") -
 		// настоящий ast.VarDecl появится позже, в точке первого
-		// присваивания X в этом же блоке. Типизированное "переменная X:
-		// Тип" без значения этим не покрывается - остаётся ошибкой ниже,
-		// как и раньше (тип без значения означал бы отдельный вопрос
-		// zero-значений, который эта фича не решает).
+		// присваивания X в этом же блоке (тип выводится из значения).
 		p.registerPendingVarDecl(name)
 		return nil, nil
 	}

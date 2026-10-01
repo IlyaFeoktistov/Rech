@@ -1,10 +1,31 @@
 package lsp
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
+	"github.com/IlyaFeoktistov/Rech/internal/semantic"
 )
+
+// hoverBuiltinSynonym - hover на любом из двух имён встроенного синонима
+// (semantic.BuiltinTypeSynonyms): объявление "синоним Целое = Целое64",
+// описание типа и явное "это один тип".
+func hoverBuiltinSynonym(name string) (string, bool) {
+	short, long := name, semantic.BuiltinTypeSynonyms[name]
+	if long == "" {
+		for s, l := range semantic.BuiltinTypeSynonyms {
+			if l == name {
+				short, long = s, l
+			}
+		}
+	}
+	if long == "" {
+		return "", false
+	}
+	same := fmt.Sprintf("`%s` и `%s` - один и тот же тип: смешиваются без приведения и взаимозаменяемы в параметрах и результатах.", short, long)
+	return withDoc(codeBlock("синоним "+short+" = "+long), builtinTypeDocs[short]+"\n\n"+same), true
+}
 
 // hoverSynonym - объявление синонима name ровно так, как оно написано в
 // исходнике ("приватный синоним Группы = Словарь<Строка, Числа>"), плюс

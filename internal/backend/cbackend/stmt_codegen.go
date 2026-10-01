@@ -73,6 +73,12 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 		if s.IsStatic {
 			return generateIRStaticVarDecl(sb, ctx, s, ind)
 		}
+		if s.Value == nil {
+			// Объявлена без значения - семантика гарантирует присваивание до
+			// первого чтения, "{0}" только даёт C определённое содержимое.
+			fmt.Fprintf(sb, "%s%s %s = {0};\n", ind, fromIRType(s.DeclType).cType(ctx), mangleVar(s.Name))
+			return nil
+		}
 		code, typ, err := generateIRExpr(ctx, s.Value)
 		if err != nil {
 			return err

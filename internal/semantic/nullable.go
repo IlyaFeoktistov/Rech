@@ -278,6 +278,9 @@ func analyzeNullCoalesceAssignStmt(sc *ctx, s *ast.NullCoalesceAssign) (ir.Stmt,
 	if !exists {
 		return nil, errAtLine(s.Line, CodeNameResolution, "переменная %q не объявлена", s.Name)
 	}
+	if sc.readBeforeAssign(s.Name) {
+		return nil, errReadBeforeAssign(s.Name, s.Line)
+	}
 	if declared.Kind != ir.KindNullable {
 		return nil, errAtLine(s.Line, CodeNullable, "\"?=\" применимо только к nullable-переменной (\"?Тип\"), %q имеет тип %s", s.Name, declared)
 	}

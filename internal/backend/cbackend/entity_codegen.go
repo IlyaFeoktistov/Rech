@@ -337,6 +337,9 @@ func generateIRFunction(ctx *irGenCtx, fn *ir.Function) (string, error) {
 		if ctx.usesStaticInit {
 			sb.WriteString("    rech_init_statics();\n")
 		}
+		if ctx.usesGlobalInit {
+			sb.WriteString("    rech_init_globals();\n")
+		}
 		sb.WriteString(entryPrologue(ctx, fn))
 	}
 	for _, s := range fn.Body {

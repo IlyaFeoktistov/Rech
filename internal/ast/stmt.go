@@ -57,6 +57,11 @@ type VarDecl struct {
 	// Doc - doc-комментарий ("/** ... */") прямо перед объявлением, "" -
 	// его не было (hover показывает его у переменной).
 	Doc string
+	// Visibility/File - только у переменной уровня МОДУЛЯ (Program.Vars):
+	// модификатор видимости (без него - публичная) и файл объявления (см.
+	// StampFile); у локальной переменной - нулевые значения.
+	Visibility Visibility
+	File       string
 }
 
 func (*VarDecl) node() {}

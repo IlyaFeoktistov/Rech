@@ -220,6 +220,7 @@ func (d *doc) applyLink(res linkResult) {
 	for _, c := range res.ast.Consts {
 		d.astConsts[c.Name] = c
 	}
+	d.astVars = moduleVarsByName(res.ast)
 	d.astSynonyms = map[string]*ast.SynonymDecl{}
 	for _, s := range res.ast.Synonyms {
 		d.astSynonyms[s.Name] = s

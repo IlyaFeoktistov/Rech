@@ -1,5 +1,6 @@
 // "N ссылок" над каждым собственным объявлением документа (функция/
-// сущность/метод/поле/константа сущности) - кликабельно (LSP CodeLens,
+// сущность/интерфейс/перечисление/синоним/метод/поле/константа/
+// переменная модуля) - кликабельно (LSP CodeLens,
 // не текст внутри hover, см. server.go/references.go): клик открывает
 // стандартную панель "Найдено ссылок" редактора со всеми найденными
 // местами использования, а не просто печатает число, которым нельзя
@@ -47,8 +48,9 @@ func (d *doc) codeLenses() []CodeLens {
 	for _, fn := range d.astProg.Functions {
 		out = append(out, d.newCodeLens(fn.Line, matchFunctionRefs, fn.Name))
 	}
+	typeRefs := d.typeRefMatcher()
 	for _, ent := range d.astProg.Entities {
-		out = append(out, d.newCodeLens(ent.Line, matchEntityRefs, ent.Name))
+		out = append(out, d.newCodeLens(ent.Line, typeRefs, ent.Name))
 		for _, f := range ent.Fields {
 			out = append(out, d.newCodeLens(f.Line, matchMemberRefs, f.Name))
 		}
@@ -64,6 +66,18 @@ func (d *doc) codeLenses() []CodeLens {
 	}
 	for _, c := range d.astProg.Consts {
 		out = append(out, d.newCodeLens(c.Line, matchModuleConstRefs, c.Name))
+	}
+	for _, iface := range d.astProg.Interfaces {
+		out = append(out, d.newCodeLens(iface.Line, typeRefs, iface.Name))
+	}
+	for _, e := range d.astProg.Enums {
+		out = append(out, d.newCodeLens(e.Line, typeRefs, e.Name))
+	}
+	for _, s := range d.astProg.Synonyms {
+		out = append(out, d.newCodeLens(s.Line, typeRefs, s.Name))
+	}
+	for _, v := range d.astProg.Vars {
+		out = append(out, d.newCodeLens(v.Line, matchModuleConstRefs, v.Name))
 	}
 	return out
 }

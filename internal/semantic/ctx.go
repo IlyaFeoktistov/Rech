@@ -54,6 +54,11 @@ type ctx struct {
 	// который "устанавливается" по ходу потока управления.
 	consts []map[string]bool
 
+	// declaredBare - параллельный scopes стек: переменная объявлена без
+	// значения ("Целое х"), читать её можно только там, где доказано
+	// присваивание (definite_assign.go).
+	declaredBare []map[string]bool
+
 	// established - параллельный scopes стек: established[i][name] - набор
 	// кратких форм состояний, про которые на данный момент анализа
 	// ДОКАЗАНО, что переменная name (объявленная в scopes[i]) через них
@@ -164,6 +169,7 @@ func newCtx(a *Analyzer, funcs map[string]funcSig, entities map[string]entitySig
 		established:     []map[string]map[string]bool{{}},
 		thisEstablished: map[string]bool{},
 		consts:          []map[string]bool{{}},
+		declaredBare:    []map[string]bool{{}},
 		resolvedConsts:  resolvedConsts,
 		resolvingConsts: resolvingConsts,
 	}
@@ -185,6 +191,7 @@ func (c *ctx) push() {
 	c.scopes = append(c.scopes, scope{})
 	c.established = append(c.established, map[string]map[string]bool{})
 	c.consts = append(c.consts, map[string]bool{})
+	c.declaredBare = append(c.declaredBare, map[string]bool{})
 	c.allowParentCall = false
 }
 
@@ -192,6 +199,7 @@ func (c *ctx) pop() {
 	c.scopes = c.scopes[:len(c.scopes)-1]
 	c.established = c.established[:len(c.established)-1]
 	c.consts = c.consts[:len(c.consts)-1]
+	c.declaredBare = c.declaredBare[:len(c.declaredBare)-1]
 }
 
 // getEstablished возвращает набор доказанных состояний переменной name (см.
@@ -335,12 +343,26 @@ func (c *ctx) declare(name string, typ ir.Type) error {
 	return nil
 }
 
-// lookup ищет name в собственных scopes (от самой внутренней области видимости
-// к внешним), а если не нашёл и c.parent != nil (тело лямбды) -
+// lookup ищет name среди локальных имён (lookupLocal), затем - среди
+// переменных уровня модуля (module_vars.go): локальная переменная/параметр
+// с тем же именем перекрывает переменную модуля.
+func (c *ctx) lookup(name string) (ir.Type, bool) {
+	if typ, ok := c.lookupLocal(name); ok {
+		return typ, true
+	}
+	if typ, ok := c.a.moduleVars[name]; ok {
+		return typ, true
+	}
+	return ir.TypeUnknown, false
+}
+
+// lookupLocal ищет name в собственных scopes (от самой внутренней области
+// видимости к внешним), а если не нашёл и c.parent != nil (тело лямбды) -
 // рекурсивно в объемлющем ctx: найденное там имя - свободная переменная тела
 // лямбды, запоминается в c.captures/c.captureOrder (в порядке первого
-// использования, без повторов) - см. package doc ctx.parent.
-func (c *ctx) lookup(name string) (ir.Type, bool) {
+// использования, без повторов) - см. package doc ctx.parent. Переменная
+// модуля сюда не входит - лямбда её не захватывает, обращается напрямую.
+func (c *ctx) lookupLocal(name string) (ir.Type, bool) {
 	for _, sc := range slices.Backward(c.scopes) {
 		if typ, ok := sc[name]; ok {
 			return typ, true
@@ -349,7 +371,7 @@ func (c *ctx) lookup(name string) (ir.Type, bool) {
 	if c.parent == nil {
 		return ir.TypeUnknown, false
 	}
-	typ, ok := c.parent.lookup(name)
+	typ, ok := c.parent.lookupLocal(name)
 	if !ok {
 		return ir.TypeUnknown, false
 	}

@@ -81,6 +81,13 @@ type Analyzer struct {
 	// точки - у EntityDecl.Constants ключ всегда "Сущность.Константа",
 	// коллизий по формату быть не может).
 	moduleConstExprs map[string]ast.Expr
+	// moduleVars - переменные уровня модуля, уже разобранные (их значения
+	// разбираются по порядку, см. module_vars.go): имя -> тип.
+	moduleVars map[string]ir.Type
+	// laterModuleVars - пока разбирается значение переменной модуля:
+	// переменные модуля, объявленные ниже неё (их значения ещё не
+	// вычислены) - для понятной ошибки вместо "не объявлена".
+	laterModuleVars map[string]bool
 
 	// resolvedFieldDefaults - кэш значений по умолчанию полей ("Сущность.
 	// поле" -> уже разрешённый ir.Expr), тем же принципом, что и
@@ -1253,6 +1260,7 @@ func (a *Analyzer) analyzeFunction(fn *ast.FunctionDecl) (*ir.Function, error) {
 func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 	out := &ir.Program{ExternFuncs: a.externFuncs, DBPoolSize: DefaultDBPoolSize, DBSQLiteBusyTimeoutMs: DefaultDBSQLiteBusyTimeoutMs, PoolShrinkEnabled: true, PoolIdleTimeoutMs: DefaultPoolIdleTimeoutMs, HTTPMaxRequestBytes: DefaultHTTPMaxRequestBytes}
 	bag := diagnostics.NewBag()
+	out.Globals = a.analyzeModuleVars(prog, bag)
 	for _, iface := range prog.Interfaces {
 		sig := a.interfaces[iface.Name]
 		// sig.IRMethods - уже готовые ir.InterfaceMethod, включая

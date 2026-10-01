@@ -385,8 +385,8 @@ const reflectPustoName = "Пусто"
 // cbackend/db.go), проверяется как "результат.получить(колонка).
 // тип_значения().имя() == \"Ничто\"".
 var reflectPrimitiveKinds = []ir.TypeKind{
-	ir.KindInt, ir.KindInt8, ir.KindInt16, ir.KindInt32, ir.KindInt64,
-	ir.KindUint, ir.KindUint8, ir.KindUint16, ir.KindUint32, ir.KindUint64,
+	ir.KindInt, ir.KindInt8, ir.KindInt16, ir.KindInt32,
+	ir.KindUint, ir.KindUint8, ir.KindUint16, ir.KindUint32,
 	ir.KindFloat32, ir.KindFloat, ir.KindString, ir.KindBool, ir.KindChar, ir.KindByte,
 	ir.KindNull, ir.KindFile, ir.KindSocket, ir.KindDB, ir.KindHTTP2Session,
 }

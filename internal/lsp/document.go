@@ -93,6 +93,11 @@ type doc struct {
 	// AST-значение напрямую (constanthover.go, literalTextAST).
 	astConsts map[string]*ast.ConstDecl
 
+	// astVars - переменные МОДУЛЬНОГО уровня документа (плюс
+	// импортированные - тем же принципом, что и astConsts), см.
+	// modulevar.go.
+	astVars map[string]*ast.VarDecl
+
 	// astSynonyms - синонимы типов документа (плюс импортированные через
 	// multifile.go - не манглятся при линковке, как и astEnums). Цель в
 	// SynonymDecl.Target уже раскрыта семантикой, поэтому hover берёт текст
@@ -257,6 +262,7 @@ func (d *doc) update(text string) {
 		for _, c := range astProg.Consts {
 			d.astConsts[c.Name] = c
 		}
+		d.astVars = moduleVarsByName(astProg)
 		d.astSynonyms = map[string]*ast.SynonymDecl{}
 		for _, s := range astProg.Synonyms {
 			d.astSynonyms[s.Name] = s

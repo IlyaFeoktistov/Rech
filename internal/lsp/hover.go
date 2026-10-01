@@ -104,6 +104,9 @@ func (d *doc) hoverBareName(name string, line int) (string, bool) {
 			return withDoc(codeBlock(fmt.Sprintf("%s %s: %s", kind, name, d.dispType(t))), doc), true
 		}
 	}
+	if block, ok := d.hoverModuleVar(name); ok {
+		return block, true
+	}
 	if fn, ok := d.funcs[name]; ok {
 		block := withDoc(codeBlock(d.functionSignature(d.disp(fn.Name), fn.Params, fn.HasReturn, fn.ReturnType)), fn.Doc)
 		return withThrows(block, d.throwsOf(throwsFuncKey(fn.Name))), true
@@ -143,6 +146,9 @@ func (d *doc) hoverBareName(name string, line int) (string, bool) {
 		}
 		block := withDoc(codeBlock(header), entDoc)
 		return withThrows(block, d.throwsOf(throwsCtorKey(ent.Name))), true
+	}
+	if block, ok := hoverBuiltinSynonym(name); ok {
+		return block, true
 	}
 	if doc, ok := builtinTypeDocs[name]; ok {
 		header := name

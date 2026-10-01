@@ -54,14 +54,14 @@ func (p *Parser) governingModuleKeyword() lexer.TokenType {
 // (константа уровня сущности - тоже всегда женский род).
 func moduleVisibilityWordFor(vis ast.Visibility, governing lexer.TokenType) (string, error) {
 	switch governing {
-	case lexer.KwFunction, lexer.KwEntity, lexer.KwStruct, lexer.KwConst:
+	case lexer.KwFunction, lexer.KwEntity, lexer.KwStruct, lexer.KwConst, lexer.KwVariable:
 		return visibilityKeywordFor(vis, morph.Feminine, morph.Singular), nil
 	case lexer.KwClass, lexer.KwSynonym:
 		return visibilityKeywordFor(vis, morph.Masculine, morph.Singular), nil
 	case lexer.KwEnum:
 		return visibilityKeywordFor(vis, morph.Neuter, morph.Singular), nil
 	default:
-		return "", diagnostics.New(CodeModifierAgree, diagnostics.Position{}, "модификатор видимости здесь неуместен - ожидалась \"функция\", \"сущность\", \"класс\", \"структура\", \"перечисление\", \"константа\" или \"синоним\"")
+		return "", diagnostics.New(CodeModifierAgree, diagnostics.Position{}, "модификатор видимости здесь неуместен - ожидалась \"функция\", \"сущность\", \"класс\", \"структура\", \"перечисление\", \"константа\", \"синоним\" или объявление переменной")
 	}
 }
 
@@ -70,12 +70,21 @@ func moduleVisibilityWordFor(vis ast.Visibility, governing lexer.TokenType) (str
 // входе - на самом модификаторе или уже на governing keyword (модификатора
 // не было); на выходе - всегда на governing keyword.
 func (p *Parser) parseModuleVisibility() (ast.Visibility, error) {
+	p.topVisibility = moduleVisibility{}
 	if !isModuleVisibilityKeyword(p.cur().Type) {
 		return ast.Public, nil
 	}
 	tok := p.advance()
 	vis := visibilityFromToken(tok)
 	governing := p.governingModuleKeyword()
+	p.topVisibility = moduleVisibility{tok: &tok, vis: vis}
+	if governing == lexer.IDENT || governing == lexer.QUESTION {
+		// "<модификатор> <Тип> <имя> = ..." - переменная модуля с типом
+		// первым: модификатор согласуется с именем переменной, оно ещё не
+		// прочитано (module_var.go, noteTopLevelStmt).
+		p.topVisibility.deferred = true
+		return vis, nil
+	}
 	want, err := moduleVisibilityWordFor(vis, governing)
 	if err != nil {
 		return ast.Public, diagnostics.WithPos(err, diagnostics.Position{Line: tok.Line, Col: tok.Col})

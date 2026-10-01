@@ -53,14 +53,27 @@ var primitiveTypes = map[string]ir.Type{
 	"Целое8":         ir.TypeInt8,
 	"Целое16":        ir.TypeInt16,
 	"Целое32":        ir.TypeInt32,
-	"Целое64":        ir.TypeInt64,
 	"Натуральное":    ir.TypeUint,
 	"Натуральное8":   ir.TypeUint8,
 	"Натуральное16":  ir.TypeUint16,
 	"Натуральное32":  ir.TypeUint32,
-	"Натуральное64":  ir.TypeUint64,
 	"Тип":            ir.TypeTypeInfo,
 	"Значение":       ir.TypeAny,
+}
+
+// BuiltinTypeSynonyms - встроенные синонимы типов, в записи "синоним Имя =
+// Тип": имя -> второе имя того же самого типа. Оба имени - один тип
+// (смешиваются без приведения, взаимозаменяемы в параметрах); в
+// сообщениях компилятора тип называется первым, коротким именем.
+var BuiltinTypeSynonyms = map[string]string{
+	"Целое":       "Целое64",
+	"Натуральное": "Натуральное64",
+}
+
+func init() {
+	for name, other := range BuiltinTypeSynonyms {
+		primitiveTypes[other] = primitiveTypes[name]
+	}
 }
 
 // resolveTypeName - единственное место, где имя типа Rech (строка из AST)
@@ -722,8 +735,8 @@ func resolveDictTypeName(entities map[string]entitySig, methods map[string]map[s
 func isFFIScalar(t ir.Type) bool {
 	switch t.Kind {
 	case ir.KindInt, ir.KindFloat, ir.KindFloat32, ir.KindString, ir.KindBool, ir.KindByte, ir.KindChar,
-		ir.KindInt8, ir.KindInt16, ir.KindInt32, ir.KindInt64,
-		ir.KindUint, ir.KindUint8, ir.KindUint16, ir.KindUint32, ir.KindUint64:
+		ir.KindInt8, ir.KindInt16, ir.KindInt32,
+		ir.KindUint, ir.KindUint8, ir.KindUint16, ir.KindUint32:
 		return true
 	default:
 		return false

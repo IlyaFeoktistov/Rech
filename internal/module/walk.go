@@ -335,6 +335,25 @@ type rewriter struct {
 	// когда")" - см. rewriteExpr, case *ast.Identifier/*ast.FieldAccess.
 	allEnums  map[string]bool
 	allConsts map[string]bool
+	// allVars - то же для переменных уровня модуля.
+	allVars map[string]bool
+}
+
+// resolveVarName - имя переменной name, как оно написано в файле, в имя
+// после линковки: локальная - как есть, переменная модуля (своя или
+// импортированная под псевдонимом) - по r.names; ошибка - переменная
+// модуля другого файла, не импортированная сюда (или приватная).
+func (r *rewriter) resolveVarName(name string, line int) (string, error) {
+	if r.locals[name] {
+		return name, nil
+	}
+	if resolved, err := resolveBareName(name, r.names); err == nil && r.allVars[resolved] {
+		return resolved, nil
+	}
+	if r.allVars[name] {
+		return "", fmt.Errorf("строка %d: переменная модуля %q не объявлена в этом файле и не импортирована", line, name)
+	}
+	return name, nil
 }
 
 func (r *rewriter) addLocal(name string) {
@@ -463,8 +482,18 @@ func (r *rewriter) rewriteStmt(s ast.Stmt) error {
 		// имён, что и любой другой вызов.
 		return r.rewriteExprs(s.Args)
 	case *ast.Assign:
+		name, err := r.resolveVarName(s.Name, s.Line)
+		if err != nil {
+			return err
+		}
+		s.Name = name
 		return r.rewriteExpr(s.Value)
 	case *ast.NullCoalesceAssign:
+		name, err := r.resolveVarName(s.Name, s.Line)
+		if err != nil {
+			return err
+		}
+		s.Name = name
 		return r.rewriteExpr(s.Value)
 	case *ast.FieldAssign:
 		if err := r.rewriteExpr(s.Receiver); err != nil {
@@ -559,6 +588,9 @@ func (r *rewriter) rewriteStmt(s ast.Stmt) error {
 		if s.Await != nil {
 			return r.rewriteExpr(s.Await)
 		}
+		if s.IncDec != nil {
+			return r.rewriteExpr(s.IncDec)
+		}
 		return nil
 	case *ast.ThrowStmt:
 		return r.rewriteExpr(s.Value)
@@ -626,8 +658,19 @@ func (r *rewriter) rewriteExprs(exprs []ast.Expr) error {
 }
 
 func (r *rewriter) rewriteExpr(e ast.Expr) error {
+	if e == nil {
+		// Нет выражения - например, значение "Тип имя" без "=".
+		return nil
+	}
 	switch e := e.(type) {
-	case *ast.StringLiteral, *ast.IntLiteral, *ast.FloatLiteral, *ast.BoolLiteral, *ast.CharLiteral, *ast.NullLiteral, *ast.ThisExpr, *ast.IncDecExpr:
+	case *ast.StringLiteral, *ast.IntLiteral, *ast.FloatLiteral, *ast.BoolLiteral, *ast.CharLiteral, *ast.NullLiteral, *ast.ThisExpr:
+		return nil
+	case *ast.IncDecExpr:
+		name, err := r.resolveVarName(e.Name, e.Line)
+		if err != nil {
+			return err
+		}
+		e.Name = name
 		return nil
 	case *ast.Identifier:
 		// Голое имя как ЗНАЧЕНИЕ - подавляющее большинство случаев (локальная
@@ -662,6 +705,9 @@ func (r *rewriter) rewriteExpr(e ast.Expr) error {
 		}
 		if r.allConsts[e.Name] {
 			return fmt.Errorf("строка %d: константа %q не объявлена в этом файле и не импортирована", e.Line, e.Name)
+		}
+		if r.allVars[e.Name] {
+			return fmt.Errorf("строка %d: переменная модуля %q не объявлена в этом файле и не импортирована", e.Line, e.Name)
 		}
 		return nil
 	case *ast.CallExpr:

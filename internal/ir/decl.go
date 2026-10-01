@@ -21,6 +21,11 @@ type Program struct {
 	Functions []*Function
 	Entities  []*Entity
 	Generics  []GenericInstantiation
+	// Globals - переменные уровня модуля в порядке инициализации (порядок
+	// объявления, файлы - в порядке линковки): значения вычисляются один
+	// раз до "главная". Обращение к такой переменной - обычные Identifier/
+	// Assign по имени Name.
+	Globals []*GlobalVar
 	// Warnings - предупреждения анализа (недостижимый код): сборку не
 	// останавливают, печатаются рядом с её результатом. Каждое -
 	// *diagnostics.Diagnostic с Severity Warning (ir не зависит от пакета
@@ -621,3 +626,13 @@ type Method struct {
 }
 
 // Stmt - общий маркерный интерфейс инструкций IR (как ast.Stmt).
+
+// GlobalVar - переменная уровня модуля (см. Program.Globals).
+type GlobalVar struct {
+	Name  string
+	Type  Type
+	Value Expr
+	Line  int
+	File  string
+	Doc   string
+}

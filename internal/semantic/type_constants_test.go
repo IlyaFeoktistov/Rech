@@ -34,7 +34,7 @@ func TestAnalyzeFixedWidthIntTypeConstants(t *testing.T) {
 		t.Fatalf("Целое8::ШИРИНА: получено %#v", c)
 	}
 	g := main.Body[3].(*ir.VarDecl).Value.(*ir.CastExpr)
-	if g.To != ir.TypeUint64 || g.Value.(*ir.IntLiteral).Value != -1 {
+	if g.To != ir.TypeUint || g.Value.(*ir.IntLiteral).Value != -1 {
 		t.Fatalf("Натуральное64::МАКСИМУМ (битовый паттерн -1 == UINT64_MAX): получено %#v", g)
 	}
 }

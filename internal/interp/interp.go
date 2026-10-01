@@ -342,6 +342,9 @@ func (in *Interp) cloneValue(v Value) Value {
 type Env struct {
 	vars   map[string]Value
 	parent *Env
+	// mu - только у окружения переменных модуля (Interp.globals): его
+	// читают и пишут все потоки ("запустить") одновременно.
+	mu *sync.Mutex
 
 	// staticIDs - имя "статической переменной" (ir.VarDecl.IsStatic) в
 	// этой области видимости -> ir.VarDecl.StaticID. Параллельная vars
@@ -377,7 +380,7 @@ func (e *Env) lookupStaticID(name string) (int, bool) {
 		if id, ok := cur.staticIDs[name]; ok {
 			return id, true
 		}
-		if _, ok := cur.vars[name]; ok {
+		if _, ok := cur.lockedGet(name); ok {
 			// Дошли до обычной (не статической) переменной с этим именем в
 			// более внутренней области, чем возможная статическая с тем же
 			// именем снаружи - она её затеняет, дальше искать не нужно.
@@ -389,11 +392,21 @@ func (e *Env) lookupStaticID(name string) (int, bool) {
 
 func (e *Env) get(name string) (Value, bool) {
 	for cur := e; cur != nil; cur = cur.parent {
-		if v, ok := cur.vars[name]; ok {
+		if v, ok := cur.lockedGet(name); ok {
 			return v, true
 		}
 	}
 	return Value{}, false
+}
+
+// lockedGet - name в собственных vars окружения, под mu, если он есть.
+func (e *Env) lockedGet(name string) (Value, bool) {
+	if e.mu != nil {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+	}
+	v, ok := e.vars[name]
+	return v, ok
 }
 
 // set - присваивание уже объявленной переменной: находит область, где имя
@@ -401,15 +414,32 @@ func (e *Env) get(name string) (Value, bool) {
 // как declare) - соответствует "имя = выражение" (не "переменная имя = ...").
 func (e *Env) set(name string, v Value) {
 	for cur := e; cur != nil; cur = cur.parent {
-		if _, ok := cur.vars[name]; ok {
-			cur.vars[name] = v
+		if cur.lockedSetExisting(name, v) {
 			return
 		}
 	}
-	e.vars[name] = v
+	e.declare(name, v)
+}
+
+// lockedSetExisting - присвоить name в собственных vars окружения, если
+// имя объявлено здесь (под mu, если он есть).
+func (e *Env) lockedSetExisting(name string, v Value) bool {
+	if e.mu != nil {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+	}
+	if _, ok := e.vars[name]; ok {
+		e.vars[name] = v
+		return true
+	}
+	return false
 }
 
 func (e *Env) declare(name string, v Value) {
+	if e.mu != nil {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+	}
 	e.vars[name] = v
 }
 
@@ -545,6 +575,11 @@ type Interp struct {
 	// хранилище на всю программу, заполняется значениями по умолчанию один
 	// раз в newInterp (см. initStaticFields), до вызова "главная".
 	staticFields map[string]map[string]Value
+	// globals - переменные уровня модуля (ir.Program.Globals): родитель
+	// корневого окружения каждого вызова функции/метода/конструктора и
+	// каждой лямбды - локальная переменная с тем же именем перекрывает
+	// переменную модуля обычным затенением Env.
+	globals *Env
 
 	// staticLocals - значение "статической переменной" (ir.VarDecl.
 	// IsStatic) по StaticID - хранилище живёт дольше одного вызова функции/
@@ -689,7 +724,11 @@ func newInterp(prog *ir.Program, out io.Writer, stdin io.Reader) (*Interp, *ir.F
 	for _, g := range prog.Generics {
 		in.generics[g.Name] = g
 	}
+	in.globals = &Env{vars: map[string]Value{}, mu: &sync.Mutex{}}
 	if err := in.initStaticFields(prog); err != nil {
+		return nil, nil, err
+	}
+	if err := in.initGlobals(prog); err != nil {
 		return nil, nil, err
 	}
 	main, ok := in.funcs[entryPointName]
@@ -697,6 +736,21 @@ func newInterp(prog *ir.Program, out io.Writer, stdin io.Reader) (*Interp, *ir.F
 		return nil, nil, fmt.Errorf("в программе не найдена функция %q - она служит точкой входа", entryPointName)
 	}
 	return in, main, nil
+}
+
+// initGlobals вычисляет значения переменных уровня модуля по порядку
+// (ir.Program.Globals) - после статических полей, до "главная", тем же
+// порядком, что и cbackend (rech_init_globals).
+func (in *Interp) initGlobals(prog *ir.Program) error {
+	cc := &callCtx{curLine: new(int)}
+	for _, g := range prog.Globals {
+		v, err := in.evalExpr(g.Value, newEnv(in.globals), cc)
+		if err != nil {
+			return fmt.Errorf("переменная модуля %q: %w", g.Name, err)
+		}
+		in.globals.declare(g.Name, in.cloneValue(v))
+	}
+	return nil
 }
 
 // initStaticFields заполняет in.staticFields значениями по умолчанию всех
@@ -718,7 +772,7 @@ func (in *Interp) initStaticFields(prog *ir.Program) error {
 				fields[f.Name] = in.zeroFieldValue(f.Type)
 				continue
 			}
-			v, err := in.evalExpr(f.Default, newEnv(nil), cc)
+			v, err := in.evalExpr(f.Default, newEnv(in.globals), cc)
 			if err != nil {
 				return fmt.Errorf("сущность %q: статическое поле %q: %w", ent.Name, f.Name, err)
 			}
@@ -745,7 +799,7 @@ func (in *Interp) initStaticFields(prog *ir.Program) error {
 // concurrency.go, новая горутина - новый поток отладчика).
 
 func (in *Interp) callFunction(fn *ir.Function, args []Value, dbg *dbgThread) (result Value, err error) {
-	env := newEnv(nil)
+	env := newEnv(in.globals)
 	for i, p := range fn.Params {
 		env.declare(p.Name, in.cloneValue(args[i]))
 	}
@@ -776,7 +830,7 @@ func (in *Interp) callFunction(fn *ir.Function, args []Value, dbg *dbgThread) (r
 }
 
 func (in *Interp) callMethod(m *ir.Method, this *entityObj, args []Value, dbg *dbgThread) (result Value, err error) {
-	env := newEnv(nil)
+	env := newEnv(in.globals)
 	for i, p := range m.Params {
 		env.declare(p.Name, in.cloneValue(args[i]))
 	}
@@ -822,7 +876,7 @@ func (in *Interp) callMethod(m *ir.Method, this *entityObj, args []Value, dbg *d
 // напрямую, а не через this.typeName (this.typeName обратился бы к полю
 // нулевого указателя).
 func (in *Interp) callStaticMethod(m *ir.Method, entityName string, args []Value, dbg *dbgThread) (result Value, err error) {
-	env := newEnv(nil)
+	env := newEnv(in.globals)
 	for i, p := range m.Params {
 		env.declare(p.Name, in.cloneValue(args[i]))
 	}

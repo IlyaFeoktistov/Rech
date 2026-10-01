@@ -74,11 +74,17 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 			if _, isModuleConst := sc.a.moduleConstExprs[e.Name]; isModuleConst {
 				return resolveModuleConstant(sc, e.Name, e.Line)
 			}
+			if sc.a.laterModuleVars[e.Name] {
+				return nil, errModuleVarDeclaredLater(e.Name, e.Line)
+			}
 			d := errAtLine(e.Line, CodeNameResolution, "переменная %q не объявлена", e.Name)
 			if hint := suggestNameHint(e.Name, sc.visibleNames()); hint != "" {
 				d.WithHint("%s", hint)
 			}
 			return nil, d
+		}
+		if sc.readBeforeAssign(e.Name) {
+			return nil, errReadBeforeAssign(e.Name, e.Line)
 		}
 		// Захвачено лямбдой по ссылке ("&имя" в явном списке захвата,
 		// package doc ir.CaptureVar) - чтение прозрачно идёт через
@@ -988,6 +994,9 @@ func analyzeIncDecExpr(sc *ctx, e *ast.IncDecExpr) (ir.Expr, error) {
 		}
 		return nil, d
 	}
+	if sc.readBeforeAssign(e.Name) {
+		return nil, errReadBeforeAssign(e.Name, e.Line)
+	}
 	if _, isByRef := sc.byRefPointerType(e.Name); isByRef {
 		baseOp := "+"
 		if e.Op == "--" {
@@ -1148,20 +1157,27 @@ func analyzeBinaryExpr(sc *ctx, e *ast.BinaryExpr) (ir.Expr, error) {
 	}
 }
 
+// isStrictWidthInt - целый тип фиксированной ширины со строгой (без
+// промоции) арифметикой: все, кроме Целое.
+func isStrictWidthInt(t ir.Type) bool {
+	_, _, ok := t.Kind.IntWidthSigned()
+	return ok && t.Kind != ir.KindInt
+}
+
 // analyzeArithmetic - "+" (нестроковый)/"-"/"*"/"/": результат - более
 // широкий из двух операндов по numericRanks (Целое -> Дробное ->
 // Действительное), тип в IR-узле, без самого приведения ((double)...) -
 // приведение операнда, если нужно, решает backend при генерации кода,
 // глядя на Type каждого операнда и Type результата.
 func analyzeArithmetic(e *ast.BinaryExpr, left ir.Expr, lt ir.Type, right ir.Expr, rt ir.Type) (ir.Expr, error) {
-	// Целое8/16/32/64, Натуральное/8/16/32/64 - строго между операндами
-	// ОДНОГО И ТОГО ЖЕ Kind, без неявной промоции (в отличие от Целое/
-	// Дробное/Действительное ниже, numericRanks) - даже Целое64 к Целое
-	// не промоутится, хотя оба 64-битные.
-	if lt == rt {
-		if _, _, ok := lt.Kind.IntWidthSigned(); ok && lt.Kind != ir.KindInt {
-			return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: lt}, nil
-		}
+	// Целое8/16/32, Натуральное/8/16/32 - строго между операндами ОДНОГО И
+	// ТОГО ЖЕ Kind, без неявной промоции (в отличие от Целое/Дробное/
+	// Действительное ниже, numericRanks).
+	if lt == rt && isStrictWidthInt(lt) {
+		return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: lt}, nil
+	}
+	if isStrictWidthInt(lt) || isStrictWidthInt(rt) {
+		return nil, errAtLine(e.Line, CodeExprCheck, "оператор %q: %s и %s - разные типы, без неявного приведения; приведите один операнд к типу другого, например (%s) значение", e.Op, lt, rt, lt)
 	}
 	lr, lok := numericRanks[lt]
 	if !lok {

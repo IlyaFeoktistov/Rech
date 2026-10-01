@@ -38,9 +38,9 @@ func TestGenerateFromIRUnsignedFixedWidthDivisionUsesUintHelper(t *testing.T) {
 	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
 		&ir.PrintStmt{Value: &ir.BinaryExpr{
 			Op:    "/",
-			Left:  &ir.CastExpr{Value: &ir.IntLiteral{Value: 10}, To: ir.TypeUint64},
-			Right: &ir.CastExpr{Value: &ir.IntLiteral{Value: 2}, To: ir.TypeUint64},
-			Type:  ir.TypeUint64,
+			Left:  &ir.CastExpr{Value: &ir.IntLiteral{Value: 10}, To: ir.TypeUint},
+			Right: &ir.CastExpr{Value: &ir.IntLiteral{Value: 2}, To: ir.TypeUint},
+			Type:  ir.TypeUint,
 		}},
 	}}
 	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
@@ -120,7 +120,7 @@ func TestGenerateFromIRFixedWidthDivModGuardsMinOverMinusOne(t *testing.T) {
 // long) - иначе Натуральное64 выше INT64_MAX отобразилось бы отрицательным.
 func TestGenerateFromIRPrintUnsignedFixedWidthUsesUnsignedFormat(t *testing.T) {
 	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
-		&ir.PrintStmt{Value: &ir.CastExpr{Value: &ir.IntLiteral{Value: 200}, To: ir.TypeUint64}},
+		&ir.PrintStmt{Value: &ir.CastExpr{Value: &ir.IntLiteral{Value: 200}, To: ir.TypeUint}},
 	}}
 	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
 	if err != nil {
@@ -146,19 +146,19 @@ func TestGenerateFromIRPrintSignedFixedWidthUsesSignedFormat(t *testing.T) {
 	}
 }
 
-// TestGenerateFromIRStrToUnsignedCastUsesUintHelper - (Натуральное64)
+// TestGenerateFromIRStrToUnsignedCastUsesUintHelper - (Натуральное)
 // значение_строки - через rech_cast_str_to_uint (strtoull), не
 // rech_cast_str_to_int (strtoll, знаковое) - строка "18446744073709551615"
 // не поместилась бы в long long.
 func TestGenerateFromIRStrToUnsignedCastUsesUintHelper(t *testing.T) {
 	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
-		&ir.PrintStmt{Value: &ir.CastExpr{Value: &ir.StringLiteral{Value: "18446744073709551615"}, To: ir.TypeUint64}},
+		&ir.PrintStmt{Value: &ir.CastExpr{Value: &ir.StringLiteral{Value: "18446744073709551615"}, To: ir.TypeUint}},
 	}}
 	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, `rech_cast_str_to_uint("18446744073709551615", "Натуральное64")`) {
+	if !strings.Contains(out, `rech_cast_str_to_uint("18446744073709551615", "Натуральное")`) {
 		t.Fatalf("ожидался вызов rech_cast_str_to_uint, получено:\n%s", out)
 	}
 	if !strings.Contains(out, "static unsigned long long rech_cast_str_to_uint(") {
@@ -172,7 +172,7 @@ func TestGenerateFromIRStrToUnsignedCastUsesUintHelper(t *testing.T) {
 // INT64_MAX отрицательным.
 func TestGenerateFromIRUnsignedToStrCastUsesUintHelper(t *testing.T) {
 	main := &ir.Function{Name: "главная", Body: []ir.Stmt{
-		&ir.PrintStmt{Value: &ir.CastExpr{Value: &ir.CastExpr{Value: &ir.IntLiteral{Value: 200}, To: ir.TypeUint64}, To: ir.TypeString}},
+		&ir.PrintStmt{Value: &ir.CastExpr{Value: &ir.CastExpr{Value: &ir.IntLiteral{Value: 200}, To: ir.TypeUint}, To: ir.TypeString}},
 	}}
 	out, err := GenerateFromIR(&ir.Program{Functions: []*ir.Function{main}})
 	if err != nil {

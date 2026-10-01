@@ -49,3 +49,38 @@ func TestDefinitionOnSynonymUse(t *testing.T) {
 		t.Fatalf("переход к объявлению синонима: %+v, %v", pos, ok)
 	}
 }
+
+// TestHoverBuiltinTypeSynonym - hover на "Целое" и на "Целое64" (и на
+// "Натуральное"/"Натуральное64") показывает один и тот же синоним и явно
+// говорит, что это один тип.
+func TestHoverBuiltinTypeSynonym(t *testing.T) {
+	src := `функция ф(а: Целое64, б: Натуральное): Целое
+{
+    вернуть а
+}
+
+функция главная
+{
+    Натуральное64 н = 1
+    вывести ф(1, н)
+}
+`
+	d := newDoc("test://a.rech", src)
+	for _, c := range []struct{ line, needle, want string }{
+		{"функция ф(", "Целое64", "синоним Целое = Целое64"},
+		{"функция ф(", "): Целое", "синоним Целое = Целое64"},
+		{"функция ф(", "Натуральное", "синоним Натуральное = Натуральное64"},
+		{"Натуральное64 н", "Натуральное64", "синоним Натуральное = Натуральное64"},
+	} {
+		lineNo := lineOf(t, src, c.line)
+		lineText := strings.Split(src, "\n")[lineNo-1]
+		col := runeCol(t, lineText, c.needle)
+		if strings.HasPrefix(c.needle, "): ") {
+			col += 3
+		}
+		text, ok := d.hover(lineNo, col)
+		if !ok || !strings.Contains(text, c.want) || !strings.Contains(text, "один и тот же тип") {
+			t.Fatalf("hover на %q: %q, %v", c.needle, text, ok)
+		}
+	}
+}

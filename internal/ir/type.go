@@ -81,25 +81,24 @@ const (
 	// дальше как есть, без полей/методов/"новый". Entity несёт Rech-facing
 	// псевдоним (тем же полем, что и KindEntity/KindInterface/KindTask).
 	KindExternEntity
-	// KindInt8/16/32/64 - "Целое8/16/32/64", знаковые целые фиксированной
-	// ширины (явные аналоги C int8_t/int16_t/int32_t/int64_t) - в отличие
-	// от KindInt ("Целое", уже 64-битное), участвуют в арифметике (+ - * /)
-	// СТРОГО между операндами одного и того же Kind, без неявной промоции
-	// (даже KindInt64 к KindInt, хотя оба 64-битные).
+	// KindInt8/16/32 - "Целое8/16/32", знаковые целые фиксированной ширины
+	// (явные аналоги C int8_t/int16_t/int32_t) - в отличие от KindInt
+	// ("Целое", оно же "Целое64" - синоним, см. internal/semantic.
+	// primitiveTypes), участвуют в арифметике (+ - * /) СТРОГО между
+	// операндами одного и того же Kind, без неявной промоции.
 	KindInt8
 	KindInt16
 	KindInt32
-	KindInt64
-	// KindUint/8/16/32/64 - "Натуральное"/"Натуральное8/16/32/64", целые без
-	// знака ([0, 2^N-1], не "Целое с проверкой на отрицательность") - тот же
-	// принцип строгой (без промоции) арифметики, что и у KindInt8..64.
+	// KindUint/8/16/32 - "Натуральное" (оно же "Натуральное64" - синоним)/
+	// "Натуральное8/16/32", целые без знака ([0, 2^N-1], не "Целое с
+	// проверкой на отрицательность") - тот же принцип строгой (без промоции)
+	// арифметики, что и у KindInt8..32.
 	// Приведение между знаковым и беззнаковым - только через явный каст,
 	// никогда неявно.
 	KindUint
 	KindUint8
 	KindUint16
 	KindUint32
-	KindUint64
 	// KindAny - "Значение", непрозрачный контейнер значения ЛЮБОГО типа
 	// (боксирование для рефлексии) - НЕ KindEntity: элементы встроенных
 	// generic-коллекций ограничены примитивами ("не для сущностей", см.
@@ -172,13 +171,11 @@ var (
 	TypeInt8  = Type{Kind: KindInt8}
 	TypeInt16 = Type{Kind: KindInt16}
 	TypeInt32 = Type{Kind: KindInt32}
-	TypeInt64 = Type{Kind: KindInt64}
 
 	TypeUint   = Type{Kind: KindUint}
 	TypeUint8  = Type{Kind: KindUint8}
 	TypeUint16 = Type{Kind: KindUint16}
 	TypeUint32 = Type{Kind: KindUint32}
-	TypeUint64 = Type{Kind: KindUint64}
 
 	TypeAny       = Type{Kind: KindAny}
 	TypeTypeInfo  = Type{Kind: KindTypeInfo}
@@ -204,8 +201,6 @@ func (k TypeKind) IntWidthSigned() (bits int, signed bool, ok bool) {
 		return 16, true, true
 	case KindInt32:
 		return 32, true, true
-	case KindInt64:
-		return 64, true, true
 	case KindUint:
 		return 64, false, true
 	case KindUint8:
@@ -214,8 +209,6 @@ func (k TypeKind) IntWidthSigned() (bits int, signed bool, ok bool) {
 		return 16, false, true
 	case KindUint32:
 		return 32, false, true
-	case KindUint64:
-		return 64, false, true
 	default:
 		return 0, false, false
 	}
@@ -329,8 +322,6 @@ func (t Type) String() string {
 		return "Целое16"
 	case KindInt32:
 		return "Целое32"
-	case KindInt64:
-		return "Целое64"
 	case KindUint:
 		return "Натуральное"
 	case KindUint8:
@@ -339,8 +330,6 @@ func (t Type) String() string {
 		return "Натуральное16"
 	case KindUint32:
 		return "Натуральное32"
-	case KindUint64:
-		return "Натуральное64"
 	case KindAny:
 		return "Значение"
 	case KindTypeInfo:
