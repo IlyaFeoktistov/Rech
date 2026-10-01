@@ -48,18 +48,12 @@ trap 'rm -rf "$PKGROOT"' EXIT
 
 echo "Rech .deb: версия $VERSION, архитектура $ARCH"
 
-mkdir -p "$PKGROOT/usr/bin" "$PKGROOT/usr/share/rech/zoneinfo" "$PKGROOT/usr/share/doc/rech" "$PKGROOT/DEBIAN"
+mkdir -p "$PKGROOT/usr/bin" "$PKGROOT/usr/share/doc/rech" "$PKGROOT/DEBIAN"
 
 echo "Сборка rech (GOARCH=$ARCH)..."
 (cd "$REPO_ROOT" && GOOS=linux GOARCH="$ARCH" go build \
     -ldflags "-X github.com/IlyaFeoktistov/Rech/internal/version.Version=$VERSION" \
     -o "$PKGROOT/usr/bin/rech" ./cmd/rech)
-
-# Часовые пояса (IANA tzdata) - "$(dirname /usr/bin)/share/rech/zoneinfo" =
-# "/usr/share/rech/zoneinfo", ровно тот путь, что вычисляет tzdataDir()
-# (internal/backend/cbackend/tzdata.go) для любого бинарника Unix-Rech,
-# установленного в "<префикс>/bin".
-cp -r "$REPO_ROOT/runtime/zoneinfo/." "$PKGROOT/usr/share/rech/zoneinfo/"
 
 cp "$REPO_ROOT/LICENSE" "$PKGROOT/usr/share/doc/rech/copyright"
 

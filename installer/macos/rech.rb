@@ -36,12 +36,6 @@ class Rech < Formula
     system "go", "build", "-ldflags",
            "-X github.com/IlyaFeoktistov/Rech/internal/version.Version=#{version_str}",
            "-o", bin/"rech", "./cmd/rech"
-
-    # Часовые пояса (IANA tzdata) - "<prefix>/share/rech/zoneinfo", тот же
-    # путь, что вычисляет tzdataDir() (internal/backend/cbackend/tzdata.go)
-    # для любого Unix-бинарника, установленного в "<префикс>/bin" -
-    # Homebrew кладёт bin/ и share/ в один и тот же keg-префикс.
-    (share/"rech/zoneinfo").install Dir["runtime/zoneinfo/*"]
   end
 
   test do

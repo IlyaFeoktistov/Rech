@@ -1897,7 +1897,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// После datetimeHelpers выше (rech_time_to_date_tz/rech_date_to_time_tz
 	// зовут rech_time_to_date/rech_date_to_time/rech_days_from_civil/
 	// rech_civil_from_days) и после typedefs ("?ДатаВремя"/"?Целое").
-	appendCodeIf(&sb, ctx.usesTZ, tzdata.Helpers(escapeCString(tzdata.Dir()), mangleType("ДатаВремя"),
+	appendCodeIf(&sb, ctx.usesTZ, tzdata.Helpers(mangleType("ДатаВремя"),
 		mangleField("год"), mangleField("месяц"), mangleField("день"),
 		mangleField("час"), mangleField("минута"), mangleField("секунда"),
 		mangleType("?ДатаВремя"), mangleType("?Целое")))

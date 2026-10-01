@@ -1,67 +1,6 @@
 package tzdata
 
-import (
-	"os"
-	"path/filepath"
-	"runtime"
-	"strings"
-)
-
-// Dir - каталог с файлами IANA tzdata (формат TZif, RFC 8536), который
-// скомпилированная Rech-программа будет искать ПЕРВЫМ, ПОСЛЕ
-// getenv("TZDIR") (см. package doc Helpers) - вычисляется здесь, в Go, в
-// момент "rech build"/"rech run" ЭТОГО экземпляра компилятора (не при
-// компиляции самого rech) - конкретный путь зависит от того, где именно он
-// установлен: installer/unix/install.sh кладёт вендоренную копию
-// (runtime/zoneinfo этого репозитория) в "<PREFIX>/../share/rech/zoneinfo"
-// (рядом с бинарником rech, тем же принципом, что и Unix-конвенция bin/
-// share), installer/windows/setup.nsi - в "<INSTDIR>/zoneinfo" (Windows не
-// знает такой конвенции сама по себе). Решение ВШИВАТЬ копию (не
-// полагаться на системную /usr/share/zoneinfo, как install.sh делает для
-// OpenSSL/libpng/nghttp2/Boehm GC через probe) - явный осознанный выбор
-// пользователя ради одной и той же версии базы независимо от ОС/
-// дистрибутива, ценой отступления от общего принципа "не вшивать, только
-// probe".
-//
-// Второй приоритет (после установленной копии) - репозиторная копия
-// ("runtime/zoneinfo" рядом с исходниками этого файла, через
-// runtime.Caller) - удобство разработки: "go run"/"go test" в этом
-// checkout'е находят вендоренные файлы без предварительной установки.
-// Пусто, если не нашлось ни одной, ни другой - скомпилированная программа
-// тогда полагается только на getenv("TZDIR") в СВОЁМ рантайме (см.
-// rech_tz_dir).
-func Dir() string {
-	if exe, err := os.Executable(); err == nil {
-		if real, err := filepath.EvalSymlinks(exe); err == nil {
-			exe = real
-		}
-		binDir := filepath.Dir(exe)
-		var installed string
-		if runtime.GOOS == "windows" {
-			installed = filepath.Join(binDir, "zoneinfo")
-		} else {
-			installed = filepath.Join(filepath.Dir(binDir), "share", "rech", "zoneinfo")
-		}
-		if info, err := os.Stat(installed); err == nil && info.IsDir() {
-			return installed
-		}
-	}
-	if _, thisFile, _, ok := runtime.Caller(0); ok {
-		// Пять ".." до корня репозитория - этот файл живёт в
-		// internal/backend/cbackend/runtime/tzdata/tzdata.go (глубина 5 от
-		// корня); "runtime/zoneinfo" - каталог рядом с ним же, но
-		// репозиторный (см. package doc выше), не runtime/tzdata (этот
-		// подпакет). Раньше (internal/backend/cbackend/tzdata.go, глубина 3)
-		// здесь стояло только два ".." - фактически не срабатывавший
-		// off-by-one (landed at internal/runtime/zoneinfo, которого не
-		// существует) - см. попутный найденный баг ниже.
-		devPath := filepath.Join(filepath.Dir(thisFile), "..", "..", "..", "..", "..", "runtime", "zoneinfo")
-		if info, err := os.Stat(devPath); err == nil && info.IsDir() {
-			return devPath
-		}
-	}
-	return ""
-}
+import "strings"
 
 // Helpers - "время_как_дата_в_поясе(метка, пояс): ?ДатаВремя"/
 // "дата_в_поясе_как_время(дата, пояс): ?Целое" (internal/semantic/
@@ -71,7 +10,7 @@ func Dir() string {
 // не обновляется сама по себе) - НЕ системный tzset/localtime_r (те
 // по-разному доступны на POSIX/MinGW, тот же класс проблемы, что у
 // gmtime_r/timegm, см. package doc internal/interp/datetime.go), читает
-// СОБСТВЕННУЮ вендоренную копию (Dir).
+// базу, вшитую в саму программу (Blob), или каталог TZDIR, если он задан.
 //
 // Известное упрощение (документировано, не случайный пробел): секунды
 // координации (leap seconds) полностью игнорируются (как и почти во всём
@@ -87,11 +26,11 @@ func Dir() string {
 // МНОГО настоящих '%' (оператор "остаток от деления", "%s"/"%02d" в
 // printf-вызовах) - экранировать каждый как "%%" в шаблоне такого объёма
 // было бы источником трудноуловимой опечатки, Replacer не требует
-// экранирования вовсе. escapedZoneinfoDir/mangledType/*Field/nullableDT/
+// экранирования вовсе. mangledType/*Field/nullableDT/
 // nullableInt - уже вычисленные вызывающей стороной (escapeCString/
 // mangleType/mangleField - внутренняя, неэкспортированная инфраструктура
 // cbackend, этот пакет от неё не зависит).
-func Helpers(escapedZoneinfoDir, dtType, fYear, fMonth, fDay, fHour, fMin, fSec, nullableDT, nullableInt string) string {
+func Helpers(dtType, fYear, fMonth, fDay, fHour, fMin, fSec, nullableDT, nullableInt string) string {
 	const tmpl = `typedef struct {
     long long offset;
     int isdst;
@@ -119,28 +58,57 @@ static long long rech_tz_be(const unsigned char *p, int width) {
     return v;
 }
 
-static int rech_tz_read_i32(FILE *f, long long *out) {
+/* rech_tz_buf - курсор по содержимому одного файла TZif в памяти (вшитая
+   база rech_tz_blob или файл из TZDIR, прочитанный целиком). */
+typedef struct {
+    const unsigned char *p;
+    size_t n;
+    size_t pos;
+} rech_tz_buf;
+
+static int rech_tz_read(rech_tz_buf *b, void *dst, size_t k) {
+    if (b->n - b->pos < k) {
+        return 0;
+    }
+    memcpy(dst, b->p + b->pos, k);
+    b->pos += k;
+    return 1;
+}
+
+static int rech_tz_skip(rech_tz_buf *b, long long k) {
+    if (k < 0 || (unsigned long long)k > b->n - b->pos) {
+        return 0;
+    }
+    b->pos += (size_t)k;
+    return 1;
+}
+
+static int rech_tz_getc(rech_tz_buf *b) {
+    return b->pos < b->n ? b->p[b->pos++] : -1;
+}
+
+static int rech_tz_read_i32(rech_tz_buf *f, long long *out) {
     unsigned char b[4];
-    if (fread(b, 1, 4, f) != 4) {
+    if (!rech_tz_read(f, b, 4)) {
         return 0;
     }
     *out = rech_tz_be(b, 4);
     return 1;
 }
 
-static int rech_tz_header(FILE *f, char *version, long long *isutcnt, long long *isstdcnt,
+static int rech_tz_header(rech_tz_buf *f, char *version, long long *isutcnt, long long *isstdcnt,
                            long long *leapcnt, long long *timecnt, long long *typecnt, long long *charcnt) {
     unsigned char magic[4];
-    if (fread(magic, 1, 4, f) != 4 || memcmp(magic, "TZif", 4) != 0) {
+    if (!rech_tz_read(f, magic, 4) || memcmp(magic, "TZif", 4) != 0) {
         return 0;
     }
     unsigned char ver;
-    if (fread(&ver, 1, 1, f) != 1) {
+    if (!rech_tz_read(f, &ver, 1)) {
         return 0;
     }
     *version = (char)ver;
     unsigned char reserved[15];
-    if (fread(reserved, 1, 15, f) != 15) {
+    if (!rech_tz_read(f, reserved, 15)) {
         return 0;
     }
     if (!rech_tz_read_i32(f, isutcnt) || !rech_tz_read_i32(f, isstdcnt) || !rech_tz_read_i32(f, leapcnt) ||
@@ -155,21 +123,21 @@ static int rech_tz_header(FILE *f, char *version, long long *isutcnt, long long 
    ttinfo-записи, строки обозначений (не нужны - пропускаются), leap-
    секунды (игнорируются - см. package doc Helpers), std/wall и ut/local
    индикаторы (не нужны для одного смещения). */
-static int rech_tz_data(FILE *f, int time_width, long long timecnt, long long typecnt, long long charcnt,
+static int rech_tz_data(rech_tz_buf *f, int time_width, long long timecnt, long long typecnt, long long charcnt,
                          long long leapcnt, long long isstdcnt, long long isutcnt, rech_tz_t *out) {
     out->n_times = (int)timecnt;
     out->times = timecnt > 0 ? malloc(sizeof(long long) * (size_t)timecnt) : NULL;
     out->type_idx = timecnt > 0 ? malloc(sizeof(int) * (size_t)timecnt) : NULL;
     for (long long i = 0; i < timecnt; i++) {
         unsigned char buf[8];
-        if (fread(buf, 1, (size_t)time_width, f) != (size_t)time_width) {
+        if (!rech_tz_read(f, buf, (size_t)time_width)) {
             return 0;
         }
         out->times[i] = rech_tz_be(buf, time_width);
     }
     for (long long i = 0; i < timecnt; i++) {
         unsigned char b;
-        if (fread(&b, 1, 1, f) != 1) {
+        if (!rech_tz_read(f, &b, 1)) {
             return 0;
         }
         out->type_idx[i] = b;
@@ -178,11 +146,11 @@ static int rech_tz_data(FILE *f, int time_width, long long timecnt, long long ty
     out->types = typecnt > 0 ? malloc(sizeof(rech_tz_ttinfo) * (size_t)typecnt) : NULL;
     for (long long i = 0; i < typecnt; i++) {
         unsigned char buf[4];
-        if (fread(buf, 1, 4, f) != 4) {
+        if (!rech_tz_read(f, buf, 4)) {
             return 0;
         }
         unsigned char isdst, desigidx;
-        if (fread(&isdst, 1, 1, f) != 1 || fread(&desigidx, 1, 1, f) != 1) {
+        if (!rech_tz_read(f, &isdst, 1) || !rech_tz_read(f, &desigidx, 1)) {
             return 0;
         }
         out->types[i].offset = rech_tz_be(buf, 4);
@@ -198,28 +166,99 @@ static int rech_tz_data(FILE *f, int time_width, long long timecnt, long long ty
             break;
         }
     }
-    if (fseek(f, (long)charcnt, SEEK_CUR) != 0) {
+    if (!rech_tz_skip(f, charcnt)) {
         return 0;
     }
-    if (fseek(f, (long)(leapcnt * (time_width + 4)), SEEK_CUR) != 0) {
+    if (!rech_tz_skip(f, leapcnt * (time_width + 4))) {
         return 0;
     }
-    if (fseek(f, (long)(isstdcnt + isutcnt), SEEK_CUR) != 0) {
+    if (!rech_tz_skip(f, isstdcnt + isutcnt)) {
         return 0;
     }
     return 1;
 }
 
-/* rech_tz_load - открывает "<dir>/<zone>" (например,
-   ".../zoneinfo/Europe/Moscow") - для версии 2+ (единственной, которую
-   реально порождает современный tzdata) целиком пропускает 32-битный
-   V1-блок (его длина точно вычисляется из уже прочитанных counts) и
+/* rech_tz_parse - разбор одного файла TZif в памяти: для версии 2+
+   (единственной, которую реально порождает современный tzdata) целиком
+   пропускает 32-битный V1-блок (его длина точно вычисляется из уже
+   прочитанных counts; во вшитой базе он пуст - см. tzdata.slimTZif) и
    разбирает ВТОРОЙ, 64-битный блок - те же самые данные, но без
    ограничения 2038 годом (V1 хранит время как int32_t). После него - хвост
    "\n<POSIX TZ-строка>\n" (rech_tz_posix_offset ниже), если он есть. */
-static int rech_tz_load(const char *dir, const char *zone, rech_tz_t *out) {
+static int rech_tz_parse(rech_tz_buf *f, rech_tz_t *out) {
+    char version;
+    long long isutcnt, isstdcnt, leapcnt, timecnt, typecnt, charcnt;
+    if (!rech_tz_header(f, &version, &isutcnt, &isstdcnt, &leapcnt, &timecnt, &typecnt, &charcnt)) {
+        return 0;
+    }
+    if (version == 0) {
+        return rech_tz_data(f, 4, timecnt, typecnt, charcnt, leapcnt, isstdcnt, isutcnt, out);
+    }
+
+    long long v1_data_len = timecnt * 4 + timecnt + typecnt * 6 + charcnt + leapcnt * 8 + isstdcnt + isutcnt;
+    if (!rech_tz_skip(f, v1_data_len)) {
+        return 0;
+    }
+    char version2;
+    long long isutcnt2, isstdcnt2, leapcnt2, timecnt2, typecnt2, charcnt2;
+    if (!rech_tz_header(f, &version2, &isutcnt2, &isstdcnt2, &leapcnt2, &timecnt2, &typecnt2, &charcnt2)) {
+        return 0;
+    }
+    if (!rech_tz_data(f, 8, timecnt2, typecnt2, charcnt2, leapcnt2, isstdcnt2, isutcnt2, out)) {
+        return 0;
+    }
+    int c = rech_tz_getc(f);
+    if (c == '\n') {
+        int i = 0;
+        while ((c = rech_tz_getc(f)) != -1 && c != '\n' && i < (int)sizeof(out->posix_tz) - 1) {
+            out->posix_tz[i++] = (char)c;
+        }
+        out->posix_tz[i] = '\0';
+    }
+    return 1;
+}
+
+/* rech_tz_load_dir - "<dir>/<zone>" целиком в память и rech_tz_parse. */
+static int rech_tz_load_dir(const char *dir, const char *zone, rech_tz_t *out) {
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/%s", dir, zone);
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        return 0;
+    }
+    size_t cap = 4096, n = 0;
+    unsigned char *data = malloc(cap);
+    size_t got;
+    while (data && (got = fread(data + n, 1, cap - n, f)) > 0) {
+        n += got;
+        if (n == cap) {
+            unsigned char *grown = realloc(data, cap * 2);
+            if (!grown) {
+                free(data);
+                data = NULL;
+                break;
+            }
+            data = grown;
+            cap *= 2;
+        }
+    }
+    fclose(f);
+    if (!data) {
+        return 0;
+    }
+    rech_tz_buf b = {data, n, 0};
+    int ok = rech_tz_parse(&b, out);
+    free(data);
+    return ok;
+}
+
+/* rech_tz_load - пояс zone ("Europe/Moscow"): из каталога TZDIR, если
+   переменная окружения задана (стандартное имя, которым glibc/musl решают
+   тот же вопрос - позволяет подменить базу без пересборки), иначе из
+   вшитой в программу копии (двоичный поиск по rech_tz_index). */
+static int rech_tz_load(const char *zone, rech_tz_t *out) {
     memset(out, 0, sizeof(*out));
-    if (!dir || !dir[0] || !zone || !zone[0]) {
+    if (!zone || !zone[0]) {
         return 0;
     }
     for (const char *p = zone; *p; p++) {
@@ -227,50 +266,25 @@ static int rech_tz_load(const char *dir, const char *zone, rech_tz_t *out) {
             return 0;
         }
     }
-    char path[1024];
-    snprintf(path, sizeof(path), "%s/%s", dir, zone);
-    FILE *f = fopen(path, "rb");
-    if (!f) {
-        return 0;
+    const char *dir = getenv("TZDIR");
+    if (dir && dir[0]) {
+        return rech_tz_load_dir(dir, zone, out);
     }
-
-    char version;
-    long long isutcnt, isstdcnt, leapcnt, timecnt, typecnt, charcnt;
-    if (!rech_tz_header(f, &version, &isutcnt, &isstdcnt, &leapcnt, &timecnt, &typecnt, &charcnt)) {
-        fclose(f);
-        return 0;
-    }
-    if (version == 0) {
-        int ok = rech_tz_data(f, 4, timecnt, typecnt, charcnt, leapcnt, isstdcnt, isutcnt, out);
-        fclose(f);
-        return ok;
-    }
-
-    long long v1_data_len = timecnt * 4 + timecnt + typecnt * 6 + charcnt + leapcnt * 8 + isstdcnt + isutcnt;
-    if (fseek(f, (long)v1_data_len, SEEK_CUR) != 0) {
-        fclose(f);
-        return 0;
-    }
-    char version2;
-    long long isutcnt2, isstdcnt2, leapcnt2, timecnt2, typecnt2, charcnt2;
-    if (!rech_tz_header(f, &version2, &isutcnt2, &isstdcnt2, &leapcnt2, &timecnt2, &typecnt2, &charcnt2)) {
-        fclose(f);
-        return 0;
-    }
-    if (!rech_tz_data(f, 8, timecnt2, typecnt2, charcnt2, leapcnt2, isstdcnt2, isutcnt2, out)) {
-        fclose(f);
-        return 0;
-    }
-    int c = fgetc(f);
-    if (c == '\n') {
-        int i = 0;
-        while ((c = fgetc(f)) != EOF && c != '\n' && i < (int)sizeof(out->posix_tz) - 1) {
-            out->posix_tz[i++] = (char)c;
+    int lo = 0, hi = rech_tz_index_len - 1;
+    while (lo <= hi) {
+        int mid = lo + (hi - lo) / 2;
+        int cmp = strcmp(zone, rech_tz_index[mid].name);
+        if (cmp == 0) {
+            rech_tz_buf b = {rech_tz_blob + rech_tz_index[mid].off, rech_tz_index[mid].len, 0};
+            return rech_tz_parse(&b, out);
         }
-        out->posix_tz[i] = '\0';
+        if (cmp < 0) {
+            hi = mid - 1;
+        } else {
+            lo = mid + 1;
+        }
     }
-    fclose(f);
-    return 1;
+    return 0;
 }
 
 static void rech_tz_free(rech_tz_t *tz) {
@@ -531,31 +545,9 @@ static long long rech_tz_offset_at(const rech_tz_t *tz, long long ts) {
     return rech_tz_type_offset(tz, tz->type_idx[lo]);
 }
 
-/* rech_tz_dir - каталог zoneinfo для ЭТОЙ скомпилированной программы:
-   TZDIR (стандартное имя переменной окружения, которым и glibc/musl решают
-   тот же вопрос - позволяет переопределить путь без пересборки) сначала,
-   иначе вендоренная копия, вшитая при "rech build" (Dir выше), иначе
-   (только POSIX - на Windows такого каталога не бывает) системный
-   "/usr/share/zoneinfo" как последний резерв. */
-static const char *rech_tz_dir(void) {
-    const char *env = getenv("TZDIR");
-    if (env && env[0]) {
-        return env;
-    }
-    static const char *installed = "@@DIR@@";
-    if (installed[0]) {
-        return installed;
-    }
-#ifndef _WIN32
-    return "/usr/share/zoneinfo";
-#else
-    return "";
-#endif
-}
-
 static @@NDT@@ rech_time_to_date_tz(long long ts, const char *zone) {
     rech_tz_t tz;
-    if (!rech_tz_load(rech_tz_dir(), zone, &tz)) {
+    if (!rech_tz_load(zone, &tz)) {
         return @@NDT@@_empty();
     }
     long long offset = rech_tz_offset_at(&tz, ts);
@@ -571,7 +563,7 @@ static @@NDT@@ rech_time_to_date_tz(long long ts, const char *zone) {
    уточнённого результата, кроме самого часа перехода. */
 static @@NI@@ rech_date_to_time_tz(@@DT@@ d, const char *zone) {
     rech_tz_t tz;
-    if (!rech_tz_load(rech_tz_dir(), zone, &tz)) {
+    if (!rech_tz_load(zone, &tz)) {
         return @@NI@@_empty();
     }
     long long ts0 = rech_date_to_time(d);
@@ -584,7 +576,6 @@ static @@NI@@ rech_date_to_time_tz(@@DT@@ d, const char *zone) {
 
 `
 	r := strings.NewReplacer(
-		"@@DIR@@", escapedZoneinfoDir,
 		"@@DT@@", dtType,
 		"@@FY@@", fYear,
 		"@@FM@@", fMonth,
@@ -595,5 +586,5 @@ static @@NI@@ rech_date_to_time_tz(@@DT@@ d, const char *zone) {
 		"@@NDT@@", nullableDT,
 		"@@NI@@", nullableInt,
 	)
-	return r.Replace(tmpl)
+	return Blob() + r.Replace(tmpl)
 }

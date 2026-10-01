@@ -179,16 +179,9 @@ Section "Install"
     WriteRegStr HKCU "Software\Classes\Rech.SourceFile\DefaultIcon" "" "$INSTDIR\rech-file.ico,0"
     System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0x0000, i 0, i 0)'
 
-    ; Часовые пояса (IANA tzdata, формат TZif) - собственный читатель
-    ; cbackend (internal/backend/cbackend/tzdata.go, "время_как_дата_в_
-    ; поясе"/"дата_в_поясе_как_время"/"д.в_поясе(...)") читает ВШИТУЮ
-    ; копию (нет системного "/usr/share/zoneinfo" на Windows вообще) -
-    ; путь рядом с rech.exe ($INSTDIR\zoneinfo), тот же принцип, что
-    ; tzdataDir (tzdata.go) вычисляет независимо во время "rech build"/
-    ; "rech run" на этой машине.
-    SetOutPath "$INSTDIR\zoneinfo"
-    File /r "..\..\runtime\zoneinfo\*.*"
-    SetOutPath "$INSTDIR"
+    ; Часовые пояса вшиты в rech.exe и в каждую собранную программу -
+    ; каталог zoneinfo прежних версий установщика больше не нужен.
+    RMDir /r "$INSTDIR\zoneinfo"
 
     ReadRegStr $0 HKCU "Environment" "Path"
     ${If} $0 == ""
@@ -311,6 +304,7 @@ Section "Uninstall"
     Delete "$INSTDIR\rech.exe"
     Delete "$INSTDIR\rech-file.ico"
     Delete "$INSTDIR\uninstall.exe"
+    ; Каталог zoneinfo прежних версий установщика.
     RMDir /r "$INSTDIR\zoneinfo"
     RMDir "$INSTDIR"
 
