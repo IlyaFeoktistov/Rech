@@ -57,6 +57,9 @@ type Result struct {
 	Passed bool
 	Err    error
 	Stdout string
+	// Warnings - предупреждения анализа файла (ir.Program.Warnings): тест
+	// от них не проваливается.
+	Warnings []error
 }
 
 // Discover находит тестовые файлы в root: если root - файл, это ровно один
@@ -141,9 +144,9 @@ func RunFile(path string) Result {
 	}
 	var buf bytes.Buffer
 	if err := interp.Run(irProg, &buf, os.Stdin); err != nil {
-		return Result{Path: path, Err: err, Stdout: buf.String()}
+		return Result{Path: path, Err: err, Stdout: buf.String(), Warnings: irProg.Warnings}
 	}
-	return Result{Path: path, Passed: true, Stdout: buf.String()}
+	return Result{Path: path, Passed: true, Stdout: buf.String(), Warnings: irProg.Warnings}
 }
 
 // Run находит и запускает все тестовые файлы под root (см. Discover).

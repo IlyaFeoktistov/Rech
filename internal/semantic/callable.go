@@ -297,10 +297,11 @@ func analyzeLambdaExpr(sc *ctx, e *ast.LambdaExpr) (*ir.LambdaExpr, error) {
 	if err != nil {
 		return nil, err
 	}
-	unreachable, fallsThrough := lc.a.flow(body)
-	if unreachable != nil {
-		return nil, unreachable
+	flowErr, unreachable, fallsThrough := lc.a.flow(body)
+	if flowErr != nil {
+		return nil, flowErr
 	}
+	lc.a.warnUnreachable(unreachable, "лямбда")
 	if hasReturn && fallsThrough {
 		return nil, errAtLine(e.Line, CodeCallable, "лямбда с объявленным типом результата %s должна заканчиваться \"вернуть <значение>\" на каждом пути выполнения", result)
 	}

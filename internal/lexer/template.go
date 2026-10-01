@@ -126,3 +126,30 @@ func (l *Lexer) readTemplateExpr(line, col int) (string, error) {
 	}
 	return "", errAt(CodeBadLiteral, line, col, "вставка \"${\" не закрыта символом \"}\"")
 }
+
+// TemplatePartTokens - токены исходного текста "${...}"-вставки part с
+// позициями в исходнике всего файла (сдвинуты на part.Line/part.Col), а не
+// от строки 1 текста вставки - включая куски вложенных шаблонных строк.
+// Последний токен - EOF вставки.
+func TemplatePartTokens(part TemplatePart) ([]Token, error) {
+	toks, err := New(part.Text).Tokenize()
+	if err != nil {
+		return nil, err
+	}
+	shift := func(line, col *int) {
+		if *line == 1 {
+			*col += part.Col - 1
+		}
+		*line += part.Line - 1
+	}
+	for i := range toks {
+		if toks[i].EndLine != 0 {
+			toks[i].EndLine += part.Line - 1
+		}
+		shift(&toks[i].Line, &toks[i].Col)
+		for j := range toks[i].Parts {
+			shift(&toks[i].Parts[j].Line, &toks[i].Parts[j].Col)
+		}
+	}
+	return toks, nil
+}

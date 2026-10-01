@@ -116,5 +116,6 @@ func analyzeOnce(prog *ast.Program, inf *genericInference, noFlowChecks bool) (*
 	if err := validateExports(irProg); err != nil {
 		return nil, err
 	}
+	irProg.Warnings = a.warnings
 	return irProg, nil
 }

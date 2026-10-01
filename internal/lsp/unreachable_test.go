@@ -2,42 +2,69 @@ package lsp
 
 import "testing"
 
+// unreachableRegion - диапазон затенения недостижимого кода (строки
+// начала/конца).
+type unreachableRegion struct{ from, to int }
+
+// unreachableRegions - затенённые куски d (hint + unnecessaryTag); у
+// каждого должно быть парное предупреждение на первой строке.
+func unreachableRegions(t *testing.T, d *doc) []unreachableRegion {
+	t.Helper()
+	var regions []unreachableRegion
+	warnings := map[int]bool{}
+	for _, dg := range d.unreachableDiagnostics() {
+		switch {
+		case dg.Severity == hintSeverity && len(dg.Tags) == 1 && dg.Tags[0] == unnecessaryTag:
+			regions = append(regions, unreachableRegion{dg.Line, dg.EndLine})
+		case dg.Severity == warningSeverity:
+			warnings[dg.Line] = true
+		default:
+			t.Fatalf("неожиданная диагностика %+v", dg)
+		}
+	}
+	for _, r := range regions {
+		if !warnings[r.from] {
+			t.Fatalf("у затенённого куска %v нет предупреждения на первой строке", r)
+		}
+	}
+	return regions
+}
+
+func expectRegions(t *testing.T, src string, want ...unreachableRegion) {
+	t.Helper()
+	got := unreachableRegions(t, newDoc("test://a.rech", src))
+	if len(got) != len(want) {
+		t.Fatalf("ожидались куски %v, получено %v", want, got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("ожидались куски %v, получено %v", want, got)
+		}
+	}
+}
+
 func TestUnreachableAfterReturn(t *testing.T) {
-	d := newDoc("test://a.rech", `
+	expectRegions(t, `
 функция ф(): Целое
 {
     вернуть 1
     вывести "недостижимо"
 }
-`)
-	diags := d.unreachableDiagnostics()
-	if len(diags) != 1 {
-		t.Fatalf("ожидалась 1 диагностика недостижимого кода, получено %+v", diags)
-	}
-	if diags[0].Line != 5 {
-		t.Fatalf("ожидалась строка 5, получено %+v", diags[0])
-	}
-	if diags[0].Severity != hintSeverity || len(diags[0].Tags) != 1 || diags[0].Tags[0] != unnecessaryTag {
-		t.Fatalf("ожидался hintSeverity+unnecessaryTag, получено %+v", diags[0])
-	}
+`, unreachableRegion{5, 5})
 }
 
 func TestUnreachableAfterThrow(t *testing.T) {
-	d := newDoc("test://a.rech", `
+	expectRegions(t, `
 функция ф()
 {
     выбросить новое Исключение("ошибка")
     вывести "недостижимо"
 }
-`)
-	diags := d.unreachableDiagnostics()
-	if len(diags) != 1 {
-		t.Fatalf("ожидалась 1 диагностика, получено %+v", diags)
-	}
+`, unreachableRegion{5, 5})
 }
 
 func TestUnreachableAfterBreakInsideLoop(t *testing.T) {
-	d := newDoc("test://a.rech", `
+	expectRegions(t, `
 функция ф()
 {
     переменная i = 0
@@ -47,15 +74,11 @@ func TestUnreachableAfterBreakInsideLoop(t *testing.T) {
         i++
     }
 }
-`)
-	diags := d.unreachableDiagnostics()
-	if len(diags) != 1 {
-		t.Fatalf("ожидалась 1 диагностика, получено %+v", diags)
-	}
+`, unreachableRegion{8, 8})
 }
 
 func TestUnreachableAfterContinueInsideLoop(t *testing.T) {
-	d := newDoc("test://a.rech", `
+	expectRegions(t, `
 функция ф()
 {
     переменная i = 0
@@ -65,50 +88,43 @@ func TestUnreachableAfterContinueInsideLoop(t *testing.T) {
         i++
     }
 }
-`)
-	diags := d.unreachableDiagnostics()
-	if len(diags) != 1 {
-		t.Fatalf("ожидалась 1 диагностика, получено %+v", diags)
-	}
+`, unreachableRegion{8, 8})
 }
 
-// TestUnreachableMultipleStatementsAllMarked - ДВЕ инструкции после
-// "вернуть" - обе помечены (не только первая).
-func TestUnreachableMultipleStatementsAllMarked(t *testing.T) {
-	d := newDoc("test://a.rech", `
-функция ф(): Целое
+// TestUnreachableRegionCoversRestOfBlock - затеняется весь остаток блока
+// одним куском: несколько инструкций, многострочный "если" и выражение с
+// переносом строки.
+func TestUnreachableRegionCoversRestOfBlock(t *testing.T) {
+	expectRegions(t, `
+функция ф(х: Целое): Целое
 {
     вернуть 1
     вывести "а"
-    вывести "б"
+    если х > 0 {
+        вывести "б"
+    }
+    переменная у =
+        х + 1
 }
-`)
-	diags := d.unreachableDiagnostics()
-	if len(diags) != 2 {
-		t.Fatalf("ожидались 2 диагностики, получено %+v", diags)
-	}
+`, unreachableRegion{5, 10})
 }
 
 // TestUnreachableNotFlaggedWhenReturnIsLast - "вернуть" последней
 // инструкцией блока - ничего не помечается (нечему быть недостижимым).
 func TestUnreachableNotFlaggedWhenReturnIsLast(t *testing.T) {
-	d := newDoc("test://a.rech", `
+	expectRegions(t, `
 функция ф(): Целое
 {
     вывести "а"
     вернуть 1
 }
 `)
-	if diags := d.unreachableDiagnostics(); len(diags) != 0 {
-		t.Fatalf("не ожидалось диагностик, получено %+v", diags)
-	}
 }
 
 // TestUnreachableInsideLambdaCallback - недостижимый код внутри тела
-// лямбды-колбэка (аргумент вызова) - та же дыра, что нашёл пользователь
-// для hints.go (лямбды раньше не обходились вообще).
+// лямбды-колбэка (аргумент вызова).
 func TestUnreachableInsideLambdaCallback(t *testing.T) {
-	d := newDoc("test://a.rech", `
+	expectRegions(t, `
 функция чанковать(обработчик: Вызываемый(Целое))
 {
     обработчик(1)
@@ -121,18 +137,13 @@ func TestUnreachableInsideLambdaCallback(t *testing.T) {
         вывести "недостижимо"
     })
 }
-`)
-	if diags := d.unreachableDiagnostics(); len(diags) != 1 {
-		t.Fatalf("ожидалась 1 диагностика внутри лямбды, получено %+v", diags)
-	}
+`, unreachableRegion{11, 11})
 }
 
-// TestUnreachableNotFlaggedInsideIfElseBothBranches - обе ветки "если"
-// заканчиваются "вернуть", но код ПОСЛЕ самого "если" не анализируется
-// (см. package doc unreachable.go про границы этого среза) - не ошибка,
-// просто не покрыто.
-func TestUnreachableNotFlaggedInsideIfElseBothBranches(t *testing.T) {
-	d := newDoc("test://a.rech", `
+// TestUnreachableAfterIfElseBothBranchesReturn - обе ветки "если/иначе"
+// выходят из функции - код после самого "если" недостижим.
+func TestUnreachableAfterIfElseBothBranchesReturn(t *testing.T) {
+	expectRegions(t, `
 функция ф(x: Целое): Целое
 {
     если x > 0
@@ -143,10 +154,39 @@ func TestUnreachableNotFlaggedInsideIfElseBothBranches(t *testing.T) {
     {
         вернуть 0
     }
-    вывести "не анализируется этим срезом"
+    вывести "после если"
+    вернуть 2
 }
-`)
-	if diags := d.unreachableDiagnostics(); len(diags) != 0 {
-		t.Fatalf("не ожидалось диагностик (вне объёма этого среза), получено %+v", diags)
-	}
+`, unreachableRegion{12, 13})
+}
+
+// TestUnreachableAfterInfiniteLoop - код после "пока истина" без
+// "прервать".
+func TestUnreachableAfterInfiniteLoop(t *testing.T) {
+	expectRegions(t, `
+функция ф()
+{
+    пока истина {
+        вывести "x"
+    }
+    вывести "после цикла"
+}
+`, unreachableRegion{7, 7})
+}
+
+// TestUnreachableShownWithOtherErrorsInFile - затенение работает и когда
+// в другом месте файла есть ошибка (частичный анализ).
+func TestUnreachableShownWithOtherErrorsInFile(t *testing.T) {
+	expectRegions(t, `
+функция сломанная()
+{
+    переменная т: Целое = "строка"
+}
+
+функция ф(): Целое
+{
+    вернуть 1
+    вывести "недостижимо"
+}
+`, unreachableRegion{10, 10})
 }

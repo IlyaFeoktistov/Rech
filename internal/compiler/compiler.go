@@ -81,7 +81,9 @@ type Backend interface {
 	// ir.Program.ExternHeaders).
 	// optionsYAML - "опции:" файла проекта (internal/project.File.Опции) -
 	// см. ir.Program.OptionsYAML, тем же принципом, что и externHeaders.
-	Generate(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int, externHeaders []string, optionsYAML string, service bool) (string, error)
+	// warnings - предупреждения анализа (ir.Program.Warnings): сборку не
+	// останавливают.
+	Generate(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int, externHeaders []string, optionsYAML string, service bool) (cSource string, warnings []error, err error)
 	// GenerateLib - как Generate, но для библиотеки (`rech build --lib`),
 	// см. LibSource. libRoot == "" - нет файла проекта (BuildLibSource) -
 	// интерфейс одним плоским результатом под ключом "".
@@ -97,12 +99,14 @@ type Backend interface {
 // FFI, РАЗБИТЫЙ по исходным файлам библиотеки (ключ - путь файла
 // относительно libRoot без расширения) - интерфейс сохраняет структуру
 // подкаталогов исходников автора. Exports - C-имена символов из Header:
-// только они остаются глобальными в статической библиотеке.
+// только они остаются глобальными в статической библиотеке. Warnings -
+// предупреждения анализа, как у Generate.
 type LibSource struct {
 	C              string
 	Header         string
 	InterfaceStubs map[string]string
 	Exports        []string
+	Warnings       []error
 }
 
 // Toolchain отвечает за финальную сборку сгенерированного исходника
@@ -173,10 +177,10 @@ type defaultBackend struct{}
 // удалён.
 func NewBackend() Backend { return defaultBackend{} }
 
-func (defaultBackend) Generate(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int, externHeaders []string, optionsYAML string, service bool) (string, error) {
+func (defaultBackend) Generate(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int, externHeaders []string, optionsYAML string, service bool) (string, []error, error) {
 	irProg, err := semantic.Analyze(prog)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if dbPoolSize > 0 {
 		irProg.DBPoolSize = dbPoolSize
@@ -198,9 +202,9 @@ func (defaultBackend) Generate(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, d
 
 	src, err := cbackend.GenerateFromIR(irProg)
 	if err != nil {
-		return "", diagnostics.Internal(err)
+		return "", nil, diagnostics.Internal(err)
 	}
-	return src, nil
+	return src, irProg.Warnings, nil
 }
 
 func (defaultBackend) GenerateLib(prog *ast.Program, libRoot string, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int, externHeaders []string, optionsYAML string) (LibSource, error) {
@@ -229,7 +233,7 @@ func (defaultBackend) GenerateLib(prog *ast.Program, libRoot string, dbPoolSize,
 	if err != nil {
 		return LibSource{}, diagnostics.Internal(err)
 	}
-	return LibSource{C: cSource, Header: header, InterfaceStubs: stubs, Exports: cbackend.ExportedSymbols(irProg)}, nil
+	return LibSource{C: cSource, Header: header, InterfaceStubs: stubs, Exports: cbackend.ExportedSymbols(irProg), Warnings: irProg.Warnings}, nil
 }
 
 // Compiler связывает Frontend, Backend и Toolchain в единый пайплайн
@@ -238,6 +242,10 @@ type Compiler struct {
 	Frontend  Frontend
 	Backend   Backend
 	Toolchain Toolchain
+	// Warn - получатель предупреждений анализа (недостижимый код и т. п.),
+	// по одному вызову на предупреждение; nil - предупреждения не
+	// показываются. Заполняется cmd/rech.
+	Warn func(error)
 	// Deps - внешние зависимости уже разрешённые (internal/pkgfetch) в
 	// момент запуска - имя зависимости (из .rechproj/"зависимости:") ->
 	// локальный каталог с её скачанными исходниками. nil, если проект не
@@ -404,6 +412,7 @@ func (c *Compiler) compileLibProgram(prog *ast.Program, base, libRoot, stubDir s
 	if err != nil {
 		return "", "", nil, fmt.Errorf("генерация C: %w", err)
 	}
+	c.warn(lib.Warnings)
 	cSource, header, interfaceStubs := lib.C, lib.Header, lib.InterfaceStubs
 
 	tmpDir, err := os.MkdirTemp("", "rech-build-")
@@ -528,10 +537,11 @@ func (c *Compiler) BuildSource(src string, keepC bool, extraLibs, extraLibPaths 
 // compileProgram - общий хвост Build/BuildSource: генерация C, запись,
 // сборка бинарником, необязательная уборка .c.
 func (c *Compiler) compileProgram(prog *ast.Program, base string, keepC bool, extraLibs, extraLibPaths []string) (string, error) {
-	cSource, err := c.Backend.Generate(prog, c.DBPoolSize, c.DBPoolTimeoutMs, c.DBSQLiteBusyTimeoutMs, c.PoolShrinkEnabled, c.PoolIdleTimeoutMs, c.HTTPMaxRequestBytes, c.ExternHeaders, c.OptionsYAML, c.Service)
+	cSource, warnings, err := c.Backend.Generate(prog, c.DBPoolSize, c.DBPoolTimeoutMs, c.DBSQLiteBusyTimeoutMs, c.PoolShrinkEnabled, c.PoolIdleTimeoutMs, c.HTTPMaxRequestBytes, c.ExternHeaders, c.OptionsYAML, c.Service)
 	if err != nil {
 		return "", fmt.Errorf("генерация C: %w", err)
 	}
+	c.warn(warnings)
 
 	if keepC {
 		cPath := base + ".c"
@@ -587,6 +597,16 @@ func (c *Compiler) compileProgram(prog *ast.Program, base string, keepC bool, ex
 	}
 
 	return binPath, nil
+}
+
+// warn передаёт warnings в c.Warn, если он задан.
+func (c *Compiler) warn(warnings []error) {
+	if c.Warn == nil {
+		return
+	}
+	for _, w := range warnings {
+		c.Warn(w)
+	}
 }
 
 // MoveFile переносит файл src в dst - сначала пробует os.Rename (дёшево,

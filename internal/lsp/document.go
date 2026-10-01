@@ -196,7 +196,7 @@ func (d *doc) update(text string) {
 	// d.astProg.Uses, чтобы найти место вставки) и прочий позиционный код
 	// (tokenIndexAt и т. п.) должны видеть их и в этом случае.
 	d.astProg = astProg
-	d.tokens = toks
+	d.tokens = expandTemplateTokens(toks)
 	d.foreignTokenCache = map[string][]lexer.Token{}
 
 	irProg, semErr := d.analyze(astProg)
@@ -213,7 +213,8 @@ func (d *doc) update(text string) {
 		// точнее старого "последнего удачного" состояния: строки совпадают
 		// с текущим текстом, и он есть даже у файла, открытого сразу с
 		// ошибкой.
-		salvaged, ok := analyzeSalvaging(astProg, d.analyze)
+		salvaged, ok, later := analyzeSalvaging(astProg, semantic.AnalyzeForCompletion, lines)
+		d.addDiagnostics(later)
 		if !ok {
 			return
 		}

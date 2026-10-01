@@ -19,9 +19,10 @@ import (
 // DiagnosticSeverity - "устарело" не ошибка и не предупреждение, поэтому
 // Hint (4), не Error (1, см. errToDiagnostic).
 const (
-	deprecatedTag = 2
-	hintSeverity  = 4
-	errorSeverity = 1
+	deprecatedTag   = 2
+	hintSeverity    = 4
+	warningSeverity = 2
+	errorSeverity   = 1
 )
 
 // deprecatedRe - "@устарело" и необязательный текст после него до конца

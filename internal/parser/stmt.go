@@ -25,13 +25,22 @@ func (p *Parser) parseBlock() ([]ast.Stmt, error) {
 		}
 		var stmt ast.Stmt
 		var err error
+		start := p.pos
 		if p.cur().Type == lexer.DOC_COMMENT {
 			stmt, err = p.parseDocumentedStatement()
 		} else {
 			stmt, err = p.parseStatement()
 		}
 		if err != nil {
-			return nil, err
+			if !p.lenient {
+				return nil, err
+			}
+			// LSP: сломанная инструкция пропускается, остальные инструкции
+			// блока разбираются как обычно (см. recoverToNextStatement).
+			p.errors = append(p.errors, err)
+			p.recoverToNextStatement(start)
+			p.skipSeparators()
+			continue
 		}
 		if stmt != nil {
 			// nil - "переменная X" без инициализации (pendingvar.go): не
@@ -43,7 +52,12 @@ func (p *Parser) parseBlock() ([]ast.Stmt, error) {
 			break
 		}
 		if err := p.requireSeparator(); err != nil {
-			return nil, err
+			if !p.lenient {
+				return nil, err
+			}
+			p.errors = append(p.errors, err)
+			p.recoverToNextStatement(p.pos)
+			p.skipSeparators()
 		}
 	}
 	if _, err := p.expect(lexer.RBRACE); err != nil {

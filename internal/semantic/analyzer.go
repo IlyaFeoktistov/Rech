@@ -21,6 +21,10 @@ type Analyzer struct {
 	// каждом пути и полнота реализации (методы интерфейса, абстрактные
 	// методы) - сущность, которую пишут прямо сейчас, ещё не закончена.
 	noFlowChecks bool
+	// warnings - предупреждения анализа (см. ir.Program.Warnings,
+	// warnUnreachable); warnedAt - места, о которых уже предупреждено.
+	warnings []error
+	warnedAt map[diagnostics.Position]bool
 	// inference - вывод аргументов типа (generic_infer.go), общий для всех
 	// проходов анализа одной программы.
 	inference *genericInference
@@ -354,7 +358,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 			}
 		}
 		if err != nil {
-			bag.AddErr(err)
+			bag.AddErr(atLine(err, extEnt.Line))
 			if _, exists := entities[extEnt.Alias]; !exists {
 				entities[extEnt.Alias] = entitySig{IsExternOpaque: true, Poisoned: true}
 			}
@@ -369,7 +373,7 @@ func (a *Analyzer) collectEntities(prog *ast.Program) error {
 			// внутри collectOneEntity формирует его сам) - здесь оборачивать
 			// повторно не нужно, в отличие от buildIR (см. её package doc),
 			// чьи вызовы analyzeEntity - универсальные, без такого префикса.
-			bag.AddErr(err)
+			bag.AddErr(atLine(err, ent.Line))
 			// Заглушка - см. package doc bag выше и entitySig.Poisoned.
 			// "Только если ещё не зарегистрирована" - для ошибки "уже
 			// объявлена" запись под этим именем принадлежит РАНЕЕ
@@ -442,7 +446,7 @@ func (a *Analyzer) collectOneEntity(entities map[string]entitySig, methods map[s
 		}
 		typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, f.Type)
 		if err != nil {
-			return diagnostics.Wrap(err, "сущность %q: поле %q", ent.Name, f.Name)
+			return diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: f.Line}, "сущность %q: поле %q", ent.Name, f.Name)
 		}
 		if ent.IsExternStruct && !isFFIType(entities, methods, aliases, a.interfaces, enums, typ) && !ffiCallableResult(entities, methods, aliases, a.interfaces, enums, typ) {
 			return errNoPos(CodeEntityDecl, "внешняя структура %q: поле %q имеет тип %s - допустимы только примитивы (Целое/Целое8/16/32/64/Натуральное/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\") и \"Указатель<T>\" над FFI-совместимым T - иначе реальный размер C-структуры был бы искажён", ent.Name, f.Name, typ)
@@ -523,7 +527,7 @@ func (a *Analyzer) collectOneEntity(entities map[string]entitySig, methods map[s
 		if len(decls) == 1 {
 			msig, err := a.buildMethodSig(entities, methods, aliases, aliasState, enums, ent, decls[0], sig.States, overloadedMethodNames)
 			if err != nil {
-				return err
+				return atLine(err, decls[0].Line)
 			}
 			ownMethods[name] = msig
 			a.methodDeclNames[decls[0]] = name
@@ -541,7 +545,7 @@ func (a *Analyzer) collectOneEntity(entities map[string]entitySig, methods map[s
 			}
 			msig, err := a.buildMethodSig(entities, methods, aliases, aliasState, enums, ent, m, sig.States, overloadedMethodNames)
 			if err != nil {
-				return err
+				return atLine(err, m.Line)
 			}
 			for _, other := range group {
 				if sameParamTypeList(other.Params, msig.Params) {
@@ -562,7 +566,7 @@ func (a *Analyzer) collectOneEntity(entities map[string]entitySig, methods map[s
 		for i, p := range ent.Ctor.Params {
 			typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, p.Type)
 			if err != nil {
-				return diagnostics.Wrap(err, "сущность %q: конструктор: параметр %q", ent.Name, p.Name)
+				return diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: p.Line}, "сущность %q: конструктор: параметр %q", ent.Name, p.Name)
 			}
 			ctorParams[i] = typ
 			ctorParamNames[i] = p.Name
@@ -681,20 +685,20 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 		currentFile = decls[0].File
 		if _, exists := funcs[name]; exists {
 			if builtins.IsReservedName(name) {
-				bag.AddErr(errNoPos(CodeEntityDecl, "функция %q - зарезервированное имя встроенной функции, нельзя объявить свою функцию с этим именем", name))
+				bag.AddErr(atLine(errNoPos(CodeEntityDecl, "функция %q - зарезервированное имя встроенной функции, нельзя объявить свою функцию с этим именем", name), decls[0].Line))
 			} else {
-				bag.AddErr(errNoPos(CodeDuplicateDecl, "функция %q объявлена более одного раза", name))
+				bag.AddErr(atLine(errNoPos(CodeDuplicateDecl, "функция %q объявлена более одного раза", name), decls[0].Line))
 			}
 			continue
 		}
 		if err := a.checkGenericConstraints(a.entities, a.methods, a.aliases, enums, name); err != nil {
-			bag.AddErr(err)
+			bag.AddErr(atLine(err, decls[0].Line))
 			continue
 		}
 		if len(decls) == 1 {
 			sig, err := a.buildFreeFuncSig(decls[0], enums)
 			if err != nil {
-				bag.AddErr(err)
+				bag.AddErr(atLine(err, decls[0].Line))
 				funcs[name] = funcSig{}
 				continue
 			}
@@ -713,26 +717,26 @@ func (a *Analyzer) collectFuncSigs(prog *ast.Program) error {
 		for _, fn := range decls {
 			currentFile = fn.File
 			if fn.Exported {
-				bag.AddErr(errNoPos(CodeEntityDecl, "функция %q: перегрузка не поддерживается для \"экспортировать\" в этой версии - C-символ вычисляется из настоящего имени функции без учёта списка параметров, коллизия с другой перегрузкой той же группы", name))
+				bag.AddErr(atLine(errNoPos(CodeEntityDecl, "функция %q: перегрузка не поддерживается для \"экспортировать\" в этой версии - C-символ вычисляется из настоящего имени функции без учёта списка параметров, коллизия с другой перегрузкой той же группы", name), fn.Line))
 				continue
 			}
 			if hasVariadicParam(fn.Params) {
-				bag.AddErr(errNoPos(CodeEntityDecl, "функция %q: вариативную функцию нельзя перегружать", name))
+				bag.AddErr(atLine(errNoPos(CodeEntityDecl, "функция %q: вариативную функцию нельзя перегружать", name), fn.Line))
 				continue
 			}
 			if fn.IsAsync {
-				bag.AddErr(errNoPos(CodeEntityDecl, "функция %q: перегрузка не поддерживается для \"асинхронная\" в этой версии - \"дождаться %s(...)\" резолвит целевую функцию по голому имени, без учёта списка параметров", name, name))
+				bag.AddErr(atLine(errNoPos(CodeEntityDecl, "функция %q: перегрузка не поддерживается для \"асинхронная\" в этой версии - \"дождаться %s(...)\" резолвит целевую функцию по голому имени, без учёта списка параметров", name, name), fn.Line))
 				continue
 			}
 			sig, err := a.buildFreeFuncSig(fn, enums)
 			if err != nil {
-				bag.AddErr(err)
+				bag.AddErr(atLine(err, fn.Line))
 				continue
 			}
 			dup := false
 			for _, other := range group {
 				if sameParamTypeList(other.Params, sig.Params) {
-					bag.AddErr(errNoPos(CodeEntityDecl, "функция %q: две перегрузки с одинаковым списком типов параметров (%s) - неотличимы ни на одном вызове", name, paramTypesString(sig.Params)))
+					bag.AddErr(atLine(errNoPos(CodeEntityDecl, "функция %q: две перегрузки с одинаковым списком типов параметров (%s) - неотличимы ни на одном вызове", name, paramTypesString(sig.Params)), fn.Line))
 					dup = true
 					break
 				}
@@ -769,7 +773,7 @@ func (a *Analyzer) buildFreeFuncSig(fn *ast.FunctionDecl, enums map[string]map[s
 	for i, p := range fn.Params {
 		typ, err := resolveTypeName(a.entities, a.methods, a.aliases, a.interfaces, enums, p.Type)
 		if err != nil {
-			return funcSig{}, diagnostics.Wrap(err, "функция %q: параметр %q", fn.Name, p.Name)
+			return funcSig{}, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: p.Line}, "функция %q: параметр %q", fn.Name, p.Name)
 		}
 		params[i] = typ
 		paramStates[i] = a.aliasState[p.Type]
@@ -779,7 +783,7 @@ func (a *Analyzer) buildFreeFuncSig(fn *ast.FunctionDecl, enums map[string]map[s
 	if fn.ReturnType != "" {
 		typ, err := resolveTypeName(a.entities, a.methods, a.aliases, a.interfaces, enums, fn.ReturnType)
 		if err != nil {
-			return funcSig{}, diagnostics.Wrap(err, "функция %q: тип результата", fn.Name)
+			return funcSig{}, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: fn.Line}, "функция %q: тип результата", fn.Name)
 		}
 		sig.ReturnType = typ
 		sig.HasReturn = true
@@ -804,7 +808,7 @@ func (a *Analyzer) buildMethodSig(entities map[string]entitySig, methods map[str
 	for i, p := range m.Params {
 		typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, p.Type)
 		if err != nil {
-			return funcSig{}, diagnostics.Wrap(err, "сущность %q: метод %q: параметр %q", ent.Name, m.Name, p.Name)
+			return funcSig{}, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: p.Line}, "сущность %q: метод %q: параметр %q", ent.Name, m.Name, p.Name)
 		}
 		params[i] = typ
 		paramStates[i] = aliasState[p.Type]
@@ -852,9 +856,9 @@ func (a *Analyzer) collectExternFuncSigs(bag *diagnostics.Bag, funcs map[string]
 		label := fmt.Sprintf("внешняя функция %q", ext.Alias)
 		if _, exists := funcs[ext.Alias]; exists {
 			if builtins.IsReservedName(ext.Alias) {
-				bag.AddErr(errNoPos(CodeEntityDecl, "%s - зарезервированное имя встроенной функции, нельзя объявить с этим именем", label))
+				bag.AddErr(atLine(errNoPos(CodeEntityDecl, "%s - зарезервированное имя встроенной функции, нельзя объявить с этим именем", label), ext.Line))
 			} else {
-				bag.AddErr(errNoPos(CodeDuplicateDecl, "имя %q уже объявлено (как функция) - нельзя повторно объявить его как внешнюю функцию", ext.Alias))
+				bag.AddErr(atLine(errNoPos(CodeDuplicateDecl, "имя %q уже объявлено (как функция) - нельзя повторно объявить его как внешнюю функцию", ext.Alias), ext.Line))
 			}
 			continue
 		}
@@ -863,12 +867,12 @@ func (a *Analyzer) collectExternFuncSigs(bag *diagnostics.Bag, funcs map[string]
 		for i, p := range ext.Params {
 			typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, p.Type)
 			if err != nil {
-				bag.AddErr(diagnostics.Wrap(err, "%s: параметр %q", label, p.Name))
+				bag.AddErr(diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: ext.Line}, "%s: параметр %q", label, p.Name))
 				failed = true
 				break
 			}
 			if !isFFIType(entities, methods, aliases, a.interfaces, enums, typ) {
-				bag.AddErr(errNoPos(CodeEntityDecl, "%s: параметр %q имеет тип %s - у внешней функции допустимы только примитивы (Целое/Целое8/16/32/64/Натуральное/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\"), \"Указатель<T>\" над FFI-совместимым T и \"Вызываемый(...)\" с FFI-совместимыми параметрами/результатом", label, p.Name, typ))
+				bag.AddErr(atLine(errNoPos(CodeEntityDecl, "%s: параметр %q имеет тип %s - у внешней функции допустимы только примитивы (Целое/Целое8/16/32/64/Натуральное/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\"), \"Указатель<T>\" над FFI-совместимым T и \"Вызываемый(...)\" с FFI-совместимыми параметрами/результатом", label, p.Name, typ), ext.Line))
 				failed = true
 				break
 			}
@@ -883,7 +887,7 @@ func (a *Analyzer) collectExternFuncSigs(bag *diagnostics.Bag, funcs map[string]
 		if ext.ReturnType != "" {
 			typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, ext.ReturnType)
 			if err != nil {
-				bag.AddErr(diagnostics.Wrap(err, "%s: тип результата", label))
+				bag.AddErr(diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: ext.Line}, "%s: тип результата", label))
 				funcs[ext.Alias] = sig
 				continue
 			}
@@ -892,7 +896,7 @@ func (a *Analyzer) collectExternFuncSigs(bag *diagnostics.Bag, funcs map[string]
 			// превращается в вызываемое Rech-значение (демаршалинг,
 			// ffi_callback.go обоих backend'ов).
 			if !ffiCallableResult(entities, methods, aliases, a.interfaces, enums, typ) && !isFFIType(entities, methods, aliases, a.interfaces, enums, typ) {
-				bag.AddErr(errNoPos(CodeEntityDecl, "%s: тип результата %s не поддерживается - у внешней функции допустимы только примитивы (Целое/Целое8/16/32/64/Натуральное/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\") и \"Указатель<T>\" над FFI-совместимым T", label, typ))
+				bag.AddErr(atLine(errNoPos(CodeEntityDecl, "%s: тип результата %s не поддерживается - у внешней функции допустимы только примитивы (Целое/Целое8/16/32/64/Натуральное/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\") и \"Указатель<T>\" над FFI-совместимым T", label, typ), ext.Line))
 				funcs[ext.Alias] = sig
 				continue
 			}
@@ -1155,11 +1159,12 @@ func (a *Analyzer) analyzeMethod(ent *ast.EntityDecl, m *ast.MethodDecl) (*ir.Me
 	if err != nil {
 		return nil, err
 	}
-	if !m.IsAbstract && !a.noFlowChecks {
-		unreachable, fallsThrough := analyzeFlow(body)
-		if unreachable != nil {
-			return nil, unreachable
+	if !m.IsAbstract {
+		flowErr, unreachable, fallsThrough := a.flow(body)
+		if flowErr != nil {
+			return nil, flowErr
 		}
+		a.warnUnreachable(unreachable, "сущность %q: метод %q", ent.Name, m.Name)
 		if sig.HasReturn && fallsThrough {
 			return nil, errAtLine(m.Line, CodeEntityDecl, "с объявленным типом результата %s должен заканчиваться \"вернуть <значение>\" на каждом пути выполнения", sig.ReturnType)
 		}
@@ -1195,10 +1200,11 @@ func (a *Analyzer) analyzeFunction(fn *ast.FunctionDecl) (*ir.Function, error) {
 	if err != nil {
 		return nil, err
 	}
-	unreachable, fallsThrough := a.flow(body)
-	if unreachable != nil {
-		return nil, unreachable
+	flowErr, unreachable, fallsThrough := a.flow(body)
+	if flowErr != nil {
+		return nil, flowErr
 	}
+	a.warnUnreachable(unreachable, "функция %q", fn.Name)
 	if sig.HasReturn && fallsThrough {
 		return nil, errAtLine(fn.Line, CodeEntityDecl, "с объявленным типом результата %s должна заканчиваться \"вернуть <значение>\" на каждом пути выполнения", sig.ReturnType)
 	}
@@ -1272,7 +1278,7 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 		currentFile = ent.File
 		irEnt, err := a.analyzeEntity(ent)
 		if err != nil {
-			bag.AddErr(diagnostics.Wrap(err, "сущность %q", ent.Name))
+			bag.AddErr(diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: ent.Line}, "сущность %q", ent.Name))
 			continue
 		}
 		out.Entities = append(out.Entities, irEnt)
@@ -1332,7 +1338,7 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 		currentFile = fn.File
 		irFn, err := a.analyzeFunction(fn)
 		if err != nil {
-			bag.AddErr(diagnostics.Wrap(err, "функция %q", fn.Name))
+			bag.AddErr(diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: fn.Line}, "функция %q", fn.Name))
 			continue
 		}
 		out.Functions = append(out.Functions, irFn)
@@ -1616,11 +1622,13 @@ func (a *Analyzer) collectCallables(prog *ir.Program) error {
 	return nil
 }
 
-// flow - analyzeFlow, если проверки потока включены (см. noFlowChecks);
-// иначе - ничего не найдено.
-func (a *Analyzer) flow(body []ir.Stmt) (error, bool) {
+// flow - analyzeFlow; без проверок потока (noFlowChecks) - только
+// недостижимые куски (предупреждения нужны LSP и при ошибках в файле), без
+// ошибок и без "проваливается в конец".
+func (a *Analyzer) flow(body []ir.Stmt) (err error, unreachable []int, fallsThrough bool) {
+	err, unreachable, fallsThrough = analyzeFlow(body)
 	if a.noFlowChecks {
-		return nil, false
+		return nil, unreachable, false
 	}
-	return analyzeFlow(body)
+	return err, unreachable, fallsThrough
 }

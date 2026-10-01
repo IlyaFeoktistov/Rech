@@ -15,6 +15,12 @@ func printCompileError(err error) {
 	fmt.Fprint(os.Stderr, compileErrorText(err))
 }
 
+// printWarning печатает предупреждение анализа на stderr тем же форматом,
+// что и ошибку сборки (сниппет исходной строки), но сборку не прерывает.
+func printWarning(w error) {
+	fmt.Fprintln(os.Stderr, compileErrorText(w))
+}
+
 // compileErrorText форматирует ошибку сборки (Frontend.Parse/semantic.
 // Analyze) - если err несёт internal/diagnostics.Diagnostic/Bag (см.
 // errors.As - проходит сквозь любые fmt.Errorf("...: %w", err)-обёртки

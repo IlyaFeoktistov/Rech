@@ -99,3 +99,33 @@ func (p *Parser) ParseProgramLenient() (*ast.Program, []error) {
 	}
 	return prog, p.errors
 }
+
+// recoverToNextStatement продвигает парсер от start (начало сломанной
+// инструкции внутри блока) до конца этой инструкции: первого разделителя
+// (перенос строки/";") на нулевой глубине скобок, либо закрывающей скобки
+// самого блока - её не потребляет, это граница для parseBlock. Вложенные
+// "(...)"/"[...]"/"{...}" (тело "если"/"пока", аргументы на нескольких
+// строках) пропускаются целиком. Продвигается минимум на один токен.
+func (p *Parser) recoverToNextStatement(start int) {
+	p.pos = start
+	p.advance()
+	depth := 0
+	for {
+		switch p.cur().Type {
+		case lexer.EOF:
+			return
+		case lexer.LBRACE, lexer.LPAREN, lexer.LBRACKET:
+			depth++
+		case lexer.RBRACE, lexer.RPAREN, lexer.RBRACKET:
+			if depth == 0 {
+				return
+			}
+			depth--
+		case lexer.NEWLINE, lexer.SEMICOLON:
+			if depth == 0 {
+				return
+			}
+		}
+		p.advance()
+	}
+}

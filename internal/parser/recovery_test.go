@@ -160,3 +160,47 @@ func TestParseProgramLenientBrokenMethodParamsKeepsFollowingEntity(t *testing.T)
 		t.Fatalf("ожидалась ровно одна уцелевшая сущность \"Целая\", получено %+v", prog.Entities)
 	}
 }
+
+// TestParseProgramLenientSkipsBrokenStatementKeepsBody - синтаксическая
+// ошибка в инструкции (в том числе с вложенным блоком и без разделителя
+// между инструкциями) убирает только её: функция и остальные инструкции её
+// тела разобраны.
+func TestParseProgramLenientSkipsBrokenStatementKeepsBody(t *testing.T) {
+	src := `функция главная
+{
+    переменная а = 1 +
+    вывести а
+    если а > {
+        вывести "внутри"
+    }
+    вывести "после" вывести "лишнее"
+    вывести "конец"
+}
+`
+	toks, err := lexer.New(src).Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	prog, errs := New(toks).ParseProgramLenient()
+	if len(errs) != 3 {
+		t.Fatalf("ожидалось три ошибки (инициализация, условие, разделитель), получено %d: %v", len(errs), errs)
+	}
+	if len(prog.Functions) != 1 {
+		t.Fatalf("функция со сломанными инструкциями должна остаться, функций %d", len(prog.Functions))
+	}
+	if n := len(prog.Functions[0].Body); n != 3 {
+		t.Fatalf("ожидались три исправные инструкции (вывести а, вывести \"после\", вывести \"конец\"), получено %d", n)
+	}
+}
+
+// TestParseProgramStrictBrokenStatementStillFatal - обычный разбор (сборка)
+// по-прежнему останавливается на первой ошибке инструкции.
+func TestParseProgramStrictBrokenStatementStillFatal(t *testing.T) {
+	toks, err := lexer.New("функция главная\n{\n    переменная а = 1 +\n    вывести а\n}\n").Tokenize()
+	if err != nil {
+		t.Fatalf("лексер: %v", err)
+	}
+	if _, err := New(toks).ParseProgram(); err == nil {
+		t.Fatalf("ожидалась ошибка разбора")
+	}
+}

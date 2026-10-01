@@ -108,3 +108,120 @@ func TestAnalyzeIsRepeatableOnSameAST(t *testing.T) {
 		}
 	}
 }
+
+const brokenSignatureSrc = `сущность Точка
+{
+    имеет:
+        x: НетТакогоТипа
+        y: Целое
+}
+
+/** Складывает. */
+функция сложить(а: Целое, б: НетТипа): Целое
+{
+    вернуть а
+}
+
+/** Другая. */
+функция другая(а: Целое): Целое
+{
+    вернуть а
+}
+
+функция главная
+{
+    Точка т = новая Точка()
+    вывести другая(1)
+}
+`
+
+// TestSalvageDeclarationErrorsKeepRestOfFile - ошибки в типе поля и в
+// сигнатуре показываются на своих строках, обе сразу (семантика сама
+// останавливается после первой фазы), без каскадной ошибки от убранной
+// сущности; hover в остальном файле работает.
+func TestSalvageDeclarationErrorsKeepRestOfFile(t *testing.T) {
+	d := newDoc("test://a.rech", brokenSignatureSrc)
+	lines := map[int]string{}
+	for _, dg := range d.diagnostics {
+		lines[dg.Line] = dg.Message
+	}
+	if !strings.Contains(lines[4], `поле "x"`) || !strings.Contains(lines[9], `параметр "б"`) || len(lines) != 2 {
+		t.Fatalf("ожидались ошибки поля (строка 4) и параметра (строка 9), получено %v", d.diagnostics)
+	}
+	text, ok := hoverAt(t, d, brokenSignatureSrc, "вывести другая(1)", "другая")
+	if !ok || !strings.Contains(text, "Другая.") {
+		t.Fatalf("hover на исправной функции: %q, %v", text, ok)
+	}
+}
+
+const brokenBodyWithResultSrc = `/** Точка. */
+сущность Точка
+{
+    имеет:
+        x: НетТипа
+}
+
+/** Считает. */
+функция посчитать(а: Целое): Целое
+{
+    переменная двойное = а * 2
+    переменная плохо: Целое = "строка"
+    Точка т = новая Точка()
+    вернуть двойное
+}
+
+функция главная
+{
+    вывести посчитать(1)
+}
+`
+
+// TestSalvageKeepsFunctionWithResultAndItsLocals - у функции с типом
+// результата ошибка в теле убирает только сломанные инструкции: сама
+// функция и её исправные локальные переменные остаются видны hover'у
+// (раньше выкинутое тело само становилось ошибкой "нет вернуть" и функция
+// пропадала целиком).
+func TestSalvageKeepsFunctionWithResultAndItsLocals(t *testing.T) {
+	d := newDoc("test://a.rech", brokenBodyWithResultSrc)
+	text, ok := hoverAt(t, d, brokenBodyWithResultSrc, "вывести посчитать(1)", "посчитать")
+	if !ok || !strings.Contains(text, "Считает.") {
+		t.Fatalf("hover на функции со сломанным телом: %q, %v", text, ok)
+	}
+	text, ok = hoverAt(t, d, brokenBodyWithResultSrc, "вернуть двойное", "двойное")
+	if !ok || !strings.Contains(text, "Целое") {
+		t.Fatalf("hover на исправной локальной переменной: %q, %v", text, ok)
+	}
+}
+
+// TestHoverSurvivesSyntaxErrorInBody - синтаксическая ошибка в инструкции
+// не выкидывает функцию целиком: остальные инструкции тела разобраны.
+func TestHoverSurvivesSyntaxErrorInBody(t *testing.T) {
+	src := `/** Складывает. */
+функция сложить(а: Целое, б: Целое): Целое
+{
+    переменная ц = а +
+    вернуть а + б
+}
+
+функция главная
+{
+    переменная х = 5
+    вывести сложить(х, 2)
+    если х > {
+    }
+    вывести х
+}
+`
+	d := newDoc("test://a.rech", src)
+	if len(d.diagnostics) != 2 || d.diagnostics[0].Line != 5 || d.diagnostics[1].Line != 12 {
+		t.Fatalf("ожидались две синтаксические ошибки (строки 5 и 12), получено %v", d.diagnostics)
+	}
+	text, ok := hoverAt(t, d, src, "вывести сложить(х, 2)", "сложить")
+	if !ok || !strings.Contains(text, "Складывает.") {
+		t.Fatalf("hover на вызове в функции с синтаксической ошибкой: %q, %v", text, ok)
+	}
+	text, ok = hoverAt(t, d, src, "вывести х", "х")
+	if !ok || !strings.Contains(text, "Целое") {
+		t.Fatalf("hover на переменной после сломанной инструкции: %q, %v", text, ok)
+	}
+}

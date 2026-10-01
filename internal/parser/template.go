@@ -41,24 +41,15 @@ func (p *Parser) parseTemplateLiteral(tok lexer.Token) (ast.Expr, error) {
 // parseTemplateExprPart разбирает исходный текст одной "${...}"-вставки
 // отдельным вложенным лексером/парсером - вставка вправе содержать любое
 // выражение языка, включая свои строковые/символьные литералы и вложенные
-// строки в обратных кавычках. Позиции токенов сдвигаются на позицию
-// вставки в исходнике (part.Line/part.Col), иначе узлы вставки и ошибки по
-// ним отсчитывались бы от строки 1. Вложенный парсер - копия p с другими
+// строки в обратных кавычках. Позиции токенов - в исходнике всего файла
+// (lexer.TemplatePartTokens), иначе узлы вставки и ошибки по ним
+// отсчитывались бы от строки 1. Вложенный парсер - копия p с другими
 // токенами: контекст объемлющего кода ("этот" в теле метода, словарь
 // существительных, сигнатуры функций для естественного вызова) тот же.
 func (p *Parser) parseTemplateExprPart(part lexer.TemplatePart) (ast.Expr, error) {
-	toks, err := lexer.New(part.Text).Tokenize()
+	toks, err := lexer.TemplatePartTokens(part)
 	if err != nil {
 		return nil, err
-	}
-	for i := range toks {
-		if toks[i].Line == 1 {
-			toks[i].Col += part.Col - 1
-		}
-		toks[i].Line += part.Line - 1
-		if toks[i].EndLine != 0 {
-			toks[i].EndLine += part.Line - 1
-		}
 	}
 	sub := *p
 	sub.tokens, sub.pos = toks, 0

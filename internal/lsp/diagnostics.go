@@ -22,9 +22,13 @@ import (
 // же файл несёт и deprecatedTag для Tags). Tags - nil у обычной ошибки.
 type Diagnostic struct {
 	Line, Col, Len int
-	Message        string
-	Severity       int
-	Tags           []int
+	// EndLine/EndCol - конец многострочного диапазона (EndCol - столбец
+	// сразу за последним символом); EndLine == 0 - диапазон однострочный,
+	// Col..Col+Len на строке Line.
+	EndLine, EndCol int
+	Message         string
+	Severity        int
+	Tags            []int
 }
 
 // diagLineRe - тот же регекс, что и parseDiagnostics в rech-vscode/
@@ -172,6 +176,25 @@ func (d *doc) setDiagnostics(diags []Diagnostic) {
 }
 
 // parseDiagnostics превращает ошибки lenient-разбора (internal/parser,
+// addDiagnostics добавляет к d.diagnostics те из diags, которых там ещё нет
+// (та же строка и тот же текст).
+func (d *doc) addDiagnostics(diags []Diagnostic) {
+	type key struct {
+		line int
+		msg  string
+	}
+	seen := map[key]bool{}
+	for _, dg := range d.diagnostics {
+		seen[key{dg.Line, dg.Message}] = true
+	}
+	for _, dg := range diags {
+		if k := (key{dg.Line, dg.Message}); !seen[k] {
+			seen[k] = true
+			d.diagnostics = append(d.diagnostics, dg)
+		}
+	}
+}
+
 // ParseProgramLenient - по одной на каждое сломанное верхнеуровневое
 // объявление файла) в Diagnostic, той же errToDiagnostic, что и для любой
 // другой ошибки компилятора. nil, если ошибок не было (разбор прошёл

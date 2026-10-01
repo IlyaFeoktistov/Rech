@@ -102,16 +102,7 @@ func (g *Graph) FallsThrough() bool {
 // уровне отдельного блока напрямую.
 func (g *Graph) UnreachableLine() (int, bool) {
 	reach := g.Reachable()
-	live := make(map[ir.Stmt]bool)
-	for _, b := range g.Blocks {
-		if !reach[b.ID] {
-			continue
-		}
-		for _, s := range b.Stmts {
-			live[s] = true
-		}
-	}
-
+	live := g.liveStmts()
 	line, found := 0, false
 	for _, b := range g.Blocks {
 		if reach[b.ID] || len(b.Stmts) == 0 || live[b.Stmts[0]] {
@@ -126,4 +117,94 @@ func (g *Graph) UnreachableLine() (int, bool) {
 		}
 	}
 	return line, found
+}
+
+// liveStmts - инструкции, встречающиеся хотя бы в одном достижимом блоке
+// (уровень указателя ir.Stmt - см. UnreachableLine про "окончательно").
+func (g *Graph) liveStmts() map[ir.Stmt]bool {
+	reach := g.Reachable()
+	live := make(map[ir.Stmt]bool)
+	for _, b := range g.Blocks {
+		if !reach[b.ID] {
+			continue
+		}
+		for _, s := range b.Stmts {
+			live[s] = true
+		}
+	}
+	return live
+}
+
+// UnreachableRegions - строки начала недостижимых кусков body, по которому
+// построен g: в каждом списке инструкций (тело и вложенные блоки) - первая
+// недостижимая инструкция; всё после неё до конца этого же блока тоже
+// недостижимо (инструкции списка исполняются по порядку), так что одна
+// строка - один кусок. Внутрь недостижимой инструкции обход не заходит -
+// её вложенные блоки входят в тот же кусок.
+func (g *Graph) UnreachableRegions(body []ir.Stmt) []int {
+	live := g.liveStmts()
+	var lines []int
+	var walk func(stmts []ir.Stmt)
+	walk = func(stmts []ir.Stmt) {
+		for _, s := range stmts {
+			if !stmtLive(s, live) {
+				if l := ir.LineOf(s); l > 0 {
+					lines = append(lines, l)
+				}
+				return
+			}
+			for _, nested := range nestedBodies(s) {
+				walk(nested)
+			}
+		}
+	}
+	walk(body)
+	return lines
+}
+
+// stmtLive - s исполняется хотя бы на одном пути. GerundStmt/BlockStmt
+// сами в блоки не попадают (emitStmt разворачивает их тело на месте) -
+// живы, если жива хоть одна их инструкция; пустые - живы.
+func stmtLive(s ir.Stmt, live map[ir.Stmt]bool) bool {
+	var body []ir.Stmt
+	switch s := s.(type) {
+	case *ir.GerundStmt:
+		body = s.Body
+	case *ir.BlockStmt:
+		body = s.Body
+	default:
+		return live[s]
+	}
+	if len(body) == 0 {
+		return true
+	}
+	for _, c := range body {
+		if stmtLive(c, live) {
+			return true
+		}
+	}
+	return false
+}
+
+// nestedBodies - списки инструкций, вложенные прямо в s.
+func nestedBodies(s ir.Stmt) [][]ir.Stmt {
+	switch s := s.(type) {
+	case *ir.IfStmt:
+		return [][]ir.Stmt{s.Then, s.Else}
+	case *ir.WhileStmt:
+		return [][]ir.Stmt{s.Body}
+	case *ir.ForStmt:
+		return [][]ir.Stmt{s.Body}
+	case *ir.ForEachStmt:
+		return [][]ir.Stmt{s.Body}
+	case *ir.CStyleForStmt:
+		return [][]ir.Stmt{s.Body}
+	case *ir.TryStmt:
+		return [][]ir.Stmt{s.Body, s.CatchBody, s.Finally}
+	case *ir.GerundStmt:
+		return [][]ir.Stmt{s.Body}
+	case *ir.BlockStmt:
+		return [][]ir.Stmt{s.Body}
+	}
+	return nil
 }

@@ -65,6 +65,9 @@ check() {
     local out
     if out=$("$tmp_bin" build "$path" </dev/null 2>&1 >/dev/null); then
         echo "OK      $path"
+        # Предупреждения (недостижимый код и т. п.) сборку не валят, но
+        # показываются.
+        [ -n "$out" ] && echo "$out" | sed 's/^/        /'
     else
         failed=$((failed + 1))
         echo "ОШИБКА  $path"

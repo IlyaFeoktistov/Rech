@@ -77,3 +77,10 @@ func errAtLine(line int, code, format string, args ...any) *diagnostics.Diagnost
 func errNoPos(code, format string, args ...any) *diagnostics.Diagnostic {
 	return diagnostics.New(code, diagnostics.Position{File: currentFile}, format, args...)
 }
+
+// atLine - err с позицией line в currentFile, если у err ещё нет своей:
+// ошибка объявления, не знающая точной строки (тип поля/параметра,
+// конфликт имён, ...), показывается на этом объявлении, а не без строки.
+func atLine(err error, line int) error {
+	return diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: line})
+}

@@ -202,10 +202,14 @@ func (s *server) publishDiagnostics(uri string, d *doc) {
 // Diagnostic - "tags" опускается вовсе, если пуст (не каждый клиент готов
 // к пустому массиву именно в этом поле).
 func diagnosticJSON(diag Diagnostic) map[string]any {
+	end := map[string]any{"line": diag.Line - 1, "character": diag.Col - 1 + diag.Len}
+	if diag.EndLine > 0 {
+		end = map[string]any{"line": diag.EndLine - 1, "character": diag.EndCol - 1}
+	}
 	m := map[string]any{
 		"range": map[string]any{
 			"start": map[string]any{"line": diag.Line - 1, "character": diag.Col - 1},
-			"end":   map[string]any{"line": diag.Line - 1, "character": diag.Col - 1 + diag.Len},
+			"end":   end,
 		},
 		"severity": diag.Severity,
 		"message":  ir.DisplayTypes(diag.Message),

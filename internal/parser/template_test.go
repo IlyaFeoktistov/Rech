@@ -138,3 +138,13 @@ func TestParseTemplateLiteralThisInsideMethod(t *testing.T) {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 }
+
+// TestParseTemplateNestedInsertionErrorPosition - ошибка во вставке
+// вложенного шаблона указывает на её место в исходнике, а не на начало
+// файла.
+func TestParseTemplateNestedInsertionErrorPosition(t *testing.T) {
+	_, err := parseSource(t, "функция главная\n{\n    переменная х = 5\n    вывести `a ${`b ${х +} c`} d`\n}\n")
+	if err == nil || !strings.Contains(err.Error(), "строка 4") {
+		t.Fatalf("ожидалась ошибка на строке 4, получено %v", err)
+	}
+}

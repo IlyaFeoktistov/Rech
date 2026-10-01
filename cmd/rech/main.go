@@ -277,6 +277,7 @@ func main() {
 	}
 
 	comp := InitializeCompiler()
+	comp.Warn = printWarning
 	comp.Deps = projectDeps
 	comp.DepScopes = projectDepScopes
 	comp.DBPoolSize = dbPoolSize
@@ -469,6 +470,12 @@ func runTests(path string) bool {
 	}
 	fmt.Println()
 	fmt.Println()
+
+	for _, r := range results {
+		for _, w := range r.Warnings {
+			printWarning(w)
+		}
+	}
 
 	if len(failed) > 0 {
 		fmt.Println("Провалившиеся тесты:")

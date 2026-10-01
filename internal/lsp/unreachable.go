@@ -1,23 +1,21 @@
-// Недостижимый код - диагностика (hintSeverity + unnecessaryTag, тот же
-// принцип рендера "выцветшим текстом", что и у TypeScript "unreachable
-// code detected") на каждой инструкции ПОСЛЕ "вернуть"/"выбросить"/
-// "прервать"/"продолжить" в ОДНОМ И ТОМ ЖЕ списке инструкций - эти четыре
-// безусловно передают управление ДАЛЬШЕ этого блока (вернуть/выбросить -
-// из функции, прервать/продолжить - из цикла), значит всё, что написано
-// следом в ТОМ ЖЕ блоке, никогда не исполнится.
-//
-// НЕ анализирует более сложную исчерпываемость (например, "если x {
-// вернуть 1 } иначе { вернуть 2 }" - обе ветки всегда завершаются, значит
-// код ПОСЛЕ этого "если" тоже недостижим - это уже настоящий анализ потока
-// управления через ветвление, вне объёма этого среза) - только прямое,
-// нередкое на практике "инструкция сразу после return/throw/break/continue
-// в одном блоке" - пользователь попросил именно этот случай явно.
+// Недостижимый код - затенение (hintSeverity + unnecessaryTag, тот же
+// рендер "выцветшим текстом", что и у TypeScript "unreachable code
+// detected") всего недостижимого куска: от первой недостижимой инструкции
+// до конца её блока. Источник - предупреждения компилятора
+// (ir.Program.Warnings, internal/semantic/flow.go): граф потока управления
+// видит и код после "если/иначе", где обе ветки выходят, и после вечного
+// цикла. Плюс то же предупреждение уровнем warningSeverity на первой
+// строке куска - чтобы оно было в списке проблем редактора.
 package lsp
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
+	"github.com/IlyaFeoktistov/Rech/internal/lexer"
+	"github.com/IlyaFeoktistov/Rech/internal/semantic"
 )
 
 // unnecessaryTag - LSP DiagnosticTag.Unnecessary (1, см. LSP spec) - тот
@@ -25,91 +23,75 @@ import (
 // редактор рисует помеченный текст выцветшим, не подчёркивает как ошибку.
 const unnecessaryTag = 1
 
-// unreachableDiagnostics - см. package doc. Пусто, если разбор не удался
-// вовсе (d.astProg == nil) - те же условия, что и у codeActions/
-// suggestions/deprecatedDiagnostics.
+// unreachableDiagnostics - см. package doc. Пусто без IR (d.irProg == nil).
 func (d *doc) unreachableDiagnostics() []Diagnostic {
-	if d.astProg == nil {
+	if d.irProg == nil {
 		return nil
 	}
 	lines := strings.Split(d.text, "\n")
-	var lineNos []int
-
-	var walkBody func(body []ast.Stmt)
-	walkBody = func(body []ast.Stmt) {
-		terminated := false
-		for _, s := range body {
-			if terminated {
-				lineNos = append(lineNos, astStmtLine(s))
-				continue // весь этот блок уже недостижим - не разбираем вложенность отдельно
-			}
-			switch st := s.(type) {
-			case *ast.ReturnStmt, *ast.ThrowStmt, *ast.BreakStmt, *ast.ContinueStmt:
-				terminated = true
-			case *ast.IfStmt:
-				walkBody(st.Then)
-				walkBody(st.Else)
-			case *ast.WhileStmt:
-				walkBody(st.Body)
-			case *ast.ForStmt:
-				walkBody(st.Body)
-			case *ast.ForEachStmt:
-				walkBody(st.Body)
-			case *ast.CStyleForStmt:
-				walkBody(st.Body)
-			case *ast.TryStmt:
-				walkBody(st.Body)
-				walkBody(st.CatchBody)
-				walkBody(st.Finally)
-			case *ast.SwitchStmt:
-				for _, c := range st.Cases {
-					walkBody(c.Body)
-				}
-				walkBody(st.Default)
-			case *ast.GerundStmt:
-				walkBody(st.Body)
-			}
-			// Лямбда-колбэк, спрятанная в выражении этой инструкции
-			// (аргумент вызова и т. п.) - тоже отдельное тело, со своей
-			// собственной недостижимостью (та же дыра, что нашёл
-			// пользователь для hints.go - см. package doc walkLambdaBodies).
-			for _, e := range immediateExprs(s) {
-				walkLambdaBodies(e, walkBody)
-			}
-		}
-	}
-
-	for _, fn := range d.astProg.Functions {
-		walkBody(fn.Body)
-	}
-	for _, ent := range d.astProg.Entities {
-		if ent.Ctor != nil {
-			walkBody(ent.Ctor.Body)
-		}
-		for _, m := range ent.Methods {
-			if m.Body != nil {
-				walkBody(m.Body)
-			}
-		}
-	}
-
 	var out []Diagnostic
-	for _, l := range lineNos {
-		if l < 1 || l > len(lines) {
+	for _, w := range d.irProg.Warnings {
+		var dg *diagnostics.Diagnostic
+		if !errors.As(w, &dg) || !strings.HasSuffix(dg.Message, semantic.UnreachableMessage) || !d.isOwnFile(dg.Pos.File) {
 			continue
 		}
-		runes := []rune(lines[l-1])
-		start, end := trimmedRuneRange(runes)
+		line := dg.Pos.Line
+		if line < 1 || line > len(lines) {
+			continue
+		}
+		start, end := trimmedRuneRange([]rune(lines[line-1]))
 		if end <= start {
 			continue
 		}
-		out = append(out, Diagnostic{
-			Line: l, Col: start + 1, Len: end - start,
-			Message: "недостижимый код - это выражение не выполнится, потому что раньше в этом же блоке уже стоит вернуть/выбросить/прервать/продолжить",
-			Severity: hintSeverity, Tags: []int{unnecessaryTag},
-		})
+		endLine := d.blockEndLine(line)
+		_, endCol := trimmedRuneRange([]rune(lines[endLine-1]))
+		out = append(out,
+			Diagnostic{
+				Line: line, Col: start + 1, EndLine: endLine, EndCol: endCol + 1,
+				Message: dg.Message, Severity: hintSeverity, Tags: []int{unnecessaryTag},
+			},
+			Diagnostic{
+				Line: line, Col: start + 1, Len: end - start,
+				Message: dg.Message, Severity: warningSeverity,
+			})
 	}
 	return out
+}
+
+// isOwnFile - позиция file относится к этому документу (при многофайловой
+// линковке предупреждения других файлов графа сюда не относятся).
+func (d *doc) isOwnFile(file string) bool {
+	return file == "" || file == d.uri || (d.path != "" && file == d.path)
+}
+
+// blockEndLine - последняя строка блока, в котором стоит инструкция со
+// строки line: строка последнего токена перед "}", закрывающей этот блок
+// (вложенные скобки пропускаются), или конец файла.
+func (d *doc) blockEndLine(line int) int {
+	last := line
+	depth := 0
+	started := false
+	for _, tok := range d.tokens {
+		if tok.Line < line {
+			continue
+		}
+		switch tok.Type {
+		case lexer.EOF:
+			return last
+		case lexer.LBRACE, lexer.LPAREN, lexer.LBRACKET:
+			depth++
+		case lexer.RBRACE, lexer.RPAREN, lexer.RBRACKET:
+			if depth == 0 && started {
+				return last
+			}
+			depth--
+		case lexer.NEWLINE:
+			continue
+		}
+		started = true
+		last = max(tok.Line, tok.EndLine)
+	}
+	return last
 }
 
 // astStmtLine - строка объявления s (ast.Stmt не несёт общего метода

@@ -21,6 +21,11 @@ type Program struct {
 	Functions []*Function
 	Entities  []*Entity
 	Generics  []GenericInstantiation
+	// Warnings - предупреждения анализа (недостижимый код): сборку не
+	// останавливают, печатаются рядом с её результатом. Каждое -
+	// *diagnostics.Diagnostic с Severity Warning (ir не зависит от пакета
+	// diagnostics, поэтому здесь - error).
+	Warnings []error
 	// Nullables - конкретные "?Тип", встретившиеся в программе, без
 	// повторов - см. package doc NullableInstantiation.
 	Nullables []NullableInstantiation
