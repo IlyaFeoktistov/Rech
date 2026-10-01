@@ -24,7 +24,7 @@ func printCall(ctx *irGenCtx, typ valueType, code string) string {
 		return fmt.Sprintf(`printf("%%s", %s);`, code)
 	case typeInt, typeByte, typeInt8, typeInt16, typeInt32:
 		return fmt.Sprintf(`printf("%%lld", (long long)(%s));`, code)
-	case typeUint, typeUint8, typeUint16, typeUint32:
+	case typeUint, typeUint16, typeUint32:
 		// %llu, не %lld - Натуральное64 может нести значение выше
 		// INT64_MAX, которое (long long) отобразил бы как отрицательное.
 		return fmt.Sprintf(`printf("%%llu", (unsigned long long)(%s));`, code)

@@ -916,7 +916,7 @@ func (in *Interp) printText(v Value) string {
 		return strconv.FormatInt(v.I, 10)
 	case ir.KindInt8, ir.KindInt16, ir.KindInt32:
 		return strconv.FormatInt(v.I, 10)
-	case ir.KindUint, ir.KindUint8, ir.KindUint16, ir.KindUint32:
+	case ir.KindUint, ir.KindUint16, ir.KindUint32:
 		// FormatUint(uint64(v.I)), не FormatInt - Натуральное64 может
 		// нести значение выше INT64_MAX, отображаемое как отрицательное,
 		// если печатать v.I напрямую как знаковое (см. wrapFixedWidth).
@@ -970,7 +970,7 @@ func (in *Interp) showValue(v Value) string {
 		return fmt.Sprintf("%s (Байт)", strconv.FormatInt(v.I, 10))
 	case ir.KindInt8, ir.KindInt16, ir.KindInt32:
 		return fmt.Sprintf("%s (%s)", strconv.FormatInt(v.I, 10), v.Type.String())
-	case ir.KindUint, ir.KindUint8, ir.KindUint16, ir.KindUint32:
+	case ir.KindUint, ir.KindUint16, ir.KindUint32:
 		return fmt.Sprintf("%s (%s)", strconv.FormatUint(uint64(v.I), 10), v.Type.String())
 	case ir.KindFloat32:
 		return fmt.Sprintf("%s (Дробное)", formatFloatForPrint(v.F))

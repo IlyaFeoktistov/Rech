@@ -165,3 +165,46 @@ func TestAnalyzeFixedWidthIntCastToStringAndByte(t *testing.T) {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 }
+
+// TestAnalyzeByteIsUint8Synonym - "Натуральное8" - то же, что "Байт":
+// смешиваются без приведения, коллекции одного типа; у Байт - строгая
+// арифметика фиксированной ширины (с Целое без приведения - ошибка).
+func TestAnalyzeByteIsUint8Synonym(t *testing.T) {
+	irProg := parseProgram(t, `
+функция главная
+{
+    Байт а = 250
+    Натуральное8 б = 10
+    Байт сум = а + б
+    Список<Байт> байты = [а]
+    Список<Натуральное8> те_же = байты
+    сум++
+}
+`)
+	if typ := irProg.Functions[0].Body[2].(*ir.VarDecl).DeclType; typ != ir.TypeByte {
+		t.Fatalf("Натуральное8 должно резолвиться в Байт, получено %v", typ)
+	}
+	_, err := AnalyzeSource(t, "функция главная\n{\n    Байт а = 1\n    Целое ц = 2\n    вывести а + ц\n}\n")
+	if err == nil || !strings.Contains(err.Error(), "Байт и Целое - разные типы") {
+		t.Fatalf("ожидалась ошибка смешения Байт и Целое, получено %v", err)
+	}
+}
+
+// TestAnalyzeSynonymsInsideGenericAndNullable - второе имя синонима внутри
+// аргумента generic и после "?" - тот же тип, что и короткое.
+func TestAnalyzeSynonymsInsideGenericAndNullable(t *testing.T) {
+	_, err := AnalyzeSource(t, `
+функция главная
+{
+    Список<Целое> а = [1]
+    Список<Целое64> б = а
+    ?Целое64 х = Ничто
+    ?Целое г = х
+    Словарь<Строка, Натуральное64> д = новый Словарь<Строка, Натуральное>()
+    Список<Натуральное8> байты = [(Байт) 1]
+}
+`)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}

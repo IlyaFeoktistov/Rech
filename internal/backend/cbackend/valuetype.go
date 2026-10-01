@@ -59,7 +59,6 @@ const (
 	kindInt16
 	kindInt32
 	kindUint
-	kindUint8
 	kindUint16
 	kindUint32
 	// kindAny - "Значение", боксированное значение любого типа (рефлексия,
@@ -112,7 +111,6 @@ var (
 	typeInt16  = valueType{kind: kindInt16}
 	typeInt32  = valueType{kind: kindInt32}
 	typeUint   = valueType{kind: kindUint}
-	typeUint8  = valueType{kind: kindUint8}
 	typeUint16 = valueType{kind: kindUint16}
 	typeUint32 = valueType{kind: kindUint32}
 
@@ -174,7 +172,6 @@ var primitiveCTypes = map[valueType]string{
 	typeInt16:        "int16_t",
 	typeInt32:        "int32_t",
 	typeUint:         "uint64_t",
-	typeUint8:        "uint8_t",
 	typeUint16:       "uint16_t",
 	typeUint32:       "uint32_t",
 	typeAny:          "rech_any_t",

@@ -82,7 +82,7 @@ func generateIRCastExpr(ctx *irGenCtx, e *ir.CastExpr) (string, valueType, error
 // strtoll оно ушло бы отрицательным или обрезалось бы неверно.
 func isUnsignedFixedWidth(vt valueType) bool {
 	switch vt {
-	case typeUint, typeUint8, typeUint16, typeUint32:
+	case typeUint, typeUint16, typeUint32:
 		return true
 	default:
 		return false

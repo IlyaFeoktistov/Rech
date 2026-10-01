@@ -58,7 +58,7 @@ func (in *Interp) evalCastExpr(e *ir.CastExpr, env *Env, cc *callCtx) (Value, er
 			return Value{Type: to, I: wrapFixedWidth(to.Kind, n)}, nil
 		case ir.KindInt, ir.KindByte, ir.KindChar,
 			ir.KindInt8, ir.KindInt16, ir.KindInt32,
-			ir.KindUint, ir.KindUint8, ir.KindUint16, ir.KindUint32:
+			ir.KindUint, ir.KindUint16, ir.KindUint32:
 			// Битовый паттерн v.I уже несёт корректно знако-/нуле-
 			// расширенное 64-битное представление исходного значения
 			// (см. wrapFixedWidth) - остаётся только усечь его до

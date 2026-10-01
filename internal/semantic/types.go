@@ -3,6 +3,7 @@ package semantic
 import (
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/builtins"
@@ -54,7 +55,6 @@ var primitiveTypes = map[string]ir.Type{
 	"Целое16":        ir.TypeInt16,
 	"Целое32":        ir.TypeInt32,
 	"Натуральное":    ir.TypeUint,
-	"Натуральное8":   ir.TypeUint8,
 	"Натуральное16":  ir.TypeUint16,
 	"Натуральное32":  ir.TypeUint32,
 	"Тип":            ir.TypeTypeInfo,
@@ -68,12 +68,46 @@ var primitiveTypes = map[string]ir.Type{
 var BuiltinTypeSynonyms = map[string]string{
 	"Целое":       "Целое64",
 	"Натуральное": "Натуральное64",
+	"Байт":        "Натуральное8",
 }
+
+// builtinSynonymOf - второе имя встроенного синонима -> короткое
+// ("Целое64" -> "Целое"), обратное BuiltinTypeSynonyms.
+var builtinSynonymOf = map[string]string{}
 
 func init() {
 	for name, other := range BuiltinTypeSynonyms {
 		primitiveTypes[other] = primitiveTypes[name]
+		builtinSynonymOf[other] = name
 	}
+}
+
+// canonicalTypeName - запись типа, где каждое второе имя встроенного
+// синонима заменено коротким, как целое слово, и внутри "<...>"/после "?"
+// ("Список<Целое64>" -> "Список<Целое>"): имя generic-инстанциации/nullable
+// строится из текста типа, без этого "Список<Целое64>" и "Список<Целое>"
+// были бы разными типами.
+func canonicalTypeName(name string) string {
+	var out strings.Builder
+	word := []rune{}
+	flush := func() {
+		w := string(word)
+		if short, ok := builtinSynonymOf[w]; ok {
+			w = short
+		}
+		out.WriteString(w)
+		word = word[:0]
+	}
+	for _, r := range name {
+		if r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r) {
+			word = append(word, r)
+			continue
+		}
+		flush()
+		out.WriteRune(r)
+	}
+	flush()
+	return out.String()
 }
 
 // resolveTypeName - единственное место, где имя типа Rech (строка из AST)
@@ -91,6 +125,7 @@ func init() {
 // резолвится прямо в ir.TypeInt (та же Целое-семантика, что и у
 // "Тип.Член" в analyzeExpr).
 func resolveTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64, name string) (ir.Type, error) {
+	name = canonicalTypeName(name)
 	if strings.HasPrefix(name, "?") {
 		return resolveNullableTypeName(entities, methods, aliases, interfaces, enums, name)
 	}
@@ -736,7 +771,7 @@ func isFFIScalar(t ir.Type) bool {
 	switch t.Kind {
 	case ir.KindInt, ir.KindFloat, ir.KindFloat32, ir.KindString, ir.KindBool, ir.KindByte, ir.KindChar,
 		ir.KindInt8, ir.KindInt16, ir.KindInt32,
-		ir.KindUint, ir.KindUint8, ir.KindUint16, ir.KindUint32:
+		ir.KindUint, ir.KindUint16, ir.KindUint32:
 		return true
 	default:
 		return false

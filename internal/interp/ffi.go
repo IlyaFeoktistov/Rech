@@ -106,7 +106,6 @@ var ffiScalarGoTypes = map[ir.TypeKind]reflect.Type{
 	ir.KindInt16:   reflect.TypeFor[int16](),
 	ir.KindInt32:   reflect.TypeFor[int32](),
 	ir.KindUint:    reflect.TypeFor[uint64](),
-	ir.KindUint8:   reflect.TypeFor[uint8](),
 	ir.KindUint16:  reflect.TypeFor[uint16](),
 	ir.KindUint32:  reflect.TypeFor[uint32](),
 }

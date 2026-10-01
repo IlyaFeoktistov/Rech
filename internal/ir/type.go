@@ -89,14 +89,14 @@ const (
 	KindInt8
 	KindInt16
 	KindInt32
-	// KindUint/8/16/32 - "Натуральное" (оно же "Натуральное64" - синоним)/
-	// "Натуральное8/16/32", целые без знака ([0, 2^N-1], не "Целое с
+	// KindUint/16/32 - "Натуральное" (оно же "Натуральное64" - синоним)/
+	// "Натуральное16/32", целые без знака (8 бит - KindByte, "Байт", он же
+	// "Натуральное8") ([0, 2^N-1], не "Целое с
 	// проверкой на отрицательность") - тот же принцип строгой (без промоции)
 	// арифметики, что и у KindInt8..32.
 	// Приведение между знаковым и беззнаковым - только через явный каст,
 	// никогда неявно.
 	KindUint
-	KindUint8
 	KindUint16
 	KindUint32
 	// KindAny - "Значение", непрозрачный контейнер значения ЛЮБОГО типа
@@ -173,7 +173,6 @@ var (
 	TypeInt32 = Type{Kind: KindInt32}
 
 	TypeUint   = Type{Kind: KindUint}
-	TypeUint8  = Type{Kind: KindUint8}
 	TypeUint16 = Type{Kind: KindUint16}
 	TypeUint32 = Type{Kind: KindUint32}
 
@@ -195,6 +194,8 @@ func (k TypeKind) IntWidthSigned() (bits int, signed bool, ok bool) {
 	switch k {
 	case KindInt:
 		return 64, true, true
+	case KindByte:
+		return 8, false, true
 	case KindInt8:
 		return 8, true, true
 	case KindInt16:
@@ -203,8 +204,6 @@ func (k TypeKind) IntWidthSigned() (bits int, signed bool, ok bool) {
 		return 32, true, true
 	case KindUint:
 		return 64, false, true
-	case KindUint8:
-		return 8, false, true
 	case KindUint16:
 		return 16, false, true
 	case KindUint32:
@@ -324,8 +323,6 @@ func (t Type) String() string {
 		return "Целое32"
 	case KindUint:
 		return "Натуральное"
-	case KindUint8:
-		return "Натуральное8"
 	case KindUint16:
 		return "Натуральное16"
 	case KindUint32:
