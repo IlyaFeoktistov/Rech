@@ -1114,6 +1114,11 @@ func analyzeBinaryExpr(sc *ctx, e *ast.BinaryExpr) (ir.Expr, error) {
 			}
 			return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: ir.TypeBool}, nil
 		}
+		// "Тип" - один и тот же тип (синонимы - тоже: "тип Натуральное8 ==
+		// тип Байт"), сравнение по имени дескриптора в обоих backend'ах.
+		if lt == ir.TypeTypeInfo && rt == ir.TypeTypeInfo {
+			return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: ir.TypeBool}, nil
+		}
 		if lt != rt || !equatableTypes[lt] {
 			return nil, errAtLine(e.Line, CodeExprCheck, "оператор %q не поддерживается для типов %s и %s", e.Op, lt, rt)
 		}

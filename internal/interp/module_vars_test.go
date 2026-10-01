@@ -50,3 +50,17 @@ func TestReflectionSeesBuiltinSynonymsAsOneType(t *testing.T) {
 		t.Fatalf("получено %q, ожидалось %q", got, want)
 	}
 }
+
+// TestTypeEqualityWithSynonyms - "Тип == Тип": синонимы равны, разные
+// типы - нет, "тип_значения()" упакованного значения равен "тип X".
+func TestTypeEqualityWithSynonyms(t *testing.T) {
+	src := `функция главная
+{
+    Значение коробка = (Значение) (Байт) 200
+    вывести ` + "`${тип Натуральное8 == тип Байт} ${тип Целое64 == тип Целое} ${тип Целое != тип Байт} ${коробка.тип_значения() == тип Натуральное8}\\n`" + `
+}
+`
+	if got, want := runSrc(t, src), "истина истина истина истина\n"; got != want {
+		t.Fatalf("получено %q, ожидалось %q", got, want)
+	}
+}

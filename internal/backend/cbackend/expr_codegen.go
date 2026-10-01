@@ -450,6 +450,13 @@ func generateIRBinaryExpr(ctx *irGenCtx, e *ir.BinaryExpr) (string, valueType, e
 			}
 			return fmt.Sprintf("(%s != 0)", cmp), typeBool, nil
 		}
+		if lt == ir.TypeTypeInfo {
+			cmp := fmt.Sprintf("rech_type_eq(%s, %s)", lc, rc)
+			if e.Op == "==" {
+				return cmp, typeBool, nil
+			}
+			return fmt.Sprintf("(!%s)", cmp), typeBool, nil
+		}
 		if lt.Kind == ir.KindEntity && lt == rt && !ctx.entityIsRef(lt.Entity) {
 			// "структура" (значение) - поле-в-поле через сгенерированную
 			// rech_struct_eq_... (struct_eq.go) - semantic

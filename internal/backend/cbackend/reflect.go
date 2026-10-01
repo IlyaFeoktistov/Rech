@@ -192,6 +192,16 @@ static bool rech_type_implements(const rech_type_meta_t *t, const rech_type_meta
     return false;
 }
 
+/* rech_type_eq - "Тип == Тип": один и тот же тип - одно имя дескриптора
+   (встроенные синонимы "Натуральное8"/"Байт" разрешаются в один тип ещё в
+   семантике). */
+static bool rech_type_eq(const rech_type_meta_t *a, const rech_type_meta_t *b) {
+    if (a == b) {
+        return true;
+    }
+    return a && b && strcmp(a->name, b->name) == 0;
+}
+
 static const rech_type_meta_t *rech_type_base_or_pusto(const rech_type_meta_t *t) {
     return t->base ? t->base : &%s;
 }

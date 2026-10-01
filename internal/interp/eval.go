@@ -389,6 +389,9 @@ func (in *Interp) valuesEqual(l, r Value) bool {
 	switch {
 	case l.Type == ir.TypeString:
 		return l.S == r.S
+	case l.Type == ir.TypeTypeInfo:
+		// "Тип" - имя типа (см. package doc Value.Boxed).
+		return l.S == r.S
 	case l.Type == ir.TypeBool:
 		return l.B == r.B
 	case l.Type == ir.TypeFloat || r.Type == ir.TypeFloat || l.Type == ir.TypeFloat32 || r.Type == ir.TypeFloat32:

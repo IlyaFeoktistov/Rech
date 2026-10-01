@@ -45,3 +45,12 @@ func TestGenerateFromIRModuleVars(t *testing.T) {
 		t.Fatalf("сгенерированный C не компилируется: %v\n%s", err, msg)
 	}
 }
+
+// TestGenerateFromIRTypeEquality - "Тип == Тип" - rech_type_eq (по имени
+// дескриптора), не сравнение указателей.
+func TestGenerateFromIRTypeEquality(t *testing.T) {
+	out := generateFromSrc(t, "функция главная\n{\n    вывести тип Натуральное8 == тип Байт\n    вывести тип Целое != тип Байт\n}\n")
+	if !strings.Contains(out, "rech_type_eq(") || !strings.Contains(out, "(!rech_type_eq(") || !strings.Contains(out, "static bool rech_type_eq(") {
+		t.Fatalf("ожидалось сравнение через rech_type_eq:\n%s", out)
+	}
+}
