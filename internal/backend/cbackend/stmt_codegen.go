@@ -196,11 +196,13 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 				if err := emitCleanupUnwind(sb, ctx, depth+1); err != nil {
 					return err
 				}
-				fmt.Fprintf(sb, "%s    %sreturn 0;\n", ind, tracePop)
+				ctx.body.writeTracePop(sb, ind+"    ")
+				fmt.Fprintf(sb, "%s    %s\n", ind, ctx.body.bareReturn())
 				fmt.Fprintf(sb, "%s}\n", ind)
 				return nil
 			}
-			fmt.Fprintf(sb, "%s%s%sreturn 0;\n", ind, tracePop, ind)
+			ctx.body.writeTracePop(sb, ind)
+			fmt.Fprintf(sb, "%s%s\n", ind, ctx.body.bareReturn())
 			return nil
 		}
 		code, typ, err := generateIRExpr(ctx, s.Value)
@@ -220,7 +222,8 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 		if err := emitCleanupUnwind(sb, ctx, depth+1); err != nil {
 			return err
 		}
-		fmt.Fprintf(sb, "%s    %s%s    return %s;\n", ind, tracePop, ind, returnTmpVar)
+		ctx.body.writeTracePop(sb, ind+"    ")
+		fmt.Fprintf(sb, "%s    return %s;\n", ind, returnTmpVar)
 		fmt.Fprintf(sb, "%s}\n", ind)
 		return nil
 

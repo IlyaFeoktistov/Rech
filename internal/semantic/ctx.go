@@ -40,6 +40,9 @@ type ctx struct {
 	scopes     []scope
 	returnType ir.Type
 	hasReturn  bool
+	// inCtor - анализируется тело конструктора (не лямбда внутри него -
+	// у лямбды свой ctx): нужен только тексту ошибки "вернуть <значение>".
+	inCtor bool
 
 	// consts - параллельный scopes стек (как established) - consts[i][name]
 	// == true, если переменная name (объявленная в scopes[i]) объявлена

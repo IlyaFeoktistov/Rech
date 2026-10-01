@@ -193,7 +193,11 @@ func generateIREntityCtorInit(ctx *irGenCtx, ent *ir.Entity) (string, error) {
 	fmt.Fprintf(&sb, "static void %s(%s) {\n", mangleCtorInit(ent.Name), cMethodParamListIR(ctx, ent.Name, ent.Ctor.Params))
 	fmt.Fprintf(&sb, "    %s", tracePush(ent.Name+".конструктор"))
 	ctx.thisEntity = ent.Name
-	defer func() { ctx.thisEntity = "" }()
+	ctx.body = bodyKind{void: true}
+	defer func() {
+		ctx.thisEntity = ""
+		ctx.body = bodyKind{}
+	}()
 	// Поле с "имеет: имя: Тип = выражение" начинается со своего значения по
 	// умолчанию ещё до тела явного конструктора (docs/SPEC.md) - GC_MALLOC
 	// зануляет память, этого достаточно для полей без default ТОЛЬКО когда

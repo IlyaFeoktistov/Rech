@@ -1122,6 +1122,7 @@ func (a *Analyzer) analyzeConstructor(ent *ast.EntityDecl) (*ir.Method, error) {
 	sig := a.entities[ent.Name]
 	sc := newCtx(a, a.funcs, a.entities, a.methods, a.aliases, a.interfaces, a.enums, ent.Name, ir.Type{}, false, a.resolvedConsts, a.resolvingConsts)
 	sc.inferScope = ent.Name + ".конструктор"
+	sc.inCtor = true
 	params := make([]ir.Param, len(c.Params))
 	for i, p := range c.Params {
 		params[i] = ir.Param{Name: p.Name, Type: sig.CtorParams[i]}

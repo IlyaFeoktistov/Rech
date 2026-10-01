@@ -196,6 +196,8 @@ func ensureLambdaFunc(ctx *irGenCtx, e *ir.LambdaExpr) error {
 	// loopDepth родителя, см. internal/semantic/ctx.go).
 	prevLoopStack := ctx.loopStack
 	ctx.loopStack = nil
+	prevBody := ctx.body
+	ctx.body = bodyKind{void: !e.HasReturn, noTraceFrame: true}
 	var bodyErr error
 	for _, s := range e.Body {
 		if err := generateIRStmt(&sb, ctx, s, 1); err != nil {
@@ -206,6 +208,7 @@ func ensureLambdaFunc(ctx *irGenCtx, e *ir.LambdaExpr) error {
 	ctx.capturedRedirect = prevRedirect
 	ctx.cleanupStack = prevCleanupStack
 	ctx.loopStack = prevLoopStack
+	ctx.body = prevBody
 	if bodyErr != nil {
 		return fmt.Errorf("лямбда: %w", bodyErr)
 	}

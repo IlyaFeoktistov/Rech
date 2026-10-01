@@ -500,6 +500,9 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			}
 			return &ir.ReturnStmt{Line: s.Line}, nil
 		}
+		if sc.inCtor {
+			return nil, errAtLine(s.Line, CodeNameResolution, "не возвращает значения - используйте \"вернуть\" без значения")
+		}
 		if !sc.hasReturn {
 			return nil, errAtLine(s.Line, CodeNameResolution, "у функции не объявлен тип результата - используйте \"вернуть\" без значения")
 		}

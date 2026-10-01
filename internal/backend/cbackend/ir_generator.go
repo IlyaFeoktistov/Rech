@@ -407,6 +407,10 @@ type irGenCtx struct {
 	// попытаться, растёт на каждый узел, никогда не переиспользуется в
 	// пределах одной программы.
 	loopLabelCounter int
+
+	// body - соглашение C-функции, тело которой сейчас генерируется (см.
+	// bodyKind) - читается ir.ReturnStmt.
+	body bodyKind
 }
 
 // loopFrame - см. package doc irGenCtx.loopStack.
