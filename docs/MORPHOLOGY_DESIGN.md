@@ -155,12 +155,12 @@ type VerbInfo struct {
 
 ## Словарь OpenCorpora: парадигма имени
 
-Источник данных - [jus1d/gomorphy](https://github.com/jus1d/gomorphy) (MIT)
-со встроенным словарём OpenCorpora (CC BY-SA 4.0, около 390 тыс. лемм, все
-словоформы с тегами). Копия лежит в `internal/thirdparty/gomorphy`: её
-публичный API отдаёт только лучший тег словоформы и формы без тегов, а
-морфологии нужны все разборы слова и тег каждой формы лексемы - это
-добавляет файл `lexemes.go` (`Analyzer.Parses`).
+Источник данных - [IlyaFeoktistov/gomorphy](https://github.com/IlyaFeoktistov/gomorphy),
+форк [jus1d/gomorphy](https://github.com/jus1d/gomorphy) (MIT) со встроенным
+словарём OpenCorpora (CC BY-SA 4.0, около 390 тыс. лемм, все словоформы с
+тегами). Публичный API оригинала отдаёт только лучший тег словоформы и формы
+без тегов, а морфологии нужны все разборы слова и тег каждой формы лексемы -
+это добавляет форк (`Analyzer.Parses`, файл `lexemes.go`).
 
 `Dictionary.RegisterNoun` разрешает имя в таком порядке:
 
@@ -464,7 +464,7 @@ internal/morph/
     fold.go              - foldYo ("ё"/"е")
     lexicon.go           - парадигма имени по словарю OpenCorpora (одиночные и составные имена)
     gomorphy_source.go   - lookupGenderViaGomorphy/tryDepluralize, интерфейс gomorphyAnalyzer
-    gomorphy_init.go     - единственное место, где загружается gomorphy (internal/thirdparty/gomorphy)
+    gomorphy_init.go     - единственное место, где загружается gomorphy (github.com/IlyaFeoktistov/gomorphy)
     dictionary.go        - Dictionary, Lemma, NounInfo, Analysis, Register*, Analyze
     morph_test.go        - golden-таблица словоформ + тесты на синкретизм/ошибки/gomorphy/ё-е
 ```

@@ -1,6 +1,6 @@
 package morph
 
-import "github.com/IlyaFeoktistov/Rech/internal/thirdparty/gomorphy"
+import "github.com/IlyaFeoktistov/gomorphy"
 
 // init загружает встроенный словарь gomorphy (OpenCorpora) один раз при
 // старте. Изолировано в отдельном файле, чтобы весь остальной пакет morph

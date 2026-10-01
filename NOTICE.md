@@ -2,9 +2,9 @@
 
 ## Словарь OpenCorpora (через gomorphy)
 
-Компилятор `rech` использует [github.com/jus1d/gomorphy](https://github.com/jus1d/gomorphy)
-(лицензия кода - MIT) для определения рода существительных на `-ь` при
-регистрации в морфологическом движке (`internal/morph`, см.
+Компилятор `rech` использует [github.com/IlyaFeoktistov/gomorphy](https://github.com/IlyaFeoktistov/gomorphy),
+форк [github.com/jus1d/gomorphy](https://github.com/jus1d/gomorphy) (лицензия кода - MIT),
+для определения рода существительных на `-ь` при регистрации в морфологическом движке (`internal/morph`, см.
 [docs/MORPHOLOGY_DESIGN.md](docs/MORPHOLOGY_DESIGN.md)).
 
 Библиотека встраивает в бинарник словарные данные, производные от

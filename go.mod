@@ -5,6 +5,7 @@ go 1.25.5
 require github.com/google/wire v0.7.0
 
 require (
+	github.com/IlyaFeoktistov/gomorphy v0.0.0-20261001175601-ff735ff96a6f
 	github.com/ebitengine/purego v0.11.0
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/lib/pq v1.12.3

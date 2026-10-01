@@ -6,7 +6,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/IlyaFeoktistov/Rech/internal/thirdparty/gomorphy"
+	"github.com/IlyaFeoktistov/gomorphy"
 )
 
 // Парадигма имени по словарю OpenCorpora (gomorphy, internal/thirdparty):
