@@ -133,6 +133,7 @@ enum_member    := IDENT [ "=" [ "-" ] INT ]
 enum_sep       := ( "," | sep ) { "," | sep }        (* запятая и/или перенос строки, оба допустимы *)
 
 statement      := var_decl | const_decl | assign | field_assign | field_incdec_stmt | null_coalesce_assign | index_assign
+                | deref_assign | paren_stmt
                 | become_stmt | print_stmt | show_stmt | assert_stmt | if_stmt | while_stmt | for_stmt
                 | switch_stmt | break_stmt | continue_stmt
                 | return_stmt | call_stmt | method_call_stmt | incdec_stmt | throw_stmt | try_stmt | await_stmt
@@ -162,6 +163,12 @@ field_incdec_stmt := ( IDENT | "этот" ) "." IDENT ( "++" | "--" )
 assign_op      := "=" | "+=" | "-=" | "*=" | "/=" | "%="
 null_coalesce_assign := IDENT "?=" expr
 index_assign   := IDENT "[" expr "]" "=" expr
+deref_assign   := "*" unary ( assign_op expr | "++" | "--" )
+                | ( "++" | "--" ) ( "*" unary | "(" "*" unary ")" )
+                                             (* запись через указатель (раздел 22); "*п--" - как в C,
+                                                "*(п--)", для значения - "(*п)--" *)
+paren_stmt     := "(" expr ")" { "." IDENT | "[" expr "]" } ( assign_op expr | "++" | "--" )
+                                             (* "(*п).поле = x", "(*п)[i] = x", "(*п)++" *)
                                              (* сахар над IDENT "." "установить" "(" expr "," expr ")" *)
 become_stmt    := ( IDENT | "этот" ) "становится" IDENT
                                              (* IDENT - полная форма, творительный падеж *)

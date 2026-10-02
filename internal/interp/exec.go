@@ -122,6 +122,9 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 		return ctrl{}, nil
 
 	case *ir.FieldAssign:
+		if root, ok := derefRoot(s.Receiver); ok {
+			return in.execFieldAssignThroughPointer(s, root, env, cc)
+		}
 		recv, err := in.evalExpr(s.Receiver, env, cc)
 		if err != nil {
 			return ctrl{}, err

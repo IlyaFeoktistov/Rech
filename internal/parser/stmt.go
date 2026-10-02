@@ -116,6 +116,9 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 	case lexer.KwTry:
 		return p.parseTryStmt()
 	case lexer.INCR, lexer.DECR:
+		if next := p.peekAt(1).Type; next == lexer.LPAREN || next == lexer.STAR {
+			return p.parsePrefixDerefIncDec()
+		}
 		expr, err := p.parsePrefixIncDec()
 		if err != nil {
 			return nil, err
@@ -134,6 +137,8 @@ func (p *Parser) parseStatement() (ast.Stmt, error) {
 			return decl, nil
 		}
 		return p.parseDerefAssignStmt()
+	case lexer.LPAREN:
+		return p.parsePostfixStatement()
 	case lexer.QUESTION:
 		// "?Тип имя = значение" (nullable-объявление без слова "переменная") -
 		// у "?" нет никакого другого смысла в начале инструкции, поэтому здесь
@@ -313,6 +318,13 @@ func (p *Parser) parseDotStatement() (ast.Stmt, error) {
 	if isIncDecTok(p.peekAt(3).Type) {
 		return p.parseFieldIncDec()
 	}
+	return p.parsePostfixStatement()
+}
+
+// parsePostfixStatement - инструкция из постфиксного выражения: вызов
+// метода/значения, присваивание или "++"/"--" полю, присваивание элементу
+// ("м.поле[i] = x", "(*п)[1] = x", "(*п).поле = x").
+func (p *Parser) parsePostfixStatement() (ast.Stmt, error) {
 	start := p.cur()
 	expr, err := p.parsePostfix()
 	if err != nil {
@@ -334,6 +346,10 @@ func (p *Parser) parseDotStatement() (ast.Stmt, error) {
 	case *ast.IndexExpr:
 		if p.cur().Type == lexer.ASSIGN {
 			return p.finishIndexAssign(e)
+		}
+	case *ast.DerefExpr:
+		if t := p.cur().Type; t == lexer.ASSIGN || isCompoundAssignTok(t) || isIncDecTok(t) {
+			return p.finishDerefAssign(e.Value, e.Line)
 		}
 	}
 	return nil, errAt(start.Line, start.Col, CodeStmtRestrict, "доступ к полю сам по себе не является инструкцией - нужен вызов метода или присваивание")
@@ -526,14 +542,59 @@ func (p *Parser) parseDerefAssignStmt() (ast.Stmt, error) {
 	if err != nil {
 		return nil, diagnostics.Wrap(err, "после \"*\" ожидался указатель")
 	}
-	if _, err := p.expect(lexer.ASSIGN); err != nil {
-		return nil, diagnostics.Wrap(err, "после \"*<указатель>\" ожидалось \"=\"")
+	return p.finishDerefAssign(pointer, star.Line)
+}
+
+// parsePrefixDerefIncDec - "++(*п)"/"++*п"/"--(*п)": то же, что "(*п)++".
+func (p *Parser) parsePrefixDerefIncDec() (ast.Stmt, error) {
+	op := p.advance()
+	target, err := p.parseUnary()
+	if err != nil {
+		return nil, diagnostics.Wrap(err, "после %q ожидалось \"*указатель\"", op.Value)
+	}
+	deref, ok := target.(*ast.DerefExpr)
+	if !ok {
+		return nil, errAt(op.Line, op.Col, CodeStmtRestrict, "%q перед скобкой применим только к \"(*указатель)\" - у переменной пишется %sимя", op.Value, op.Value)
+	}
+	binOp := "+"
+	if op.Type == lexer.DECR {
+		binOp = "-"
+	}
+	value := &ast.BinaryExpr{Op: binOp, Left: deref, Right: &ast.IntLiteral{Value: 1, Line: op.Line}, Line: op.Line}
+	return &ast.DerefAssignStmt{Pointer: deref.Value, Value: value, Line: op.Line}, nil
+}
+
+// finishDerefAssign - "= значение", "+= значение" (и прочие составные),
+// "++"/"--" после "*указатель"/"(*указатель)": запись через указатель
+// pointer. Составная форма - "*п = *п <op> значение".
+func (p *Parser) finishDerefAssign(pointer ast.Expr, line int) (ast.Stmt, error) {
+	tok := p.cur()
+	current := &ast.DerefExpr{Value: pointer, Line: line}
+	if isIncDecTok(tok.Type) {
+		p.advance()
+		op := "+"
+		if tok.Type == lexer.DECR {
+			op = "-"
+		}
+		value := &ast.BinaryExpr{Op: op, Left: current, Right: &ast.IntLiteral{Value: 1, Line: tok.Line}, Line: tok.Line}
+		return &ast.DerefAssignStmt{Pointer: pointer, Value: value, Line: line}, nil
+	}
+	op, compound := compoundAssignOps[tok.Type]
+	if !compound {
+		if _, err := p.expect(lexer.ASSIGN); err != nil {
+			return nil, diagnostics.Wrap(err, "после \"*<указатель>\" ожидалось \"=\"")
+		}
+	} else {
+		p.advance()
 	}
 	value, err := p.parseExpr()
 	if err != nil {
 		return nil, diagnostics.Wrap(err, "в присваивании через указатель")
 	}
-	return &ast.DerefAssignStmt{Pointer: pointer, Value: value, Line: star.Line}, nil
+	if compound {
+		value = &ast.BinaryExpr{Op: op, Left: current, Right: value, Line: tok.Line}
+	}
+	return &ast.DerefAssignStmt{Pointer: pointer, Value: value, Line: line}, nil
 }
 
 func (p *Parser) parseAssign() (ast.Stmt, error) {

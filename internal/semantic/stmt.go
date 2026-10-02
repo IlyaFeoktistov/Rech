@@ -765,9 +765,12 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 // generateIRAddressableExpr/materializeIfNeeded,
 // internal/backend/cbackend/ir_generator.go).
 func receiverAddressable(e ast.Expr) bool {
-	switch e.(type) {
+	switch v := e.(type) {
 	case *ast.Identifier, *ast.ThisExpr, *ast.FieldAccess:
 		return true
+	case *ast.DerefExpr:
+		// "(*п)" - то же хранилище, что держит п.
+		return receiverAddressable(v.Value)
 	default:
 		return false
 	}

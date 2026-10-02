@@ -471,6 +471,11 @@ func isAddressableIR(ctx *irGenCtx, e ir.Expr) bool {
 	switch v := e.(type) {
 	case *ir.Identifier, *ir.ThisExpr:
 		return true
+	case *ir.DerefExpr:
+		// "*п", "п[i]" - в C lvalue: запись "(*п).поле = x" идёт по адресу.
+		return true
+	case *ir.ArrayIndexExpr:
+		return isAddressableIR(ctx, v.Array)
 	case *ir.FieldAccess:
 		if ctx.receiverIsPointer(v.Receiver) {
 			return true

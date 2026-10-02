@@ -164,6 +164,54 @@ func (in *Interp) evalDerefExpr(e *ir.DerefExpr, env *Env, cc *callCtx) (Value, 
 	return v.Ptr.get(), nil
 }
 
+// derefRoot - разыменование в основании цепочки полей получателя
+// ("(*п).поле", "(*п).а.б", "п[i].поле").
+func derefRoot(e ir.Expr) (*ir.DerefExpr, bool) {
+	for {
+		switch v := e.(type) {
+		case *ir.FieldAccess:
+			e = v.Receiver
+		case *ir.DerefExpr:
+			return v, true
+		default:
+			return nil, false
+		}
+	}
+}
+
+// execFieldAssignThroughPointer - запись поля структуры, лежащей по
+// указателю: по сырому C-адресу значение читается копией, поэтому после
+// записи поля оно пишется обратно по тому же адресу.
+func (in *Interp) execFieldAssignThroughPointer(s *ir.FieldAssign, root *ir.DerefExpr, env *Env, cc *callCtx) (ctrl, error) {
+	ptr, err := in.evalExpr(root.Value, env, cc)
+	if err != nil {
+		return ctrl{}, err
+	}
+	if ptr.Ptr == nil {
+		panicRuntime("%s", rtmsg.NullAccess)
+	}
+	value, err := in.evalExpr(s.Value, env, cc)
+	if err != nil {
+		return ctrl{}, err
+	}
+	base := ptr.Ptr.get()
+	var path []string
+	for e := s.Receiver; e != ir.Expr(root); {
+		fa := e.(*ir.FieldAccess)
+		path = append([]string{fa.Field}, path...)
+		e = fa.Receiver
+	}
+	recv := base
+	for _, f := range path {
+		recv = recv.Obj.getField(f)
+	}
+	recv.Obj.setField(s.Field, in.cloneValue(value))
+	if ptr.Ptr.isRaw {
+		ptr.Ptr.set(base)
+	}
+	return ctrl{}, nil
+}
+
 // execDerefAssignStmt - "*указатель = значение" - запись через
 // "Указатель<T>".
 func (in *Interp) execDerefAssignStmt(s *ir.DerefAssignStmt, env *Env, cc *callCtx) (ctrl, error) {
