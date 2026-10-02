@@ -117,17 +117,20 @@ func TestAnalyzeBitwiseByteResultStaysByte(t *testing.T) {
 	}
 }
 
-func TestAnalyzeBitwiseMixedByteAndIntFails(t *testing.T) {
-	_, err := AnalyzeSource(t, `
+func TestAnalyzeBitwiseMixedByteAndIntWidens(t *testing.T) {
+	irProg, err := AnalyzeSource(t, `
 функция главная
 {
     переменная а = (Байт) 6
-    переменная б = 3
-    вывести а & б
+    переменная б = (Целое) 3
+    переменная итог = а & б
 }
 `)
-	if err == nil || !strings.Contains(err.Error(), "побитовый оператор") {
-		t.Fatalf("ожидалась ошибка про побитовый оператор при смешении Байт и Целое, получено: %v", err)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got := ir.TypeOf(irProg.Functions[0].Body[2].(*ir.VarDecl).Value); got != ir.TypeInt {
+		t.Fatalf("Байт & Целое: ожидался Целое, получен %s", got)
 	}
 }
 

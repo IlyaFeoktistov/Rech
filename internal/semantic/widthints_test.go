@@ -22,46 +22,37 @@ func TestAnalyzeFixedWidthIntArithmeticSameTypeOK(t *testing.T) {
 	}
 }
 
-func TestAnalyzeFixedWidthIntArithmeticMixedWidthRejected(t *testing.T) {
-	_, err := AnalyzeSource(t, `
-функция главная
-{
-    переменная а = (Целое8) 5
-    переменная б = (Целое16) 10
-    переменная результат = а + б
+func TestAnalyzeFixedWidthIntArithmeticMixedWidthWidens(t *testing.T) {
+	assertSumType(t, "(Целое8) 5", "(Целое16) 10", ir.TypeInt16)
 }
-`)
-	if err == nil || !strings.Contains(err.Error(), "Целое8 и Целое16 - разные типы") {
-		t.Fatalf("ожидалась ошибка смешанной арифметики Целое8/Целое16, получено: %v", err)
+
+// assertSumType - тип "а + б" при а = left, б = right.
+func assertSumType(t *testing.T, left, right string, want ir.Type) {
+	t.Helper()
+	irProg, err := AnalyzeSource(t, "функция главная\n{\n    переменная а = "+left+"\n    переменная б = "+right+"\n    переменная результат = а + б\n}\n")
+	if err != nil {
+		t.Fatalf("%s + %s: неожиданная ошибка: %v", left, right, err)
+	}
+	if got := ir.TypeOf(irProg.Functions[0].Body[2].(*ir.VarDecl).Value); got != want {
+		t.Fatalf("%s + %s: ожидался тип %s, получен %s", left, right, want, got)
 	}
 }
 
-func TestAnalyzeFixedWidthIntArithmeticMixedSignRejected(t *testing.T) {
-	_, err := AnalyzeSource(t, `
-функция главная
-{
-    переменная а = (Целое32) 5
-    переменная б = (Натуральное32) 10
-    переменная результат = а + б
-}
-`)
-	if err == nil {
-		t.Fatal("ожидалась ошибка смешанной знаковой/беззнаковой арифметики")
+func TestAnalyzeFixedWidthIntArithmeticMixedSign(t *testing.T) {
+	// Знаковый тип, вмещающий оба, - не беззнаковый, как в C.
+	assertSumType(t, "(Целое32) 5", "(Натуральное32) 10", ir.TypeInt)
+	assertSumType(t, "(Целое8) 5", "(Байт) 10", ir.TypeInt16)
+	assertSumType(t, "(Целое32) 5", "(Натуральное16) 10", ir.TypeInt32)
+	_, err := AnalyzeSource(t, "функция главная\n{\n    переменная а = (Целое) 5\n    переменная б = (Натуральное) 10\n    переменная результат = а + б\n}\n")
+	if err == nil || !strings.Contains(err.Error(), "нет знакового типа") {
+		t.Fatalf("ожидалась ошибка Целое + Натуральное, получено %v", err)
 	}
 }
 
-func TestAnalyzeFixedWidthIntDoesNotPromoteToInt(t *testing.T) {
-	_, err := AnalyzeSource(t, `
-функция главная
-{
-    переменная а = (Целое32) 5
-    переменная б = 10
-    переменная результат = а + б
-}
-`)
-	if err == nil {
-		t.Fatal("ожидалась ошибка - Целое32 не промоутится к Целое неявно")
-	}
+func TestAnalyzeFixedWidthIntPromotesToInt(t *testing.T) {
+	assertSumType(t, "(Целое32) 5", "10", ir.TypeInt)
+	assertSumType(t, "(Целое32) 5", "(Целое) 10", ir.TypeInt)
+	assertSumType(t, "(Целое32) 5", "1.5", ir.TypeFloat)
 }
 
 // TestAnalyzeInt64AndUint64AreSynonyms - "Целое64" - то же, что "Целое",
@@ -184,10 +175,7 @@ func TestAnalyzeByteIsUint8Synonym(t *testing.T) {
 	if typ := irProg.Functions[0].Body[2].(*ir.VarDecl).DeclType; typ != ir.TypeByte {
 		t.Fatalf("Натуральное8 должно резолвиться в Байт, получено %v", typ)
 	}
-	_, err := AnalyzeSource(t, "функция главная\n{\n    Байт а = 1\n    Целое ц = 2\n    вывести а + ц\n}\n")
-	if err == nil || !strings.Contains(err.Error(), "Байт и Целое - разные типы") {
-		t.Fatalf("ожидалась ошибка смешения Байт и Целое, получено %v", err)
-	}
+	assertSumType(t, "(Байт) 1", "(Целое) 2", ir.TypeInt)
 }
 
 // TestAnalyzeSynonymsInsideGenericAndNullable - второе имя синонима внутри

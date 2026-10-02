@@ -79,23 +79,6 @@ func coerceNumericConstPair(left, right ir.Expr, line int) (ir.Expr, ir.Expr, er
 	return left, right, nil
 }
 
-// widenNumericPair - операнды сравнения Целое/Дробное/Действительное
-// разных типов: более узкий явно приводится к более широкому (как usual
-// arithmetic conversions в C и смешанная арифметика, numericRanks), чтобы
-// оба backend'а сравнивали в одном и том же типе. ok=false - пара не такая.
-func widenNumericPair(left, right ir.Expr) (ir.Expr, ir.Expr, bool) {
-	lt, rt := ir.TypeOf(left), ir.TypeOf(right)
-	lr, lok := numericRanks[lt]
-	rr, rok := numericRanks[rt]
-	if !lok || !rok || lt == rt {
-		return left, right, false
-	}
-	if lr < rr {
-		return &ir.CastExpr{Value: left, To: rt}, right, true
-	}
-	return left, &ir.CastExpr{Value: right, To: lt}, true
-}
-
 // intTargetRange - диапазон целочисленного типа t, кроме самого Целое
 // (у него приводить нечего). Байт - отдельно: не входит в IntWidthSigned.
 func intTargetRange(t ir.Type) (min, max int64, ok bool) {
