@@ -74,7 +74,7 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 			break
 		}
 	}
-	return tokens, nil
+	return joinLeadingDotComma(tokens), nil
 }
 
 func (l *Lexer) next() (Token, error) {

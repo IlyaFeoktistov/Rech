@@ -51,6 +51,9 @@ func enforceTrailingCommas(src string) (string, error) {
 		if significant[lastIdx].Type == lexer.COMMA {
 			continue // висячая запятая уже есть
 		}
+		if usesLeadingCommas(significant, i, closeIdx) {
+			continue // стиль "запятая в начале строки" - висячая запятая ему чужая
+		}
 		if significant[lastIdx].Line == significant[closeIdx].Line {
 			// Последний элемент и закрывающая скобка на одной строке -
 			// добавлять запятую здесь означало бы поставить её ПОСЛЕ
@@ -72,4 +75,24 @@ func enforceTrailingCommas(src string) (string, error) {
 		lines[line-1] = strings.TrimRight(lines[line-1], " \t\r") + ","
 	}
 	return strings.Join(lines, "\n") + "\n", nil
+}
+
+// usesLeadingCommas - в списке между скобками open/close (индексы в
+// significant) хотя бы одна запятая самого списка (не вложенного) стоит
+// первой на своей строке: "f(\n    a\n    , b\n)".
+func usesLeadingCommas(significant []lexer.Token, open, close int) bool {
+	depth := 0
+	for j := open + 1; j < close; j++ {
+		switch significant[j].Type {
+		case lexer.LPAREN, lexer.LBRACKET, lexer.LBRACE:
+			depth++
+		case lexer.RPAREN, lexer.RBRACKET, lexer.RBRACE:
+			depth--
+		case lexer.COMMA:
+			if depth == 0 && significant[j-1].Line < significant[j].Line {
+				return true
+			}
+		}
+	}
+	return false
 }

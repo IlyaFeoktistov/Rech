@@ -961,3 +961,18 @@ func TestFormatAlignsDeclarationsAsTable(t *testing.T) {
 		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
 	}
 }
+
+// TestFormatLeadingDotAndCommaStyle - строка, начинающаяся с ".", получает
+// отступ продолжения; список в стиле "запятая в начале" не получает
+// висячую запятую.
+func TestFormatLeadingDotAndCommaStyle(t *testing.T) {
+	src := "функция главная\n{\n    Список<Целое> сп = [\n        1\n        , 2\n    ]\n    сп\n    .добавить(3)\n}\n"
+	want := "функция главная\n{\n    Список<Целое> сп = [\n        1\n        , 2\n    ]\n    сп\n        .добавить(3)\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != want {
+		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
+	}
+}

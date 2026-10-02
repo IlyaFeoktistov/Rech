@@ -136,6 +136,7 @@ func TemplatePartTokens(part TemplatePart) ([]Token, error) {
 	if err != nil {
 		return nil, err
 	}
+	toks = withoutNewlines(toks)
 	shift := func(line, col *int) {
 		if *line == 1 {
 			*col += part.Col - 1

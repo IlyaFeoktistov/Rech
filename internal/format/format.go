@@ -294,6 +294,9 @@ func computeLineDepths(toks []lexer.Token, lines []string, prog *ast.Program) (d
 // только для "&".
 func continuationBonus(significant []lexer.Token, i int) int {
 	tok := significant[i]
+	if tok.Type == lexer.DOT {
+		return 1 // продолжение цепочки вызовов: "список\n    .добавить(1)"
+	}
 	afterComma := i > 0 && significant[i-1].Type == lexer.COMMA
 	if parser.ContinuationOperators[tok.Type] && !parser.ContinuationLeadExcluded[tok.Type] && !afterComma {
 		return 1
