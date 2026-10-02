@@ -25,6 +25,12 @@ func sequenceArgs(ctx *irGenCtx, exprs []ir.Expr, codes []string) (decls string,
 	if !needsSequencing(ctx, exprs) {
 		return "", codes
 	}
+	return sequenceAll(ctx, exprs, codes)
+}
+
+// sequenceAll - как sequenceArgs, но без проверки needsSequencing: каждый
+// не-литерал вычисляется во временную переменную по порядку.
+func sequenceAll(ctx *irGenCtx, exprs []ir.Expr, codes []string) (decls string, out []string) {
 	var sb strings.Builder
 	out = make([]string, len(codes))
 	for i, e := range exprs {

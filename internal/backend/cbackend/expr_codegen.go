@@ -725,15 +725,7 @@ func generateIRMethodCallExpr(ctx *irGenCtx, e *ir.MethodCallExpr) (string, valu
 	if err != nil {
 		return "", typeUnknown, err
 	}
-	if len(e.RevokesStates) > 0 {
-		wrapped, err := wrapRevokeStates(ctx, e.Entity, e.RevokesStates, receiverPtr)
-		if err != nil {
-			return "", typeUnknown, err
-		}
-		receiverPtr = wrapped
-	}
 	argCodes := make([]string, len(e.Args)+1)
-	argCodes[0] = receiverPtr
 	for i, a := range e.Args {
 		code, _, err := generateIRExpr(ctx, a)
 		if err != nil {
@@ -741,8 +733,28 @@ func generateIRMethodCallExpr(ctx *irGenCtx, e *ir.MethodCallExpr) (string, valu
 		}
 		argCodes[i+1] = code
 	}
-	decls, ordered := sequenceArgs(ctx, e.Args, argCodes[1:])
-	argCodes = append(argCodes[:1], ordered...)
+	var decls string
+	if ctx.receiverIsPointer(e.Receiver) && hasSideEffect(ctx, e.Receiver) {
+		// Получатель - результат вызова: вычисляется один раз и раньше
+		// аргументов (диспетчеризация иначе вычисляла бы его дважды -
+		// для таблицы методов и как "этот").
+		var all []string
+		decls, all = sequenceAll(ctx, append([]ir.Expr{e.Receiver}, e.Args...), append([]string{receiverCode}, argCodes[1:]...))
+		receiverCode, receiverPtr = all[0], "("+all[0]+")"
+		copy(argCodes[1:], all[1:])
+	} else {
+		var ordered []string
+		decls, ordered = sequenceArgs(ctx, e.Args, argCodes[1:])
+		copy(argCodes[1:], ordered)
+	}
+	if len(e.RevokesStates) > 0 {
+		wrapped, err := wrapRevokeStates(ctx, e.Entity, e.RevokesStates, receiverPtr)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		receiverPtr = wrapped
+	}
+	argCodes[0] = receiverPtr
 	if ctx.needsDispatch(e.Entity) {
 		code, typ, err := generateDispatchCall(ctx, e, receiverCode, argCodes)
 		return sequenced(decls, code), typ, err

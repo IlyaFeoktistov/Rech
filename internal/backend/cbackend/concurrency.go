@@ -311,7 +311,8 @@ func generateIRLaunchExpr(ctx *irGenCtx, e *ir.LaunchExpr) (string, valueType, e
 		}
 		codes = append(codes, code)
 	}
-	return fmt.Sprintf("%s(%s)", launch, strings.Join(codes, ", ")), taskType(sigName), nil
+	decls, codes := sequenceArgs(ctx, append([]ir.Expr{e.Value}, e.Args...), codes)
+	return sequenced(decls, fmt.Sprintf("%s(%s)", launch, strings.Join(codes, ", "))), taskType(sigName), nil
 }
 
 // generateIRAwaitExpr - "дождаться <выражение>": rech_await_...(задача) -
