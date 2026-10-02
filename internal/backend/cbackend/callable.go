@@ -296,12 +296,13 @@ func generateIRCallValueExpr(ctx *irGenCtx, e *ir.CallValueExpr) (string, valueT
 		}
 		argCodes = append(argCodes, code)
 	}
+	decls, argCodes := sequenceArgs(ctx, e.Args, argCodes)
 	if _, isName := e.Value.(*ir.Identifier); !isName {
 		// Значение - результат выражения: через вызыватель, чтобы
 		// вычислить его один раз.
 		all := append([]string{fCode}, argCodes...)
-		return fmt.Sprintf("%s(%s)", mangleCallableInvoke(ir.TypeOf(e.Value).Entity), strings.Join(all, ", ")), fromIRType(e.Type), nil
+		return sequenced(decls, fmt.Sprintf("%s(%s)", mangleCallableInvoke(ir.TypeOf(e.Value).Entity), strings.Join(all, ", "))), fromIRType(e.Type), nil
 	}
 	args := append([]string{fmt.Sprintf("(%s).env", fCode)}, argCodes...)
-	return fmt.Sprintf("(%s).fn(%s)", fCode, strings.Join(args, ", ")), fromIRType(e.Type), nil
+	return sequenced(decls, fmt.Sprintf("(%s).fn(%s)", fCode, strings.Join(args, ", "))), fromIRType(e.Type), nil
 }

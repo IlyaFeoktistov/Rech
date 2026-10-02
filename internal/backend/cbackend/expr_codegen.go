@@ -86,44 +86,9 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 			}
 			argCodes[i] = code
 		}
-		// Порядок проверки: builtin (inline C-выражение) -> внешняя функция
-		// (настоящий C-символ, не mangleName) -> обычная функция программы.
-		if code, ok := builtinCallCode(&ctx.builtinFlags, e.Callee, argCodes); ok {
-			return code, fromIRType(e.Type), nil
-		}
-		callee := funcCName(ctx, e.Callee)
-		if isExtern {
-			callee = mangleExternFunc(e.Callee)
-		}
-		if e.Callee == entryPointName {
-			// "главная" манглится в настоящий C "main" (mangleName) - у НЕГО,
-			// в отличие от любой другой функции программы, сигнатура ВСЕГДА
-			// "(int argc, char **argv)" (см. package doc про paramList "int
-			// argc, char **argv" в generateIRFunction), а не та, что вывелась
-			// бы из ir.Function.Params самой "главная" (у неё их нет вовсе,
-			// docs/SPEC.md - "главная" не принимает аргументы командной
-			// строки, они читаются отдельными builtin'ами). Аргументы самого
-			// Rech-вызова ("главная()") поэтому всегда пусты - C-вызов обязан
-			// передать (rech_argc, rech_argv), не "()" - иначе "main()" не
-			// совпадает с собственным прототипом "main(int, char**)" и cc
-			// отказывается собирать (найдено живьём при проверке, можно ли
-			// вообще вызвать "главная" из самого же Rech-кода).
-			return fmt.Sprintf("%s(rech_argc, rech_argv)", callee), fromIRType(e.Type), nil
-		}
-		callCode := fmt.Sprintf("%s(%s)", callee, strings.Join(argCodes, ", "))
-		if isExtern && e.HasReturn && e.Type.Kind == ir.KindString {
-			// Строка от C - валидный текст (strutil.TextCode).
-			ctx.usesText = true
-			return fmt.Sprintf("rech_text_z(%s)", callCode), fromIRType(e.Type), nil
-		}
-		if _, _, isFn := ctx.ffiFuncPointerSig(e.Type); isExtern && e.HasReturn && isFn {
-			code, err := ctx.unmarshalFuncPointer(e.Type, callCode, fmt.Sprintf(rtmsg.FFINullFuncPointerResultTemplate, cName))
-			if err != nil {
-				return "", typeUnknown, err
-			}
-			return code, fromIRType(e.Type), nil
-		}
-		return callCode, fromIRType(e.Type), nil
+		decls, argCodes := sequenceArgs(ctx, e.Args, argCodes)
+		code, typ, err := generateIRCallCode(ctx, e, cName, isExtern, argCodes)
+		return sequenced(decls, code), typ, err
 
 	case *ir.NewExpr:
 		return generateIRNewExpr(ctx, e)
@@ -428,6 +393,18 @@ func generateIRBinaryExpr(ctx *irGenCtx, e *ir.BinaryExpr) (string, valueType, e
 	if err != nil {
 		return "", typeUnknown, err
 	}
+	if e.Op == "и" || e.Op == "или" {
+		// Короткое замыкание C уже вычисляет слева направо.
+		return generateIRBinaryOp(ctx, e, lc, rc)
+	}
+	decls, codes := sequenceArgs(ctx, []ir.Expr{e.Left, e.Right}, []string{lc, rc})
+	code, typ, err := generateIRBinaryOp(ctx, e, codes[0], codes[1])
+	return sequenced(decls, code), typ, err
+}
+
+// generateIRBinaryOp - C бинарной операции e над уже сгенерированными
+// операндами lc/rc.
+func generateIRBinaryOp(ctx *irGenCtx, e *ir.BinaryExpr, lc, rc string) (string, valueType, error) {
 	lt, rt := ir.TypeOf(e.Left), ir.TypeOf(e.Right)
 
 	switch e.Op {
@@ -674,8 +651,9 @@ func generateIRNewExpr(ctx *irGenCtx, e *ir.NewExpr) (string, valueType, error) 
 		}
 		argCodes[i] = code
 	}
+	decls, argCodes := sequenceArgs(ctx, e.Args, argCodes)
 	if ctx.entityIsRef(e.Entity) {
-		return fmt.Sprintf("%s(%s)", ctorCName(ctx, e.Entity), strings.Join(argCodes, ", ")), entityType(e.Entity), nil
+		return sequenced(decls, fmt.Sprintf("%s(%s)", ctorCName(ctx, e.Entity), strings.Join(argCodes, ", "))), entityType(e.Entity), nil
 	}
 	parts := make([]string, len(argCodes))
 	for i, code := range argCodes {
@@ -701,7 +679,7 @@ func generateIRNewExpr(ctx *irGenCtx, e *ir.NewExpr) (string, valueType, error) 
 		// GNU, не входящее в стандартный C99) - как и в AST-пути.
 		initList = "0"
 	}
-	return fmt.Sprintf("(%s){%s}", entityCName(ctx, e.Entity), initList), entityType(e.Entity), nil
+	return sequenced(decls, fmt.Sprintf("(%s){%s}", entityCName(ctx, e.Entity), initList)), entityType(e.Entity), nil
 }
 
 // generateIRMethodCallExpr генерирует вызов метода - получатель по указателю
@@ -763,10 +741,13 @@ func generateIRMethodCallExpr(ctx *irGenCtx, e *ir.MethodCallExpr) (string, valu
 		}
 		argCodes[i+1] = code
 	}
+	decls, ordered := sequenceArgs(ctx, e.Args, argCodes[1:])
+	argCodes = append(argCodes[:1], ordered...)
 	if ctx.needsDispatch(e.Entity) {
-		return generateDispatchCall(ctx, e, receiverCode, argCodes)
+		code, typ, err := generateDispatchCall(ctx, e, receiverCode, argCodes)
+		return sequenced(decls, code), typ, err
 	}
-	return fmt.Sprintf("%s(%s)", methodCName(ctx, e.Entity, e.Method), strings.Join(argCodes, ", ")), fromIRType(e.Type), nil
+	return sequenced(decls, fmt.Sprintf("%s(%s)", methodCName(ctx, e.Entity, e.Method), strings.Join(argCodes, ", "))), fromIRType(e.Type), nil
 }
 
 // generateIRStaticMethodCallExpr - "Тип::метод(...)" - как
@@ -782,7 +763,8 @@ func generateIRStaticMethodCallExpr(ctx *irGenCtx, e *ir.StaticMethodCallExpr) (
 		}
 		argCodes[i] = code
 	}
-	return fmt.Sprintf("%s(%s)", mangleMethod(e.Entity, e.Method), strings.Join(argCodes, ", ")), fromIRType(e.Type), nil
+	decls, argCodes := sequenceArgs(ctx, e.Args, argCodes)
+	return sequenced(decls, fmt.Sprintf("%s(%s)", mangleMethod(e.Entity, e.Method), strings.Join(argCodes, ", "))), fromIRType(e.Type), nil
 }
 
 // fromIRType переводит ir.Type (backend-независимый, internal/ir) в
@@ -836,4 +818,48 @@ func fromIRType(t ir.Type) valueType {
 		return vt
 	}
 	return typeUnknown
+}
+
+// generateIRCallCode - C вызова e с уже сгенерированными (и упорядоченными,
+// sequenceArgs) кодами аргументов argCodes.
+func generateIRCallCode(ctx *irGenCtx, e *ir.CallExpr, cName string, isExtern bool, argCodes []string) (string, valueType, error) {
+	// Порядок проверки: builtin (inline C-выражение) -> внешняя функция
+	// (настоящий C-символ, не mangleName) -> обычная функция программы.
+	if code, ok := builtinCallCode(&ctx.builtinFlags, e.Callee, argCodes); ok {
+		return code, fromIRType(e.Type), nil
+	}
+
+	callee := funcCName(ctx, e.Callee)
+	if isExtern {
+		callee = mangleExternFunc(e.Callee)
+	}
+	if e.Callee == entryPointName {
+		// "главная" манглится в настоящий C "main" (mangleName) - у НЕГО,
+		// в отличие от любой другой функции программы, сигнатура ВСЕГДА
+		// "(int argc, char **argv)" (см. package doc про paramList "int
+		// argc, char **argv" в generateIRFunction), а не та, что вывелась
+		// бы из ir.Function.Params самой "главная" (у неё их нет вовсе,
+		// docs/SPEC.md - "главная" не принимает аргументы командной
+		// строки, они читаются отдельными builtin'ами). Аргументы самого
+		// Rech-вызова ("главная()") поэтому всегда пусты - C-вызов обязан
+		// передать (rech_argc, rech_argv), не "()" - иначе "main()" не
+		// совпадает с собственным прототипом "main(int, char**)" и cc
+		// отказывается собирать (найдено живьём при проверке, можно ли
+		// вообще вызвать "главная" из самого же Rech-кода).
+		return fmt.Sprintf("%s(rech_argc, rech_argv)", callee), fromIRType(e.Type), nil
+	}
+	callCode := fmt.Sprintf("%s(%s)", callee, strings.Join(argCodes, ", "))
+	if isExtern && e.HasReturn && e.Type.Kind == ir.KindString {
+		// Строка от C - валидный текст (strutil.TextCode).
+		ctx.usesText = true
+		return fmt.Sprintf("rech_text_z(%s)", callCode), fromIRType(e.Type), nil
+	}
+	if _, _, isFn := ctx.ffiFuncPointerSig(e.Type); isExtern && e.HasReturn && isFn {
+		code, err := ctx.unmarshalFuncPointer(e.Type, callCode, fmt.Sprintf(rtmsg.FFINullFuncPointerResultTemplate, cName))
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		return code, fromIRType(e.Type), nil
+	}
+	return callCode, fromIRType(e.Type), nil
 }

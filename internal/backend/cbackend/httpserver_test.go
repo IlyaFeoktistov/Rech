@@ -41,7 +41,8 @@ func TestGenerateFromIRHTTPServerBuiltinCalls(t *testing.T) {
 	}
 	for _, want := range []string{
 		"rech_http_accept_request(rech_T_n_soket_unwrap(v_s))",
-		"rech_http_send_response(rech_T_n_soket_unwrap(v_s),",
+		"rech_ord1 = rech_T_n_soket_unwrap(v_s);",
+		"rech_http_send_response(rech_ord1, rech_ord2)",
 		"static rech_T_zapros rech_http_accept_request(rech_socket_t s)",
 		"static void rech_http_send_response(rech_socket_t s, rech_T_otvet resp)",
 		"static char *rech_dup(const char *s)",
