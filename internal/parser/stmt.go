@@ -926,6 +926,20 @@ func (p *Parser) parseForInitStmt() (*ast.VarDecl, error) {
 		}
 		return vd, nil
 	}
+	if p.cur().Type == lexer.IDENT && p.peekAt(1).Type != lexer.ASSIGN {
+		// "Целое32 i = 0" - переменная цикла с явным типом.
+		stmt, ok, err := p.tryParseTypedVarDecl()
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			vd := stmt.(*ast.VarDecl)
+			if vd.Value == nil {
+				return nil, errAtLine(vd.Line, CodeStmtRestrict, "инициализация цикла \"для\" должна содержать значение (\"%s %s = ...\")", vd.Type, vd.Name)
+			}
+			return vd, nil
+		}
+	}
 	name, err := p.expect(lexer.IDENT)
 	if err != nil {
 		return nil, diagnostics.Wrap(err, "после \"для\" ожидалась инициализация переменной цикла")
