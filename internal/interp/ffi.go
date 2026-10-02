@@ -148,7 +148,16 @@ func (in *Interp) ffiGoType(t ir.Type) (reflect.Type, error) {
 			return in.ffiStructGoType(ent)
 		}
 	}
-	return nil, fmt.Errorf("тип %s пока не поддержан FFI интерпретатора (реализованы только примитивы: Целое/Целое8/16/32/64/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка, \"внешняя сущность\", \"внешняя структура\", \"Указатель<T>\" параметром и \"Вызываемый(...)\" параметром) - соберите и запустите программу через `rech build`/`rech run`", t.String())
+	if t.Kind == ir.KindArray {
+		// "T[N]" - Go-массив [N]T: тот же непрерывный layout, что у C.
+		a := in.arrays[t.Entity]
+		elemGoType, err := in.ffiGoType(a.Elem)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", t.String(), err)
+		}
+		return reflect.ArrayOf(int(a.Len), elemGoType), nil
+	}
+	return nil, fmt.Errorf("тип %s пока не поддержан FFI интерпретатора (реализованы только примитивы: Целое/Целое8/16/32/64/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка, \"внешняя сущность\", \"внешняя структура\", массив T[N], \"Указатель<T>\" параметром и \"Вызываемый(...)\" параметром) - соберите и запустите программу через `rech build`/`rech run`", t.String())
 }
 
 // ffiStructGoType - Go-структура (reflect.StructOf), которой маршалится
@@ -184,6 +193,12 @@ func (in *Interp) ffiStructGoType(ent *ir.Entity) (reflect.Type, error) {
 // поле за полем, в том же порядке, что и ffiStructGoType (все формы полей
 // там уже проверены заранее - здесь только маршалинг значения, без ошибок).
 func (in *Interp) setFFIValue(rv reflect.Value, v Value) {
+	if v.Type.Kind == ir.KindArray {
+		for i, el := range v.Obj.coll.elems {
+			in.setFFIValue(rv.Index(i), el)
+		}
+		return
+	}
 	if v.Type.Kind == ir.KindEntity {
 		ent := in.entities[v.Type.Entity]
 		for i, f := range ent.Fields {
@@ -236,6 +251,14 @@ func (in *Interp) setFFIValue(rv reflect.Value, v Value) {
 // Value типа irType. "внешняя структура" - рекурсивно, собирает свежий
 // entityObj полем за полем (тот же порядок, что и ffiStructGoType).
 func (in *Interp) readFFIValue(rv reflect.Value, irType ir.Type) Value {
+	if irType.Kind == ir.KindArray {
+		elemType := in.arrays[irType.Entity].Elem
+		elems := make([]Value, rv.Len())
+		for i := range elems {
+			elems[i] = in.readFFIValue(rv.Index(i), elemType)
+		}
+		return arrayValue(irType, elems)
+	}
 	if irType.Kind == ir.KindEntity {
 		ent := in.entities[irType.Entity]
 		obj := &entityObj{typeName: ent.Name, fields: map[string]Value{}}

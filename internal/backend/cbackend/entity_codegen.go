@@ -171,6 +171,8 @@ func zeroFieldValueExpr(ctx *irGenCtx, t ir.Type) ir.Expr {
 		return &ir.StringLiteral{Value: ""}
 	case t.Kind == ir.KindEntity && ctx.generics[t.Entity]:
 		return &ir.NewExpr{Entity: t.Entity}
+	case t.Kind == ir.KindArray && zeroNeedsInit(ctx, t):
+		return &ir.ArrayLiteralExpr{Type: t}
 	default:
 		return nil
 	}

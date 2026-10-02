@@ -33,6 +33,8 @@ func LineOf(s Stmt) int {
 		return s.Line
 	case *DerefAssignStmt:
 		return s.Line
+	case *ArrayAssignStmt:
+		return s.Line
 	case *ParentCallStmt:
 		return s.Line
 	case *AssertStmt:
@@ -249,6 +251,9 @@ const (
 	ForEachFile
 	// ForEachSet - Множество<T>, элементы в порядке добавления.
 	ForEachSet
+	// ForEachArray - массив "T[N]", от первого элемента к последнему, по
+	// копии массива на входе в цикл (массив - значение).
+	ForEachArray
 )
 
 // ForEachStmt соответствует "для [<ключ>,] <имя> в <коллекция> { <тело> }" -

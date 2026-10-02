@@ -72,7 +72,7 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 				env.declare(s.Name, v)
 				return ctrl{}, nil
 			}
-			env.declare(s.Name, zeroValue(s.DeclType))
+			env.declare(s.Name, in.zeroFieldValue(s.DeclType))
 			return ctrl{}, nil
 		}
 		v, err := in.evalExpr(s.Value, env, cc)
@@ -133,6 +133,8 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 		recv.Obj.setField(s.Field, in.cloneValue(v))
 		return ctrl{}, nil
 
+	case *ir.ArrayAssignStmt:
+		return in.execArrayAssignStmt(s, env, cc)
 	case *ir.DerefAssignStmt:
 		return in.execDerefAssignStmt(s, env, cc)
 

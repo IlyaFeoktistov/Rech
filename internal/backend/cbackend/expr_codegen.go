@@ -290,9 +290,29 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 			}
 			fn := mangleType(recv.CollectionName) + "_addr"
 			return fmt.Sprintf("%s(%s, %s)", fn, listPtr, idxCode), fromIRType(e.Type), nil
+		case *ir.ArrayIndexExpr:
+			code, err := arrayIndexCode(ctx, recv)
+			if err != nil {
+				return "", typeUnknown, err
+			}
+			return fmt.Sprintf("(&%s)", code), fromIRType(e.Type), nil
 		default:
 			return "", typeUnknown, fmt.Errorf("генерация C из IR: неподдержанный получатель \"&\" %T", e.Receiver)
 		}
+
+	case *ir.ArrayIndexExpr:
+		code, err := arrayIndexCode(ctx, e)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		return code, fromIRType(e.Type), nil
+
+	case *ir.ArrayLiteralExpr:
+		code, err := arrayLiteralCode(ctx, e)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		return code, fromIRType(e.Type), nil
 
 	case *ir.PointerOffsetExpr:
 		ptrCode, _, err := generateIRExpr(ctx, e.Pointer)
@@ -851,6 +871,9 @@ func fromIRType(t ir.Type) valueType {
 	}
 	if t.Kind == ir.KindPointer {
 		return pointerType(t.Entity)
+	}
+	if t.Kind == ir.KindArray {
+		return arrayType(t.Entity)
 	}
 	if vt, ok := irKindToValueType[t.Kind]; ok {
 		return vt

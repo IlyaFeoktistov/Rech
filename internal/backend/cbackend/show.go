@@ -50,6 +50,14 @@ func generateIRShowExpr(ctx *irGenCtx, t ir.Type, cExpr string) string {
 		inner := ctx.nullableInner[t.Entity]
 		return fmt.Sprintf(`if ((%[1]s).has) { %[2]s; } else { printf("Ничто (%[3]s)"); }`,
 			cExpr, generateIRShowExpr(ctx, inner, "("+cExpr+").value"), escapeCString(t.String()))
+	case ir.KindArray:
+		// Блок, как и у KindNullable: массив вычисляется один раз во
+		// временную переменную, элементы - по порядку.
+		ctx.chainTmpCounter++
+		tmp := fmt.Sprintf("rech_show%d", ctx.chainTmpCounter)
+		a := ctx.arrays[t.Entity]
+		return fmt.Sprintf(`{ %[1]s %[2]s = %[3]s; printf("%[4]s ["); for (long long %[2]s_i = 0; %[2]s_i < %[5]d; %[2]s_i++) { if (%[2]s_i > 0) printf(", "); %[6]s; } printf("]"); }`,
+			mangleType(t.Entity), tmp, cExpr, escapeCString(t.String()), a.Len, generateIRShowExpr(ctx, a.Elem, tmp+".a["+tmp+"_i]"))
 	default:
 		return fmt.Sprintf(`printf("%%s", "?")`)
 	}

@@ -9,6 +9,7 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/builtins"
 	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
+	"github.com/IlyaFeoktistov/Rech/internal/typename"
 )
 
 var builtinKindTypes = map[builtins.Kind]ir.Type{
@@ -165,6 +166,9 @@ func resolveTypeName(entities map[string]entitySig, methods map[string]map[strin
 	name = enumArgsAsInt(canonicalTypeName(name), enums)
 	if strings.HasPrefix(name, "?") {
 		return resolveNullableTypeName(entities, methods, aliases, interfaces, enums, name)
+	}
+	if _, _, ok := typename.OuterDim(name); ok {
+		return resolveArrayTypeName(entities, methods, aliases, interfaces, enums, name)
 	}
 	if t, ok := primitiveTypes[name]; ok {
 		return t, nil
@@ -866,7 +870,7 @@ func isFFIType(entities map[string]entitySig, methods map[string]map[string]func
 	if t.Kind == ir.KindEntity {
 		return entities[t.Entity].IsExternStruct
 	}
-	if t.Kind == ir.KindPointer {
+	if t.Kind == ir.KindPointer || t.Kind == ir.KindArray {
 		return isFFIType(entities, methods, aliases, interfaces, enums, entities[t.Entity].ElemType)
 	}
 	if t.Kind == ir.KindCallable {

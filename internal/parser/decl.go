@@ -2,12 +2,14 @@ package parser
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 	"github.com/IlyaFeoktistov/Rech/internal/morph"
+	"github.com/IlyaFeoktistov/Rech/internal/typename"
 )
 
 // parseOptionalAlias разбирает необязательное "как <Псевдоним>" после уже
@@ -410,8 +412,8 @@ func normalizeReturnType(t string) string {
 
 // parseTypeName разбирает имя типа - IDENT, необязательно с аргументами
 // типа ("Список<Целое>"), необязательно с ведущим "?" (nullable, "?Тип") или
-// "*" (указатель, "*Тип") и необязательно с одним и более ЗАВЕРШАЮЩИМИ "[]" -
-// "Тип[]"/"Тип[][]" - чистый синтаксический сахар над
+// "*" (указатель, "*Тип") и необязательно с одним и более ЗАВЕРШАЮЩИМИ "[]"/
+// "[N]" (parseTypeSuffixes) - "Тип[]"/"Тип[][]" - чистый синтаксический сахар над
 // "Список<Тип>"/"Список<Список<Тип>>" (массивоподобная запись, привычная по
 // C#/Java/TypeScript) и над "Указатель<Тип>" (запись через "*", привычная по
 // C/C++/Go/Rust) - раскрывается прямо здесь, в строку имени типа, до того,
@@ -427,9 +429,25 @@ func (p *Parser) parseTypeName() (string, error) {
 		}
 		return "?" + inner, nil
 	}
+	if p.cur().Type == lexer.IDENT && p.cur().Value == callableTypeName {
+		// Суффикс "[]" после "Вызываемый(...): Тип" уже относится к типу
+		// результата (parseCallableTypeName).
+		return p.parseCallableTypeName(p.advance())
+	}
+	atom, err := p.parseTypeAtom()
+	if err != nil {
+		return "", err
+	}
+	return p.parseTypeSuffixes(atom)
+}
+
+// parseTypeAtom - тип без суффиксов "[]"/"[N]": имя с "<...>",
+// "Вызываемый(...)" или "*Тип" (суффиксы после "*Тип" относятся к
+// указателю: "*Символ[4]" - массив из 4 указателей, как "char *a[4]" в C).
+func (p *Parser) parseTypeAtom() (string, error) {
 	if p.cur().Type == lexer.STAR {
 		p.advance()
-		inner, err := p.parseTypeName()
+		inner, err := p.parseTypeAtom()
 		if err != nil {
 			return "", diagnostics.Wrap(err, "после \"*\"")
 		}
@@ -442,24 +460,58 @@ func (p *Parser) parseTypeName() (string, error) {
 	if name.Value == callableTypeName {
 		return p.parseCallableTypeName(name)
 	}
-	result, err := p.parseTypeArgsSuffix(name.Value)
-	if err != nil {
-		return "", err
+	return p.parseTypeArgsSuffix(name.Value)
+}
+
+// parseTypeSuffixes - "[]" (сокращение "Список<Тип>") и "[N]" (массив
+// фиксированной длины) сразу за типом atom, слитно. Несколько суффиксов -
+// как в C: первый - внешний ("Целое[3][4]" - 3 массива по 4,
+// "Целое[3][]" - 3 списка).
+//
+// Лукахед на "[" вместе со следующими токенами, не только на "[" - "["
+// сразу после имени типа результата у лямбды - синтаксически то же место,
+// что и список захвата ("функция(...): Тип [x, &y] { ... }", callable.go,
+// parseCaptureList): "[x" - список захвата, не тип. Пустой "[]"
+// различается пробелом: слитно ("Целое[]") - сокращение "Список<Целое>",
+// через пробел ("Целое []") - пустой список захвата (лямбда, закрытая ото
+// всех внешних переменных) - "[" тогда остаётся нетронутым для
+// parseLambdaExpr.
+func (p *Parser) parseTypeSuffixes(atom string) (string, error) {
+	var sizes []int64 // -1 - "[]"
+	for p.cur().Type == lexer.LBRACKET && !p.cur().SpaceBefore {
+		switch {
+		case p.peekAt(1).Type == lexer.RBRACKET:
+			p.advance() // "["
+			p.advance() // "]"
+			sizes = append(sizes, -1)
+		case p.peekAt(1).Type == lexer.INT && p.peekAt(2).Type == lexer.RBRACKET:
+			p.advance() // "["
+			sizeTok := p.advance()
+			p.advance() // "]"
+			n, err := strconv.ParseInt(sizeTok.Value, 0, 64)
+			if err != nil {
+				return "", errAt(sizeTok.Line, sizeTok.Col, CodeUnexpectedToken, "длина массива %q не помещается в Целое", sizeTok.Value)
+			}
+			// "[0]" - тоже тип (ошибку даёт семантика): иначе "Целое[0] м"
+			// не узнавалось бы как объявление.
+			sizes = append(sizes, n)
+		default:
+			return p.applyTypeSuffixes(atom, sizes), nil
+		}
 	}
-	// Лукахед на ОБА токена ("[" и сразу за ним "]"), не только на "[" -
-	// "[" сразу после имени типа результата у лямбды - синтаксически то же
-	// место, что и список захвата ("функция(...): Тип [x, &y] { ... }",
-	// callable.go, parseCaptureList): "[x" - список захвата, не "Тип[]".
-	// Пустой "[]" различается пробелом: слитно ("Целое[]") - сокращение
-	// "Список<Целое>", через пробел ("Целое []") - пустой список захвата
-	// (лямбда, закрытая ото всех внешних переменных) - "[" тогда остаётся
-	// нетронутым для parseLambdaExpr.
-	for p.cur().Type == lexer.LBRACKET && !p.cur().SpaceBefore && p.peekAt(1).Type == lexer.RBRACKET {
-		p.advance() // "["
-		p.advance() // "]"
-		result = fmt.Sprintf("Список<%s>", result)
+	return p.applyTypeSuffixes(atom, sizes), nil
+}
+
+func (p *Parser) applyTypeSuffixes(atom string, sizes []int64) string {
+	result := atom
+	for i := len(sizes) - 1; i >= 0; i-- {
+		if sizes[i] < 0 {
+			result = fmt.Sprintf("Список<%s>", result)
+		} else {
+			result = typename.Array(result, sizes[i])
+		}
 	}
-	return result, nil
+	return result
 }
 
 // parseTypeArgsSuffix - "<Тип, ...>" сразу после имени типа name (уже

@@ -11,7 +11,10 @@ type AddressOfExpr struct {
 	Receiver string
 	Field    string
 	Index    Expr
-	Line     int
+	// Indices - индексы после поля/первого индекса ("&м[i][j]",
+	// "&т.буфер[i]") - у массивов и указателей.
+	Indices []Expr
+	Line    int
 }
 
 func (*AddressOfExpr) node() {}

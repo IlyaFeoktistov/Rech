@@ -76,11 +76,20 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 		if s.Value == nil {
 			// Объявлена без значения - семантика гарантирует присваивание до
 			// первого чтения, "{0}" только даёт C определённое содержимое.
-			fmt.Fprintf(sb, "%s%s %s = {0};\n", ind, fromIRType(s.DeclType).cType(ctx), mangleVar(s.Name))
+			zero := "{0}"
+			if s.DeclType.Kind == ir.KindArray {
+				zero = zeroValueCode(ctx, s.DeclType)
+			}
+			fmt.Fprintf(sb, "%s%s %s = %s;\n", ind, fromIRType(s.DeclType).cType(ctx), mangleVar(s.Name), zero)
 			// Структура заполняется по полям ("п.a = 1") - поля со
 			// значением по умолчанию получают его сразу.
 			if ent := ctx.entities[s.DeclType.Entity]; s.DeclType.Kind == ir.KindEntity && ent != nil && ent.IsStruct {
 				for _, f := range ent.Fields {
+					if f.Default == nil && f.Type.Kind == ir.KindArray && zeroNeedsInit(ctx, f.Type) {
+						// Поле-массив без значения уже "записано" нулями (array.go).
+						fmt.Fprintf(sb, "%s%s.%s = %s;\n", ind, mangleVar(s.Name), mangleField(f.Name), zeroValueCode(ctx, f.Type))
+						continue
+					}
 					if f.Default == nil {
 						continue
 					}
@@ -288,6 +297,18 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 			return err
 		}
 		fmt.Fprintf(sb, "%s%s = %s;\n", ind, mangleStaticField(s.Entity, s.Field), code)
+		return nil
+
+	case *ir.ArrayAssignStmt:
+		elemCode, err := arrayIndexCode(ctx, &ir.ArrayIndexExpr{Array: s.Array, Index: s.Index, Line: s.Line})
+		if err != nil {
+			return err
+		}
+		valCode, _, err := generateIRExpr(ctx, s.Value)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(sb, "%s%s = %s;\n", ind, elemCode, valCode)
 		return nil
 
 	case *ir.DerefAssignStmt:

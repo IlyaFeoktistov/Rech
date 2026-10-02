@@ -289,6 +289,10 @@ func TypeOf(e Expr) Type {
 		return e.Type
 	case *PointerOffsetExpr:
 		return e.Type
+	case *ArrayIndexExpr:
+		return e.Type
+	case *ArrayLiteralExpr:
+		return e.Type
 	case *ListElementRef:
 		return e.Type
 	case *TernaryExpr:

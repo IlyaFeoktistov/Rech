@@ -52,7 +52,10 @@ func analyzeBareVarDecl(sc *ctx, s *ast.VarDecl, declared ir.Type) (ir.Stmt, err
 	if err := sc.declare(s.Name, declared); err != nil {
 		return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: s.Line})
 	}
-	sc.markDeclaredBare(s.Name)
+	if declared.Kind != ir.KindArray {
+		// Массив без значения заполнен нулями (array.go) - уже присвоен.
+		sc.markDeclaredBare(s.Name)
+	}
 	return &ir.VarDecl{Name: s.Name, DeclType: declared, Line: s.Line, Doc: s.Doc}, nil
 }
 

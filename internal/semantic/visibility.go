@@ -147,6 +147,10 @@ func resolveFieldDefault(sc *ctx, entityName, fieldName string, line int) (ir.Ex
 	}
 	sig := sc.entities[entityName]
 	idx := sig.fieldIndex(fieldName)
+	if sig.FieldDefaultExprs[idx] == nil && sig.FieldTypes[idx].Kind == ir.KindArray {
+		// Поле-массив без значения по умолчанию - нули (array.go).
+		return &ir.ArrayLiteralExpr{Type: sig.FieldTypes[idx], Line: line}, nil
+	}
 	// coerceExpr, не analyzeExpr напрямую - значение по умолчанию nullable-
 	// поля правомерно записано как "Ничто" ("имеет: поле: ?Тип = Ничто"),
 	// а "Ничто" вообще не типизируется без контекста ожидаемого типа

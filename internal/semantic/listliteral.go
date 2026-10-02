@@ -28,6 +28,16 @@ func analyzeListLiteralExpr(sc *ctx, e *ast.ListLiteral, targetElem ir.Type, has
 		if _, isNull := raw.(*ast.NullLiteral); isNull {
 			continue
 		}
+		if ll, ok := raw.(*ast.ListLiteral); ok && hasTarget && targetElem.Kind == ir.KindArray {
+			// "Список<Целое[2]> сп = [[1, 2], [3, 4]]" - вложенный литерал -
+			// массив элемента, не Список.
+			v, err := analyzeArrayLiteral(sc, ll, targetElem)
+			if err != nil {
+				return nil, err
+			}
+			elems[i], types[i] = v, targetElem
+			continue
+		}
 		v, vt, isSpread, err := analyzeListElem(sc, raw, e.Line)
 		if err != nil {
 			return nil, err

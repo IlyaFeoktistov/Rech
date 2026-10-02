@@ -156,6 +156,9 @@ func coerceExpr(sc *ctx, e ast.Expr, target ir.Type) (ir.Expr, error) {
 		}
 		return &ir.NullLiteral{Type: target, Line: nl.Line}, nil
 	}
+	if ll, ok := e.(*ast.ListLiteral); ok && target.Kind == ir.KindArray {
+		return analyzeArrayLiteral(sc, ll, target)
+	}
 	if ll, ok := e.(*ast.ListLiteral); ok {
 		// Цель - список или nullable-список ("?Клетка[] х = [...]"): тип
 		// элемента известен из неё, у "?" литерал заворачивается.

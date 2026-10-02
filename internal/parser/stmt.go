@@ -331,6 +331,10 @@ func (p *Parser) parseDotStatement() (ast.Stmt, error) {
 		if isIncDecTok(opTok.Type) {
 			return p.finishFieldIncDec(e.Receiver, e.Field, e.Static, e.Line)
 		}
+	case *ast.IndexExpr:
+		if p.cur().Type == lexer.ASSIGN {
+			return p.finishIndexAssign(e)
+		}
 	}
 	return nil, errAt(start.Line, start.Col, CodeStmtRestrict, "доступ к полю сам по себе не является инструкцией - нужен вызов метода или присваивание")
 }
@@ -620,6 +624,32 @@ func (p *Parser) parseIndexAssign() (ast.Stmt, error) {
 	}
 	call := &ast.MethodCallExpr{Receiver: target, Method: "установить", Args: []ast.Expr{indices[len(indices)-1], value}, Line: receiverTok.Line}
 	return &ast.ExprStmt{MethodCall: call, Line: receiverTok.Line}, nil
+}
+
+// finishIndexAssign - "получатель.поле[i][j] = значение" (позиция - на
+// "="): тот же сахар, что parseIndexAssign - внешние уровни "получить",
+// последний - "установить".
+func (p *Parser) finishIndexAssign(target *ast.IndexExpr) (ast.Stmt, error) {
+	p.advance() // "="
+	value, err := p.parseExpr()
+	if err != nil {
+		return nil, diagnostics.Wrap(err, "в присваивании по индексу")
+	}
+	var indices []ast.Expr
+	var base ast.Expr = target
+	for {
+		ix, ok := base.(*ast.IndexExpr)
+		if !ok {
+			break
+		}
+		indices = append([]ast.Expr{ix.Index}, indices...)
+		base = ix.Receiver
+	}
+	for _, index := range indices[:len(indices)-1] {
+		base = &ast.MethodCallExpr{Receiver: base, Method: "получить", Args: []ast.Expr{index}, Line: target.Line}
+	}
+	call := &ast.MethodCallExpr{Receiver: base, Method: "установить", Args: []ast.Expr{indices[len(indices)-1], value}, Line: target.Line}
+	return &ast.ExprStmt{MethodCall: call, Line: target.Line}, nil
 }
 
 // parseSimpleFieldReceiver разбирает "receiver.поле"/"receiver::поле" -

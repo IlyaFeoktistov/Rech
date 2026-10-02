@@ -254,6 +254,10 @@ type entitySig struct {
 	// что и IsNullable выше - ElemType несёт T (само поле переиспользуется,
 	// не заводится отдельное).
 	IsPointer bool
+	// IsArray - массив фиксированной длины "T[N]" (resolveArrayTypeName,
+	// array.go): ElemType - T, ArrayLen - N.
+	IsArray  bool
+	ArrayLen int64
 
 	// ConstNames/ConstExprs - константы, объявленные в теле сущности
 	// (последовательность объявления). ConstExprs хранит AST-выражения

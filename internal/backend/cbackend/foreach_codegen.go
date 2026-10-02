@@ -36,6 +36,21 @@ func generateIRForEachStmt(sb *strings.Builder, ctx *irGenCtx, s *ir.ForEachStmt
 	}
 	idxC := "rech_fe_i_" + varC
 	elemC := fromIRType(s.ElemType).cType(ctx)
+	if s.Kind == ir.ForEachArray {
+		// Копия массива на входе: массив - значение, тело может менять
+		// исходный.
+		arrC := "rech_fe_a_" + varC
+		arrName := ir.TypeOf(s.Collection).Entity
+		fmt.Fprintf(sb, "%s{\n%s%s %s = %s;\n", ind, ind, mangleType(arrName), arrC, collCode)
+		fmt.Fprintf(sb, "%sfor (long long %s = 0; %s < %d; %s++) {\n", ind, idxC, idxC, ctx.arrays[arrName].Len, idxC)
+		writeForEachIndexVar(sb, s, inner, idxC)
+		fmt.Fprintf(sb, "%s%s %s = %s.a[%s];\n", inner, elemC, varC, arrC, idxC)
+		if err := generateIRForEachBody(sb, ctx, s, depth); err != nil {
+			return err
+		}
+		fmt.Fprintf(sb, "%s}\n", ind)
+		return nil
+	}
 	fmt.Fprintf(sb, "%sfor (long long %s = 0; %s < %s->len; %s++) {\n", ind, idxC, idxC, collCode, idxC)
 	switch s.Kind {
 	case ir.ForEachDict:

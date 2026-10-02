@@ -36,7 +36,10 @@ type Program struct {
 	Nullables []NullableInstantiation
 	// Pointers - конкретные "Указатель<T>", встретившиеся в программе, без
 	// повторов - см. package doc PointerInstantiation.
-	Pointers    []PointerInstantiation
+	Pointers []PointerInstantiation
+	// Arrays - конкретные "T[N]", встретившиеся в программе, без повторов,
+	// вложенные ("T[4]" у "T[3][4]") - раньше объемлющих.
+	Arrays      []ArrayInstantiation
 	ExternFuncs []*ExternFuncDecl
 	Interfaces  []*Interface
 	Callables   []CallableSig

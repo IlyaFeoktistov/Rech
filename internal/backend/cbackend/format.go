@@ -77,6 +77,9 @@ func printedLabel(ctx *irGenCtx, typ valueType) (string, bool) {
 		}
 		return fmt.Sprintf("[%s]<%s>", kind, escapeCString(typ.entity)), true
 	}
+	if typ.kind == kindArray {
+		return fmt.Sprintf("[массив]<%s>", escapeCString(typ.entity)), true
+	}
 	return "", false
 }
 

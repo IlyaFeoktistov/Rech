@@ -314,6 +314,9 @@ func zeroValue(t ir.Type) Value {
 // т.к. они регистрируются отдельно, в in.generics, см. package doc) - без
 // глубокого клонирования буфера, как и раньше.
 func (in *Interp) cloneValue(v Value) Value {
+	if v.Type.Kind == ir.KindArray && v.Obj != nil {
+		return in.cloneArray(v)
+	}
 	if v.Type.Kind == ir.KindNullable {
 		if v.Nullable == nil {
 			return v
@@ -559,6 +562,8 @@ type Interp struct {
 	// чтобы узнать T "Указатель<T>" параметра внешней функции - остальной
 	// интерпретатор выводит T из самого pointerTarget.get(), не отсюда.
 	pointerElemTypes map[string]ir.Type
+	// arrays - ir.Program.Arrays по имени ("Целое[3]") - array.go.
+	arrays map[string]ir.ArrayInstantiation
 	// callableSigs - ir.Program.Callables по имени сигнатуры ("Вызываемый<
 	// Целое>Целое") - нужно только ffi_callback.go, чтобы узнать
 	// параметры/результат "Вызываемый(...)" параметра внешней функции.
@@ -721,6 +726,10 @@ func newInterp(prog *ir.Program, out io.Writer, stdin io.Reader) (*Interp, *ir.F
 	}
 	for _, p := range prog.Pointers {
 		in.pointerElemTypes[p.Name] = p.Inner
+	}
+	in.arrays = map[string]ir.ArrayInstantiation{}
+	for _, a := range prog.Arrays {
+		in.arrays[a.Name] = a
 	}
 	for _, sig := range prog.Callables {
 		in.callableSigs[sig.Name] = sig

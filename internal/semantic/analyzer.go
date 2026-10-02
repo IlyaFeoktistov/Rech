@@ -881,6 +881,11 @@ func (a *Analyzer) collectExternFuncSigs(bag *diagnostics.Bag, funcs map[string]
 				failed = true
 				break
 			}
+			if typ.Kind == ir.KindArray {
+				bag.AddErr(atLine(errNoPos(CodeEntityDecl, "%s: параметр %q имеет тип %s - массив в C передаётся адресом первого элемента: объявите параметр \"Указатель<T>\" и передайте \"&массив[0]\"", label, p.Name, typ), ext.Line))
+				failed = true
+				break
+			}
 			if !isFFIType(entities, methods, aliases, a.interfaces, enums, typ) {
 				bag.AddErr(atLine(errNoPos(CodeEntityDecl, "%s: параметр %q имеет тип %s - у внешней функции допустимы только примитивы (Целое/Целое8/16/32/64/Натуральное/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\"), \"Указатель<T>\" над FFI-совместимым T и \"Вызываемый(...)\" с FFI-совместимыми параметрами/результатом", label, p.Name, typ), ext.Line))
 				failed = true
@@ -905,7 +910,7 @@ func (a *Analyzer) collectExternFuncSigs(bag *diagnostics.Bag, funcs map[string]
 			// указатель на функцию от C (прежний обработчик у signal())
 			// превращается в вызываемое Rech-значение (демаршалинг,
 			// ffi_callback.go обоих backend'ов).
-			if !ffiCallableResult(entities, methods, aliases, a.interfaces, enums, typ) && !isFFIType(entities, methods, aliases, a.interfaces, enums, typ) {
+			if typ.Kind == ir.KindArray || !ffiCallableResult(entities, methods, aliases, a.interfaces, enums, typ) && !isFFIType(entities, methods, aliases, a.interfaces, enums, typ) {
 				bag.AddErr(atLine(errNoPos(CodeEntityDecl, "%s: тип результата %s не поддерживается - у внешней функции допустимы только примитивы (Целое/Целое8/16/32/64/Натуральное/Натуральное8/16/32/64/Действительное/Дробное/Логическое/Байт/Символ/Строка), внешние сущности (\"внешняя сущность\") и \"Указатель<T>\" над FFI-совместимым T", label, typ), ext.Line))
 				funcs[ext.Alias] = sig
 				continue
@@ -1371,7 +1376,7 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 		// сама "Указатель<T>"), но у них собственные, отдельные списки
 		// (out.Nullables/out.Pointers, ниже) - не Program.Generics, у них
 		// нет ни typedef, ни методов growable-коллекции.
-		if strings.Contains(name, "<") && !declaredEntityNames[name] && !sig.IsNullable && !sig.IsPointer {
+		if strings.Contains(name, "<") && !declaredEntityNames[name] && !sig.IsNullable && !sig.IsPointer && !sig.IsArray {
 			names = append(names, name)
 		}
 	}
@@ -1420,6 +1425,28 @@ func (a *Analyzer) buildIR(prog *ast.Program) (*ir.Program, error) {
 		out.Pointers = append(out.Pointers, ir.PointerInstantiation{
 			Name:  name,
 			Inner: a.entities[name].ElemType,
+		})
+	}
+
+	// "T[N]" - зарегистрированы resolveArrayTypeName; вложенные (меньше
+	// измерений) - раньше объемлющих: backend объявляет их по порядку.
+	var arrayNames []string
+	for name, sig := range a.entities {
+		if sig.IsArray {
+			arrayNames = append(arrayNames, name)
+		}
+	}
+	slices.SortFunc(arrayNames, func(x, y string) int {
+		if dx, dy := strings.Count(x, "["), strings.Count(y, "["); dx != dy {
+			return dx - dy
+		}
+		return strings.Compare(x, y)
+	})
+	for _, name := range arrayNames {
+		out.Arrays = append(out.Arrays, ir.ArrayInstantiation{
+			Name: name,
+			Elem: a.entities[name].ElemType,
+			Len:  a.entities[name].ArrayLen,
 		})
 	}
 

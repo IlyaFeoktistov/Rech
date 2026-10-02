@@ -79,6 +79,9 @@ const (
 	// (см. cType) - entity несёт каноническое имя ("Указатель<Целое>"),
 	// тем же принципом, что и kindNullable/kindEntity.
 	kindPointer
+	// kindArray - "T[N]" - C-массив внутри своей структуры (arrayTypedefCode):
+	// значение, entity несёт каноническое имя ("Целое[3]").
+	kindArray
 )
 
 // valueType - тип значения выражения C-кодогенерации. Структура (не голое
@@ -153,6 +156,11 @@ func pointerType(name string) valueType {
 	return valueType{kind: kindPointer, entity: name}
 }
 
+// arrayType - valueType массива "T[N]" по каноническому имени.
+func arrayType(name string) valueType {
+	return valueType{kind: kindArray, entity: name}
+}
+
 // primitiveCTypes - valueType (не kindEntity/kindUnknown) -> C-тип.
 // kindChar - int32_t ("Символ" хранит кодовую точку Unicode, не байт, как C
 // char - язык кириллический по духу, 'я' должен помещаться в один Символ).
@@ -215,6 +223,9 @@ func (t valueType) cType(ctx *irGenCtx) string {
 	if t.kind == kindPointer {
 		inner := fromIRType(ctx.pointerInner[t.entity])
 		return inner.cType(ctx) + " *"
+	}
+	if t.kind == kindArray {
+		return mangleType(t.entity)
 	}
 	if c, ok := primitiveCTypes[t]; ok {
 		return c

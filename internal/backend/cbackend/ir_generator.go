@@ -185,6 +185,16 @@ type irGenCtx struct {
 	// из prog.Pointers - тот же принцип, что и nullableInner выше, нужен
 	// valueType.cType, чтобы построить C-тип "T *" по одному только имени.
 	pointerInner map[string]ir.Type
+	// arrays - каноническое имя "T[N]" -> инстанциация (prog.Arrays);
+	// arraysEmitted - чей typedef уже записан (array.go).
+	arrays        map[string]ir.ArrayInstantiation
+	arraysEmitted map[string]bool
+	// usesArrayIndex - есть "массив[i]" (rech_arr_idx, array.go).
+	usesArrayIndex bool
+	// zeroFuncs - функции нулевых значений со строками внутри
+	// (zeroValueCode, array.go), zeroFuncsEmitted - уже записанные.
+	zeroFuncs        strings.Builder
+	zeroFuncsEmitted map[string]bool
 	// externCNames - Rech-facing имя (Alias) внешней функции -> настоящий
 	// C-символ (CName), из prog.ExternFuncs: CallExpr.Callee несёт Alias,
 	// вызывается по CName, не по mangleName(Alias) (тот не имеет отношения
@@ -585,6 +595,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	for _, p := range prog.Pointers {
 		pointerInner[p.Name] = p.Inner
 	}
+	arrays := map[string]ir.ArrayInstantiation{}
+	for _, a := range prog.Arrays {
+		arrays[a.Name] = a
+	}
 	callableSigs := map[string]ir.CallableSig{}
 	for _, sig := range prog.Callables {
 		callableSigs[sig.Name] = sig
@@ -664,6 +678,9 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		generics:              generics,
 		nullableInner:         nullableInner,
 		pointerInner:          pointerInner,
+		arrays:                arrays,
+		arraysEmitted:         map[string]bool{},
+		zeroFuncsEmitted:      map[string]bool{},
 		callableSigs:          callableSigs,
 		exportedFuncNames:     exportedFuncNames,
 		exportedEntityNames:   exportedEntityNames,
@@ -768,6 +785,15 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	if ctx.usesVtable {
 		typedefs.WriteString(vtableTypedefs(len(slots)))
 	}
+	// Массивы: без структур по значению внутри - раньше всех typedef'ов
+	// (earlyArrays, их могут хранить коллекции); со структурой - перед
+	// первой сущностью, у которой такое поле, остальные - после всех.
+	var earlyArrays strings.Builder
+	for _, a := range prog.Arrays {
+		if !arrayNeedsEntityTypedef(ctx, ir.Type{Kind: ir.KindArray, Entity: a.Name}) {
+			ensureArrayTypedefs(ctx, &earlyArrays, ir.Type{Kind: ir.KindArray, Entity: a.Name})
+		}
+	}
 	for _, ent := range prog.Entities {
 		dest := &typedefs
 		if !ent.IsExternStruct {
@@ -783,11 +809,17 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 				}
 			}
 		}
+		for _, f := range ent.Fields {
+			ensureArrayTypedefs(ctx, dest, f.Type)
+		}
 		s, err := generateIREntityStruct(ctx, ent)
 		if err != nil {
 			return "", err
 		}
 		dest.WriteString(s)
+	}
+	for _, a := range prog.Arrays {
+		ensureArrayTypedefs(ctx, &typedefsAfterCallables, ir.Type{Kind: ir.KindArray, Entity: a.Name})
 	}
 
 	// vtables - статические таблицы диспетчеризации участвующих сущностей
@@ -1526,6 +1558,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// любого хелпера, читающего внешние данные.
 	appendCodeIf(&sb, ctx.usesText, strutil.TextCode)
 	sb.WriteString(panicPrototypes)
+	appendCodeIf(&sb, ctx.usesArrayIndex, arrayIndexHelper)
 	// concurrency.CoroutineRuntimeCode (runtime/concurrency/coroutine.go) -
 	// ЗДЕСЬ, не рядом с taskCode/
 	// coroTaskCode ниже (как было раньше, до Шага 132): rech_accept/
@@ -1660,6 +1693,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		fmt.Fprintf(&entityForwardDecl, "typedef struct %[1]s %[1]s;\n", entityCName(ctx, ent.Name))
 	}
 	appendCodeIf(&sb, entityForwardDecl.Len() > 0, entityForwardDecl.String())
+	appendCodeIf(&sb, earlyArrays.Len() > 0, earlyArrays.String())
 
 	// До genericsCode (элемент "Список<?Целое>" хранится по значению -
 	// обёртка нужна раньше тела коллекции; внутренний тип "?Список<T>" -
@@ -1744,6 +1778,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// видны C здесь, а не после (как structEqProtos/structEqFuncs стояли
 	// раньше, ДО того, как "равен" начал ссылаться на них извне struct_eq.go).
 	appendCodeIf(&sb, typedefsAfterCallables.Len() > 0, typedefsAfterCallables.String())
+	appendCodeIf(&sb, ctx.zeroFuncs.Len() > 0, ctx.zeroFuncs.String())
 	appendCodeIf(&sb, structEqProtos.Len() > 0, structEqProtos.String())
 	appendCodeIf(&sb, structEqFuncs.Len() > 0, structEqFuncs.String())
 	// После ОБЕИХ групп typedefs/typedefsAfterCallables (коллекция с

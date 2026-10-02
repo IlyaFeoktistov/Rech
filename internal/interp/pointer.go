@@ -143,6 +143,12 @@ func (in *Interp) evalAddressOfExpr(e *ir.AddressOfExpr, env *Env, cc *callCtx) 
 			panicRuntimeAs(rtmsg.PanicOutOfRange, "%s", rtmsg.IndexOutOfRange(recv.CollectionName))
 		}
 		return pointerValue(e.Type, &pointerTarget{coll: coll, index: idx.I, collName: recv.CollectionName}), nil
+	case *ir.ArrayIndexExpr:
+		target, err := in.arrayElemTarget(recv, env, cc)
+		if err != nil {
+			return Value{}, err
+		}
+		return pointerValue(e.Type, target), nil
 	default:
 		panicRuntime("внутренняя ошибка: неподдержанный получатель \"&\" %T", e.Receiver)
 		return Value{}, nil

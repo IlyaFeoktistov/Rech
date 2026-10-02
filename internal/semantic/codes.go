@@ -25,6 +25,7 @@ var (
 	CodeInheritance    = diagnostics.Register("RECH3230", "наследование/переопределение")
 	CodeNullable       = diagnostics.Register("RECH3320", "nullable-тип (\"?Тип\")")
 	CodePointer        = diagnostics.Register("RECH3330", "указатель (\"Указатель<T>\")")
+	CodeArray          = diagnostics.Register("RECH3335", "массив фиксированной длины (\"T[N]\")")
 	CodeStateVerb      = diagnostics.Register("RECH3340", "состояния/противоположный глагол")
 	CodeFlow           = diagnostics.Register("RECH3700", "анализ потока управления (недостижимый код/вернуть)")
 	CodeGenerics       = diagnostics.Register("RECH3401", "generics")

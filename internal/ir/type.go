@@ -140,6 +140,12 @@ const (
 	// (Список/Стопка/Очередь/Словарь) - представление тривиально (один
 	// адрес, не растущий буфер), не нуждается в их инфраструктуре.
 	KindPointer
+	// KindArray - массив фиксированной длины "T[N]" (значение, копируется
+	// при присваивании/передаче, как "структура") - Entity несёт
+	// каноническое имя ("Целое[3]", "Целое[3][4]" - измерения в порядке C:
+	// первое - внешнее), тип элемента и длина - через ArrayInstantiation по
+	// этому имени, тем же принципом, что и у KindPointer.
+	KindArray
 )
 
 // Type - тип значения выражения IR, уже разрешённый семантическим анализом
@@ -281,7 +287,7 @@ func CallableType(params []Type, result *Type) Type {
 }
 
 func (t Type) String() string {
-	if t.Kind == KindEntity || t.Kind == KindInterface || t.Kind == KindCallable || t.Kind == KindExternEntity || t.Kind == KindNullable || t.Kind == KindPointer {
+	if t.Kind == KindEntity || t.Kind == KindInterface || t.Kind == KindCallable || t.Kind == KindExternEntity || t.Kind == KindNullable || t.Kind == KindPointer || t.Kind == KindArray {
 		return t.Entity
 	}
 	if t.Kind == KindTask {

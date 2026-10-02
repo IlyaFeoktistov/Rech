@@ -195,6 +195,12 @@ func (in *Interp) evalExpr(e ir.Expr, env *Env, cc *callCtx) (Value, error) {
 	case *ir.PointerOffsetExpr:
 		return in.evalPointerOffsetExpr(e, env, cc)
 
+	case *ir.ArrayIndexExpr:
+		return in.evalArrayIndexExpr(e, env, cc)
+
+	case *ir.ArrayLiteralExpr:
+		return in.evalArrayLiteralExpr(e, env, cc)
+
 	default:
 		return Value{}, fmt.Errorf("вычисление: выражение %T не поддерживается интерпретатором", e)
 	}
@@ -603,6 +609,9 @@ func (in *Interp) bareStruct(ent *ir.Entity, entName string, env *Env, cc *callC
 // использование (обращение до присваивания), не сам факт существования
 // такого поля.
 func (in *Interp) zeroFieldValue(t ir.Type) Value {
+	if t.Kind == ir.KindArray {
+		return in.zeroArray(t)
+	}
 	if t.Kind == ir.KindEntity {
 		if g, ok := in.generics[t.Entity]; ok {
 			return in.newEmptyCollection(t.Entity, g)
@@ -995,6 +1004,8 @@ func (in *Interp) printText(v Value) string {
 			kind = "структура"
 		}
 		return fmt.Sprintf("[%s]<%s>", kind, v.Obj.typeName)
+	case ir.KindArray:
+		return fmt.Sprintf("[массив]<%s>", v.Type)
 	default:
 		return v.S
 	}
@@ -1057,6 +1068,12 @@ func (in *Interp) showValue(v Value) string {
 			parts[i] = fmt.Sprintf("%s: %s", f.Name, in.showValue(v.Obj.getField(f.Name)))
 		}
 		return fmt.Sprintf("%s { %s }", v.Obj.typeName, strings.Join(parts, ", "))
+	case ir.KindArray:
+		parts := make([]string, len(v.Obj.coll.elems))
+		for i, elem := range v.Obj.coll.elems {
+			parts[i] = in.showValue(elem)
+		}
+		return fmt.Sprintf("%s [%s]", v.Type, strings.Join(parts, ", "))
 	case ir.KindNullable:
 		// Есть значение - показывается как есть (уже несёт собственную
 		// пометку типа, см. рекурсию выше) - пометка "(?Тип)" добавляется

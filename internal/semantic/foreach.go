@@ -37,13 +37,16 @@ func analyzeForEachStmt(sc *ctx, s *ast.ForEachStmt) (ir.Stmt, error) {
 		return &ir.ForEachStmt{Kind: ir.ForEachFile, Var: s.Var, Collection: collection, ElemType: ir.TypeString, Body: body, Line: s.Line}, nil
 	}
 	kind, ok := ir.ForEachList, false
+	if typ.Kind == ir.KindArray {
+		kind, ok = ir.ForEachArray, true
+	}
 	if typ.Kind == ir.KindEntity && isBuiltinCollectionType(sc.entities, typ) {
 		if template, _, parsed := parseGenericTypeName(typ.Entity); parsed {
 			kind, ok = forEachKindByTemplate[template]
 		}
 	}
 	if !ok {
-		return nil, errAtLine(s.Line, CodeStmtCheck, "цикл \"для %s в ...\" ожидает переменную-Список/Стопку/Очередь/Словарь или Файл, получен тип %s", s.Var, typ)
+		return nil, errAtLine(s.Line, CodeStmtCheck, "цикл \"для %s в ...\" ожидает Список/Стопку/Очередь/Словарь/Множество, массив T[N] или Файл, получен тип %s", s.Var, typ)
 	}
 	sig := sc.entities[typ.Entity]
 	keyType := ir.TypeInt

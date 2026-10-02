@@ -24,6 +24,9 @@ func analyzeIndexExpr(sc *ctx, e *ast.IndexExpr) (ir.Expr, error) {
 	if typ.Kind == ir.KindPointer {
 		return pointerElementRead(sc, receiver, e.Index, e.Line)
 	}
+	if typ.Kind == ir.KindArray {
+		return analyzeArrayIndex(sc, receiver, e.Index, e.Line)
+	}
 	if !receiverAddressable(e.Receiver) {
 		return nil, errAtLine(e.Line, CodeSemanticOther, "получателем индексации \"[]\" может быть только переменная, поле или \"этот\"")
 	}

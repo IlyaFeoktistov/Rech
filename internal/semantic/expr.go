@@ -175,7 +175,7 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 		if id, btyp, bsig, ok := bareStruct(sc, e.Receiver); ok && bsig.IsStruct {
 			// Поле структуры без значения - читается, если уже записано
 			// или у него есть значение по умолчанию (bare_struct_fields.go).
-			if idx := bsig.fieldIndex(e.Field); idx != -1 && bsig.FieldDefaultExprs[idx] == nil && !sc.fieldAssigned(id.Name, e.Field) {
+			if idx := bsig.fieldIndex(e.Field); idx != -1 && bsig.FieldDefaultExprs[idx] == nil && bsig.FieldTypes[idx].Kind != ir.KindArray && !sc.fieldAssigned(id.Name, e.Field) {
 				return nil, errAtLine(e.Line, CodeStmtCheck, "поле %s.%s читается до того, как ему присвоено значение", id.Name, e.Field).
 					WithHint("%s.%s = ... до этого места", id.Name, e.Field)
 			}
@@ -371,7 +371,7 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 			if ok {
 				continue
 			}
-			if idx >= len(sig.FieldDefaultExprs) || sig.FieldDefaultExprs[idx] == nil {
+			if !sig.fieldHasDefault(idx) {
 				return nil, errAtLine(e.Line, CodeExprCheck, "конструктор %q: не указано значение поля %q (у поля нет значения по умолчанию)", e.Type, sig.FieldNames[idx])
 			}
 			val, err := resolveFieldDefault(sc, e.Type, sig.FieldNames[idx], e.Line)
@@ -396,7 +396,7 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 		args[i] = arg
 	}
 	for i := len(e.Args); i < len(sig.FieldNames); i++ {
-		if i >= len(sig.FieldDefaultExprs) || sig.FieldDefaultExprs[i] == nil {
+		if !sig.fieldHasDefault(i) {
 			return nil, errAtLine(e.Line, CodeExprCheck, "конструктор %q: пропущено значение поля %q (у поля нет значения по умолчанию)", e.Type, sig.FieldNames[i])
 		}
 		val, err := resolveFieldDefault(sc, e.Type, sig.FieldNames[i], e.Line)
@@ -574,6 +574,8 @@ func analyzeMethodCallOn(sc *ctx, receiver ir.Expr, e *ast.MethodCallExpr) (ir.E
 		sc.a.markUsesReflection()
 	case ir.KindPointer:
 		return analyzePointerMethodCall(sc, receiver, e)
+	case ir.KindArray:
+		return analyzeArrayMethodCall(sc, receiver, e)
 	case ir.KindTypeInfo:
 		var ok bool
 		sig, ok = typeInfoMethodSigs[e.Method]
@@ -870,8 +872,9 @@ func callHasReturn(e ir.Expr) bool {
 		return e.HasReturn
 	case *ir.MethodCallExpr:
 		return e.HasReturn
-	case *ir.DerefExpr:
-		// "указатель.получить(i)" (pointer_index.go).
+	case *ir.DerefExpr, *ir.ArrayIndexExpr, *ir.IntLiteral:
+		// "указатель.получить(i)" (pointer_index.go), "массив.получить(i)"/
+		// "массив.длина()" (array.go).
 		return true
 	default:
 		return false

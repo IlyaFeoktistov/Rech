@@ -7,6 +7,7 @@ import (
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/builtins"
+	"github.com/IlyaFeoktistov/Rech/internal/typename"
 )
 
 // callableTypeName - зарезервированное имя типа "функция как значение"
@@ -220,6 +221,14 @@ func resolveTypeRef(typeName string, names map[string]string, typeParams map[str
 			return "", err
 		}
 		return "?" + inner, nil
+	}
+	if base, dims := typename.SplitArrayDims(typeName); dims != "" {
+		// "T[N]" - переименовывается тип элемента, измерения - как есть.
+		resolved, err := resolveTypeRef(base, names, typeParams)
+		if err != nil {
+			return "", err
+		}
+		return resolved + dims, nil
 	}
 	if strings.HasPrefix(typeName, callableTypeName+"<") {
 		open := len(callableTypeName)

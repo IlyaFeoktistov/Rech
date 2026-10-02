@@ -567,6 +567,9 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			if ir.TypeOf(receiver).Kind == ir.KindPointer && s.MethodCall.Method == "установить" {
 				return analyzePointerStore(sc, receiver, s.MethodCall)
 			}
+			if ir.TypeOf(receiver).Kind == ir.KindArray && s.MethodCall.Method == "установить" {
+				return analyzeArrayStore(sc, receiver, s.MethodCall)
+			}
 			call, err := analyzeMethodCallOn(sc, receiver, s.MethodCall)
 			if err != nil {
 				return nil, err

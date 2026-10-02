@@ -238,7 +238,7 @@ var allowedCasts = map[ir.Type]map[ir.Type]bool{
 var printedAsText = map[ir.TypeKind]bool{
 	ir.KindEntity: true, ir.KindPointer: true, ir.KindFile: true,
 	ir.KindSocket: true, ir.KindDB: true, ir.KindHTTP2Session: true,
-	ir.KindAny: true,
+	ir.KindAny: true, ir.KindArray: true,
 }
 
 func analyzeCastExpr(sc *ctx, e *ast.CastExpr) (ir.Expr, error) {

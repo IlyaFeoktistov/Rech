@@ -18,6 +18,8 @@ func (in *Interp) execForEachCollection(coll *collection, s *ir.ForEachStmt, env
 		vals = append(vals, coll.pairs.keys...)
 	case ir.ForEachStack:
 		vals = reversedValues(coll.elems)
+	case ir.ForEachArray:
+		vals = append(vals, coll.elems...)
 	default:
 		vals = coll.elems
 	}

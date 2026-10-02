@@ -350,20 +350,37 @@ func (p *Parser) parseAddressOf() (ast.Expr, error) {
 		if err != nil {
 			return nil, diagnostics.Wrap(err, "после \"&%s.\" ожидалось имя поля", name.Value)
 		}
-		return &ast.AddressOfExpr{Receiver: name.Value, Field: field.Value, Line: op.Line}, nil
-	case lexer.LBRACKET:
-		p.advance()
-		index, err := p.parseExpr()
+		indices, err := p.parseAddressIndices(name.Value)
 		if err != nil {
-			return nil, diagnostics.Wrap(err, "в индексе \"&%s[...]\"", name.Value)
+			return nil, err
 		}
-		if _, err := p.expect(lexer.RBRACKET); err != nil {
-			return nil, diagnostics.Wrap(err, "после индекса \"&%s[...]\"", name.Value)
+		return &ast.AddressOfExpr{Receiver: name.Value, Field: field.Value, Indices: indices, Line: op.Line}, nil
+	case lexer.LBRACKET:
+		indices, err := p.parseAddressIndices(name.Value)
+		if err != nil {
+			return nil, err
 		}
-		return &ast.AddressOfExpr{Receiver: name.Value, Index: index, Line: op.Line}, nil
+		return &ast.AddressOfExpr{Receiver: name.Value, Index: indices[0], Indices: indices[1:], Line: op.Line}, nil
 	default:
 		return &ast.FuncRefExpr{Name: name.Value, Line: op.Line}, nil
 	}
+}
+
+// parseAddressIndices - "[i][j]..." после "&имя"/"&имя.поле".
+func (p *Parser) parseAddressIndices(name string) ([]ast.Expr, error) {
+	var indices []ast.Expr
+	for p.cur().Type == lexer.LBRACKET {
+		p.advance()
+		index, err := p.parseExpr()
+		if err != nil {
+			return nil, diagnostics.Wrap(err, "в индексе \"&%s[...]\"", name)
+		}
+		if _, err := p.expect(lexer.RBRACKET); err != nil {
+			return nil, diagnostics.Wrap(err, "после индекса \"&%s[...]\"", name)
+		}
+		indices = append(indices, index)
+	}
+	return indices, nil
 }
 
 // parsePrefixIncDec разбирает "++имя"/"--имя" - операнд обязан быть простым

@@ -54,7 +54,8 @@ func (c *ctx) markFieldAssigned(name, field string, sig entitySig) {
 func (c *ctx) missingFields(name string, sig entitySig) []string {
 	var out []string
 	for i, f := range sig.FieldNames {
-		if sig.FieldDefaultExprs[i] == nil && !c.fieldAssigned(name, f) {
+		// Поле-массив заполнено нулями (array.go) - уже записано.
+		if sig.FieldDefaultExprs[i] == nil && sig.FieldTypes[i].Kind != ir.KindArray && !c.fieldAssigned(name, f) {
 			out = append(out, f)
 		}
 	}

@@ -75,11 +75,17 @@ func analyzeAddressOfExpr(sc *ctx, e *ast.AddressOfExpr) (ir.Expr, error) {
 			return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: e.Line})
 		}
 		fieldAccess := &ir.FieldAccess{Receiver: receiver, Field: e.Field, Type: fieldType}
+		if len(e.Indices) > 0 {
+			return addressOfElement(sc, fieldAccess, e.Indices, e.Line)
+		}
 		return &ir.AddressOfExpr{Receiver: fieldAccess, Type: ptrType, Line: e.Line}, nil
 	}
 
-	if e.Index != nil && recvType.Kind == ir.KindPointer {
-		return pointerElementAddr(sc, receiver, e.Index, e.Line)
+	if e.Index != nil && (recvType.Kind == ir.KindPointer || recvType.Kind == ir.KindArray) {
+		return addressOfElement(sc, receiver, append([]ast.Expr{e.Index}, e.Indices...), e.Line)
+	}
+	if e.Index != nil && len(e.Indices) > 0 {
+		return nil, errAtLine(e.Line, CodePointer, "адрес вложенного элемента \"&%s[...][...]\" есть только у массивов T[N] и указателей, получен %s", e.Receiver, recvType)
 	}
 	if e.Index != nil {
 		sig, ok := sc.entities[recvType.Entity]
@@ -107,6 +113,43 @@ func analyzeAddressOfExpr(sc *ctx, e *ast.AddressOfExpr) (ir.Expr, error) {
 	// сразу после имени следует "."/"[" (см. parser.parseAddressOf), голое
 	// "&имя" остаётся FuncRefExpr.
 	return nil, errAtLine(e.Line, CodePointer, "некорректный \"&%s\"", e.Receiver)
+}
+
+// addressOfElement - "&база[i][j]..." по массивам T[N] и указателям:
+// адрес элемента массива - AddressOfExpr над ArrayIndexExpr (база -
+// место хранения, не копия), элемента по указателю - PointerOffsetExpr.
+func addressOfElement(sc *ctx, base ir.Expr, indices []ast.Expr, line int) (ir.Expr, error) {
+	cur := base
+	for _, idx := range indices {
+		switch t := ir.TypeOf(cur); t.Kind {
+		case ir.KindArray:
+			el, err := analyzeArrayIndex(sc, cur, idx, line)
+			if err != nil {
+				return nil, err
+			}
+			cur = el
+		case ir.KindPointer:
+			addr, err := pointerElementAddr(sc, cur, idx, line)
+			if err != nil {
+				return nil, err
+			}
+			cur = &ir.DerefExpr{Value: addr, Type: pointerInner(sc, t), Line: line}
+		default:
+			return nil, errAtLine(line, CodePointer, "\"&...[...]\" применимо только к Список<T>, массиву T[N] и Указатель<T>, получен %s", t)
+		}
+	}
+	if d, ok := cur.(*ir.DerefExpr); ok {
+		return d.Value, nil
+	}
+	el := cur.(*ir.ArrayIndexExpr)
+	if !isArrayLvalue(sc, el.Array) {
+		return nil, errAtLine(line, CodeArray, "адрес элемента массива: массив - значение, адрес есть только у элемента переменной, поля или элемента массива")
+	}
+	ptrType, err := pointerTypeFor(sc, el.Type)
+	if err != nil {
+		return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: line})
+	}
+	return &ir.AddressOfExpr{Receiver: el, Type: ptrType, Line: line}, nil
 }
 
 // analyzeDerefExpr разбирает "*значение" - чтение через "Указатель<T>".
