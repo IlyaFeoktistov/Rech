@@ -387,6 +387,13 @@ func toFloat(v Value) float64 {
 // за полем - того же доступа, что уже есть у *Interp везде в этом пакете.
 func (in *Interp) valuesEqual(l, r Value) bool {
 	switch {
+	case l.Type.Kind == ir.KindAny:
+		// Тот же тип и равное содержимое (cbackend/any_value.go).
+		lb, rb := l.Boxed, r.Boxed
+		if lb == nil || rb == nil || lb.Type.Kind == ir.KindNull || rb.Type.Kind == ir.KindNull {
+			return (lb == nil || lb.Type.Kind == ir.KindNull) == (rb == nil || rb.Type.Kind == ir.KindNull)
+		}
+		return lb.Type == rb.Type && in.valuesEqual(*lb, *rb)
 	case l.Type == ir.TypeString:
 		return l.S == r.S
 	case l.Type == ir.TypeTypeInfo:
@@ -964,6 +971,12 @@ func (in *Interp) printText(v Value) string {
 		return "[бд]"
 	case ir.KindHTTP2Session:
 		return "[http2-сессия]"
+	case ir.KindAny:
+		// Содержимое "Значение" - как само значение (cbackend/any_value.go).
+		if v.Boxed == nil || v.Boxed.Type.Kind == ir.KindNull {
+			return "Ничто"
+		}
+		return in.printText(*v.Boxed)
 	case ir.KindPointer:
 		// В отличие от cbackend (настоящий C-указатель, "%p") -
 		// pointerTarget интерпретатора не настоящий адрес памяти

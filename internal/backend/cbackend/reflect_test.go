@@ -357,7 +357,7 @@ func TestGenerateFromIREntityDescriptorCarriesBaseAndInterfaces(t *testing.T) {
 		t.Fatalf("ожидался массив rech_type_meta_kot_interfaces, получено:\n%s", out)
 	}
 	if !strings.Contains(out, `rech_type_meta_kot = {"Кот", NULL, 0,`) ||
-		!strings.Contains(out, `&rech_type_meta_zhivotnoe, rech_type_meta_kot_interfaces, 1, ""};`) {
+		!strings.Contains(out, `&rech_type_meta_zhivotnoe, rech_type_meta_kot_interfaces, 1, "", false};`) {
 		t.Fatalf("ожидался дескриптор Кот с base=&rech_type_meta_zhivotnoe и interfaces/interface_count=1, получено:\n%s", out)
 	}
 }
@@ -504,7 +504,7 @@ func TestGenerateFromIREntityMethodAndFieldTagReflection(t *testing.T) {
 		"rech_field_at(v_t, 0LL)->tag",
 		`rech_tag_lookup(rech_method_at(v_t, 0LL)->tag, "выполняет")`,
 		"rech_method_at(v_t, 0LL)->tag",
-		`, "таблица:users"};`,
+		`, "таблица:users", false};`,
 		`"имя", &rech_type_meta_stroka, rech_reflect_get_polzovatel_imya, rech_reflect_set_polzovatel_imya, "json:name"`,
 		`{"сохранить", 0, NULL, &rech_type_meta_stroka, rech_reflect_invoke_polzovatel_sohranit, "выполняет:запись"}`,
 	} {

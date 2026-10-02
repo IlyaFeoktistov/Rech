@@ -295,6 +295,11 @@ type irGenCtx struct {
 	// вызов rech_init_globals() из main() (globals.go).
 	usesGlobalInit bool
 
+	// usesAnyText/usesAnyEq - "${з}"/"вывести з" и "==" у "Значение"
+	// (any_value.go).
+	usesAnyText bool
+	usesAnyEq   bool
+
 	// funcRefTrampolines/lambdaFuncsEmitted/callableCode - см.
 	// internal/backend/cbackend/callable.go (ensureFuncRefTrampoline/
 	// ensureLambdaFunc) - тот же принцип "накопить один раз, вставить в
@@ -1561,6 +1566,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// на свой C-тип элемента (см. package doc reflectTypedefs) - тот же
 		// класс проблемы, что и у genericsCode/typedefs ниже.
 		sb.WriteString(reflectTypedefs)
+		sb.WriteString(anyValueProtos(ctx))
 		sb.WriteString(primitiveReflectDescriptors())
 		sb.WriteString(nullableReflectDescriptors(prog))
 		sb.WriteString(reflectUnboxCheckHelper)
@@ -2109,7 +2115,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// nullableReflectBoxHelperProtos в reflect.go). После typedefs/
 		// nullablesCode/nullablesAfterTypedefs выше - нужен уже видимый
 		// C-тип самой обёртки "?Тип" как тип параметра.
-		sb.WriteString(nullableReflectBoxHelperProtos(prog))
+		sb.WriteString(nullableReflectBoxHelperProtos(prog, false))
 		// После protos/ctors - геттеры/сеттеры/инвокеры полей и методов
 		// вызывают уже сгенерированные C-функции полей/методов/rech_new_<Тип>
 		// (см. package doc reflect.go).
@@ -2122,7 +2128,15 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		// ссылается на дескриптор сущности "Задача" (&rech_type_meta_zadacha),
 		// чьё опережающее объявление пишет именно reflectRuntimeCode (см.
 		// reflectGen.ensure) - см. package doc nullableReflectBoxHelpers.
-		sb.WriteString(nullableReflectBoxHelpers(ctx, prog))
+		sb.WriteString(nullableReflectBoxHelpers(ctx, prog, false))
+	} else if prog.UsesReflection {
+		// "(Значение) ?Целое" без целей рефлексии - хелперы только для
+		// "?примитив": дескрипторы сущностей тут не генерируются.
+		sb.WriteString(nullableReflectBoxHelperProtos(prog, true))
+		sb.WriteString(nullableReflectBoxHelpers(ctx, prog, true))
+	}
+	if prog.UsesReflection {
+		sb.WriteString(anyValueHelpers(ctx))
 	}
 
 	// concurrency.ThreadPoolCode (runtime/concurrency/threadpool.go) - ДО

@@ -56,6 +56,9 @@ var equatableTypes = map[ir.Type]bool{
 	ir.TypeBool:    true,
 	ir.TypeChar:    true,
 	ir.TypeByte:    true,
+	// "Значение" - сравнение содержимого (тип и значение), см.
+	// cbackend/any_value.go.
+	ir.TypeAny: true,
 }
 
 // structFieldsEquatable проверяет, годится ли "структура" name для "=="/
@@ -235,6 +238,7 @@ var allowedCasts = map[ir.Type]map[ir.Type]bool{
 var printedAsText = map[ir.TypeKind]bool{
 	ir.KindEntity: true, ir.KindPointer: true, ir.KindFile: true,
 	ir.KindSocket: true, ir.KindDB: true, ir.KindHTTP2Session: true,
+	ir.KindAny: true,
 }
 
 func analyzeCastExpr(sc *ctx, e *ast.CastExpr) (ir.Expr, error) {
@@ -278,7 +282,7 @@ func analyzeCastExpr(sc *ctx, e *ast.CastExpr) (ir.Expr, error) {
 	// nullable-типов нет фиксированной записи там (их бесконечно много, по
 	// одной на каждый внутренний Тип), проверяется структурно: "to" должен
 	// быть именно внутренним типом "from".
-	if from.Kind == ir.KindNullable {
+	if from.Kind == ir.KindNullable && to != ir.TypeAny {
 		if nullableInner(sc, from) == to {
 			return &ir.NullUnwrapExpr{Value: value, Type: to, Line: e.Line}, nil
 		}
@@ -308,6 +312,9 @@ func analyzeCastExpr(sc *ctx, e *ast.CastExpr) (ir.Expr, error) {
 			return nil, errAtLine(e.Line, CodeTypeMismatch, "нельзя боксировать в \"Значение\" интерфейсно-типизированное выражение (%s) - боксируйте конкретное значение до того, как оно станет %s", from, from)
 		}
 		sc.a.markUsesReflection()
+		if from.Kind == ir.KindNullable {
+			from = nullableInner(sc, from)
+		}
 		if from.Kind == ir.KindEntity {
 			sc.a.registerReflectTarget(from)
 		}

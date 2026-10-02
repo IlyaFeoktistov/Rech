@@ -15,6 +15,7 @@ package cbackend
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/backend/cbackend/codegen"
@@ -76,6 +77,8 @@ struct rech_type_meta {
     const rech_type_meta_t *const *interfaces;
     int interface_count;
     const char *tag;
+    /* is_value - структура (значение), не ссылочная сущность (any_value.go). */
+    bool is_value;
 };
 
 `
@@ -403,6 +406,12 @@ var reflectPrimitiveKinds = []ir.TypeKind{
 
 // reflectMetaName - имя C-переменной статического дескриптора для
 // Rech-имени типа name (примитив, сущность или reflectPustoName).
+// isReflectPrimitive - у t статический дескриптор из
+// primitiveReflectDescriptors (есть при любой рефлексии, без целей).
+func isReflectPrimitive(t ir.Type) bool {
+	return slices.Contains(reflectPrimitiveKinds, t.Kind)
+}
+
 func reflectMetaName(name string) string {
 	return "rech_type_meta_" + transliterate(name)
 }
@@ -541,9 +550,12 @@ func reflectNullableBoxHelperName(name string) string {
 // primitiveReflectDescriptors/nullableReflectDescriptors (дескриптор
 // "Ничто") и opережающее объявление сущности-содержимого из
 // reflectRuntimeCode.
-func nullableReflectBoxHelperProtos(prog *ir.Program) string {
+func nullableReflectBoxHelperProtos(prog *ir.Program, primitivesOnly bool) string {
 	var sb strings.Builder
 	for _, nb := range prog.Nullables {
+		if primitivesOnly && !isReflectPrimitive(nb.Inner) {
+			continue
+		}
 		fmt.Fprintf(&sb, "static rech_any_t %s(%s v);\n", reflectNullableBoxHelperName(nb.Name), mangleType(nb.Name))
 	}
 	if len(prog.Nullables) > 0 {
@@ -552,10 +564,13 @@ func nullableReflectBoxHelperProtos(prog *ir.Program) string {
 	return sb.String()
 }
 
-func nullableReflectBoxHelpers(ctx *irGenCtx, prog *ir.Program) string {
+func nullableReflectBoxHelpers(ctx *irGenCtx, prog *ir.Program, primitivesOnly bool) string {
 	var sb strings.Builder
 	nichto := reflectMetaName(ir.TypeNullValue.String())
 	for _, nb := range prog.Nullables {
+		if primitivesOnly && !isReflectPrimitive(nb.Inner) {
+			continue
+		}
 		cType := mangleType(nb.Name)
 		fmt.Fprintf(&sb, "static rech_any_t %s(%s v) {\n", reflectNullableBoxHelperName(nb.Name), cType)
 		fmt.Fprintf(&sb, "    if (!v.has) {\n        return (rech_any_t){.type = &%s};\n    }\n", nichto)
@@ -1322,8 +1337,8 @@ func (g *reflectGen) typeDescriptorCode(ent *ir.Entity, ems []effectiveReflectMe
 		fmt.Fprintf(&sb, "static const rech_type_meta_t *const %s[] = {%s};\n", interfacesArr, strings.Join(parts, ", "))
 	}
 
-	fmt.Fprintf(&sb, "static const rech_type_meta_t %s = {\"%s\", %s, %d, %s, %d, %s, %d, %s, %s, %d, \"%s\"};\n\n",
+	fmt.Fprintf(&sb, "static const rech_type_meta_t %s = {\"%s\", %s, %d, %s, %d, %s, %d, %s, %s, %d, \"%s\", %t};\n\n",
 		metaName, escapeCString(ent.Name), fieldsArr, len(ent.Fields), methodsArr, len(ems), reflectCtorName(ent.Name), ctorParamCount,
-		base, interfacesArr, len(ifaceNames), escapeCString(ent.Tag))
+		base, interfacesArr, len(ifaceNames), escapeCString(ent.Tag), !g.ctx.entityIsRef(ent.Name))
 	return sb.String()
 }

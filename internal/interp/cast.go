@@ -36,6 +36,13 @@ func (in *Interp) evalCastExpr(e *ir.CastExpr, env *Env, cc *callCtx) (Value, er
 		// после этого момента боксированное значение живёт независимо от
 		// v (дальнейшая мутация v, если это структура, не видна через
 		// коробку, и наоборот).
+		if v.Type.Kind == ir.KindNullable {
+			// "(Значение) ?Тип": Ничто - пустое Значение, иначе содержимое.
+			if v.Nullable == nil {
+				return Value{Type: ir.TypeAny, Boxed: &Value{Type: ir.TypeNullValue}}, nil
+			}
+			v = *v.Nullable
+		}
 		boxed := in.cloneValue(v)
 		return Value{Type: ir.TypeAny, Boxed: &boxed}, nil
 	}

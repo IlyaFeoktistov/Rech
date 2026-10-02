@@ -427,6 +427,14 @@ func generateIRBinaryOp(ctx *irGenCtx, e *ir.BinaryExpr, lc, rc string) (string,
 			}
 			return fmt.Sprintf("(%s != 0)", cmp), typeBool, nil
 		}
+		if lt == ir.TypeAny {
+			ctx.usesAnyEq, ctx.usesStrCmp = true, true
+			cmp := fmt.Sprintf("rech_any_eq(%s, %s)", lc, rc)
+			if e.Op == "==" {
+				return cmp, typeBool, nil
+			}
+			return fmt.Sprintf("(!%s)", cmp), typeBool, nil
+		}
 		if lt == ir.TypeTypeInfo {
 			cmp := fmt.Sprintf("rech_type_eq(%s, %s)", lc, rc)
 			if e.Op == "==" {

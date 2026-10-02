@@ -85,6 +85,10 @@ func printedLabel(ctx *irGenCtx, typ valueType) (string, bool) {
 // ir.CastExpr.AsPrinted): плейсхолдер - после вычисления code ради его
 // побочных эффектов, указатель - адрес "%p".
 func printedTextCode(ctx *irGenCtx, typ valueType, code string) string {
+	if typ == typeAny {
+		ctx.usesAnyText, ctx.usesCast = true, true
+		return fmt.Sprintf("rech_any_to_str(%s)", code)
+	}
 	if text, ok := printedLabel(ctx, typ); ok {
 		return fmt.Sprintf(`((void)(%s), "%s")`, code, text)
 	}
