@@ -430,7 +430,10 @@ func (c *Compiler) compileLibProgram(prog *ast.Program, base, libRoot, stubDir s
 	if c.CBuild.StaticLib {
 		libExt = StaticLibExtension
 	}
-	tmpLibPath := tmpBase + libExt
+	// Итоговое имя файла уже при линковке: у Windows DLL оно записывается
+	// внутрь (имя модуля) и попадает в таблицу импорта потребителя - со
+	// временным "out.dll" программа-потребитель искала бы "out.dll".
+	tmpLibPath := filepath.Join(tmpDir, filepath.Base(base)) + libExt
 	build := c.cBuild(extraLibs, extraLibPaths)
 	build.Exports = lib.Exports
 	if err := c.Toolchain.CompileLib(tmpCPath, tmpLibPath, build); err != nil {
