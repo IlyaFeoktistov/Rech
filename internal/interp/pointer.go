@@ -172,3 +172,46 @@ func (in *Interp) execDerefAssignStmt(s *ir.DerefAssignStmt, env *Env, cc *callC
 	ptr.Ptr.set(in.cloneValue(value))
 	return ctrl{}, nil
 }
+
+// offset - адрес i-го элемента массива, начинающегося по адресу p
+// ("&п[i]", ir.PointerOffsetExpr). У сырого адреса - настоящая арифметика
+// указателей (i * размер T); у адреса элемента списка - соседний элемент;
+// у адреса переменной/поля массива за ним нет - годится только i == 0.
+func (p *pointerTarget) offset(i int64) *pointerTarget {
+	if p == nil {
+		panicRuntime("%s", rtmsg.NullAccess)
+	}
+	switch {
+	case p.isRaw:
+		goType, err := p.interp.ffiGoType(p.elemType)
+		if err != nil {
+			panicRuntime("%v", err)
+		}
+		moved := *p
+		moved.raw = unsafe.Add(p.raw, uintptr(i)*goType.Size())
+		return &moved
+	case p.coll != nil:
+		moved := *p
+		moved.index += i
+		return &moved
+	default:
+		if i != 0 {
+			panicRuntimeAs(rtmsg.PanicOutOfRange, "%s", rtmsg.PointerIndexOutOfRange(i))
+		}
+		return p
+	}
+}
+
+// evalPointerOffsetExpr - "&п[i]"; чтение/запись "п[i]" - DerefExpr/
+// DerefAssignStmt над ним.
+func (in *Interp) evalPointerOffsetExpr(e *ir.PointerOffsetExpr, env *Env, cc *callCtx) (Value, error) {
+	ptr, err := in.evalExpr(e.Pointer, env, cc)
+	if err != nil {
+		return Value{}, err
+	}
+	idx, err := in.evalExpr(e.Index, env, cc)
+	if err != nil {
+		return Value{}, err
+	}
+	return pointerValue(e.Type, ptr.Ptr.offset(idx.I)), nil
+}

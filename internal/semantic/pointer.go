@@ -78,10 +78,13 @@ func analyzeAddressOfExpr(sc *ctx, e *ast.AddressOfExpr) (ir.Expr, error) {
 		return &ir.AddressOfExpr{Receiver: fieldAccess, Type: ptrType, Line: e.Line}, nil
 	}
 
+	if e.Index != nil && recvType.Kind == ir.KindPointer {
+		return pointerElementAddr(sc, receiver, e.Index, e.Line)
+	}
 	if e.Index != nil {
 		sig, ok := sc.entities[recvType.Entity]
 		if recvType.Kind != ir.KindEntity || !ok || !sig.IsList {
-			return nil, errAtLine(e.Line, CodePointer, "\"&%s[...]\" применимо только к Список<T>, получен %s", e.Receiver, recvType)
+			return nil, errAtLine(e.Line, CodePointer, "\"&%s[...]\" применимо только к Список<T>/Указатель<T>, получен %s", e.Receiver, recvType)
 		}
 		index, err := analyzeExpr(sc, e.Index)
 		if err != nil {

@@ -52,6 +52,10 @@ func elementFieldTarget(sc *ctx, recv ast.Expr) (base ast.Expr, levels []element
 	}
 	typ := ir.TypeOf(baseIR)
 	for range levels {
+		if typ.Kind == ir.KindPointer {
+			typ = pointerInner(sc, typ)
+			continue
+		}
 		sig, isEnt := sc.entities[typ.Entity]
 		if typ.Kind != ir.KindEntity || !isEnt || !(sig.IsList || sig.IsDict) {
 			return nil, nil, false

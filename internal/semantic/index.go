@@ -15,18 +15,21 @@ import (
 // ("Список<?Целое>"), не оборачивается повторно - результат тот же "?T", и
 // Ничто означает либо промах, либо сохранённое Ничто.
 func analyzeIndexExpr(sc *ctx, e *ast.IndexExpr) (ir.Expr, error) {
-	if !receiverAddressable(e.Receiver) {
-		return nil, errAtLine(e.Line, CodeSemanticOther, "получателем индексации \"[]\" может быть только переменная, поле или \"этот\"")
-	}
 	receiver, err := analyzeExpr(sc, e.Receiver)
 	if err != nil {
 		return nil, err
 	}
 	receiver = maybeUnwrapNarrowed(sc, receiver)
 	typ := ir.TypeOf(receiver)
+	if typ.Kind == ir.KindPointer {
+		return pointerElementRead(sc, receiver, e.Index, e.Line)
+	}
+	if !receiverAddressable(e.Receiver) {
+		return nil, errAtLine(e.Line, CodeSemanticOther, "получателем индексации \"[]\" может быть только переменная, поле или \"этот\"")
+	}
 	sig, ok := sc.entities[typ.Entity]
 	if typ.Kind != ir.KindEntity || !ok || (!sig.IsList && !sig.IsDict) {
-		return nil, errAtLine(e.Line, CodeSemanticOther, "индексация \"[]\" применима только к Список<T>/Словарь<К, В>, получен %s", typ)
+		return nil, errAtLine(e.Line, CodeSemanticOther, "индексация \"[]\" применима только к Список<T>/Словарь<К, В>/Указатель<T>, получен %s", typ)
 	}
 
 	resultType := sig.ElemType

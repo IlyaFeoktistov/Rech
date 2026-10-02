@@ -473,11 +473,26 @@ func analyzeNewExprCtorNamed(sc *ctx, e *ast.NewExpr, sig entitySig) (ir.Expr, e
 // зависит от той же сигнатуры сущности (sc.methods/sc.entities), что и
 // сам обычный путь метода, второй раз резолвить её незачем.
 func analyzeMethodCallExpr(sc *ctx, e *ast.MethodCallExpr) (ir.Expr, error) {
+	receiver, err := analyzeMethodReceiver(sc, e)
+	if err != nil {
+		return nil, err
+	}
+	return analyzeMethodCallOn(sc, receiver, e)
+}
+
+// analyzeMethodReceiver - получатель вызова метода e, уже разобранный.
+func analyzeMethodReceiver(sc *ctx, e *ast.MethodCallExpr) (ir.Expr, error) {
 	receiver, err := analyzeExpr(sc, e.Receiver)
 	if err != nil {
 		return nil, err
 	}
-	receiver = maybeUnwrapNarrowed(sc, receiver)
+	return maybeUnwrapNarrowed(sc, receiver), nil
+}
+
+// analyzeMethodCallOn - вызов метода e у уже разобранного получателя
+// receiver (analyzeMethodReceiver).
+func analyzeMethodCallOn(sc *ctx, receiver ir.Expr, e *ast.MethodCallExpr) (ir.Expr, error) {
+	var err error
 	typ := ir.TypeOf(receiver)
 	// Получатель НЕ обязан быть адресуемым (переменная/поле/"этот") на
 	// уровне семантики - cbackend сам решает, брать ли "&" от C-кода
@@ -557,6 +572,8 @@ func analyzeMethodCallExpr(sc *ctx, e *ast.MethodCallExpr) (ir.Expr, error) {
 			}
 		}
 		sc.a.markUsesReflection()
+	case ir.KindPointer:
+		return analyzePointerMethodCall(sc, receiver, e)
 	case ir.KindTypeInfo:
 		var ok bool
 		sig, ok = typeInfoMethodSigs[e.Method]
@@ -853,6 +870,9 @@ func callHasReturn(e ir.Expr) bool {
 		return e.HasReturn
 	case *ir.MethodCallExpr:
 		return e.HasReturn
+	case *ir.DerefExpr:
+		// "указатель.получить(i)" (pointer_index.go).
+		return true
 	default:
 		return false
 	}

@@ -27,6 +27,12 @@ func IndexOutOfRange(typeName string) string {
 	return fmt.Sprintf("индекс вне границ у %s", typeName)
 }
 
+// PointerIndexOutOfRange - индекс i != 0 у указателя на одиночное
+// значение (переменную/поле), не на элемент массива.
+func PointerIndexOutOfRange(i int64) string {
+	return fmt.Sprintf("индекс %d у указателя на одиночное значение (не элемент массива)", i)
+}
+
 // EmptyStackOp - сообщение при "снять"/"верх" на пустой Стопке.
 func EmptyStackOp(typeName string) string {
 	return fmt.Sprintf("нельзя снять/получить верх пустой %s", typeName)

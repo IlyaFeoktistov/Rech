@@ -49,3 +49,17 @@ type DerefAssignStmt struct {
 }
 
 func (*DerefAssignStmt) stmt() {}
+
+// PointerOffsetExpr - "&указатель[индекс]": адрес элемента Index массива
+// T, начинающегося по адресу Pointer (арифметика указателей C - Pointer +
+// Index элементов T, без проверки границ: длины у указателя нет). Чтение
+// "указатель[индекс]" - DerefExpr над ним, запись "указатель[индекс] =
+// значение" - DerefAssignStmt над ним.
+type PointerOffsetExpr struct {
+	Pointer Expr
+	Index   Expr
+	Type    Type // "Указатель<T>", тот же, что у Pointer
+	Line    int
+}
+
+func (*PointerOffsetExpr) expr() {}

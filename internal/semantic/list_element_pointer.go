@@ -429,6 +429,8 @@ func (c *listElemChecker) borrowsOf(e ir.Expr) map[string]bool {
 			}
 			return out
 		}
+	case *ir.PointerOffsetExpr:
+		return c.borrowsOf(e.Pointer)
 	case *ir.TernaryExpr:
 		out := c.borrowsOf(e.Then)
 		for l := range c.borrowsOf(e.Else) {
@@ -471,6 +473,9 @@ func (c *listElemChecker) expr(e ir.Expr, ctx string) {
 		}
 	case *ir.DerefExpr:
 		c.expr(e.Value, "")
+	case *ir.PointerOffsetExpr:
+		c.expr(e.Pointer, "")
+		c.expr(e.Index, ctxHere)
 	case *ir.TernaryExpr:
 		c.expr(e.Cond, ctxHere)
 		c.expr(e.Then, ctx)

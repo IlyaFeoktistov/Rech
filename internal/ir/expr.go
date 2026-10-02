@@ -287,6 +287,8 @@ func TypeOf(e Expr) Type {
 		return e.Type
 	case *DerefExpr:
 		return e.Type
+	case *PointerOffsetExpr:
+		return e.Type
 	case *ListElementRef:
 		return e.Type
 	case *TernaryExpr:

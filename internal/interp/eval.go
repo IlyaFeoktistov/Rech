@@ -192,6 +192,9 @@ func (in *Interp) evalExpr(e ir.Expr, env *Env, cc *callCtx) (Value, error) {
 	case *ir.DerefExpr:
 		return in.evalDerefExpr(e, env, cc)
 
+	case *ir.PointerOffsetExpr:
+		return in.evalPointerOffsetExpr(e, env, cc)
+
 	default:
 		return Value{}, fmt.Errorf("вычисление: выражение %T не поддерживается интерпретатором", e)
 	}

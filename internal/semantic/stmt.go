@@ -560,7 +560,14 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 					return nil, errNoPos(diagnostics.CodeInternal, "внутренняя ошибка: неизвестный вид вызова %T", call)
 				}
 			}
-			call, err := analyzeMethodCallExpr(sc, s.MethodCall)
+			receiver, err := analyzeMethodReceiver(sc, s.MethodCall)
+			if err != nil {
+				return nil, err
+			}
+			if ir.TypeOf(receiver).Kind == ir.KindPointer && s.MethodCall.Method == "установить" {
+				return analyzePointerStore(sc, receiver, s.MethodCall)
+			}
+			call, err := analyzeMethodCallOn(sc, receiver, s.MethodCall)
 			if err != nil {
 				return nil, err
 			}

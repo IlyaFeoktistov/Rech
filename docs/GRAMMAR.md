@@ -234,10 +234,12 @@ unary          := "-" unary | "~" unary | "!" unary | "&" addressable | "*" unar
                                                 бинарного умножения уровнем выше (позиция в грамматике,
                                                 как и в C) *)
 addressable    := IDENT | IDENT "." IDENT | IDENT "[" expr "]"
-                                             (* ровно один уровень - раздел 22 *)
+                                             (* ровно один уровень - раздел 22; у Указатель<T>
+                                                "&п[i]" - адрес i-го элемента *)
 incdec_prefix  := ("++" | "--") IDENT
 postfix        := primary { ("." IDENT [ "(" [ arg { "," arg } ] ")" ]) | ("[" expr "]") }
-                                             (* "[" expr "]" - безопасная индексация, только чтение (ListIndexExpr/DictIndexExpr) *)
+                                             (* "[" expr "]" - безопасная индексация, только чтение (ListIndexExpr/DictIndexExpr);
+                                                у Указатель<T> - i-й элемент T без проверки границ *)
 primary        := INT | FLOAT | STRING | TEMPLATE_STRING | "истина" | "ложь" | "Ничто" | ( IDENT [ "++" | "--" ] ) | "этот"
                 | call_expr | new_expr | list_literal | "(" expr ")" | launch_expr | dispatch_expr | await_stmt
                 | lambda_expr | "&" IDENT | parse_expr | serialize_expr

@@ -294,6 +294,18 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 			return "", typeUnknown, fmt.Errorf("генерация C из IR: неподдержанный получатель \"&\" %T", e.Receiver)
 		}
 
+	case *ir.PointerOffsetExpr:
+		ptrCode, _, err := generateIRExpr(ctx, e.Pointer)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		idxCode, _, err := generateIRExpr(ctx, e.Index)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		decls, codes := sequenceArgs(ctx, []ir.Expr{e.Pointer, e.Index}, []string{ptrCode, idxCode})
+		return sequenced(decls, fmt.Sprintf("((%s) + (%s))", codes[0], codes[1])), fromIRType(e.Type), nil
+
 	case *ir.DerefExpr:
 		code, _, err := generateIRExpr(ctx, e.Value)
 		if err != nil {
