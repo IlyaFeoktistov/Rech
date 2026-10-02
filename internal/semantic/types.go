@@ -110,6 +110,43 @@ func canonicalTypeName(name string) string {
 	return out.String()
 }
 
+// enumArgsAsInt - имя перечисления внутри "<...>" -> "Целое": перечисление
+// не заводит своего IR-типа (см. resolveTypeName), и "Список<Цвет>" -
+// тот же тип, что "Список<Целое>" - иначе литерал "[Цвет.КРАСНЫЙ]" (тип
+// Список<Целое>) не присваивался бы переменной "Список<Цвет>".
+func enumArgsAsInt(name string, enums map[string]map[string]int64) string {
+	if !strings.Contains(name, "<") || len(enums) == 0 {
+		return name
+	}
+	var out strings.Builder
+	word := []rune{}
+	depth := 0
+	flush := func() {
+		w := string(word)
+		if _, isEnum := enums[w]; isEnum && depth > 0 {
+			w = "Целое"
+		}
+		out.WriteString(w)
+		word = word[:0]
+	}
+	for _, r := range name {
+		if r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r) {
+			word = append(word, r)
+			continue
+		}
+		flush()
+		switch r {
+		case '<':
+			depth++
+		case '>':
+			depth--
+		}
+		out.WriteRune(r)
+	}
+	flush()
+	return out.String()
+}
+
 // resolveTypeName - единственное место, где имя типа Rech (строка из AST)
 // маппится на ir.Type: встроенные примитивы, уже собранная сущность
 // (entities - сигнатуры, собранные раньше по файлу, см. collectEntities;
@@ -125,7 +162,7 @@ func canonicalTypeName(name string) string {
 // резолвится прямо в ir.TypeInt (та же Целое-семантика, что и у
 // "Тип.Член" в analyzeExpr).
 func resolveTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64, name string) (ir.Type, error) {
-	name = canonicalTypeName(name)
+	name = enumArgsAsInt(canonicalTypeName(name), enums)
 	if strings.HasPrefix(name, "?") {
 		return resolveNullableTypeName(entities, methods, aliases, interfaces, enums, name)
 	}

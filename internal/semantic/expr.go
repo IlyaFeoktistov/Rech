@@ -262,6 +262,13 @@ func analyzeNewExpr(sc *ctx, e *ast.NewExpr) (ir.Expr, error) {
 		withType.Type = inferred
 		e = &withType
 	}
+	// "новый Словарь<Цвет, Строка>()"/"новый Список<Целое64>()" - то же
+	// каноническое имя инстанциации, что у аннотации типа (resolveTypeName).
+	if canon := enumArgsAsInt(canonicalTypeName(e.Type), sc.enums); canon != e.Type {
+		withType := *e
+		withType.Type = canon
+		e = &withType
+	}
 	if _, ok := sc.interfaces[e.Type]; ok {
 		return nil, errAtLine(e.Line, CodeExprCheck, "%q - интерфейс, у него нет реализации - создать можно только сущность, которая его \"реализует\"", e.Type)
 	}
