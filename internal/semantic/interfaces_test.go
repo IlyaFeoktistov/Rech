@@ -57,7 +57,7 @@ func TestAnalyzeEntityNotImplementingInterfaceFails(t *testing.T) {
 сущность Камень реализует Звучащий
 {
     имеет:
-        вес: Целое
+        Целое вес
 }
 функция главная { переменная кот = новый Камень(1) }
 `)
@@ -143,7 +143,7 @@ func TestAnalyzeInterfaceTypeInField(t *testing.T) {
 сущность Клетка
 {
     имеет:
-        обитатель: Звучащий
+        Звучащий обитатель
 
     конструктор(обитатель: Звучащий)
     {
@@ -294,7 +294,7 @@ func TestAnalyzeInterfaceMethodAcceptsEntityParam(t *testing.T) {
 структура Событие
 {
     имеет:
-        сообщение: Строка
+        Строка сообщение
 }
 интерфейс Наблюдатель
 {

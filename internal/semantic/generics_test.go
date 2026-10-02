@@ -12,7 +12,7 @@ func TestAnalyzeGenericEntityInstantiation(t *testing.T) {
 сущность Коробка<T>
 {
     имеет:
-        содержимое: T
+        T содержимое
 
     конструктор(содержимое: T)
     {
@@ -76,8 +76,8 @@ func TestAnalyzeGenericMultipleParamsAndNesting(t *testing.T) {
 сущность Пара<A, Б>
 {
     имеет:
-        первый: A
-        второй: Б
+        A первый
+        Б второй
 
     конструктор(первый: A, второй: Б)
     {
@@ -106,7 +106,7 @@ func TestAnalyzeGenericWrongTypeArgCountFails(t *testing.T) {
 сущность Коробка<T>
 {
     имеет:
-        содержимое: T
+        T содержимое
 }
 функция главная
 {
@@ -182,7 +182,7 @@ func TestAnalyzeGenericInterfaceConstraintRejectsNonImplementer(t *testing.T) {
 сущность Камень
 {
     имеет:
-        вес: Целое
+        Целое вес
 }
 функция крикнуть<T как Звучащий>(x: T): Строка
 {
@@ -204,7 +204,7 @@ func TestAnalyzeGenericFieldTypeMismatchStillCaught(t *testing.T) {
 сущность Коробка<T>
 {
     имеет:
-        содержимое: T
+        T содержимое
 
     конструктор(содержимое: T)
     {

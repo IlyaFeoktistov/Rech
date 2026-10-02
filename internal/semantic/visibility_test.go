@@ -10,7 +10,7 @@ func TestAnalyzeProtectedFieldAccessibleFromSubclassMethod(t *testing.T) {
 сущность Животное
 {
     имеет:
-        защищённое имя: Строка
+        защищённая Строка имя
 }
 сущность Собака наследует Животное
 {
@@ -40,7 +40,7 @@ func TestAnalyzeProtectedFieldNotAccessibleFromOutsideHierarchy(t *testing.T) {
 сущность Животное
 {
     имеет:
-        защищённое имя: Строка
+        защищённая Строка имя
 
     конструктор(имя: Строка)
     {
@@ -63,12 +63,12 @@ func TestAnalyzeProtectedFieldNotAccessibleFromUnrelatedEntity(t *testing.T) {
 сущность Животное
 {
     имеет:
-        защищённое имя: Строка
+        защищённая Строка имя
 }
 сущность Машина
 {
     имеет:
-        владелец: Целое
+        Целое владелец
 
     прочитать(а: Животное): Строка
     {

@@ -33,10 +33,10 @@ message Address {
 	if !strings.Contains(out, "структура Address") {
 		t.Errorf("ожидалась структура Address, получено:\n%s", out)
 	}
-	if !strings.Contains(out, "street: Строка `protobuf:1`") {
+	if !strings.Contains(out, "Строка street `protobuf:1`") {
 		t.Errorf("ожидалось поле street с protobuf:1, получено:\n%s", out)
 	}
-	if !strings.Contains(out, "house: Целое `protobuf:2`") {
+	if !strings.Contains(out, "Целое house `protobuf:2`") {
 		t.Errorf("ожидалось поле house с protobuf:2, получено:\n%s", out)
 	}
 }
@@ -60,13 +60,13 @@ message User {
 	if err != nil {
 		t.Fatalf("Import: %v", err)
 	}
-	if !strings.Contains(out, "tags: Список<Строка> `protobuf:2`") {
+	if !strings.Contains(out, "Список<Строка> tags `protobuf:2`") {
 		t.Errorf("ожидался repeated tags, получено:\n%s", out)
 	}
 	if !strings.Contains(out, "структура User_Address") {
 		t.Errorf("ожидалось приплюснутое имя User_Address, получено:\n%s", out)
 	}
-	if !strings.Contains(out, "address: User_Address `protobuf:3`") {
+	if !strings.Contains(out, "User_Address address `protobuf:3`") {
 		t.Errorf("ожидалась ссылка на вложенный тип, получено:\n%s", out)
 	}
 }
@@ -92,7 +92,7 @@ message User {
 	if !strings.Contains(out, "перечисление Role") {
 		t.Errorf("ожидалось перечисление Role, получено:\n%s", out)
 	}
-	if !strings.Contains(out, "role: Целое `protobuf:1`") {
+	if !strings.Contains(out, "Целое role `protobuf:1`") {
 		t.Errorf("ожидалось поле role типа Целое, получено:\n%s", out)
 	}
 }

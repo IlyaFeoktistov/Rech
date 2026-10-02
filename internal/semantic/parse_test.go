@@ -10,8 +10,8 @@ func TestAnalyzeParseExprEntityTarget(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя: Строка
-        возраст: Целое
+        Строка имя
+        Целое возраст
 }
 функция главная
 {
@@ -48,7 +48,7 @@ func TestAnalyzeParseExprYAMLTarget(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя: Строка
+        Строка имя
 }
 функция главная
 {
@@ -73,7 +73,7 @@ func TestAnalyzeSerializeExprYAMLTarget(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя: Строка
+        Строка имя
 }
 функция главная
 {
@@ -127,7 +127,7 @@ func TestAnalyzeParseExprListOfEntitiesAllowed(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя: Строка
+        Строка имя
 }
 функция главная
 {
@@ -156,7 +156,7 @@ func TestAnalyzeParseExprRejectsEntityWithCustomConstructor(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя: Строка
+        Строка имя
 
     конструктор(имя: Строка)
     {
@@ -178,7 +178,7 @@ func TestAnalyzeParseExprJSONTagRenamesField(t *testing.T) {
 		"сущность Пользователь\n"+
 		"{\n"+
 		"    имеет:\n"+
-		"        имя: Строка `json:name`\n"+
+		"        Строка имя `json:name`\n"+
 		"}\n"+
 		"функция главная\n"+
 		"{\n"+
@@ -202,8 +202,8 @@ func TestAnalyzeParseExprRejectsDuplicateJSONKey(t *testing.T) {
 		"сущность Пользователь\n"+
 		"{\n"+
 		"    имеет:\n"+
-		"        имя: Строка `json:name`\n"+
-		"        name: Строка\n"+
+		"        Строка имя `json:name`\n"+
+		"        Строка name\n"+
 		"}\n"+
 		"функция главная\n"+
 		"{\n"+
@@ -219,7 +219,7 @@ func TestAnalyzeParseExprRejectsIncompatibleField(t *testing.T) {
 сущность Плохая
 {
     имеет:
-        сокет: Целое
+        Целое сокет
 }
 функция главная
 {

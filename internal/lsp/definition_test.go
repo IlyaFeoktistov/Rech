@@ -41,7 +41,7 @@ func TestDefinitionOnFieldAccessJumpsToFieldDecl(t *testing.T) {
 	if !ok {
 		t.Fatalf("ожидалось определение поля \"x\"")
 	}
-	wantLine := lineOf(t, hoverTestSrc, "x: Целое")
+	wantLine := lineOf(t, hoverTestSrc, "Целое x")
 	if pos.Line != wantLine {
 		t.Fatalf("ожидалась строка %d, получено %d", wantLine, pos.Line)
 	}

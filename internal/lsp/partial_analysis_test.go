@@ -10,7 +10,7 @@ const brokenSemanticSrc = `
 сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 
     /** Сдвигает точку. */
     сдвинуть(на: Целое)
@@ -112,8 +112,8 @@ func TestAnalyzeIsRepeatableOnSameAST(t *testing.T) {
 const brokenSignatureSrc = `сущность Точка
 {
     имеет:
-        x: НетТакогоТипа
-        y: Целое
+        НетТакогоТипа x
+        Целое y
 }
 
 /** Складывает. */
@@ -158,7 +158,7 @@ const brokenBodyWithResultSrc = `/** Точка. */
 сущность Точка
 {
     имеет:
-        x: НетТипа
+        НетТипа x
 }
 
 /** Считает. */

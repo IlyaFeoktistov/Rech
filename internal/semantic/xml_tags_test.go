@@ -10,7 +10,7 @@ func TestAnalyzeXMLAttrMustBePrimitive(t *testing.T) {
 сущность А
 {
     имеет:
-        х: Список<Целое> `+"`xml:@x`"+`
+        Список<Целое> х `+"`xml:@x`"+`
 }
 функция главная
 {
@@ -27,8 +27,8 @@ func TestAnalyzeXMLDuplicateAttrNames(t *testing.T) {
 сущность А
 {
     имеет:
-        х: Целое `+"`xml:@k`"+`
-        у: Целое `+"`xml:@k`"+`
+        Целое х `+"`xml:@k`"+`
+        Целое у `+"`xml:@k`"+`
 }
 функция главная
 {
@@ -47,8 +47,8 @@ func TestAnalyzeXMLAttrAndElementSameNameAllowed(t *testing.T) {
 сущность А
 {
     имеет:
-        х: Целое `+"`xml:@k`"+`
-        у: Целое `+"`xml:k`"+`
+        Целое х `+"`xml:@k`"+`
+        Целое у `+"`xml:k`"+`
 }
 функция главная
 {

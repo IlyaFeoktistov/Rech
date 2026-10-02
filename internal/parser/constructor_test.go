@@ -10,7 +10,7 @@ func TestParseConstructorAndParentCall(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя: Строка
+        Строка имя
 
     конструктор(имя: Строка)
     {
@@ -20,7 +20,7 @@ func TestParseConstructorAndParentCall(t *testing.T) {
 сущность Сотрудник наследует Пользователя
 {
     имеет:
-        зарплата: Целое
+        Целое зарплата
 
     конструктор(имя: Строка, зарплата: Целое)
     {
@@ -46,7 +46,7 @@ func TestParseStructCannotHaveConstructor(t *testing.T) {
 структура Точка
 {
     имеет:
-        x: Целое
+        Целое x
 
     конструктор(x: Целое)
     {
@@ -65,7 +65,7 @@ func TestParseEntityConstructorDeclaredTwiceRejected(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 
     конструктор(x: Целое)
     {
@@ -89,7 +89,7 @@ func TestParseParentCallOutsideConstructorRejected(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 
     задать(x: Целое)
     {

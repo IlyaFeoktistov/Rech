@@ -23,7 +23,7 @@ type moduleVarCandidate struct {
 
 // moduleVisibility - модификатор видимости последнего объявления верхнего
 // уровня (parseModuleVisibility): tok == nil - модификатора не было;
-// deferred - модификатор стоит перед "<Тип> <имя>", согласуется с именем
+// deferred - модификатор стоит перед "<Тип> <имя>", согласуется с типом
 // переменной, проверяется после разбора объявления (noteTopLevelStmt).
 type moduleVisibility struct {
 	tok      *lexer.Token
@@ -33,7 +33,7 @@ type moduleVisibility struct {
 
 // noteTopLevelStmt - stmt разобран веткой инструкции верхнего уровня:
 // объявление переменной запоминается кандидатом в переменные модуля;
-// отложенное согласование модификатора видимости - проверяется по имени.
+// отложенное согласование модификатора видимости - проверяется по типу.
 func (p *Parser) noteTopLevelStmt(stmt ast.Stmt) error {
 	mv := p.topVisibility
 	decl, isVar := stmt.(*ast.VarDecl)
@@ -44,7 +44,7 @@ func (p *Parser) noteTopLevelStmt(stmt ast.Stmt) error {
 		return nil
 	}
 	if mv.deferred {
-		if err := checkVarVisibilityAgreement(*mv.tok, mv.vis, decl.Name); err != nil {
+		if err := checkVarVisibilityAgreement(*mv.tok, mv.vis, decl.Type); err != nil {
 			return err
 		}
 	}
@@ -54,15 +54,15 @@ func (p *Parser) noteTopLevelStmt(stmt ast.Stmt) error {
 }
 
 // checkVarVisibilityAgreement - модификатор перед "<Тип> <имя>" согласуется
-// по роду/числу с именем переменной (тем же правилом, что у поля сущности);
-// если род имени неизвестен, подходит любая форма.
-func checkVarVisibilityAgreement(kw lexer.Token, vis ast.Visibility, name string) error {
-	gender, number, ok := morph.CompoundNounAgreement(name)
+// по роду/числу с типом переменной (тем же правилом, что у поля сущности);
+// если род типа неизвестен, подходит любая форма.
+func checkVarVisibilityAgreement(kw lexer.Token, vis ast.Visibility, typeName string) error {
+	gender, number, ok := morph.TypeAgreement(typeName)
 	if !ok {
 		return nil
 	}
 	if want := visibilityKeywordFor(vis, gender, number); kw.Value != want {
-		return errAt(kw.Line, kw.Col, CodeModifierAgree, "модификатор видимости переменной не согласован по роду/числу с её именем").
+		return errAt(kw.Line, kw.Col, CodeModifierAgree, "модификатор видимости переменной не согласован по роду/числу с её типом").
 			WithHint("требует форму %q, получено %q", want, kw.Value)
 	}
 	return nil

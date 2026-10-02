@@ -302,8 +302,8 @@ func TestAnalyzeEntityInstanceConstantAccess(t *testing.T) {
 {
 	константа ЛИМИТ = 100
 	имеет:
-		имя: Строка
-		счет: Целое
+		Строка имя
+		Целое счет
 
 	конструктор(имя: Строка, счет: Целое)
 	{
@@ -331,7 +331,7 @@ func TestAssignToEntityConstantViaInstanceFails(t *testing.T) {
 {
 	константа ЛИМИТ = 100
 	имеет:
-		счет: Целое
+		Целое счет
 
 	конструктор(счет: Целое)
 	{
@@ -364,7 +364,7 @@ func TestPrivateEntityConstantAccessibleInMethod(t *testing.T) {
 {
 	приватная константа КОД = 1234
 	имеет:
-		поле: Целое
+		Целое поле
 
 	конструктор(поле: Целое)
 	{
@@ -421,7 +421,7 @@ func TestPrivateEntityConstantExternalAccessDenied(t *testing.T) {
 {
 	приватная константа КОД = 1234
 	имеет:
-		поле: Целое
+		Целое поле
 }
 
 функция главная
@@ -508,7 +508,7 @@ func TestAnalyzeExternFuncRejectsNonScalarType(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 }
 внешняя функция f(p: Точка)
 функция главная { }
@@ -945,8 +945,8 @@ func TestAnalyzeEntityFieldsConstructorAndFieldAccess(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя: Строка
-        возраст: Целое
+        Строка имя
+        Целое возраст
 
     конструктор(имя: Строка, возраст: Целое)
     {
@@ -1012,8 +1012,8 @@ func TestAnalyzeNamedConstructorArgsNormalizedToPositional(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя: Строка
-        возраст: Целое
+        Строка имя
+        Целое возраст
 
     конструктор(имя: Строка, возраст: Целое)
     {
@@ -1041,7 +1041,7 @@ func TestAnalyzeMethodAndThisMutation(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        возраст: Целое
+        Целое возраст
 
     конструктор(возраст: Целое)
     {
@@ -1107,7 +1107,7 @@ func TestAnalyzeMethodCallOnTemporaryEntityAllowed(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        возраст: Целое
+        Целое возраст
 
     конструктор(возраст: Целое)
     {
@@ -1150,7 +1150,7 @@ func TestAnalyzeMethodCallOnTemporaryStructAllowed(t *testing.T) {
 структура Точка
 {
     имеет:
-        x: Целое
+        Целое x
 
     прочитать(): Целое
     {
@@ -1188,12 +1188,12 @@ func TestAnalyzeFieldAssignOnTemporaryEntityAllowed(t *testing.T) {
 сущность Счётчик
 {
     имеет:
-        число: Целое
+        Целое число
 }
 сущность Обёртка
 {
     имеет:
-        приватный счётчик_: Счётчик
+        приватный Счётчик счётчик_
 
     конструктор(счётчик: Счётчик)
     {
@@ -1235,7 +1235,7 @@ func TestAnalyzeFieldAssignOnTemporaryStructAllowed(t *testing.T) {
 структура Точка
 {
     имеет:
-        x: Целое
+        Целое x
 }
 функция создать(): Точка
 {
@@ -1265,7 +1265,7 @@ func TestAnalyzeBecomeStmtAndDerivedType(t *testing.T) {
     состояние: неавторизован авторизован
 
     имеет:
-        имя: Строка
+        Строка имя
 
     конструктор(имя: Строка)
     {
@@ -1563,7 +1563,7 @@ func TestAnalyzeCollectionEntityElementAllowed(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя: Строка
+        Строка имя
 
     конструктор(имя: Строка)
     {
@@ -1605,12 +1605,12 @@ func TestAnalyzeCollectionEntityFieldAllowed(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя: Строка
+        Строка имя
 }
 сущность Отдел
 {
     имеет:
-        сотрудники: Список<Пользователь>
+        Список<Пользователь> сотрудники
 }
 функция главная
 {
@@ -1869,7 +1869,7 @@ func TestAnalyzeEnumCollidesWithEntityFails(t *testing.T) {
 сущность Цвет
 {
     имеет:
-        имя: Строка
+        Строка имя
 }
 перечисление Цвет { Красный }
 функция главная { вывести 1 }
@@ -1895,7 +1895,7 @@ func TestAnalyzeLocalVariableShadowsEnumName(t *testing.T) {
 сущность HTTPКод
 {
     имеет:
-        поле: Целое
+        Целое поле
 
     конструктор(поле: Целое)
     {
@@ -1995,7 +1995,7 @@ func TestAnalyzeCastEntityRejected(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 }
 функция главная
 {
@@ -2087,12 +2087,12 @@ func TestAnalyzeStructDeclSetsIRIsStruct(t *testing.T) {
 структура Точка
 {
     имеет:
-        x: Целое
+        Целое x
 }
 сущность Пользователь
 {
     имеет:
-        имя: Строка
+        Строка имя
 
     конструктор(имя: Строка)
     {

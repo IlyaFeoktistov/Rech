@@ -12,7 +12,7 @@ func TestParseOperatorOverload(t *testing.T) {
 структура Вектор
 {
     имеет:
-        x: Целое
+        Целое x
 
     статический публичный оператор +(a: Вектор, b: Вектор): Вектор
     {
@@ -45,7 +45,7 @@ func TestParseOperatorOverloadRequiresStatic(t *testing.T) {
 структура Вектор
 {
     имеет:
-        x: Целое
+        Целое x
 
     публичный оператор +(a: Вектор, b: Вектор): Вектор
     {
@@ -64,7 +64,7 @@ func TestParseOperatorOverloadRequiresTwoParams(t *testing.T) {
 структура Вектор
 {
     имеет:
-        x: Целое
+        Целое x
 
     статический оператор +(a: Вектор): Вектор
     {
@@ -83,7 +83,7 @@ func TestParseOperatorOverloadRequiresReturnType(t *testing.T) {
 структура Вектор
 {
     имеет:
-        x: Целое
+        Целое x
 
     статический оператор +(a: Вектор, b: Вектор)
     {
@@ -102,7 +102,7 @@ func TestParseOperatorOverloadUnknownSymbolFails(t *testing.T) {
 структура Вектор
 {
     имеет:
-        x: Целое
+        Целое x
 
     статический оператор &&(a: Вектор, b: Вектор): Вектор
     {

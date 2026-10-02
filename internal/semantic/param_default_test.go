@@ -124,8 +124,8 @@ func TestAnalyzeCtorPositionalDefaultParamOmitted(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
-        y: Целое
+        Целое x
+        Целое y
 
     конструктор(x: Целое, y: Целое = 10)
     {
@@ -159,8 +159,8 @@ func TestAnalyzeCtorNamedFormDefaultParamFilled(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
-        y: Целое
+        Целое x
+        Целое y
 
     конструктор(x: Целое, y: Целое = 10)
     {

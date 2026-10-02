@@ -139,7 +139,7 @@ func TestSuggestionsStaticMethodNotUsingThis(t *testing.T) {
 структура Калькулятор
 {
     имеет:
-        значение: Целое
+        Целое значение
 
     сложить(а: Целое, б: Целое): Целое
     {
@@ -161,7 +161,7 @@ func TestSuggestionsStaticMethodSkippedWhenUsesThis(t *testing.T) {
 структура Счётчик
 {
     имеет:
-        значение: Целое
+        Целое значение
 
     увеличить()
     {

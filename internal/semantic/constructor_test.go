@@ -12,8 +12,8 @@ func TestAnalyzeExplicitConstructorPositionalCall(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
-        y: Целое
+        Целое x
+        Целое y
 
     конструктор(x: Целое, y: Целое)
     {
@@ -50,8 +50,8 @@ func TestAnalyzeExplicitConstructorNamedFormByParamName(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
-        y: Целое
+        Целое x
+        Целое y
 
     конструктор(x: Целое, y: Целое)
     {
@@ -83,7 +83,7 @@ func TestAnalyzeExplicitConstructorNamedFormUnknownParamFails(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 
     конструктор(x: Целое)
     {
@@ -108,8 +108,8 @@ func TestAnalyzeExplicitConstructorNamedFormMissingParamFails(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
-        y: Целое
+        Целое x
+        Целое y
 
     конструктор(x: Целое, y: Целое)
     {
@@ -132,7 +132,7 @@ func TestAnalyzeExplicitConstructorWrongArgCount(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 
     конструктор(x: Целое)
     {
@@ -154,7 +154,7 @@ func TestAnalyzeParentCallRunsBaseConstructor(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя: Строка
+        Строка имя
 
     конструктор(имя: Строка)
     {
@@ -164,7 +164,7 @@ func TestAnalyzeParentCallRunsBaseConstructor(t *testing.T) {
 сущность Сотрудник наследует Пользователя
 {
     имеет:
-        зарплата: Целое
+        Целое зарплата
 
     конструктор(имя: Строка, зарплата: Целое)
     {
@@ -200,7 +200,7 @@ func TestAnalyzeParentCallMustBeFirstStatement(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя: Строка
+        Строка имя
 
     конструктор(имя: Строка)
     {
@@ -210,7 +210,7 @@ func TestAnalyzeParentCallMustBeFirstStatement(t *testing.T) {
 сущность Сотрудник наследует Пользователя
 {
     имеет:
-        зарплата: Целое
+        Целое зарплата
 
     конструктор(имя: Строка, зарплата: Целое)
     {
@@ -233,12 +233,12 @@ func TestAnalyzeParentCallWithoutBaseConstructorFails(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя: Строка
+        Строка имя
 }
 сущность Сотрудник наследует Пользователя
 {
     имеет:
-        зарплата: Целое
+        Целое зарплата
 
     конструктор(имя: Строка, зарплата: Целое)
     {
@@ -262,7 +262,7 @@ func TestAnalyzeParentCallWithoutBaseNameFails(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 
     конструктор(x: Целое)
     {
@@ -291,7 +291,7 @@ func TestAnalyzeEntityWithoutOwnCtorDoesNotInheritBaseCtor(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя: Строка
+        Строка имя
 
     конструктор(имя: Строка)
     {
@@ -301,7 +301,7 @@ func TestAnalyzeEntityWithoutOwnCtorDoesNotInheritBaseCtor(t *testing.T) {
 сущность Гость наследует Пользователя
 {
     имеет:
-        код: Целое
+        Целое код
 }
 функция главная
 {
@@ -330,7 +330,7 @@ func TestAnalyzeEntityWithoutOwnCtorRejectsArgs(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя: Строка
+        Строка имя
 
     конструктор(имя: Строка)
     {
@@ -340,7 +340,7 @@ func TestAnalyzeEntityWithoutOwnCtorRejectsArgs(t *testing.T) {
 сущность Гость наследует Пользователя
 {
     имеет:
-        код: Целое
+        Целое код
 }
 функция главная
 {

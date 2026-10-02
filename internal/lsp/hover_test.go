@@ -11,8 +11,8 @@ const hoverTestSrc = `
 {
     имеет:
         /** Горизонтальная координата. */
-        x: Целое
-        y: Целое
+        Целое x
+        Целое y
 
     конструктор(x: Целое, y: Целое)
     {
@@ -106,13 +106,13 @@ func TestHoverInsideConstructorBodyShowsParamAndField(t *testing.T) {
 }
 
 // TestHoverOnFieldOwnDeclarationShowsTypeAndDoc - курсор прямо на имени
-// поля НА ЕГО ЖЕ СТРОКЕ ОБЪЯВЛЕНИЯ ("имеет: x: Целое"), не после
+// поля НА ЕГО ЖЕ СТРОКЕ ОБЪЯВЛЕНИЯ ("имеет: Целое x"), не после
 // "receiver." - раньше не поддерживалось вовсе (hoverBareName не искал член
 // сущности по позиции, только по имени сущности/функции верхнего уровня).
 func TestHoverOnFieldOwnDeclarationShowsTypeAndDoc(t *testing.T) {
 	d := newDoc("test://a.rech", hoverTestSrc)
-	line := lineOf(t, hoverTestSrc, "x: Целое")
-	col := runeCol(t, "        x: Целое", "x")
+	line := lineOf(t, hoverTestSrc, "Целое x")
+	col := runeCol(t, "        Целое x", "x")
 	text, ok := d.hover(line, col)
 	if !ok {
 		t.Fatalf("ожидался hover на собственном объявлении поля \"x\"")
@@ -194,14 +194,14 @@ const hoverCtorEntitiesSrc = `
 структура Пара
 {
     имеет:
-        первый: Целое
-        второй: Строка
+        Целое первый
+        Строка второй
 }
 
 сущность Счётчик
 {
     имеет:
-        значение: Целое = 0
+        Целое значение = 0
 }
 
 абстрактная сущность Фигура

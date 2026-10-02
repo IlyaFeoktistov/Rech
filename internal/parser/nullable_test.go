@@ -125,7 +125,7 @@ func TestParseNullableEntityTypeName(t *testing.T) {
 	prog, err := parseSource(t, `
 сущность Пользователь {
     имеет:
-        имя: Строка
+        Строка имя
 }
 функция найти(): ?Пользователь {
     вернуть Ничто

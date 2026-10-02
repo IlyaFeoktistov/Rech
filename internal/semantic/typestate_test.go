@@ -15,7 +15,7 @@ const typestateEntities = `
     состояние: авторизован
 
     имеет:
-        имя: Строка
+        Строка имя
 
     конструктор(имя: Строка)
     {
@@ -103,7 +103,7 @@ func TestCheckCallArgsInvalidatesEstablishedAfterOpaqueCall(t *testing.T) {
     состояние: вошедший
 
     имеет:
-        имя: Строка
+        Строка имя
 
     конструктор(имя: Строка)
     {
@@ -184,7 +184,7 @@ func TestAnalyzeIsExprStateAliasRejectsUnrelatedType(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое = 0
+        Целое x = 0
 }
 функция главная
 {

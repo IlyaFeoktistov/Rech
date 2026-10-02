@@ -16,8 +16,8 @@ func TestAnalyzeNewExprPositionalOmitsTrailingDefault(t *testing.T) {
 структура Точка
 {
     имеет:
-        x: Целое
-        y: Целое = 0
+        Целое x
+        Целое y = 0
 }
 функция главная
 {
@@ -34,8 +34,8 @@ func TestAnalyzeNewExprNamedOmitsDefault(t *testing.T) {
 структура Точка
 {
     имеет:
-        x: Целое
-        y: Целое = 0
+        Целое x
+        Целое y = 0
 }
 функция главная
 {
@@ -51,8 +51,8 @@ func TestAnalyzeNewExprPositionalMissingRequiredIsError(t *testing.T) {
 структура Точка
 {
     имеет:
-        x: Целое = 0
-        y: Целое
+        Целое x = 0
+        Целое y
 }
 функция главная
 {
@@ -70,8 +70,8 @@ func TestAnalyzeNewExprNamedMissingRequiredIsError(t *testing.T) {
 структура Точка
 {
     имеет:
-        x: Целое
-        y: Целое = 0
+        Целое x
+        Целое y = 0
 }
 функция главная
 {
@@ -91,7 +91,7 @@ func TestAnalyzeFieldDefaultReferencesEntityConstant(t *testing.T) {
     константа НАЧАЛО = 0
 
     имеет:
-        x: Целое = Точка.НАЧАЛО
+        Целое x = Точка.НАЧАЛО
 }
 функция главная
 {
@@ -111,7 +111,7 @@ func TestAnalyzeFieldDefaultWrongTypeIsError(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое = "не число"
+        Целое x = "не число"
 }
 функция главная { вывести "ок" }
 `
@@ -132,12 +132,12 @@ func TestAnalyzeInheritedAndOwnFieldDefaultsApplyOnEmptyConstruction(t *testing.
 сущность Фигура
 {
     имеет:
-        номер: Целое
+        Целое номер
 }
 сущность Круг наследует Фигуру
 {
     имеет:
-        радиус: Целое = 1
+        Целое радиус = 1
 }
 функция главная
 {

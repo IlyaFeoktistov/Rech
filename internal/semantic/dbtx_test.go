@@ -68,7 +68,7 @@ func TestAnalyzeUserEntityCannotBeNamedTransaction(t *testing.T) {
 сущность Транзакция
 {
     имеет:
-        х: Целое
+        Целое х
 }
 функция главная { вывести 1 }
 `)

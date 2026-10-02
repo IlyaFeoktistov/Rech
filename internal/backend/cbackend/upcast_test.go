@@ -13,7 +13,7 @@ func TestGenerateUpcastsChildToParentExplicitly(t *testing.T) {
 сущность Животное
 {
     имеет:
-        имя: Строка
+        Строка имя
 
     конструктор(имя: Строка)
     {

@@ -76,7 +76,7 @@ func TestRunLaunchArgsAreClonedNotSharedWithCaller(t *testing.T) {
 структура Точка
 {
     имеет:
-        x: Целое
+        Целое x
 }
 функция главная
 {

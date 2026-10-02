@@ -285,8 +285,8 @@ func TestFormatEscapedNewlineInStringDoesNotDesyncLineTracking(t *testing.T) {
 // получить отступ СТРОГО глубже самой метки "имеет:", иначе распарсились бы
 // уже не как поля вовсе (internal/parser/entity.go, parseFieldsSection).
 func TestFormatHasSectionFieldsIndentedDeeperThanLabel(t *testing.T) {
-	src := "структура Пользователь\n{\nимеет:\n id: Целое\n имя: Строка\n}\n"
-	want := "структура Пользователь\n{\n    имеет:\n        id:  Целое\n        имя: Строка\n}\n"
+	src := "структура Пользователь\n{\nимеет:\n Целое id\n Строка имя\n}\n"
+	want := "структура Пользователь\n{\n    имеет:\n        Целое  id\n        Строка имя\n}\n"
 	got, err := Format(src)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
@@ -302,7 +302,7 @@ func TestFormatHasSectionFieldsIndentedDeeperThanLabel(t *testing.T) {
 // (internal/parser/entity.go, parseFieldsSection, package doc) - остаётся
 // на внешнем уровне отступа, не получает +1 секции.
 func TestFormatDanglingDocCommentDoesNotExtendHasSection(t *testing.T) {
-	src := "абстрактная сущность Фигура\n{\n    имеет:\n        имя: Строка\n\n    /** Висит перед методом, не полем. */\n    площадь(): Действительное\n}\n"
+	src := "абстрактная сущность Фигура\n{\n    имеет:\n        Строка имя\n\n    /** Висит перед методом, не полем. */\n    площадь(): Действительное\n}\n"
 	got, err := Format(src)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
@@ -319,7 +319,7 @@ func TestFormatDanglingDocCommentDoesNotExtendHasSection(t *testing.T) {
 // признак висячего хвоста здесь другой (см. package doc
 // applyHasSectionIndent).
 func TestFormatDanglingPlainCommentDoesNotExtendHasSection(t *testing.T) {
-	src := "сущность Счётчик\n{\n    имеет:\n        значение: Целое\n\n    // Комментарий висит перед конструктором, не полем.\n    конструктор(начало: Целое)\n    {\n        этот.значение = начало\n    }\n}\n"
+	src := "сущность Счётчик\n{\n    имеет:\n        Целое значение\n\n    // Комментарий висит перед конструктором, не полем.\n    конструктор(начало: Целое)\n    {\n        этот.значение = начало\n    }\n}\n"
 	got, err := Format(src)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
@@ -508,8 +508,8 @@ func TestFormatMultilineConditionForcesBraceOnOwnLine(t *testing.T) {
 // тегу - только у тех полей, у которых они вообще есть (рваные строки,
 // см. package doc alignEntityFields).
 func TestFormatAlignsFieldsLikeATable(t *testing.T) {
-	src := "структура Пользователь\n{\n    имеет:\n        id: Целое\n        имя: Строка = \"аноним\" `sql:name`\n        возраст: Целое = 0\n}\n"
-	want := "структура Пользователь\n{\n    имеет:\n        id:      Целое\n        имя:     Строка = \"аноним\" `sql:name`\n        возраст: Целое  = 0\n}\n"
+	src := "структура Пользователь\n{\n    имеет:\n        Целое id\n        Строка имя = \"аноним\" `sql:name`\n        Целое возраст = 0\n}\n"
+	want := "структура Пользователь\n{\n    имеет:\n        Целое  id\n        Строка имя     = \"аноним\" `sql:name`\n        Целое  возраст = 0\n}\n"
 	got, err := Format(src)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
@@ -533,8 +533,8 @@ func TestFormatAlignsFieldsLikeATable(t *testing.T) {
 // получались ДВА пробела перед тегом там, где выравнивать было нечего
 // (репортнуто пользователем - "имя: Строка  `sql:name`").
 func TestFormatFieldAlignmentSkipsUnusedColumnGap(t *testing.T) {
-	src := "структура Пользователь\n{\n    имеет:\n        id: Целое\n        имя: Строка `sql:name`\n}\n"
-	want := "структура Пользователь\n{\n    имеет:\n        id:  Целое\n        имя: Строка `sql:name`\n}\n"
+	src := "структура Пользователь\n{\n    имеет:\n        Целое id\n        Строка имя `sql:name`\n}\n"
+	want := "структура Пользователь\n{\n    имеет:\n        Целое  id\n        Строка имя `sql:name`\n}\n"
 	got, err := Format(src)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
@@ -554,8 +554,8 @@ func TestFormatFieldAlignmentSkipsUnusedColumnGap(t *testing.T) {
 // TestFormatFieldAlignmentBreaksOnBlankLine - пустая строка между полями
 // начинает НОВЫЙ пробег выравнивания, независимый от предыдущего.
 func TestFormatFieldAlignmentBreaksOnBlankLine(t *testing.T) {
-	src := "структура Точка\n{\n    имеет:\n        x: Целое\n        игрек: Целое\n\n        z: Целое\n}\n"
-	want := "структура Точка\n{\n    имеет:\n        x:     Целое\n        игрек: Целое\n\n        z: Целое\n}\n"
+	src := "структура Точка\n{\n    имеет:\n        Целое x\n        Целое игрек\n\n        Целое z\n}\n"
+	want := "структура Точка\n{\n    имеет:\n        Целое x\n        Целое игрек\n\n        Целое z\n}\n"
 	got, err := Format(src)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)

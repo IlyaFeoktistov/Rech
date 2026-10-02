@@ -202,6 +202,10 @@ func (d *doc) placeCompletion(place completionPlace, line int, blocks []textBloc
 	case placeNew:
 		d.addInstantiableTypes(c)
 	case placeMemberDecl:
+		if len(blocks) > 0 && inFieldSection(blocks[len(blocks)-1]) {
+			// Поле - "[модификаторы] Тип имя": на его месте нужны типы.
+			d.addTypes(c)
+		}
 		c.addAll(keywordList(memberDeclKeywords))
 		d.addOverridableMethods(c, blocks)
 	case placeTopLevel:

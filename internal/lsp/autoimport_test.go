@@ -10,7 +10,7 @@ import (
 // объявленное в двух файлах, не импортируется.
 func TestAutoImportOnSave(t *testing.T) {
 	dir := t.TempDir()
-	writeMultiFileSource(t, dir, "точка.rech", "публичная сущность Точка\n{\n    имеет:\n        публичный x: Целое\n}\n")
+	writeMultiFileSource(t, dir, "точка.rech", "публичная сущность Точка\n{\n    имеет:\n        публичное Целое x\n}\n")
 	writeMultiFileSource(t, dir, "сумма.rech", "публичная функция сумма(а: Целое, б: Целое): Целое\n{\n    вернуть а + б\n}\n")
 	writeMultiFileSource(t, dir, "один.rech", "публичная функция двойная(): Целое\n{\n    вернуть 1\n}\n")
 	writeMultiFileSource(t, dir, "два.rech", "публичная функция двойная(): Целое\n{\n    вернуть 2\n}\n")

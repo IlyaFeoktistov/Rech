@@ -130,7 +130,7 @@ func TestGenerateLaunchMethodCapturesReceiverAtLaunch(t *testing.T) {
 сущность Журнал
 {
     имеет:
-        записи: Целое
+        Целое записи
 
     записать()
     {

@@ -10,7 +10,7 @@ func TestAnalyzePointerRoundTrip(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 
     конструктор(x: Целое)
     {

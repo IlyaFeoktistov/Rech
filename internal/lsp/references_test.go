@@ -54,7 +54,7 @@ func TestCodeLensShowsReferenceCountForMethod(t *testing.T) {
 func TestCodeLensShowsReferenceCountForField(t *testing.T) {
 	d := newDoc("test://a.rech", hoverTestSrc)
 	lenses := d.codeLenses()
-	line := lineOf(t, hoverTestSrc, "x: Целое")
+	line := lineOf(t, hoverTestSrc, "Целое x")
 	cl := findLens(t, lenses, line)
 	if cl.Title != "3 ссылки" {
 		t.Fatalf("ожидались \"3 ссылки\" на \"x\" (включая присваивание в конструкторе), получено: %q", cl.Title)
@@ -79,7 +79,7 @@ const constHoverSrc = `
     константа ПРЕДЕЛ = 100
 
     имеет:
-        x: Целое
+        Целое x
 
     конструктор(x: Целое)
     {

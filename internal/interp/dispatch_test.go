@@ -38,7 +38,7 @@ func TestRunInheritedUnmodifiedMethodCallableOnDerivedInstance(t *testing.T) {
 сущность Животное
 {
     имеет:
-        имя: Строка
+        Строка имя
 
     представиться(): Строка
     {
@@ -48,7 +48,7 @@ func TestRunInheritedUnmodifiedMethodCallableOnDerivedInstance(t *testing.T) {
 сущность Собака наследует Животное
 {
     имеет:
-        порода: Строка
+        Строка порода
 
     конструктор(имя: Строка, порода: Строка)
     {

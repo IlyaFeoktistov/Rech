@@ -12,7 +12,7 @@ import (
 // результата, повтор сигнатуры) несут строку своего объявления, а не остаются
 // без позиции.
 func TestDeclarationErrorsCarryLine(t *testing.T) {
-	_, err := AnalyzeSource(t, "сущность Точка\n{\n    имеет:\n        x: НетТипаПоля\n}\n\nфункция главная\n{\n}\n")
+	_, err := AnalyzeSource(t, "сущность Точка\n{\n    имеет:\n        НетТипаПоля x\n}\n\nфункция главная\n{\n}\n")
 	if d := diagnostics.AsDiagnostic(err); d == nil || !strings.Contains(d.Message, "НетТипаПоля") || d.Pos.Line != 4 {
 		t.Fatalf("ошибка типа поля должна быть на строке 4, получено %v", err)
 	}

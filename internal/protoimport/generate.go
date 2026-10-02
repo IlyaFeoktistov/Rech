@@ -174,7 +174,7 @@ func renderRech(enums []generatedEnum, messages []generatedMessage, rpcs []gener
 			if f.enumRef != "" {
 				comment = fmt.Sprintf(" // enum %s (перечисление объявлено выше, поле хранит целочисленное значение)", f.enumRef)
 			}
-			fmt.Fprintf(&sb, "        %s: %s `protobuf:%d`%s\n", f.name, f.rechType, f.number, comment)
+			fmt.Fprintf(&sb, "        %s %s `protobuf:%d`%s\n", f.rechType, f.name, f.number, comment)
 		}
 		sb.WriteString("}\n\n")
 	}

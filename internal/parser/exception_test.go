@@ -60,7 +60,7 @@ func TestParseIsExprTakesTargetLiterallyWithoutDeclension(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя: Строка
+        Строка имя
 }
 функция главная
 {

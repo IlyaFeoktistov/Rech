@@ -17,8 +17,8 @@ func TestAnalyzeSemaphoreFieldTypeChecksAndAppearsFirstInIR(t *testing.T) {
 сущность Пул
 {
     имеет:
-        счёт: Целое
-        семафор: Семафор
+        Целое счёт
+        Семафор семафор
 
     конструктор(счёт: Целое, семафор: Семафор)
     {
@@ -148,7 +148,7 @@ func TestAnalyzeUserEntityCannotBeNamedSemafor(t *testing.T) {
 сущность Семафор
 {
     имеет:
-        х: Целое
+        Целое х
 }
 функция главная { вывести 1 }
 `)

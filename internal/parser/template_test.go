@@ -133,7 +133,7 @@ func TestParseTemplateLiteralInterpolationKeepsSourceLine(t *testing.T) {
 // TestParseTemplateLiteralThisInsideMethod - вставка в теле метода видит
 // "этот" (контекст объемлющего кода).
 func TestParseTemplateLiteralThisInsideMethod(t *testing.T) {
-	_, err := parseSource(t, "сущность Т\n{\n    имеет:\n        х: Целое\n\n    публичный показ(): Строка\n    {\n        вернуть `х=${этот.х}`\n    }\n}\n")
+	_, err := parseSource(t, "сущность Т\n{\n    имеет:\n        Целое х\n\n    публичный показ(): Строка\n    {\n        вернуть `х=${этот.х}`\n    }\n}\n")
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}

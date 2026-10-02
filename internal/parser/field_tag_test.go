@@ -7,8 +7,8 @@ func TestParseFieldTag(t *testing.T) {
 		"сущность Пользователь\n" +
 		"{\n" +
 		"    имеет:\n" +
-		"        имя: Строка `json:name, sql:user_name`\n" +
-		"        возраст: Целое\n" +
+		"        Строка имя `json:name, sql:user_name`\n" +
+		"        Целое возраст\n" +
 		"}\n" +
 		"функция главная { вывести \"ок\" }\n"
 	prog, err := parseSource(t, src)
@@ -29,7 +29,7 @@ func TestParseFieldTagWithDefaultValue(t *testing.T) {
 		"сущность Пользователь\n" +
 		"{\n" +
 		"    имеет:\n" +
-		"        возраст: Целое = 18 `json:age`\n" +
+		"        Целое возраст = 18 `json:age`\n" +
 		"}\n" +
 		"функция главная { вывести \"ок\" }\n"
 	prog, err := parseSource(t, src)

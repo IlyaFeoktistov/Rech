@@ -44,7 +44,7 @@ func TestAnalyzeDateTimeUserEntityShadowsBuiltin(t *testing.T) {
 сущность ДатаВремя
 {
     имеет:
-        x: Целое
+        Целое x
 }
 функция главная { вывести 1 }
 `)

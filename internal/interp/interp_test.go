@@ -212,7 +212,7 @@ func TestEvalAsInterfaceMismatchPanicsWithClearMessage(t *testing.T) {
 сущность Стол
 {
     имеет:
-        ножки: Целое
+        Целое ножки
 }
 функция главная
 {
@@ -258,7 +258,7 @@ func TestRunBaseTypeAndInterfaceReflectionMethods(t *testing.T) {
 сущность Животное
 {
     имеет:
-        имя: Строка
+        Строка имя
 }
 сущность Кот наследует Животное реализует Звучащий
 {
@@ -311,7 +311,7 @@ func TestRunEntityMethodAndFieldTagReflection(t *testing.T) {
 сущность Пользователь `+"`"+`таблица:users, версия:2`+"`"+`
 {
     имеет:
-        имя: Строка `+"`"+`json:name, sql:user_name`+"`"+`
+        Строка имя `+"`"+`json:name, sql:user_name`+"`"+`
 
     сохранить(): Строка `+"`"+`выполняет:запись`+"`"+`
     {
@@ -350,8 +350,8 @@ func TestRunFieldByTagReflection(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя:     Строка `+"`"+`sql:user_name`+"`"+`
-        возраст: Целое  `+"`"+`sql:age`+"`"+`
+        Строка имя `+"`"+`sql:user_name`+"`"+`
+        Целое возраст `+"`"+`sql:age`+"`"+`
 
 }
 
@@ -749,7 +749,7 @@ func TestRunEntityFieldMutationVisibleAfterMethodReturn(t *testing.T) {
 сущность Счётчик
 {
     имеет:
-        значение: Целое
+        Целое значение
 
     конструктор(значение: Целое)
     {
@@ -789,8 +789,8 @@ func TestRunEntityFieldsWithoutDefaultsGetSafeZeroValues(t *testing.T) {
 сущность Модель
 {
     имеет:
-        имя: Строка
-        числа: Список<Целое>
+        Строка имя
+        Список<Целое> числа
 }
 
 функция главная
@@ -811,7 +811,7 @@ func TestRunStructValueSemanticsCopyOnAssign(t *testing.T) {
 структура Точка
 {
     имеет:
-        x: Целое
+        Целое x
 }
 
 функция главная
@@ -833,7 +833,7 @@ func TestRunEntityReferenceSemanticsSharedOnAssign(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 
     конструктор(x: Целое)
     {
@@ -1083,7 +1083,7 @@ func TestRunEntityEqualityComparesByReference(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 
     конструктор(x: Целое)
     {
@@ -1115,14 +1115,14 @@ func TestRunStructEqualityFieldByField(t *testing.T) {
 структура Точка
 {
     имеет:
-        x: Целое
-        y: Целое
+        Целое x
+        Целое y
 }
 структура Отрезок
 {
     имеет:
-        начало: Точка
-        конец: Точка
+        Точка начало
+        Точка конец
 }
 функция главная
 {
@@ -1564,8 +1564,8 @@ func TestRunShowStmtEntityRecursesIntoFields(t *testing.T) {
 сущность Точка
 {
 	имеет:
-		x: Целое
-		y: Действительное
+		Целое x
+		Действительное y
 
 	конструктор(x: Целое, y: Действительное)
 	{
@@ -1591,8 +1591,8 @@ func TestRunShowStmtNestedEntity(t *testing.T) {
 сущность Точка
 {
 	имеет:
-		x: Целое
-		y: Целое
+		Целое x
+		Целое y
 
 	конструктор(x: Целое, y: Целое)
 	{
@@ -1603,8 +1603,8 @@ func TestRunShowStmtNestedEntity(t *testing.T) {
 сущность Отрезок
 {
 	имеет:
-		начало: Точка
-		конец: Точка
+		Точка начало
+		Точка конец
 
 	конструктор(начало: Точка, конец: Точка)
 	{
@@ -1650,7 +1650,7 @@ func TestRunPrintOnEntityShowsFriendlyPlaceholder(t *testing.T) {
 сущность Точка
 {
 	имеет:
-		x: Целое
+		Целое x
 
 	конструктор(x: Целое)
 	{

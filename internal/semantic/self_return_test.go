@@ -51,7 +51,7 @@ func TestAnalyzeSelfReturnInheritedMethodResolvesToDerivedEntityAtCallSite(t *te
 сущность СтроительА
 {
     имеет:
-        имя_поле: Строка
+        Строка имя_поле
 
     задать_имя(значение: Строка): этот
     {
@@ -62,7 +62,7 @@ func TestAnalyzeSelfReturnInheritedMethodResolvesToDerivedEntityAtCallSite(t *te
 сущность СтроительБ наследует СтроителяА
 {
     имеет:
-        доп_поле: Целое
+        Целое доп_поле
 
     конструктор(имя_поле: Строка, доп_поле: Целое)
     {
@@ -125,7 +125,7 @@ func TestAnalyzeSelfReturnInterfaceMethodResolvesToInterfaceType(t *testing.T) {
 сущность Штука реализует Именуемый
 {
     имеет:
-        имя_поле: Строка
+        Строка имя_поле
 
     конструктор(имя_поле: Строка)
     {

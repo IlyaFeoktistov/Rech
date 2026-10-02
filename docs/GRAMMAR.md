@@ -85,14 +85,16 @@ states_section := "состояние" ":" IDENT { IDENT }      (* одна ст
 fields_section := "имеет" ":" field { sep field }
                                              (* поле принадлежит секции по ЗНАЧИМОМУ ОТСТУПУ (строже, чем
                                                 само слово "имеет"), не по границе-токену - раздел 6 *)
-field          := { modifier } IDENT ":" type_name [ "=" expr ] [ TAG ]
+field          := { modifier } type_name IDENT [ "=" expr ] [ TAG ]
+                                             (* модификаторы - в любом порядке, согласуются по роду/числу
+                                                с type_name (внешний тип: Список у Список<Строка>) *)
 member         := field | method | constructor | operator_method | const_decl
 method         := { modifier } IDENT "(" [ params ] ")" [ ":" ( type_name | "этот" ) ] [ TAG ] ( { sep } block | sep )
                                              (* без block - тело отсутствует, валидно только у метода
                                                 абстрактной сущности (раздел "Наследование и интерфейсы");
                                                 ":этот" - ковариантный тип результата (то же место) *)
 constructor    := "конструктор" "(" [ params ] ")" { sep } block
-operator_method := "статический" visibility_mod "оператор" op_symbol "(" param "," param ")" ":" type_name { sep } block
+operator_method := { modifier } "оператор" op_symbol "(" param "," param ")" ":" type_name { sep } block
 op_symbol      := "==" | "!=" | "<=" | ">=" | "+" | "-" | "*" | "/" | "%" | "<" | ">"
                                              (* перегрузка операторов, раздел 26 - ровно пара параметров *)
 interface_decl := "интерфейс" IDENT [ "наследует" IDENT { "," IDENT } ] { sep } "{" { sep } { interface_method { sep } } "}"

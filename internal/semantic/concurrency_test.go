@@ -225,7 +225,7 @@ func TestAnalyzeTasksOfOneSignatureShareType(t *testing.T) {
 сущность Счётчик
 {
     имеет:
-        шаг: Целое
+        Целое шаг
 
     прибавить(число: Целое): Целое
     {
@@ -267,7 +267,7 @@ func TestAnalyzeLaunchMethodCapturesReceiver(t *testing.T) {
 сущность Журнал
 {
     имеет:
-        записи: Целое
+        Целое записи
 
     записать()
     {

@@ -12,7 +12,7 @@ func TestParseGenericEntityDecl(t *testing.T) {
 сущность Коробка<T>
 {
     имеет:
-        содержимое: T
+        T содержимое
 }
 функция главная { вывести "ок" }
 `)
@@ -33,8 +33,8 @@ func TestParseGenericEntityMultipleParamsWithConstraints(t *testing.T) {
 сущность Пара<A как Целое|Строка, Б>
 {
     имеет:
-        первый: A
-        второй: Б
+        A первый
+        Б второй
 }
 функция главная { вывести "ок" }
 `)
@@ -141,7 +141,7 @@ func TestParseNestedGenericTypeSplitsShrToken(t *testing.T) {
 сущность Коробка<T>
 {
     имеет:
-        содержимое: T
+        T содержимое
 }
 функция главная
 {
@@ -171,7 +171,7 @@ func TestParseBitwiseShiftStillWorksAfterAngleSplitting(t *testing.T) {
 сущность Коробка<T>
 {
     имеет:
-        содержимое: T
+        T содержимое
 }
 функция главная
 {

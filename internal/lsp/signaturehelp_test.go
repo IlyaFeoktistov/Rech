@@ -65,8 +65,8 @@ func TestSignatureHelpOnConstructor(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
-        y: Целое
+        Целое x
+        Целое y
 
     конструктор(x: Целое, y: Целое)
     {
@@ -100,7 +100,7 @@ func TestSignatureHelpOnMethodCall(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 
     /** Расстояние от начала координат. */
     длина(множитель: Целое): Целое
@@ -264,8 +264,8 @@ func TestSignatureHelpShowsConstructorParamDefaultValue(t *testing.T) {
 структура Точка
 {
     имеет:
-        x: Целое
-        y: Целое = 0
+        Целое x
+        Целое y = 0
 }
 функция главная
 {

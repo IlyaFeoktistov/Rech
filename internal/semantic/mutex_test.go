@@ -18,8 +18,8 @@ func TestAnalyzeMutexFieldTypeChecksAndAppearsFirstInIR(t *testing.T) {
 сущность Счёт
 {
     имеет:
-        баланс: Целое
-        блокировка: Блокировка
+        Целое баланс
+        Блокировка блокировка
 
     конструктор(баланс: Целое, блокировка: Блокировка)
     {
@@ -110,7 +110,7 @@ func TestAnalyzeUserEntityCannotBeNamedBlokirovka(t *testing.T) {
 сущность Блокировка
 {
     имеет:
-        х: Целое
+        Целое х
 }
 функция главная { вывести 1 }
 `)

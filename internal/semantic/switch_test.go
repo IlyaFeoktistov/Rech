@@ -71,7 +71,7 @@ func TestAnalyzeSwitchStmtTypePatternBuildsIsExpr(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя: Строка
+        Строка имя
     конструктор(имя: Строка) { этот.имя = имя }
 }
 сущность Администратор наследует Пользователя
@@ -152,7 +152,7 @@ func TestAnalyzeSwitchStmtUnrelatedTypePatternFails(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое = 0
+        Целое x = 0
 }
 функция главная
 {

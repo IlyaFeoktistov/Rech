@@ -44,8 +44,8 @@ func TestCollectEntitiesCollectsIndependentErrors(t *testing.T) {
 сущность Первая
 {
     имеет:
-        поле: Целое
-        поле: Строка
+        Целое поле
+        Строка поле
 }
 
 абстрактная сущность Вторая
@@ -84,14 +84,14 @@ func TestCollectEntitiesPoisonedEntityDoesNotCascade(t *testing.T) {
 сущность Первая
 {
     имеет:
-        поле: Целое
-        поле: Строка
+        Целое поле
+        Строка поле
 }
 
 сущность Использует
 {
     имеет:
-        ссылка: Первая
+        Первая ссылка
 }
 
 функция главная

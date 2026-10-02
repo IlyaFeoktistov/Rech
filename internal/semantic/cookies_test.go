@@ -65,7 +65,7 @@ func TestAnalyzeUserEntityCanShadowOpciiKuki(t *testing.T) {
 сущность ОпцииКуки
 {
     имеет:
-        х: Целое
+        Целое х
 }
 функция главная { вывести 1 }
 `)

@@ -21,7 +21,7 @@ func TestAnalyzeVerbFamilyRevokesStateOnCall(t *testing.T) {
     состояние: вошедший
 
     имеет:
-        имя: Строка
+        Строка имя
 
     конструктор(имя: Строка)
     {
@@ -81,7 +81,7 @@ func TestAnalyzeVerbFamilyAllowsUseBeforeOppositeCalled(t *testing.T) {
     состояние: вошедший
 
     имеет:
-        имя: Строка
+        Строка имя
 
     конструктор(имя: Строка)
     {
@@ -122,7 +122,7 @@ func TestAnalyzeVerbFamilyOpposesUnknownMethodFails(t *testing.T) {
 {
     состояние: вошедший
     имеет:
-        имя: Строка
+        Строка имя
     выйти() `+"`противоположность:нетТакого`"+`
     {
     }
@@ -140,7 +140,7 @@ func TestAnalyzeVerbFamilyOpposesSelfFails(t *testing.T) {
 {
     состояние: вошедший
     имеет:
-        имя: Строка
+        Строка имя
     выйти() `+"`противоположность:выйти`"+`
     {
     }
@@ -158,7 +158,7 @@ func TestAnalyzeVerbFamilyOpposesMethodWithoutBecomeFails(t *testing.T) {
 {
     состояние: вошедший
     имеет:
-        имя: Строка
+        Строка имя
     войти()
     {
     }

@@ -32,8 +32,8 @@ func TestAnalyzeExternStructPassedByValue(t *testing.T) {
 внешняя структура point как Точка
 {
     имеет:
-        x: Целое
-        y: Целое
+        Целое x
+        Целое y
 }
 внешняя функция point_sum как сумма_точки(p: Точка): Целое
 функция главная { вывести сумма_точки(новая Точка(x: 1, y: 2)) }
@@ -53,8 +53,8 @@ func TestAnalyzeExternStructAcceptsFixedWidthField(t *testing.T) {
 внешняя структура winsize как Размер
 {
     имеет:
-        ряды: Натуральное16
-        колонки: Натуральное16
+        Натуральное16 ряды
+        Натуральное16 колонки
 }
 функция главная { переменная р = новый Размер(ряды: (Натуральное16)24, колонки: (Натуральное16)80) }
 `)
@@ -68,7 +68,7 @@ func TestAnalyzeExternStructRejectsUnsafeFieldType(t *testing.T) {
 внешняя структура p как Точка
 {
     имеет:
-        список: Список<Целое>
+        Список<Целое> список
 }
 функция главная { вывести 1 }
 `)
@@ -99,7 +99,7 @@ func TestAnalyzeExternFuncRejectsPointerToUnsafeEntity(t *testing.T) {
 сущность Штука
 {
     имеет:
-        поле: Целое
+        Целое поле
 }
 внешняя функция что_то(п: Указатель<Штука>)
 функция главная { вывести 1 }
@@ -159,7 +159,7 @@ func TestAnalyzeExternStructAcceptsCallableField(t *testing.T) {
 внешняя структура wndclass как ОконныйКласс
 {
     имеет:
-        обработчик: Вызываемый(Целое): Целое
+        Вызываемый(Целое): Целое обработчик
 }
 функция главная { вывести 1 }
 `)
@@ -174,7 +174,7 @@ func TestAnalyzeExternEntityNameCollisionWithEntityRejected(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 }
 функция главная { вывести 1 }
 `)

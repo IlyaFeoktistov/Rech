@@ -7,8 +7,8 @@ func TestRunExplicitConstructorAssignsFields(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
-        y: Целое
+        Целое x
+        Целое y
 
     конструктор(x: Целое, y: Целое)
     {
@@ -37,8 +37,8 @@ func TestRunExplicitConstructorFieldNotSetStaysZero(t *testing.T) {
 сущность Счётчик
 {
     имеет:
-        значение: Целое
-        метка: Строка
+        Целое значение
+        Строка метка
 
     конструктор(метка: Строка)
     {
@@ -62,8 +62,8 @@ func TestRunParentCallStmtRunsBaseConstructorOnSameObject(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя: Строка
-        возраст: Целое
+        Строка имя
+        Целое возраст
 
     конструктор(имя: Строка)
     {
@@ -74,7 +74,7 @@ func TestRunParentCallStmtRunsBaseConstructorOnSameObject(t *testing.T) {
 сущность Сотрудник наследует Пользователя
 {
     имеет:
-        зарплата: Целое
+        Целое зарплата
 
     конструктор(имя: Строка, зарплата: Целое)
     {
@@ -106,8 +106,8 @@ func TestRunImplicitConstructorOmitsTrailingDefaultField(t *testing.T) {
 структура Точка
 {
     имеет:
-        x: Целое
-        y: Целое = 9
+        Целое x
+        Целое y = 9
 }
 функция главная
 {
@@ -132,8 +132,8 @@ func TestRunImplicitConstructorNamedFormOmitsDefaultField(t *testing.T) {
 структура Пользователь
 {
     имеет:
-        имя: Строка
-        роль: Строка = "гость"
+        Строка имя
+        Строка роль = "гость"
 }
 функция главная
 {
@@ -156,8 +156,8 @@ func TestRunExplicitConstructorFieldStartsAtDefaultBeforeBody(t *testing.T) {
 сущность Счётчик
 {
     имеет:
-        шаг: Целое = 1
-        значение: Целое = 100
+        Целое шаг = 1
+        Целое значение = 100
 
     конструктор(значение: Целое)
     {
@@ -188,7 +188,7 @@ func TestRunEntityWithoutOwnConstructorKeepsImplicitForm(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя: Строка = "неизвестно"
+        Строка имя = "неизвестно"
 
     конструктор(имя: Строка)
     {
@@ -198,7 +198,7 @@ func TestRunEntityWithoutOwnConstructorKeepsImplicitForm(t *testing.T) {
 сущность Гость наследует Пользователя
 {
     имеет:
-        код: Целое
+        Целое код
 }
 функция главная
 {

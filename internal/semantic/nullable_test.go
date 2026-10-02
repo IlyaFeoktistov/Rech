@@ -290,7 +290,7 @@ func TestAnalyzeSerializeJSONUnwrapsNarrowedNullable(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 сущность Точка {
     имеет:
-        x: Целое
+        Целое x
 }
 функция главная {
     переменная т: ?Точка = Ничто

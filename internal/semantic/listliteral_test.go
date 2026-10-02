@@ -58,7 +58,7 @@ func TestAnalyzeListLiteralEntityElementAllowed(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 сущность Точка {
     имеет:
-        x: Целое
+        Целое x
 
     конструктор(x: Целое)
     {

@@ -17,7 +17,7 @@ func TestAnalyzeProtobufParseNarrowingAllowsByteListSource(t *testing.T) {
 структура Сообщение
 {
     имеет:
-        текст: Строка `+"`protobuf:1`"+`
+        Строка текст `+"`protobuf:1`"+`
 }
 
 функция главная

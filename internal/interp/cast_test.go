@@ -158,7 +158,7 @@ func TestRunCastStringerToString(t *testing.T) {
 сущность Точка реализует Строчный
 {
     имеет:
-        x: Целое
+        Целое x
 
     конструктор(x: Целое)
     {
@@ -190,13 +190,13 @@ func TestRunTemplateInterpolationAsPrinted(t *testing.T) {
 структура Пара
 {
     имеет:
-        а: Целое
+        Целое а
 }
 
 сущность Квадрат
 {
     имеет:
-        сторона: Целое
+        Целое сторона
 }
 
 функция главная

@@ -37,7 +37,7 @@ func TestAnalyzeBoxCastAnyValueOK(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 
     конструктор(x: Целое)
     {
@@ -117,8 +117,8 @@ func TestAnalyzeTypeInfoMethodsOK(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
-        y: Целое
+        Целое x
+        Целое y
 
     длина(): Целое
     {
@@ -158,7 +158,7 @@ func TestAnalyzeFieldByTagMethodsOK(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое `+"`"+`sql:x`+"`"+`
+        Целое x `+"`"+`sql:x`+"`"+`
 }
 функция главная
 {
@@ -321,7 +321,7 @@ func TestAnalyzeBaseTypeAndInterfaceReflectionMethodsOK(t *testing.T) {
 сущность Животное
 {
     имеет:
-        имя: Строка
+        Строка имя
 }
 сущность Кот наследует Животное реализует Звучащий
 {

@@ -11,8 +11,8 @@ func TestCtorBareReturnExitsBodyObjectStillCreated(t *testing.T) {
 	src := `сущность Точка
 {
     имеет:
-        x: Целое
-        y: Целое = 9
+        Целое x
+        Целое y = 9
 
     конструктор(x: Целое)
     {
@@ -27,7 +27,7 @@ func TestCtorBareReturnExitsBodyObjectStillCreated(t *testing.T) {
 сущность Метка наследует Точку
 {
     имеет:
-        z: Целое
+        Целое z
 
     конструктор(x: Целое)
     {

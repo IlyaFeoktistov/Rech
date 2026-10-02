@@ -47,7 +47,7 @@ func TestAnalyzeConcreteEntityImplementingAbstractMethodSucceeds(t *testing.T) {
 абстрактная сущность Животное
 {
     имеет:
-        имя: Строка
+        Строка имя
 
     голос(): Строка
 

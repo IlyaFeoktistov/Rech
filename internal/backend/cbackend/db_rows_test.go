@@ -19,7 +19,7 @@ func TestGenerateFromIRDBRowsStructTargetUsesValueAccess(t *testing.T) {
 структура Пользователь
 {
     имеет:
-        имя: Строка ` + "`sql:name`" + `
+        Строка имя `+"`sql:name`"+`
 }
 
 функция главная
@@ -58,7 +58,7 @@ func TestGenerateFromIRDBRowsEntityTargetUnchangedBehavior(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя: Строка ` + "`sql:name`" + `
+        Строка имя `+"`sql:name`"+`
 }
 
 функция главная

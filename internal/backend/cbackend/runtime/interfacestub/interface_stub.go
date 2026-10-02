@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
+	"github.com/IlyaFeoktistov/Rech/internal/morph"
 )
 
 // exportedCtorCSymbol/exportedMethodCSymbol - настоящее C-имя (без
@@ -221,7 +222,8 @@ func render(fns []*ir.Function, ents []*ir.Entity) string {
 			// выше, без автоген обёртки.
 			continue
 		}
-		fmt.Fprintf(&sb, "сущность %s\n{\n\tимеет:\n\t\tприватный дескриптор: %s\n\n", ent.Name, alias)
+		g, n, _ := morph.TypeAgreement(alias)
+		fmt.Fprintf(&sb, "сущность %s\n{\n\tимеет:\n\t\t%s %s дескриптор\n\n", ent.Name, morph.HardAdjectiveForm("приватн", g, n), alias)
 		if hasCtor {
 			fmt.Fprintf(&sb, "\tконструктор(%s)\n\t{\n\t\tэтот.дескриптор = %s(%s)\n\t}\n\n", rechParamList(ent.Ctor.Params), exportedCtorCSymbol(ent.Name), rechArgList(ent.Ctor.Params))
 		}

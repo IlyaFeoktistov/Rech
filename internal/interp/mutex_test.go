@@ -11,8 +11,8 @@ func TestRunMutexSerializesConcurrentFieldUpdates(t *testing.T) {
 сущность Счёт
 {
     имеет:
-        баланс: Целое
-        блокировка: Блокировка
+        Целое баланс
+        Блокировка блокировка
 
     конструктор(баланс: Целое, блокировка: Блокировка)
     {
@@ -67,8 +67,8 @@ func TestRunConcurrentFieldAccessOnSharedEntityDoesNotCrashInterpreter(t *testin
 сущность Счёт
 {
     имеет:
-        баланс: Целое
-        блокировка: Блокировка
+        Целое баланс
+        Блокировка блокировка
 
     конструктор(баланс: Целое, блокировка: Блокировка)
     {

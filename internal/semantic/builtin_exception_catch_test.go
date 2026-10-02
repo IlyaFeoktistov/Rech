@@ -10,7 +10,7 @@ func TestBuiltinExceptionCatchableByNameBeforeFirstUse(t *testing.T) {
 сущность Точка
 {
     имеет:
-        публичный x: Целое
+        публичное Целое x
 }
 
 функция безопасно(действие: Вызываемый())

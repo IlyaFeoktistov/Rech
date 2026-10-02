@@ -16,7 +16,7 @@ func TestOperatorOverloadResolvesToStaticMethodCall(t *testing.T) {
 структура Вектор
 {
     имеет:
-        x: Целое
+        Целое x
 
     статический публичный оператор +(a: Вектор, b: Вектор): Вектор
     {
@@ -56,7 +56,7 @@ func TestOperatorOverloadOverridesStructEquality(t *testing.T) {
 структура Вектор
 {
     имеет:
-        x: Целое
+        Целое x
 
     статический публичный оператор ==(a: Вектор, b: Вектор): Логическое
     {
@@ -95,7 +95,7 @@ func TestOperatorOverloadOnlyLeftOperandDeclares(t *testing.T) {
 структура Вектор
 {
     имеет:
-        x: Целое
+        Целое x
 
     статический публичный оператор +(a: Вектор, b: Вектор): Вектор
     {
@@ -121,7 +121,7 @@ func TestOperatorOverloadWrongOperandTypeFails(t *testing.T) {
 структура Вектор
 {
     имеет:
-        x: Целое
+        Целое x
 
     статический публичный оператор +(a: Вектор, b: Вектор): Вектор
     {
@@ -146,7 +146,7 @@ func TestOperatorOverloadMixedTypeParams(t *testing.T) {
 структура Вектор
 {
     имеет:
-        x: Действительное
+        Действительное x
 
     статический публичный оператор *(a: Вектор, k: Действительное): Вектор
     {

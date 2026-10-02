@@ -14,7 +14,7 @@ func TestParseInheritsRequiresAccusativeCase(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя: Строка
+        Строка имя
 }
 сущность Сотрудник наследует Пользователя
 {
@@ -34,7 +34,7 @@ func TestParseInheritsRejectsNominativeWhenAccusativeDiffers(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя: Строка
+        Строка имя
 }
 сущность Сотрудник наследует Пользователь
 {
@@ -58,7 +58,7 @@ func TestParseImplementsRequiresAccusativeCaseForEachInList(t *testing.T) {
 сущность Пользователь реализует Звучащий
 {
     имеет:
-        имя: Строка
+        Строка имя
 
     издать_звук(): Строка
     {

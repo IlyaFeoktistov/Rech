@@ -35,7 +35,7 @@ func TestAnalyzeExportedFunctionWithExportedEntity(t *testing.T) {
 экспортировать сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 
     конструктор(x: Целое)
     {
@@ -58,7 +58,7 @@ func TestAnalyzeExportedFunctionWithNonExportedEntityRejected(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 
     конструктор(x: Целое)
     {
@@ -81,7 +81,7 @@ func TestAnalyzeExportedStructRejected(t *testing.T) {
 экспортировать структура Точка
 {
     имеет:
-        x: Целое
+        Целое x
 }
 функция главная { вывести "ок" }
 `)
@@ -109,7 +109,7 @@ func TestAnalyzeExportedMethodOnExportedEntity(t *testing.T) {
 экспортировать сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 
     экспортировать конструктор(x: Целое)
     {
@@ -143,7 +143,7 @@ func TestAnalyzeExportedMethodOnNonExportedEntityRejected(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 
     экспортировать координата(): Целое
     {
@@ -164,7 +164,7 @@ func TestAnalyzeExportedConstructorOnNonExportedEntityRejected(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 
     экспортировать конструктор(x: Целое)
     {
@@ -186,7 +186,7 @@ func TestAnalyzeExportedMethodWithUnexportableTypeRejected(t *testing.T) {
 экспортировать сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 
     экспортировать метод(список: Список<Целое>)
     {

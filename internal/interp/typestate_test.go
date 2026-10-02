@@ -8,7 +8,7 @@ const typestateTestEntities = `
     состояние: авторизован
 
     имеет:
-        имя: Строка
+        Строка имя
 
     конструктор(имя: Строка)
     {
@@ -92,7 +92,7 @@ func TestRunOppositeMethodClearsRuntimeStateFlag(t *testing.T) {
     состояние: вошедший
 
     имеет:
-        имя: Строка
+        Строка имя
 
     конструктор(имя: Строка)
     {
@@ -144,7 +144,7 @@ func TestRunOpaqueCallInvalidatesEstablishedSoStateCheckCatchesRevoke(t *testing
     состояние: вошедший
 
     имеет:
-        имя: Строка
+        Строка имя
 
     конструктор(имя: Строка)
     {

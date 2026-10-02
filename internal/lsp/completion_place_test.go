@@ -22,7 +22,7 @@ const placeSrc = `интерфейс Фигура
 сущность Точка наследует Базу реализует Фигуру
 {
     имеет:
-        публичный x: Целое
+        публичное Целое x
 
     публичный сдвинуть(на: Целое): Целое
     {
@@ -178,5 +178,16 @@ func TestCompletionInterfaceVariableMembers(t *testing.T) {
 	got := placeLabels(t, "%MAIN%", "    фиг.", "")
 	if sortedKeys(got) != "площадь" {
 		t.Fatalf("фиг.: %s", sortedKeys(got))
+	}
+}
+
+// TestCompletionFieldSectionSuggestsTypes - в "имеет:" поле начинается с
+// типа ("[модификаторы] Тип имя"): типы в подсказках есть.
+func TestCompletionFieldSectionSuggestsTypes(t *testing.T) {
+	got := placeLabels(t, "%ENTITY%", "    имеет:\n        приватная Ст", "")
+	for _, want := range []string{"Строка", "Точка", "Целое"} {
+		if !got[want] {
+			t.Errorf("нет %q: %s", want, sortedKeys(got))
+		}
 	}
 }

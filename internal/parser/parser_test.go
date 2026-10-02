@@ -423,8 +423,8 @@ func TestParseEntityWithFields(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя: Строка
-        возраст: Целое
+        Строка имя
+        Целое возраст
 }
 функция главная { вывести "ок" }
 `)
@@ -453,7 +453,7 @@ func TestParseEntityStatesDerivesTypeName(t *testing.T) {
     состояние: неавторизован авторизован
 
     имеет:
-        имя: Строка
+        Строка имя
 }
 функция главная { вывести "ок" }
 `)
@@ -482,7 +482,7 @@ func TestParseEntityStatesFromActiveParticiple(t *testing.T) {
     состояние: вошедший
 
     имеет:
-        имя: Строка
+        Строка имя
 }
 функция главная { вывести "ок" }
 `)
@@ -505,7 +505,7 @@ func TestParseEntityStatesFromActiveParticipleAgreesWithGender(t *testing.T) {
     состояние: вошедший
 
     имеет:
-        имя: Строка
+        Строка имя
 }
 функция главная { вывести "ок" }
 `)
@@ -587,7 +587,7 @@ func TestParseClassIsSynonymForEntity(t *testing.T) {
 класс Пользователь
 {
     имеет:
-        имя: Строка
+        Строка имя
 }
 функция главная { вывести "ок" }
 `)
@@ -635,7 +635,7 @@ func TestParseNewExprAndFieldAccess(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя: Строка
+        Строка имя
 }
 функция главная {
     переменная пользователь = новый Пользователь("Илья")
@@ -841,7 +841,7 @@ func TestParseThisFieldIncDec(t *testing.T) {
 	prog, err := parseSource(t, `
 сущность Счётчик {
     имеет:
-        значение: Целое = 0
+        Целое значение = 0
 
     инкрементировать() {
         этот.значение++
@@ -935,7 +935,7 @@ func TestParseMethodAndThis(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        возраст: Целое
+        Целое возраст
 
     состариться()
     {
@@ -977,7 +977,7 @@ func TestParseMethodCallAsExpressionAndStatement(t *testing.T) {
 сущность П
 {
     имеет:
-        х: Целое
+        Целое х
 }
 функция главная {
     переменная p = новый П(1)
@@ -1004,7 +1004,7 @@ func TestParseMethodRequiresParens(t *testing.T) {
 сущность П
 {
     имеет:
-        х: Целое
+        Целое х
     метод: Целое
 }
 функция главная { вывести "ок" }
@@ -1110,12 +1110,12 @@ func TestParseNaturalCallMixedTaggedAndPositional(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя: Строка
+        Строка имя
 }
 сущность Права
 {
     имеет:
-        уровень: Целое
+        Целое уровень
 }
 функция оформить(кого пользователь: Пользователь, права: Права) { вывести пользователь.имя }
 функция главная {
@@ -1164,7 +1164,7 @@ func TestParseBareIdentifierNotConfusedWithSameNameFunction(t *testing.T) {
 сущность Коробка
 {
     имеет:
-        первый: Строка
+        Строка первый
 
     конструктор(первый: Строка)
     {
@@ -1384,22 +1384,22 @@ func TestParseNewExprGenderAgreement(t *testing.T) {
 сущность Сова
 {
     имеет:
-        х: Целое
+        Целое х
 }
 сущность Окно
 {
     имеет:
-        х: Целое
+        Целое х
 }
 сущность Пользователь
 {
     имеет:
-        х: Целое
+        Целое х
 }
 сущность Права
 {
     имеет:
-        х: Целое
+        Целое х
 }
 функция главная {
     переменная а = новая Сова(1)
@@ -1418,7 +1418,7 @@ func TestParseNewExprGenderMismatchFails(t *testing.T) {
 сущность Сова
 {
     имеет:
-        х: Целое
+        Целое х
 }
 функция главная {
     переменная а = новый Сова(1)
@@ -1438,7 +1438,7 @@ func TestParseNewExprUnclassifiableWordAcceptsAnyForm(t *testing.T) {
 сущность Мнрдчь
 {
     имеет:
-        х: Целое
+        Целое х
 }
 функция главная {
     переменная а = ` + kw + ` Мнрдчь(1)
@@ -1455,8 +1455,8 @@ func TestParseNewExprLabeledArgs(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя: Строка
-        возраст: Целое
+        Строка имя
+        Целое возраст
 }
 функция главная {
     переменная п = новый Пользователь(возраст: 30, имя: "Илья")
@@ -1480,8 +1480,8 @@ func TestParseNewExprMixedLabeledAndPositionalFails(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя: Строка
-        возраст: Целое
+        Строка имя
+        Целое возраст
 }
 функция главная {
     переменная п = новый Пользователь("Илья", возраст: 30)
@@ -1748,8 +1748,8 @@ func TestParseStructDeclSetsIsStruct(t *testing.T) {
 структура Точка
 {
     имеет:
-        x: Целое
-        y: Целое
+        Целое x
+        Целое y
 }
 функция главная { вывести "ок" }
 `)
@@ -1769,12 +1769,12 @@ func TestParseEntityAndClassDeclLeaveIsStructFalse(t *testing.T) {
 сущность А
 {
     имеет:
-        x: Целое
+        Целое x
 }
 класс Б
 {
     имеет:
-        x: Целое
+        Целое x
 }
 функция главная { вывести "ок" }
 `)
@@ -1791,7 +1791,7 @@ func TestParseStructErrorMessageUsesStructLabel(t *testing.T) {
 структура Точка
 {
     имеет:
-        x: Целое
+        Целое x
     если
 }
 функция главная { вывести "ок" }
@@ -1833,12 +1833,12 @@ func TestParseEntityInheritsAndImplements(t *testing.T) {
 сущность Животное
 {
     имеет:
-        имя: Строка
+        Строка имя
 }
 сущность Собака наследует Животное реализует Звучащий, Бегущий
 {
     имеет:
-        порода: Строка
+        Строка порода
 }
 функция главная { вывести "ок" }
 `)
@@ -1862,7 +1862,7 @@ func TestParseStructRejectsInheritsAndImplements(t *testing.T) {
 структура Точка наследует Что_то
 {
     имеет:
-        x: Целое
+        Целое x
 }
 функция главная { вывести "ок" }
 `)
@@ -1874,7 +1874,7 @@ func TestParseStructRejectsInheritsAndImplements(t *testing.T) {
 структура Точка реализует Что_то
 {
     имеет:
-        x: Целое
+        Целое x
 }
 функция главная { вывести "ок" }
 `)
@@ -1961,7 +1961,7 @@ func TestParseAbstractStructRejected(t *testing.T) {
 абстрактная структура Точка
 {
     имеет:
-        x: Целое
+        Целое x
 }
 функция главная { вывести "ок" }
 `)

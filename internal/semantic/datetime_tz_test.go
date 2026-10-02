@@ -141,7 +141,7 @@ func TestAnalyzeDateTimeMethodNameOnRegularEntityStillWorksNormally(t *testing.T
 сущность Счётчик
 {
     имеет:
-        значение: Целое
+        Целое значение
 
     конструктор(значение: Целое)
     {

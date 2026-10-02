@@ -12,8 +12,8 @@ func TestDebuggerEvaluateLocalsAndFields(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
-        y: Целое
+        Целое x
+        Целое y
 
     конструктор(x: Целое, y: Целое)
     {
@@ -75,7 +75,7 @@ func TestDebuggerEvaluateMethodCall(t *testing.T) {
 сущность Счётчик
 {
     имеет:
-        значение: Целое
+        Целое значение
 
     конструктор(значение: Целое)
     {

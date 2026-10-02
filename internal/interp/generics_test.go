@@ -7,7 +7,7 @@ func TestRunGenericEntityAndFunction(t *testing.T) {
 сущность Коробка<T>
 {
     имеет:
-        содержимое: T
+        T содержимое
 
     конструктор(содержимое: T)
     {
@@ -44,8 +44,8 @@ func TestRunGenericMultipleParamsAndNesting(t *testing.T) {
 сущность Пара<A, Б>
 {
     имеет:
-        первый: A
-        второй: Б
+        A первый
+        Б второй
 
     конструктор(первый: A, второй: Б)
     {

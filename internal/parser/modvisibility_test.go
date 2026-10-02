@@ -44,13 +44,13 @@ func TestParsePrivateEntityAgreesWithEntityKeyword(t *testing.T) {
 приватная сущность А
 {
     имеет:
-        x: Целое
+        Целое x
 }
 приватный класс Б { }
 приватная структура В
 {
     имеет:
-        y: Целое
+        Целое y
 }
 функция главная { вывести "ок" }
 `)
@@ -201,7 +201,7 @@ func TestParseInternalAgreesWithGenderAcrossKinds(t *testing.T) {
 внутренняя структура Точка
 {
     имеет:
-        x: Целое
+        Целое x
 }
 внутреннее перечисление Режим
 {

@@ -105,13 +105,13 @@ func TestParseProgramLenientBrokenEntityKeepsFollowingEntity(t *testing.T) {
 сущность Сломанная
 {
     имеет:
-        поле Строка
+        Строка
 }
 
 сущность Целая
 {
     имеет:
-        имя: Строка
+        Строка имя
 }
 `
 	toks, err := lexer.New(src).Tokenize()
@@ -145,7 +145,7 @@ func TestParseProgramLenientBrokenMethodParamsKeepsFollowingEntity(t *testing.T)
 сущность Целая
 {
     имеет:
-        имя: Строка
+        Строка имя
 }
 `
 	toks, err := lexer.New(src).Tokenize()

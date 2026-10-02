@@ -12,9 +12,9 @@ import (
 
 // alignEntityFields выравнивает соседние объявления полей сущности/
 // структуры ("имеет:") в таблицу - тем же принципом, что gofmt выравнивает
-// теги структуры Go: "имя:" каждого поля дополняется пробелами до
-// столбца, где начинается Тип (общий для всей группы), значение по
-// умолчанию после "=" - до общего столбца тега. Поле без "="/тега просто
+// теги структуры Go: модификаторы с Типом каждого поля дополняются
+// пробелами до столбца, где начинается имя (общий для всей группы), имя -
+// до общего столбца "=", значение по умолчанию - до общего столбца тега. Поле без "="/тега просто
 // заканчивается раньше - text/tabwriter сам не растягивает отсутствующую
 // ячейку (рваные строки, ragged rows), значит на строке без значения по
 // умолчанию не появляется висячих пробелов.
@@ -61,7 +61,7 @@ func alignEntityFields(src string) (string, error) {
 }
 
 // fieldRow - один field ряда таблицы, уже разрезанный на ячейки
-// (имя_с_модификаторами+":", Тип, "= значение_по_умолчанию", тег) -
+// (модификаторы с Типом, имя, "= значение_по_умолчанию", тег) -
 // пустая строка ячейки, если этой части у поля нет (см. package doc
 // alignEntityFields про рваные строки).
 type fieldRow struct {
@@ -110,9 +110,9 @@ func hasBlankLineBetween(lines []string, fromLine, toLine int) bool {
 }
 
 // buildFieldRow разбирает объявление поля f на ячейки будущей таблицы -
-// граница между Тип/"= значение"/тег ищется по САМИМ токенам (первый "="
-// после ":" - начало значения по умолчанию, TAG - всегда последний), а не
-// по значению ast.Field.Type/Default (те - уже разобранные данные без
+// границы ищутся по САМИМ токенам (первый "=" - начало значения по
+// умолчанию, TAG - всегда последний, имя - токен прямо перед ними), а не по
+// значению ast.Field.Type/Default (те - уже разобранные данные без
 // исходного текста/отступов) - см. package doc alignEntityFields.
 func buildFieldRow(lines []string, lineToks map[int][]lexer.Token, f ast.Field) (fieldRow, bool) {
 	row := fieldRow{line: f.Line}
@@ -120,19 +120,9 @@ func buildFieldRow(lines []string, lineToks map[int][]lexer.Token, f ast.Field) 
 		return row, false
 	}
 	toks := lineToks[f.Line]
-	colonIdx := -1
-	for i, t := range toks {
-		if t.Type == lexer.COLON {
-			colonIdx = i
-			break
-		}
-	}
-	if colonIdx == -1 {
-		return row, false
-	}
 	assignIdx, tagIdx := -1, -1
-	for i := colonIdx + 1; i < len(toks); i++ {
-		switch toks[i].Type {
+	for i, t := range toks {
+		switch t.Type {
 		case lexer.ASSIGN:
 			if assignIdx == -1 {
 				assignIdx = i
@@ -141,15 +131,24 @@ func buildFieldRow(lines []string, lineToks map[int][]lexer.Token, f ast.Field) 
 			tagIdx = i
 		}
 	}
+	nameIdx := len(toks) - 1
+	if assignIdx != -1 {
+		nameIdx = assignIdx - 1
+	} else if tagIdx != -1 {
+		nameIdx = tagIdx - 1
+	}
+	if nameIdx < 1 || toks[nameIdx].Type != lexer.IDENT || toks[nameIdx].Value != f.Name {
+		return row, false
+	}
 
 	lineText := lines[f.Line-1]
 	lineEndCol := len([]rune(lineText)) + 1
 
-	typeEndCol := lineEndCol
+	nameEndCol := lineEndCol
 	if assignIdx != -1 {
-		typeEndCol = toks[assignIdx].Col
+		nameEndCol = toks[assignIdx].Col
 	} else if tagIdx != -1 {
-		typeEndCol = toks[tagIdx].Col
+		nameEndCol = toks[tagIdx].Col
 	}
 	defaultEndCol := lineEndCol
 	if tagIdx != -1 {
@@ -178,8 +177,8 @@ func buildFieldRow(lines []string, lineToks map[int][]lexer.Token, f ast.Field) 
 	// СРАЗУ, раньше, чем что-либо успевает пересчитать отступы заново -
 	// обрезать этот отступ здесь значило бы сломать разбор файла, если он
 	// был меньше "запаса", который потом восстановит computeLineDepths.
-	row.cells[0] = slice(1, toks[colonIdx].Col+1)
-	row.cells[1] = strings.TrimSpace(slice(toks[colonIdx].Col+1, typeEndCol))
+	row.cells[0] = strings.TrimRight(slice(1, toks[nameIdx].Col), " \t")
+	row.cells[1] = strings.TrimSpace(slice(toks[nameIdx].Col, nameEndCol))
 	if assignIdx != -1 {
 		row.cells[2] = strings.TrimSpace(slice(toks[assignIdx].Col, defaultEndCol))
 	}

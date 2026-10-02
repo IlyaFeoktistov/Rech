@@ -37,7 +37,7 @@ func TestRunNullableCollectionLiteralsAndEquality(t *testing.T) {
 	got := runSrc(t, `сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 
     конструктор(x: Целое)
     {
@@ -97,14 +97,14 @@ func TestRunNullableCollectionStructCallableField(t *testing.T) {
 	got := runSrc(t, `структура Пара
 {
     имеет:
-        а: Целое
-        б: Целое
+        Целое а
+        Целое б
 }
 
 сущность Журнал
 {
     имеет:
-        записи: Список<?Строка>
+        Список<?Строка> записи
 
     конструктор()
     {

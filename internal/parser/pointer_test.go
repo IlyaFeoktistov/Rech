@@ -20,7 +20,7 @@ func TestParseAddressOfVariable(t *testing.T) {
 
 func TestParseAddressOfField(t *testing.T) {
 	src := "" +
-		"сущность Точка\n{\n    имеет:\n        x: Целое\n}\n" +
+		"сущность Точка\n{\n    имеет:\n        Целое x\n}\n" +
 		"функция главная { переменная т = новая Точка(1)\nвывести &т.x }\n"
 	prog, err := parseSource(t, src)
 	if err != nil {

@@ -15,7 +15,7 @@ func TestAnalyzeEntityEqualityComparesByReference(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 
     конструктор(x: Целое)
     {
@@ -45,8 +45,8 @@ func TestAnalyzeStructEqualityFieldByField(t *testing.T) {
 структура Точка
 {
     имеет:
-        x: Целое
-        имя: Строка
+        Целое x
+        Строка имя
 }
 функция главная
 {
@@ -68,14 +68,14 @@ func TestAnalyzeStructEqualityNestedStruct(t *testing.T) {
 структура Точка
 {
     имеет:
-        x: Целое
-        y: Целое
+        Целое x
+        Целое y
 }
 структура Отрезок
 {
     имеет:
-        начало: Точка
-        конец: Точка
+        Точка начало
+        Точка конец
 }
 функция главная
 {
@@ -100,7 +100,7 @@ func TestAnalyzeStructEqualityAllowsGenericCollectionField(t *testing.T) {
 структура Корзина
 {
     имеет:
-        товары: Список<Строка>
+        Список<Строка> товары
 }
 функция главная
 {
@@ -124,7 +124,7 @@ func TestAnalyzeStructEqualityRejectsUnsupportedField(t *testing.T) {
 структура Корзина
 {
     имеет:
-        скидка: ?Целое
+        ?Целое скидка
 }
 функция главная
 {

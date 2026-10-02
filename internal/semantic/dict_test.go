@@ -44,7 +44,7 @@ func TestAnalyzeDictAllowsEntityValueOutsideField(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 }
 функция главная
 {

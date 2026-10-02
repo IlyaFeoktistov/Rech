@@ -170,7 +170,7 @@ func builtinTypeStubSource(name string) (string, bool) {
 	if fields, ok := reservedEntityFields[name]; ok {
 		content += "\n{\n    имеет:\n"
 		for _, f := range fields {
-			content += "    " + f.Name + ": " + f.Type.String() + "\n"
+			content += "    " + f.Type.String() + " " + f.Name + "\n"
 		}
 		content += "}\n"
 	} else {

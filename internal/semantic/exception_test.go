@@ -69,7 +69,7 @@ func TestAnalyzeThrowRejectsNonExceptionType(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое = 0
+        Целое x = 0
 }
 функция главная
 {
@@ -86,7 +86,7 @@ func TestAnalyzeCatchRejectsNonExceptionType(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое = 0
+        Целое x = 0
 }
 функция главная
 {
@@ -206,7 +206,7 @@ func TestAnalyzeIsExprRejectsUnrelatedTypes(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое = 0
+        Целое x = 0
 }
 функция главная
 {

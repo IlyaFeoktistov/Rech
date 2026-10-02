@@ -419,49 +419,36 @@ func (p *Parser) parseFieldsSection() ([]ast.Field, error) {
 	return fields, nil
 }
 
-// parseField разбирает одно поле, необязательно с модификатором "статический"
-// и/или модификатором видимости перед именем: "[статический|статическая|
-// статическое] [приватный|публичный|защищённый] имя: Тип". Оба модификатора
-// согласуются по роду с именем поля тем же принципом, что и "новый"/"новая"
-// у конструктора (см. visibilityKeywordFor/checkVisibilityAgreement) - без
-// модификатора видимости поле публичное (Field.Visibility == ast.Public), без
-// "статический" - обычное поле экземпляра (Field.IsStatic == false, см.
-// package doc ast.Field.IsStatic).
+// parseField разбирает одно поле: "[статический] [видимость] Тип имя
+// [= значение] [тег]", модификаторы в любом порядке (memberModifiers). Оба
+// модификатора согласуются по роду с ТИПОМ поля (morph.TypeAgreement) тем же
+// принципом, что и "новый"/"новая" у конструктора - без модификатора видимости поле публичное
+// (Field.Visibility == ast.Public), без "статический" - обычное поле
+// экземпляра (Field.IsStatic == false, см. package doc ast.Field.IsStatic).
 func (p *Parser) parseField() (ast.Field, error) {
 	staticTok, visTok := p.memberModifiers()
-	if p.peekAt(1).Type != lexer.COLON {
-		var mods []lexer.Token
-		for _, m := range []*lexer.Token{staticTok, visTok} {
-			if m != nil {
-				mods = append(mods, *m)
-			}
-		}
-		if err := p.typeFirstFieldError(mods); err != nil {
-			return ast.Field{}, err
-		}
+	if err := p.nameFirstFieldError(modifierTokens(staticTok, visTok)); err != nil {
+		return ast.Field{}, err
+	}
+	typeName, err := p.parseTypeName()
+	if err != nil {
+		return ast.Field{}, diagnostics.Wrap(err, "ожидался тип поля")
 	}
 	name, err := p.expect(lexer.IDENT)
 	if err != nil {
-		return ast.Field{}, diagnostics.Wrap(err, "ожидалось имя поля")
+		return ast.Field{}, diagnostics.Wrap(err, "после типа поля %q ожидалось имя поля", typeName)
 	}
 	if staticTok != nil {
-		if err := checkStaticAgreement(*staticTok, name.Value); err != nil {
+		if err := checkStaticAgreement(*staticTok, typeName); err != nil {
 			return ast.Field{}, diagnostics.Wrap(err, "поле %q", name.Value)
 		}
 	}
 	var vis ast.Visibility
 	if visTok != nil {
 		vis = visibilityFromToken(*visTok)
-		if err := checkVisibilityAgreement(*visTok, vis, name.Value); err != nil {
+		if err := checkVisibilityAgreement(*visTok, vis, typeName); err != nil {
 			return ast.Field{}, diagnostics.Wrap(err, "поле %q", name.Value)
 		}
-	}
-	if _, err := p.expect(lexer.COLON); err != nil {
-		return ast.Field{}, diagnostics.Wrap(err, "после имени поля %q ожидалось \":\" и тип", name.Value)
-	}
-	typeName, err := p.parseTypeName()
-	if err != nil {
-		return ast.Field{}, diagnostics.Wrap(err, "после \":\" у поля %q ожидалось имя типа", name.Value)
 	}
 	var def ast.Expr
 	if p.cur().Type == lexer.ASSIGN {
@@ -495,15 +482,15 @@ func staticKeywordFor(gender morph.Gender, number morph.Number) string {
 }
 
 // checkStaticAgreement - как checkVisibilityAgreement, но для модификатора
-// "статический" перед именем поля.
-func checkStaticAgreement(kw lexer.Token, fieldName string) error {
-	gender, number, ok := morph.CompoundNounAgreement(fieldName)
+// "статический" перед типом поля.
+func checkStaticAgreement(kw lexer.Token, typeName string) error {
+	gender, number, ok := morph.TypeAgreement(typeName)
 	if !ok {
 		return nil
 	}
 	want := staticKeywordFor(gender, number)
 	if kw.Value != want {
-		return errAt(kw.Line, kw.Col, CodeModifierAgree, "модификатор \"статический\" не согласован по роду с именем поля").
+		return errAt(kw.Line, kw.Col, CodeModifierAgree, "модификатор \"статический\" не согласован по роду с типом поля").
 			WithHint("требует форму %q, получено %q", want, kw.Value)
 	}
 	return nil
@@ -569,32 +556,21 @@ func visibilityKeywordFor(vis ast.Visibility, gender morph.Gender, number morph.
 	case ast.Protected:
 		stem = "защищённ"
 	}
-	if number == morph.Plural {
-		return stem + "ые"
-	}
-	switch gender {
-	case morph.Feminine:
-		return stem + "ая"
-	case morph.Neuter:
-		return stem + "ое"
-	default:
-		return stem + "ый"
-	}
+	return morph.HardAdjectiveForm(stem, gender, number)
 }
 
 // checkVisibilityAgreement проверяет, что фактически написанная форма
-// модификатора видимости поля (kw.Value) согласуется по роду/числу с
-// именем поля fieldName - permissive fallback, как и checkNewKeywordAgreement:
-// если morph.NounAgreement не смогла определить род/число имени поля,
-// подходит любая форма.
-func checkVisibilityAgreement(kw lexer.Token, vis ast.Visibility, fieldName string) error {
-	gender, number, ok := morph.CompoundNounAgreement(fieldName)
+// модификатора видимости поля (kw.Value) согласуется по роду/числу с типом
+// поля typeName - permissive fallback, как и checkNewKeywordAgreement: если
+// род/число типа не определить, подходит любая форма.
+func checkVisibilityAgreement(kw lexer.Token, vis ast.Visibility, typeName string) error {
+	gender, number, ok := morph.TypeAgreement(typeName)
 	if !ok {
 		return nil
 	}
 	want := visibilityKeywordFor(vis, gender, number)
 	if kw.Value != want {
-		return errAt(kw.Line, kw.Col, CodeModifierAgree, "модификатор видимости поля не согласован по роду/числу с его именем").
+		return errAt(kw.Line, kw.Col, CodeModifierAgree, "модификатор видимости поля не согласован по роду/числу с его типом").
 			WithHint("требует форму %q, получено %q", want, kw.Value)
 	}
 	return nil

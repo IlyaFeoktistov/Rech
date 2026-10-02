@@ -111,7 +111,7 @@ func TestLoadRejectsImportOfPrivateFunction(t *testing.T) {
 // сущность"/"приватный класс"/"приватная структура".
 func TestLoadRejectsImportOfPrivateEntity(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "утилиты.rech", "приватная сущность Внутренний\n{\n    имеет:\n        x: Целое\n}\n")
+	writeFile(t, dir, "утилиты.rech", "приватная сущность Внутренний\n{\n    имеет:\n        Целое x\n}\n")
 	entry := writeFile(t, dir, "главный.rech", "использовать Внутренний из \"утилиты\"\n\nфункция главная\n{\n    вывести 1\n}\n")
 
 	_, err := Load(entry, testFrontend{})
@@ -220,7 +220,7 @@ func TestLinkManglesNonEntryDeclarations(t *testing.T) {
 // прекрасно резолвился в конструкторе.
 func TestLinkResolvesVarDeclTypeAnnotation(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "точка.rech", "публичная сущность Точка\n{\n    имеет:\n        x: Целое\n}\n")
+	writeFile(t, dir, "точка.rech", "публичная сущность Точка\n{\n    имеет:\n        Целое x\n}\n")
 	entry := writeFile(t, dir, "главный.rech",
 		"использовать Точка из \"точка\"\n\n"+
 			"функция главная\n{\n"+
@@ -388,7 +388,7 @@ func TestLinkResolvesInterfaceMethodEntityParamInNonEntryModule(t *testing.T) {
 структура Событие
 {
     имеет:
-        сообщение: Строка
+        Строка сообщение
 }
 `)
 	entry := writeFile(t, dir, "главный.rech", "использовать Наблюдатель, Событие из \"модель\"\n\nфункция главная\n{\n    вывести \"ок\"\n}\n")
@@ -508,13 +508,13 @@ func TestLinkImportsInterfaceByName(t *testing.T) {
 // ("неизвестный тип" у cbackend).
 func TestLinkResolvesExplicitConstructorParamType(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "внутренняя.rech", "сущность Внутренняя\n{\n    имеет:\n        значение: Целое\n}\n")
+	writeFile(t, dir, "внутренняя.rech", "сущность Внутренняя\n{\n    имеет:\n        Целое значение\n}\n")
 	entry := writeFile(t, dir, "главный.rech", `использовать Внутренняя из "внутренняя"
 
 сущность Внешняя
 {
     имеет:
-        приватный внутр: Внутренняя
+        приватная Внутренняя внутр
 
     конструктор(внутр: Внутренняя)
     {
@@ -681,7 +681,7 @@ func TestLinkResolvesEntityInsideCallableTypeArgument(t *testing.T) {
 	writeFile(t, dir, "утилиты.rech", `приватная сущность Товар
 {
     имеет:
-        имя: Строка
+        Строка имя
 }
 
 функция применить(колбэк: Вызываемый(Товар): Товар, товар: Товар): Товар
@@ -775,7 +775,7 @@ func TestLinkResolvesEntityInsideGenericTypeArgument(t *testing.T) {
 	writeFile(t, dir, "утилиты.rech", `приватная сущность Товар
 {
     имеет:
-        имя: Строка
+        Строка имя
 }
 
 функция получить_список(): Список<Товар>
@@ -820,7 +820,7 @@ func TestLinkResolvesEntityInsideDictValueArgument(t *testing.T) {
 	writeFile(t, dir, "утилиты.rech", `приватная сущность Товар
 {
     имеет:
-        имя: Строка
+        Строка имя
 }
 
 функция получить_словарь(): Словарь<Строка, Товар>
@@ -869,7 +869,7 @@ func TestLinkResolvesParentCallArgs(t *testing.T) {
 сущность Базовый
 {
     имеет:
-        имя: Строка
+        Строка имя
 
     конструктор(имя: Строка)
     {

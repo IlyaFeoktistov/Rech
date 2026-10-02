@@ -34,7 +34,7 @@ func TestAnalyzeDocCommentsFlowIntoIR(t *testing.T) {
 
     имеет:
         /** Горизонтальная координата. */
-        x: Целое
+        Целое x
 
     /** Расстояние до начала координат. */
     длина(): Целое
@@ -90,7 +90,7 @@ func TestAnalyzeGenericInstantiationKeepsDoc(t *testing.T) {
 сущность Коробка<T>
 {
     имеет:
-        содержимое: T
+        T содержимое
 
     конструктор(содержимое: T)
     {

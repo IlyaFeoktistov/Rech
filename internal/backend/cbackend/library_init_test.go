@@ -16,12 +16,12 @@ import (
 // main(), статические поля и переменные модуля инициализирует
 // rech_init_library (constructor) до main() программы-потребителя.
 func TestGenerateLibFromIRInitializesStaticsAndGlobals(t *testing.T) {
-	toks, err := lexer.New(`приватная Целое основа = 41
+	toks, err := lexer.New(`приватное Целое основа = 41
 
 сущность Счётчик
 {
     имеет:
-        статическое начало: Целое = 100
+        статическое Целое начало = 100
 }
 
 экспортировать функция значение(): Целое

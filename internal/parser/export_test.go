@@ -36,7 +36,7 @@ func TestParseExportedEntity(t *testing.T) {
 экспортировать сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 }
 функция главная { вывести "ок" }
 `)
@@ -53,7 +53,7 @@ func TestParseExportedEntityNotExportedByDefault(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 }
 функция главная { вывести "ок" }
 `)
@@ -95,7 +95,7 @@ func TestParseExportedMethodAndConstructor(t *testing.T) {
 экспортировать сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 
     экспортировать конструктор(x: Целое)
     {
@@ -161,7 +161,7 @@ func TestParseExportListBareRepeated(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 
     конструктор(x: Целое)
     {
@@ -200,7 +200,7 @@ func TestParseExportListBlock(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 
     координата(): Целое
     {
@@ -234,7 +234,7 @@ func TestParseExportListForwardReferenceRejected(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 }
 функция главная { вывести "ок" }
 `)
@@ -248,7 +248,7 @@ func TestParseExportListUnknownMemberRejected(t *testing.T) {
 сущность Точка
 {
     имеет:
-        x: Целое
+        Целое x
 }
 экспортировать Точка.нет_такого
 функция главная { вывести "ок" }

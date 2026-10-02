@@ -77,8 +77,8 @@ func TestAnalyzeDBRowsAsListEntity(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        username: Строка
-        password: Строка
+        Строка username
+        Строка password
 }
 функция главная
 {
@@ -110,7 +110,7 @@ func TestAnalyzeDBRowsAsRejectsCtorEntity(t *testing.T) {
 сущность Пользователь
 {
     имеет:
-        имя: Строка
+        Строка имя
 
     конструктор(имя: Строка)
     {
@@ -137,12 +137,12 @@ func TestAnalyzeDBRowsAsRejectsNestedEntityField(t *testing.T) {
 сущность Адрес
 {
     имеет:
-        город: Строка
+        Строка город
 }
 сущность Пользователь
 {
     имеет:
-        адрес: Адрес
+        Адрес адрес
 }
 функция главная
 {

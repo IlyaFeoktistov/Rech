@@ -186,7 +186,7 @@ func TestListElementPointerRejected(t *testing.T) {
 сущность Хранитель
 {
     имеет:
-        публичный п: *Целое
+        публичный *Целое п
 
     конструктор()
     {

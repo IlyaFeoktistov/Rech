@@ -42,7 +42,7 @@ func TestRunPanicIncludesMethodFrame(t *testing.T) {
 сущность Счёт
 {
     имеет:
-        баланс: Целое
+        Целое баланс
 
     конструктор(баланс: Целое)
     {

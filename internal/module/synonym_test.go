@@ -9,7 +9,7 @@ import (
 
 func TestLinkImportsSynonymAndRewritesItsTarget(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "типы.rech", "сущность Точка\n{\n    имеет:\n        x: Целое\n}\n\nпубличный синоним Точки = Список<Точка>\n")
+	writeFile(t, dir, "типы.rech", "сущность Точка\n{\n    имеет:\n        Целое x\n}\n\nпубличный синоним Точки = Список<Точка>\n")
 	entry := writeFile(t, dir, "главный.rech", "использовать Точки как Набор из \"типы\"\n\nфункция главная\n{\n    переменная т: Набор = []\n}\n")
 
 	prog, err := Load(entry, testFrontend{})
