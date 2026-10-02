@@ -292,6 +292,9 @@ func main() {
 	comp.CBuild = cBuild
 	comp.Service = isService
 	build := func() (string, error) { return comp.Build(srcPath, keepC, extraLibs, extraLibPaths) }
+	if outDir != "" {
+		comp.LibName = projName // placeInOutputDir ниже переносит под этим именем
+	}
 	buildLib := func() (string, string, []string, error) {
 		return comp.BuildLib(srcPath, libRoot, outDir, keepC, extraLibs, extraLibPaths)
 	}

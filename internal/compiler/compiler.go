@@ -242,6 +242,11 @@ type Compiler struct {
 	Frontend  Frontend
 	Backend   Backend
 	Toolchain Toolchain
+	// LibName - имя файла библиотеки без расширения, под которым она
+	// окажется в каталоге сборки (имя проекта); "" - имя исходного файла.
+	// Под ним же библиотека и линкуется: у Windows DLL это имя модуля,
+	// которое попадает в таблицу импорта потребителя.
+	LibName string
 	// Warn - получатель предупреждений анализа (недостижимый код и т. п.),
 	// по одному вызову на предупреждение; nil - предупреждения не
 	// показываются. Заполняется cmd/rech.
@@ -433,7 +438,11 @@ func (c *Compiler) compileLibProgram(prog *ast.Program, base, libRoot, stubDir s
 	// Итоговое имя файла уже при линковке: у Windows DLL оно записывается
 	// внутрь (имя модуля) и попадает в таблицу импорта потребителя - со
 	// временным "out.dll" программа-потребитель искала бы "out.dll".
-	tmpLibPath := filepath.Join(tmpDir, filepath.Base(base)) + libExt
+	linkName := filepath.Base(base)
+	if c.LibName != "" {
+		linkName = c.LibName
+	}
+	tmpLibPath := filepath.Join(tmpDir, linkName) + libExt
 	build := c.cBuild(extraLibs, extraLibPaths)
 	build.Exports = lib.Exports
 	if err := c.Toolchain.CompileLib(tmpCPath, tmpLibPath, build); err != nil {
