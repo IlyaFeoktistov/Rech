@@ -502,13 +502,13 @@ func (p *Parser) parseTypeAtom() (string, error) {
 // всех внешних переменных) - "[" тогда остаётся нетронутым для
 // parseLambdaExpr.
 func (p *Parser) parseTypeSuffixes(atom string) (string, error) {
-	var sizes []int64 // -1 - "[]"
+	var sizes []string // "" - "[]"
 	for p.cur().Type == lexer.LBRACKET && !p.cur().SpaceBefore {
 		switch {
 		case p.peekAt(1).Type == lexer.RBRACKET:
 			p.advance() // "["
 			p.advance() // "]"
-			sizes = append(sizes, -1)
+			sizes = append(sizes, "")
 		case p.peekAt(1).Type == lexer.INT && p.peekAt(2).Type == lexer.RBRACKET:
 			p.advance() // "["
 			sizeTok := p.advance()
@@ -519,7 +519,13 @@ func (p *Parser) parseTypeSuffixes(atom string) (string, error) {
 			}
 			// "[0]" - тоже тип (ошибку даёт семантика): иначе "Целое[0] м"
 			// не узнавалось бы как объявление.
-			sizes = append(sizes, n)
+			sizes = append(sizes, strconv.FormatInt(n, 10))
+		case p.peekAt(1).Type == lexer.IDENT && p.peekAt(2).Type == lexer.RBRACKET:
+			// "Байт[РАЗМЕР]" - длина - константа модуля (значение
+			// подставляет семантика).
+			p.advance() // "["
+			sizes = append(sizes, p.advance().Value)
+			p.advance() // "]"
 		default:
 			return p.applyTypeSuffixes(atom, sizes), nil
 		}
@@ -527,13 +533,13 @@ func (p *Parser) parseTypeSuffixes(atom string) (string, error) {
 	return p.applyTypeSuffixes(atom, sizes), nil
 }
 
-func (p *Parser) applyTypeSuffixes(atom string, sizes []int64) string {
+func (p *Parser) applyTypeSuffixes(atom string, sizes []string) string {
 	result := atom
 	for i := len(sizes) - 1; i >= 0; i-- {
-		if sizes[i] < 0 {
+		if sizes[i] == "" {
 			result = fmt.Sprintf("Список<%s>", result)
 		} else {
-			result = typename.Array(result, sizes[i])
+			result = typename.ArrayOf(result, sizes[i])
 		}
 	}
 	return result

@@ -6,14 +6,21 @@ package typename
 import (
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // Array - каноническое имя массива из n элементов elem: новое
 // измерение - внешнее, поэтому встаёт сразу за базовым типом, перед
 // измерениями elem ("Целое[4]" из 3 - "Целое[3][4]", как в C).
 func Array(elem string, n int64) string {
+	return ArrayOf(elem, strconv.FormatInt(n, 10))
+}
+
+// ArrayOf - то же, что Array, с длиной size как написано: число или имя
+// константы ("Байт[РАЗМЕР]" - её значение подставляет семантика).
+func ArrayOf(elem, size string) string {
 	base, dims := SplitArrayDims(elem)
-	return base + "[" + strconv.FormatInt(n, 10) + "]" + dims
+	return base + "[" + size + "]" + dims
 }
 
 // SplitArrayDims - базовый тип и хвост измерений "[N]..." у имени name
@@ -22,10 +29,7 @@ func SplitArrayDims(name string) (base, dims string) {
 	end := len(name)
 	for end > 0 && name[end-1] == ']' {
 		open := strings.LastIndexByte(name[:end], '[')
-		if open < 0 || open+1 >= end-1 {
-			break
-		}
-		if _, err := strconv.ParseInt(name[open+1:end-1], 10, 64); err != nil {
+		if open < 0 || !isDimSize(name[open+1:end-1]) {
 			break
 		}
 		end = open
@@ -33,17 +37,30 @@ func SplitArrayDims(name string) (base, dims string) {
 	return name[:end], name[end:]
 }
 
-// OuterDim - внешнее измерение массива name: тип элемента и длина
-// ("Целое[3][4]" -> "Целое[4]", 3). ok == false - name не массив.
-func OuterDim(name string) (elem string, n int64, ok bool) {
+// OuterDim - внешнее измерение массива name: тип элемента и длина как
+// написана - число или имя константы ("Целое[3][4]" -> "Целое[4]", "3").
+// ok == false - name не массив.
+func OuterDim(name string) (elem, size string, ok bool) {
 	base, dims := SplitArrayDims(name)
 	if dims == "" {
-		return "", 0, false
+		return "", "", false
 	}
 	closeIdx := strings.IndexByte(dims, ']')
-	n, err := strconv.ParseInt(dims[1:closeIdx], 10, 64)
-	if err != nil {
-		return "", 0, false
+	return base + dims[closeIdx+1:], dims[1:closeIdx], true
+}
+
+// isDimSize - s годится длиной массива: десятичное число или имя.
+func isDimSize(s string) bool {
+	if s == "" {
+		return false
 	}
-	return base + dims[closeIdx+1:], n, true
+	if _, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return true
+	}
+	for i, r := range s {
+		if !(unicode.IsLetter(r) || r == '_' || i > 0 && unicode.IsDigit(r)) {
+			return false
+		}
+	}
+	return true
 }

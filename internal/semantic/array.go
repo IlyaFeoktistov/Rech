@@ -21,7 +21,11 @@ import (
 // регистрирует entitySig{IsArray} под каноническим именем - по уже
 // резолвленному T ("Цвет[3]" перечисления - "Целое[3]").
 func resolveArrayTypeName(entities map[string]entitySig, methods map[string]map[string]funcSig, aliases map[string]string, interfaces map[string]interfaceSig, enums map[string]map[string]int64, name string) (ir.Type, error) {
-	elemName, n, _ := typename.OuterDim(name)
+	elemName, size, _ := typename.OuterDim(name)
+	n, err := arrayLen(name, size)
+	if err != nil {
+		return ir.TypeUnknown, err
+	}
 	if n <= 0 {
 		return ir.TypeUnknown, errNoPos(CodeArray, "%q: длина массива должна быть больше нуля", name)
 	}

@@ -39,6 +39,7 @@ func analyze(prog *ast.Program, noFlowChecks bool) (*ir.Program, error) {
 	if err := expandSynonyms(prog); err != nil {
 		return nil, err
 	}
+	collectArrayLenConsts(prog)
 
 	// Вывод аргументов типа (generic_infer.go) - перезапуском анализа, пока
 	// анализ находит новые выводы.
