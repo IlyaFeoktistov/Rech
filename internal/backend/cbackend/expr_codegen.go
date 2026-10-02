@@ -449,6 +449,12 @@ func generateIRBinaryOp(ctx *irGenCtx, e *ir.BinaryExpr, lc, rc string) (string,
 		return fmt.Sprintf("(%s %s %s)", lc, e.Op, rc), typeBool, nil
 
 	case "<", ">", "<=", ">=":
+		if lt == ir.TypeString {
+			// strcmp сравнивает байты как unsigned char - для UTF-8 это
+			// порядок кодовых точек, как и в interp.
+			ctx.usesStrCmp = true
+			return fmt.Sprintf("(strcmp(%s, %s) %s 0)", lc, rc, e.Op), typeBool, nil
+		}
 		return fmt.Sprintf("(%s %s %s)", lc, e.Op, rc), typeBool, nil
 
 	case "и", "или":

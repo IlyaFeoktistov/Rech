@@ -1151,7 +1151,7 @@ func analyzeBinaryExpr(sc *ctx, e *ast.BinaryExpr) (ir.Expr, error) {
 
 	case "<", ">", "<=", ">=":
 		if lt != rt || !orderableTypes[lt] {
-			return nil, errAtLine(e.Line, CodeExprCheck, "оператор %q применим только к числам одного типа, получены %s и %s", e.Op, lt, rt)
+			return nil, errAtLine(e.Line, CodeExprCheck, "оператор %q применим только к числам одного типа или к строкам, получены %s и %s", e.Op, lt, rt)
 		}
 		return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: ir.TypeBool}, nil
 

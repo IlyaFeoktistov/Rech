@@ -425,6 +425,11 @@ func (in *Interp) valuesEqual(l, r Value) bool {
 }
 
 func compareOrdered(op string, l, r Value) Value {
+	if l.Type == ir.TypeString {
+		// Байтовое сравнение UTF-8 - порядок кодовых точек, как strcmp в cbackend.
+		c := strings.Compare(l.S, r.S)
+		return boolValue(map[string]bool{"<": c < 0, ">": c > 0, "<=": c <= 0, ">=": c >= 0}[op])
+	}
 	if l.Type == ir.TypeFloat || r.Type == ir.TypeFloat || l.Type == ir.TypeFloat32 || r.Type == ir.TypeFloat32 {
 		lf, rf := toFloat(l), toFloat(r)
 		switch op {

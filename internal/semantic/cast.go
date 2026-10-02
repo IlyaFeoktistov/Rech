@@ -28,6 +28,8 @@ var orderableTypes = map[ir.Type]bool{
 	ir.TypeFloat:   true,
 	ir.TypeChar:    true,
 	ir.TypeByte:    true,
+	// Строки - лексикографически по кодовым точкам.
+	ir.TypeString: true,
 }
 
 // entityIsRefType - name ссылочная (entitySig.IsStruct == false) - тот же
