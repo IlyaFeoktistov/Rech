@@ -28,6 +28,9 @@ func (in *Interp) evalCastExpr(e *ir.CastExpr, env *Env, cc *callCtx) (Value, er
 	if e.AsPrinted {
 		return Value{Type: ir.TypeString, S: in.printText(v)}, nil
 	}
+	if dv, ok := castDecimal(v, to); ok {
+		return dv, nil
+	}
 	if from.Kind == ir.KindPointer || to.Kind == ir.KindPointer {
 		return in.castPointer(v, to), nil
 	}

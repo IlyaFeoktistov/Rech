@@ -34,6 +34,9 @@ func generateIRShowExpr(ctx *irGenCtx, t ir.Type, cExpr string) string {
 		return fmt.Sprintf(`{ char rech_fb[48]; printf("%%s (Дробное)", rech_fmt_float(rech_fb, (double)(%s), 1)); }`, cExpr)
 	case ir.KindFloat:
 		return fmt.Sprintf(`{ char rech_fb[48]; printf("%%s (Действительное)", rech_fmt_float(rech_fb, %s, 0)); }`, cExpr)
+	case ir.KindDecimal:
+		ctx.usesDecimal = true
+		return fmt.Sprintf(`{ char rech_db[48]; printf("%%s (Десятичное)", rech_dec_to_text(rech_db, %s)); }`, cExpr)
 	case ir.KindChar:
 		ctx.usesCast = true
 		return fmt.Sprintf(`printf("%%s (Символ)", rech_cast_char_to_str(%s))`, cExpr)

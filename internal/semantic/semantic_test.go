@@ -1764,7 +1764,7 @@ func TestAnalyzeIncDecOnStringFails(t *testing.T) {
 		t.Fatalf("парсер: %v", err)
 	}
 	_, err = Analyze(prog)
-	if err == nil || !strings.Contains(err.Error(), "применим только к Целое/Дробное/Действительное") {
+	if err == nil || !strings.Contains(err.Error(), "применим только к числам") {
 		t.Fatalf("ожидалась ошибка про тип переменной, получено: %v", err)
 	}
 }

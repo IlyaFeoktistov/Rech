@@ -26,7 +26,10 @@ func (*IntLiteral) expr() {}
 // FloatLiteral - литерал с плавающей точкой.
 type FloatLiteral struct {
 	Value float64
-	Line  int
+	// Text - литерал как написан ("0.1") - для точного "Десятичное"
+	// (Value - уже округлённый double).
+	Text string
+	Line int
 }
 
 func (*FloatLiteral) node() {}

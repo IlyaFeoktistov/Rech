@@ -72,6 +72,9 @@ func generateIRStructEqFunc(ctx *irGenCtx, ent *ir.Entity) string {
 			fmt.Fprintf(&sb, "\n        && strcmp(%s, %s) == 0", aExpr, bExpr)
 		case f.Type.Kind == ir.KindEntity && !ctx.entityIsRef(f.Type.Entity):
 			fmt.Fprintf(&sb, "\n        && %s(%s, %s)", structEqFuncName(f.Type.Entity), aExpr, bExpr)
+		case f.Type == ir.TypeDecimal:
+			ctx.usesDecimal = true
+			fmt.Fprintf(&sb, "\n        && rech_dec_cmp(%s, %s) == 0", aExpr, bExpr)
 		default:
 			fmt.Fprintf(&sb, "\n        && (%s == %s)", aExpr, bExpr)
 		}

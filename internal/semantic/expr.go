@@ -18,7 +18,7 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 		return &ir.IntLiteral{Value: e.Value}, nil
 
 	case *ast.FloatLiteral:
-		return &ir.FloatLiteral{Value: e.Value}, nil
+		return &ir.FloatLiteral{Value: e.Value, Text: e.Text}, nil
 
 	case *ast.BoolLiteral:
 		return &ir.BoolLiteral{Value: e.Value}, nil
@@ -235,6 +235,9 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 			return call, nil
 		}
 		if desugared, handled, derr := maybeDesugarHandleMethod(sc, e); handled {
+			return desugared, derr
+		}
+		if desugared, handled, derr := maybeDecimalMethod(sc, e); handled {
 			return desugared, derr
 		}
 		if desugared, handled, derr := maybeDesugarDateTimeMethod(sc, e); handled {
@@ -1017,7 +1020,7 @@ func analyzeUnaryExpr(sc *ctx, e *ast.UnaryExpr) (ir.Expr, error) {
 	case "-":
 		_, _, isFixedWidth := typ.Kind.IntWidthSigned()
 		_, isRanked := numericRanks[typ]
-		if !isRanked && !(isFixedWidth && typ.Kind != ir.KindInt) {
+		if !isRanked && !(isFixedWidth && typ.Kind != ir.KindInt) && typ != ir.TypeDecimal {
 			return nil, errAtLine(e.Line, CodeExprCheck, "унарный \"-\" применим только к числам, получен %s", typ)
 		}
 		return &ir.UnaryExpr{Op: e.Op, Operand: operand, Type: typ}, nil
@@ -1071,8 +1074,8 @@ func analyzeIncDecExpr(sc *ctx, e *ast.IncDecExpr) (ir.Expr, error) {
 	}
 	_, _, isFixedWidth := typ.Kind.IntWidthSigned()
 	_, isRanked := numericRanks[typ]
-	if !isRanked && !(isFixedWidth && typ.Kind != ir.KindInt) {
-		return nil, errAtLine(e.Line, CodeExprCheck, "оператор %q применим только к Целое/Дробное/Действительное, получено %s", e.Op, typ)
+	if !isRanked && !(isFixedWidth && typ.Kind != ir.KindInt) && typ != ir.TypeDecimal {
+		return nil, errAtLine(e.Line, CodeExprCheck, "оператор %q применим только к числам, получено %s", e.Op, typ)
 	}
 	return &ir.IncDecExpr{Name: e.Name, Op: e.Op, Prefix: e.Prefix, Type: typ}, nil
 }
@@ -1240,6 +1243,9 @@ func isStrictWidthInt(t ir.Type) bool {
 // приведение операнда, если нужно, решает backend при генерации кода,
 // глядя на Type каждого операнда и Type результата.
 func analyzeArithmetic(e *ast.BinaryExpr, left ir.Expr, lt ir.Type, right ir.Expr, rt ir.Type) (ir.Expr, error) {
+	if lt == ir.TypeDecimal && rt == ir.TypeDecimal {
+		return &ir.BinaryExpr{Op: e.Op, Left: left, Right: right, Type: ir.TypeDecimal}, nil
+	}
 	// Целое8/16/32, Натуральное/8/16/32 - строго между операндами ОДНОГО И
 	// ТОГО ЖЕ Kind, без неявной промоции (в отличие от Целое/Дробное/
 	// Действительное ниже, numericRanks).

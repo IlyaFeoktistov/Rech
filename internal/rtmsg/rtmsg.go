@@ -130,6 +130,16 @@ func CastStrToFloatFailedFormat(typeName, input string) string {
 	return fmt.Sprintf("каст (%s): \"%s\" не является числом", typeName, input)
 }
 
+// DecimalOverflow - результат операции над "Десятичное" не помещается в
+// его 96 бит мантиссы (internal/decimal.ErrOverflow - тот же смысл).
+const DecimalOverflow = "переполнение Десятичное: значение не помещается в 96 бит мантиссы"
+
+// DecimalToIntOverflowFormat - каст "Десятичное" в целый тип, целая часть
+// не помещается в него.
+func DecimalToIntOverflowFormat(typeName, value string) string {
+	return fmt.Sprintf("каст (%s): %s не помещается в тип", typeName, value)
+}
+
 // CastStrToCharFailedFormat - сообщение при касте "Строка" -> "Символ",
 // если строка не состоит ровно из одной кодовой точки Unicode.
 func CastStrToCharFailedFormat(input string) string {

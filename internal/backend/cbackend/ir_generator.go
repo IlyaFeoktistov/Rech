@@ -117,6 +117,8 @@ type irGenCtx struct {
 	// числовые приведения (Целое/Дробное/Действительное/Символ/Байт между
 	// собой) - обычный C-каст, без хелперов.
 	usesCast bool
+	// usesDecimal - нужны функции "Десятичное" (decimalRuntime).
+	usesDecimal bool
 	// includesStringH/includesStdlibH/includesMathH - взведены (один раз,
 	// после генерации ВСЕХ тел функций/методов - см. generateSource) в
 	// точности когда сама программа реально включит "#include <string.h>"/
@@ -1308,6 +1310,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	sb.WriteString("#include <stdio.h>\n")
 	sb.WriteString("#include <stdbool.h>\n")
 	sb.WriteString("#include <stdint.h>\n")
+	sb.WriteString(decimalTypedef)
 	if ctx.usesStateFlags {
 		sb.WriteString("#include <stddef.h>\n")
 	}
@@ -1586,6 +1589,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	appendCodeIf(&sb, ctx.usesCoroutines || ctx.usesSockets, concurrency.CoroutineRuntimeWindowsCode)
 	appendCodeIf(&sb, ctx.usesCurrentOS, currentOSHelper)
 	sb.WriteString(floatFormatHelper)
+	appendCodeIf(&sb, ctx.usesDecimal, decimalRuntime)
 	appendCodeIf(&sb, ctx.usesCast, castHelpers)
 	appendCodeIf(&sb, ctx.usesIntSign, rechSignHelper)
 	appendCodeIf(&sb, ctx.usesIntMinMax, rechIntMinMaxHelper)

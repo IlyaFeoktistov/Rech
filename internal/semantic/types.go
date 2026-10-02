@@ -58,6 +58,7 @@ var primitiveTypes = map[string]ir.Type{
 	"БД":             ir.TypeDB,
 	"HTTP2Сессия":    ir.TypeHTTP2Session,
 	"Дробное":        ir.TypeFloat32,
+	"Десятичное":     ir.TypeDecimal,
 	"Символ":         ir.TypeChar,
 	"Байт":           ir.TypeByte,
 	"Целое8":         ir.TypeInt8,

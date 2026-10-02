@@ -2,6 +2,7 @@ package interp
 
 import (
 	"fmt"
+	"github.com/IlyaFeoktistov/Rech/internal/decimal"
 	"github.com/IlyaFeoktistov/Rech/internal/numfmt"
 	"math"
 	"strconv"
@@ -26,6 +27,18 @@ func (in *Interp) evalExpr(e ir.Expr, env *Env, cc *callCtx) (Value, error) {
 		return intValue(e.Value), nil
 	case *ir.FloatLiteral:
 		return floatValue(e.Value), nil
+	case *ir.DecimalLiteral:
+		return decimalValue(e.Value), nil
+	case *ir.DecimalRoundExpr:
+		v, err := in.evalExpr(e.Value, env, cc)
+		if err != nil {
+			return Value{}, err
+		}
+		places, err := in.evalExpr(e.Places, env, cc)
+		if err != nil {
+			return Value{}, err
+		}
+		return decimalValue(decimal.Round(v.Dec, int(max(min(places.I, 28), 0)))), nil
 	case *ir.BoolLiteral:
 		return boolValue(e.Value), nil
 
@@ -215,6 +228,8 @@ func (in *Interp) evalUnary(e *ir.UnaryExpr, env *Env, cc *callCtx) (Value, erro
 	switch e.Op {
 	case "-":
 		switch {
+		case v.Type == ir.TypeDecimal:
+			return decimalValue(decimal.Neg(v.Dec)), nil
 		case v.Type == ir.TypeFloat:
 			return floatValue(-v.F), nil
 		case v.Type == ir.TypeFloat32:
@@ -250,6 +265,8 @@ func (in *Interp) evalIncDec(e *ir.IncDecExpr, env *Env) (Value, error) {
 	}
 	var updated Value
 	switch {
+	case v.Type == ir.TypeDecimal:
+		updated = decimalResult(decimal.Add(v.Dec, decimal.FromInt(delta)))
 	case v.Type == ir.TypeFloat:
 		updated = floatValue(v.F + float64(delta))
 	case v.Type == ir.TypeFloat32:
@@ -300,6 +317,9 @@ func (in *Interp) evalBinary(e *ir.BinaryExpr, env *Env, cc *callCtx) (Value, er
 		return Value{}, err
 	}
 
+	if dv, ok := decimalBinary(e.Op, l, r); ok {
+		return dv, nil
+	}
 	switch e.Op {
 	case "+":
 		if l.Type == ir.TypeString && r.Type == ir.TypeString {
@@ -411,6 +431,8 @@ func (in *Interp) valuesEqual(l, r Value) bool {
 		return l.S == r.S
 	case l.Type == ir.TypeBool:
 		return l.B == r.B
+	case l.Type == ir.TypeDecimal:
+		return decimal.Cmp(l.Dec, r.Dec) == 0
 	case l.Type == ir.TypeFloat || r.Type == ir.TypeFloat || l.Type == ir.TypeFloat32 || r.Type == ir.TypeFloat32:
 		return toFloat(l) == toFloat(r)
 	case l.Type.Kind == ir.KindEntity:
@@ -442,6 +464,9 @@ func (in *Interp) valuesEqual(l, r Value) bool {
 }
 
 func compareOrdered(op string, l, r Value) Value {
+	if dv, ok := decimalBinary(op, l, r); ok {
+		return dv
+	}
 	if l.Type == ir.TypeString {
 		// Байтовое сравнение UTF-8 - порядок кодовых точек, как strcmp в cbackend.
 		c := strings.Compare(l.S, r.S)
@@ -961,6 +986,8 @@ func (in *Interp) printText(v Value) string {
 		return strconv.FormatUint(uint64(v.I), 10)
 	case ir.KindFloat, ir.KindFloat32:
 		return formatFloat(v)
+	case ir.KindDecimal:
+		return v.Dec.String()
 	case ir.KindChar:
 		return string(rune(v.I))
 	case ir.KindBool:
@@ -1022,6 +1049,8 @@ func (in *Interp) showValue(v Value) string {
 		return fmt.Sprintf("%s (Дробное)", formatFloat(v))
 	case ir.KindFloat:
 		return fmt.Sprintf("%s (Действительное)", formatFloat(v))
+	case ir.KindDecimal:
+		return fmt.Sprintf("%s (Десятичное)", v.Dec.String())
 	case ir.KindChar:
 		return fmt.Sprintf("%s (Символ)", string(rune(v.I)))
 	case ir.KindBool:

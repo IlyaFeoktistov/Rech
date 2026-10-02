@@ -1,5 +1,7 @@
 package ir
 
+import "github.com/IlyaFeoktistov/Rech/internal/decimal"
+
 // Expr - общий маркерный интерфейс выражений IR (как ast.Expr).
 type Expr interface {
 	expr()
@@ -37,9 +39,29 @@ func (*IntLiteral) expr() {}
 // FloatLiteral - литерал с плавающей точкой.
 type FloatLiteral struct {
 	Value float64
+	// Text - литерал как написан в исходнике ("" - получен вычислением):
+	// из него точно строится "Десятичное".
+	Text string
 }
 
 func (*FloatLiteral) expr() {}
+
+// DecimalLiteral - константа "Десятичное", уже вычисленная точно (из
+// текста литерала, не через double): "Десятичное ц = 0.1".
+type DecimalLiteral struct {
+	Value decimal.Decimal
+}
+
+func (*DecimalLiteral) expr() {}
+
+// DecimalRoundExpr - "д.округлить(знаков)": Десятичное не больше чем с
+// Places знаков после запятой, банковское округление (2.5 -> 2).
+type DecimalRoundExpr struct {
+	Value  Expr
+	Places Expr // Целое
+}
+
+func (*DecimalRoundExpr) expr() {}
 
 // BoolLiteral - логический литерал ("истина"/"ложь").
 type BoolLiteral struct {
@@ -203,6 +225,8 @@ func TypeOf(e Expr) Type {
 		return TypeInt
 	case *FloatLiteral:
 		return TypeFloat
+	case *DecimalLiteral, *DecimalRoundExpr:
+		return TypeDecimal
 	case *BoolLiteral:
 		return TypeBool
 	case *Identifier:

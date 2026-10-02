@@ -24,6 +24,7 @@ var primitiveCastTypes = map[string]bool{
 	"Строка":         true,
 	"Логическое":     true,
 	"Дробное":        true,
+	"Десятичное":     true,
 	"Символ":         true,
 	"Байт":           true,
 	"Целое8":         true,

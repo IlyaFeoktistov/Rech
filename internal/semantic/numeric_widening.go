@@ -34,6 +34,9 @@ func intType(bits int, signed bool) ir.Type {
 // commonNumericType - общий тип чисел a и b; ok=false - a или b не число
 // (или Символ); err - общего типа нет.
 func commonNumericType(a, b ir.Type) (ir.Type, bool, error) {
+	if a == ir.TypeDecimal || b == ir.TypeDecimal {
+		return commonDecimalType(a, b)
+	}
 	af, aFloat := numericRanks[a]
 	bf, bFloat := numericRanks[b]
 	aFloat = aFloat && a != ir.TypeInt
@@ -67,6 +70,27 @@ func commonNumericType(a, b ir.Type) (ir.Type, bool, error) {
 		return intType(uBits*2, true), true, nil
 	}
 	return ir.TypeUnknown, true, fmt.Errorf("нет знакового типа, вмещающего и %s, и %s - приведите один операнд явно, например (Целое) значение", a, b)
+}
+
+// commonDecimalType - общий тип пары с Десятичное: с целым - Десятичное
+// (целое в нём точно); с двоичным дробным неявно нельзя (как в C#) - 0.1
+// в Действительное уже не 0.1, молча смешать значило бы потерять
+// точность.
+func commonDecimalType(a, b ir.Type) (ir.Type, bool, error) {
+	other := a
+	if a == ir.TypeDecimal {
+		other = b
+	}
+	if other == ir.TypeDecimal {
+		return ir.TypeDecimal, true, nil
+	}
+	if _, _, isInt := other.Kind.IntWidthSigned(); isInt {
+		return ir.TypeDecimal, true, nil
+	}
+	if other == ir.TypeFloat || other == ir.TypeFloat32 {
+		return ir.TypeUnknown, true, fmt.Errorf("Десятичное и %s неявно не смешиваются - приведите явно: (Десятичное) x или (%s) д", other, other)
+	}
+	return ir.TypeUnknown, false, nil
 }
 
 // widenOperands - операнды бинарного op, приведённые к общему типу (см.

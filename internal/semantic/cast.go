@@ -133,9 +133,8 @@ func elemEquatable(entities map[string]entitySig, t ir.Type) bool {
 
 // fixedWidthIntTypes - Целое8/16/32/64 и Натуральное/8/16/32/64 - в отличие
 // от Целое (numericRanks, неявная промоция к Дробное/Действительное),
-// участвуют в "< > <= >= == !=" и в арифметике (+ - * /, analyzeArithmetic)
-// СТРОГО между операндами одного и того же Kind, без какой-либо промоции
-// ("Целое8 + Целое16" - ошибка компиляции, нужен явный каст). Заполняет
+// участвуют в "< > <= >= == !=" и в арифметике (+ - * /, analyzeArithmetic);
+// операнды разных типов приводятся к общему (numeric_widening.go). Заполняет
 // orderableTypes/equatableTypes и симметричный allowedCasts между собой и
 // уже существующими числовыми/Строка/Символ/Байт - вручную выписывать ~90
 // пар было бы избыточным риском опечатки/пропуска.
@@ -166,6 +165,14 @@ func init() {
 			allowedCasts[t][other] = true
 			allowedCasts[other][t] = true
 		}
+	}
+	// Десятичное - в оба конца с любым числом, Байт и Строка.
+	orderableTypes[ir.TypeDecimal] = true
+	equatableTypes[ir.TypeDecimal] = true
+	allowedCasts[ir.TypeDecimal] = map[ir.Type]bool{}
+	for _, other := range append(allNumeric, ir.TypeByte, ir.TypeString) {
+		allowedCasts[ir.TypeDecimal][other] = true
+		allowedCasts[other][ir.TypeDecimal] = true
 	}
 }
 
@@ -314,10 +321,16 @@ func analyzeCastExpr(sc *ctx, e *ast.CastExpr) (ir.Expr, error) {
 		if from.Kind == ir.KindInterface {
 			return nil, errAtLine(e.Line, CodeTypeMismatch, "нельзя боксировать в \"Значение\" интерфейсно-типизированное выражение (%s) - боксируйте конкретное значение до того, как оно станет %s", from, from)
 		}
-		sc.a.markUsesReflection()
 		if from.Kind == ir.KindNullable {
 			from = nullableInner(sc, from)
 		}
+		if from == ir.TypeDecimal || from.Kind == ir.KindEntity && entityHasDecimal(sc.entities, from.Entity, map[string]bool{}) {
+			if from == ir.TypeDecimal {
+				return nil, errAtLine(e.Line, CodeTypeMismatch, "Десятичное пока не боксируется в \"Значение\" - передайте (Строка) значение или (Действительное) значение")
+			}
+			return nil, errAtLine(e.Line, CodeTypeMismatch, "%s пока не боксируется в \"Значение\": у неё есть поле Десятичное, а рефлексия его пока не поддерживает", from)
+		}
+		sc.a.markUsesReflection()
 		if from.Kind == ir.KindEntity {
 			sc.a.registerReflectTarget(from)
 		}

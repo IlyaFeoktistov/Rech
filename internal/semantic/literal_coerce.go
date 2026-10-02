@@ -24,6 +24,16 @@ func coerceNumericConst(value ir.Expr, target ir.Type, line int) (ir.Expr, bool,
 	if typ == target {
 		return value, false, nil
 	}
+	if target == ir.TypeDecimal && (typ == ir.TypeInt || typ == ir.TypeFloat) {
+		d, ok, err := constDecimalValue(value)
+		if err != nil {
+			return nil, true, errAtLine(line, CodeExprCheck, "константа Десятичное: %v", err)
+		}
+		if ok {
+			return &ir.DecimalLiteral{Value: d}, true, nil
+		}
+		return value, false, nil
+	}
 	if typ == ir.TypeInt {
 		v, ok := constIntValue(value)
 		if !ok {

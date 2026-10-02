@@ -211,6 +211,9 @@ func (in *Interp) evalAstBinary(e *ast.BinaryExpr, env *Env, this *entityObj) (V
 	if err != nil {
 		return Value{}, err
 	}
+	if dv, ok := decimalBinary(e.Op, l, r); ok {
+		return dv, nil
+	}
 	switch e.Op {
 	case "+":
 		if l.Type == ir.TypeString && r.Type == ir.TypeString {

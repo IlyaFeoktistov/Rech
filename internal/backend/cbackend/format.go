@@ -32,6 +32,9 @@ func printCall(ctx *irGenCtx, typ valueType, code string) string {
 		// rech_fmt_float (float_format.go) - кратчайшая точная запись, та
 		// же, что interp formatFloat; NaN - "nan" без знака.
 		return fmt.Sprintf(`{ char rech_fb[48]; printf("%%s", rech_fmt_float(rech_fb, (double)(%s), %d)); }`, code, float32Flag(typ == typeFloat32))
+	case typeDecimal:
+		ctx.usesDecimal = true
+		return fmt.Sprintf(`{ char rech_db[48]; printf("%%s", rech_dec_to_text(rech_db, %s)); }`, code)
 	case typeBool:
 		return fmt.Sprintf(`printf("%%s", (%s) ? "истина" : "ложь");`, code)
 	case typeChar:

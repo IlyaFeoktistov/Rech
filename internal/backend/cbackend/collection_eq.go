@@ -32,6 +32,9 @@ func elemCompareExpr(ctx *irGenCtx, t ir.Type, aExpr, bExpr string) string {
 	case t == ir.TypeAny:
 		ctx.usesAnyEq, ctx.usesStrCmp = true, true
 		return fmt.Sprintf("rech_any_eq(%s, %s)", aExpr, bExpr)
+	case t == ir.TypeDecimal:
+		ctx.usesDecimal = true
+		return fmt.Sprintf("(rech_dec_cmp(%s, %s) == 0)", aExpr, bExpr)
 	case t.Kind == ir.KindEntity && ctx.generics[t.Entity]:
 		return fmt.Sprintf("%s(%s, %s)", mangleMethod(t.Entity, "равен"), aExpr, bExpr)
 	case t.Kind == ir.KindEntity && !ctx.entityIsRef(t.Entity):

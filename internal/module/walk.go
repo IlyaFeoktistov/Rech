@@ -55,6 +55,7 @@ var builtinTypeBases = map[string]bool{
 	"Целое":          true,
 	"Действительное": true,
 	"Дробное":        true,
+	"Десятичное":     true,
 	"Символ":         true,
 	"Байт":           true,
 	"Строка":         true,

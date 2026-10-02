@@ -22,6 +22,21 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 	case *ir.FloatLiteral:
 		return formatFloatLiteral(e.Value), typeFloat, nil
 
+	case *ir.DecimalLiteral:
+		return decimalLiteralCode(ctx, e), typeDecimal, nil
+
+	case *ir.DecimalRoundExpr:
+		vc, _, err := generateIRExpr(ctx, e.Value)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		pc, _, err := generateIRExpr(ctx, e.Places)
+		if err != nil {
+			return "", typeUnknown, err
+		}
+		ctx.usesDecimal = true
+		return fmt.Sprintf("rech_dec_round(%s, %s)", vc, pc), typeDecimal, nil
+
 	case *ir.BoolLiteral:
 		if e.Value {
 			return "true", typeBool, nil
@@ -36,6 +51,9 @@ func generateIRExpr(ctx *irGenCtx, e ir.Expr) (string, valueType, error) {
 
 	case *ir.IncDecExpr:
 		name := varRef(ctx, e.Name)
+		if e.Type == ir.TypeDecimal {
+			return decimalIncDecCode(ctx, name, e.Op, e.Prefix), typeDecimal, nil
+		}
 		if e.Prefix {
 			return fmt.Sprintf("(%s%s)", e.Op, name), fromIRType(e.Type), nil
 		}
@@ -383,6 +401,10 @@ func generateIRUnaryExpr(ctx *irGenCtx, e *ir.UnaryExpr) (string, valueType, err
 	typ := fromIRType(e.Type)
 	switch e.Op {
 	case "-":
+		if typ == typeDecimal {
+			ctx.usesDecimal = true
+			return fmt.Sprintf("rech_dec_neg(%s)", code), typ, nil
+		}
 		// Целое8/16/32/64, Натуральное/8/16/32/64 - явный каст обратно
 		// к своему C-типу: обычные арифметические преобразования C иначе
 		// оставили бы результат в более широком типе (int), не усекая/
@@ -438,6 +460,9 @@ func generateIRBinaryExpr(ctx *irGenCtx, e *ir.BinaryExpr) (string, valueType, e
 // операндами lc/rc.
 func generateIRBinaryOp(ctx *irGenCtx, e *ir.BinaryExpr, lc, rc string) (string, valueType, error) {
 	lt, rt := ir.TypeOf(e.Left), ir.TypeOf(e.Right)
+	if lt == ir.TypeDecimal && rt == ir.TypeDecimal {
+		return decimalBinaryOp(ctx, e.Op, lc, rc)
+	}
 
 	switch e.Op {
 	case "+":
@@ -836,6 +861,7 @@ var irKindToValueType = map[ir.TypeKind]valueType{
 	ir.KindInt:          typeInt,
 	ir.KindFloat32:      typeFloat32,
 	ir.KindFloat:        typeFloat,
+	ir.KindDecimal:      typeDecimal,
 	ir.KindChar:         typeChar,
 	ir.KindString:       typeString,
 	ir.KindBool:         typeBool,

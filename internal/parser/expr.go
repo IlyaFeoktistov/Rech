@@ -554,7 +554,8 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 		p.advance()
 		v, err := parseIntTokenValue(tok.Value)
 		if err != nil {
-			return nil, errAt(tok.Line, tok.Col, CodeInvalidLiteral, "некорректный целочисленный литерал %q", tok.Value)
+			return nil, errAt(tok.Line, tok.Col, CodeInvalidLiteral, "некорректный целочисленный литерал %q", tok.Value).
+				WithHint("больше Целое (9223372036854775807) - для Десятичное запишите с точкой (%s.0): дробный литерал Десятичное читает точно", tok.Value)
 		}
 		return &ast.IntLiteral{Value: v, Line: tok.Line}, nil
 	case lexer.FLOAT:
@@ -563,7 +564,7 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 		if err != nil {
 			return nil, errAt(tok.Line, tok.Col, CodeInvalidLiteral, "некорректный числовой литерал %q", tok.Value)
 		}
-		return &ast.FloatLiteral{Value: v, Line: tok.Line}, nil
+		return &ast.FloatLiteral{Value: v, Text: tok.Value, Line: tok.Line}, nil
 	case lexer.KwTrue:
 		p.advance()
 		return &ast.BoolLiteral{Value: true, Line: tok.Line}, nil

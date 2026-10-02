@@ -36,6 +36,7 @@ import (
 	"bufio"
 	"database/sql"
 	"fmt"
+	"github.com/IlyaFeoktistov/Rech/internal/decimal"
 	"github.com/IlyaFeoktistov/Rech/internal/textutf8"
 	"io"
 	"net"
@@ -171,8 +172,9 @@ type Value struct {
 	F    float64
 	S    string
 	B    bool
-	Obj  *entityObj // непусто только при Type.Kind == ir.KindEntity
-	File *os.File   // непусто только при Type.Kind == ir.KindFile
+	Dec  decimal.Decimal // Type.Kind == ir.KindDecimal
+	Obj  *entityObj      // непусто только при Type.Kind == ir.KindEntity
+	File *os.File        // непусто только при Type.Kind == ir.KindFile
 
 	// Listener/Conn/PacketConn - непрозрачный дескриптор сетевого сокета
 	// (сетевые примитивы), Type.Kind == ir.KindSocket - ровно одно из трёх

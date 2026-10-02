@@ -146,6 +146,9 @@ const (
 	// первое - внешнее), тип элемента и длина - через ArrayInstantiation по
 	// этому имени, тем же принципом, что и у KindPointer.
 	KindArray
+	// KindDecimal - "Десятичное": точная десятичная дробь (internal/decimal,
+	// как decimal в C#), в C - struct rech_dec.
+	KindDecimal
 )
 
 // Type - тип значения выражения IR, уже разрешённый семантическим анализом
@@ -181,6 +184,8 @@ var (
 	TypeUint   = Type{Kind: KindUint}
 	TypeUint16 = Type{Kind: KindUint16}
 	TypeUint32 = Type{Kind: KindUint32}
+
+	TypeDecimal = Type{Kind: KindDecimal}
 
 	TypeAny       = Type{Kind: KindAny}
 	TypeTypeInfo  = Type{Kind: KindTypeInfo}
@@ -303,6 +308,8 @@ func (t Type) String() string {
 		return "Целое"
 	case KindFloat32:
 		return "Дробное"
+	case KindDecimal:
+		return "Десятичное"
 	case KindFloat:
 		return "Действительное"
 	case KindChar:

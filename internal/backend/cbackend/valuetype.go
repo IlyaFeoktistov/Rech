@@ -82,6 +82,8 @@ const (
 	// kindArray - "T[N]" - C-массив внутри своей структуры (arrayTypedefCode):
 	// значение, entity несёт каноническое имя ("Целое[3]").
 	kindArray
+	// kindDecimal - "Десятичное", struct rech_dec (decimal_runtime.go).
+	kindDecimal
 )
 
 // valueType - тип значения выражения C-кодогенерации. Структура (не голое
@@ -99,6 +101,7 @@ type valueType struct {
 var (
 	typeUnknown      = valueType{kind: kindUnknown}
 	typeByte         = valueType{kind: kindByte}
+	typeDecimal      = valueType{kind: kindDecimal}
 	typeInt          = valueType{kind: kindInt}
 	typeFloat32      = valueType{kind: kindFloat32}
 	typeFloat        = valueType{kind: kindFloat}
@@ -169,6 +172,7 @@ var primitiveCTypes = map[valueType]string{
 	typeInt:          "long long",
 	typeFloat32:      "float",
 	typeFloat:        "double",
+	typeDecimal:      "rech_dec",
 	typeChar:         "int32_t",
 	typeString:       "const char *",
 	typeBool:         "bool",
@@ -191,6 +195,9 @@ var primitiveCTypes = map[valueType]string{
 // "структура" (значение - сама структура, как раньше единственно возможное
 // представление любой сущности) - см. ctx.entityIsRef.
 func (t valueType) cType(ctx *irGenCtx) string {
+	if t.kind == kindDecimal {
+		ctx.usesDecimal = true
+	}
 	if t.kind == kindEntity {
 		if ctx.entityIsRef(t.entity) {
 			return entityCName(ctx, t.entity) + " *"
