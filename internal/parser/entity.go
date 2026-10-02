@@ -159,6 +159,9 @@ func (p *Parser) parseBecomeStmt() (ast.Stmt, error) {
 // уже готовый статический метод по синтетическому имени, не знает про
 // операторный синтаксис вообще).
 func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
+	if err := p.fieldOutsideHasError(); err != nil {
+		return nil, err
+	}
 	p.enterDecl()
 	isStatic := false
 	if p.cur().Type == lexer.KwStatic {
@@ -433,6 +436,20 @@ func (p *Parser) parseField() (ast.Field, error) {
 	if isVisibilityKeyword(p.cur().Type) {
 		tok := p.advance()
 		visTok = &tok
+	}
+	if visTok != nil && staticTok == nil && p.cur().Type == lexer.KwStatic {
+		return ast.Field{}, staticAfterVisibilityError(*visTok, p.cur())
+	}
+	if p.peekAt(1).Type != lexer.COLON {
+		var mods []lexer.Token
+		for _, m := range []*lexer.Token{staticTok, visTok} {
+			if m != nil {
+				mods = append(mods, *m)
+			}
+		}
+		if err := p.typeFirstFieldError(mods); err != nil {
+			return ast.Field{}, err
+		}
 	}
 	name, err := p.expect(lexer.IDENT)
 	if err != nil {
