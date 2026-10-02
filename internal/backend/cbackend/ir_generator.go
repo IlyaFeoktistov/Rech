@@ -861,6 +861,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// единственный раз, ниже), потому что теперь нужна РАНЬШЕ - см. package
 	// doc ctx.includesStringH.
 	hasStructTargets := len(prog.ParseTargets) > 0 || len(prog.SerializeTargets) > 0 || len(prog.XMLParseTargets) > 0 || len(prog.XMLSerializeTargets) > 0 || len(prog.YAMLParseTargets) > 0 || len(prog.YAMLSerializeTargets) > 0 || len(prog.ProtobufParseTargets) > 0 || len(prog.ProtobufSerializeTargets) > 0
+	genericByName := make(map[string]ir.GenericInstantiation, len(prog.Generics))
+	for _, g := range prog.Generics {
+		genericByName[g.Name] = g
+	}
 	for _, g := range prog.Generics {
 		dest := &genericsCode
 		// Элемент "?Тип" ждёт свою обёртку, а та - то же, что и сам Тип
@@ -873,7 +877,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		switch {
 		case elemOrder.Kind == ir.KindCallable || g.KeyType.Kind == ir.KindCallable:
 			dest = &genericsCodeAfterCallables
-		case elemOrder.Kind == ir.KindEntity && entities[elemOrder.Entity] != nil:
+		case genericNeedsEntities(ctx, entities, genericByName, g):
 			dest = &genericsCodeAfterEntities
 		}
 		elemC := fromIRType(g.ElemType).cType(ctx)
