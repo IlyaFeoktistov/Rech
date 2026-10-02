@@ -57,7 +57,44 @@ import "fmt"
 // зависит).
 func RuntimeCode(procType, splitResultC, pidField, resultType, outputField, errorField, exitCodeField,
 	spawnFailedMsg, waitFailedMsg, runFailedMsg string) string {
-	return fmt.Sprintf(`static %[1]s rech_spawn_process(const char *cmd, %[2]s *args) {
+	return fmt.Sprintf(`#ifdef _WIN32
+/* Строки Rech - UTF-8, а *A-версии WinAPI читают их в ANSI-кодировке:
+   командная строка и каталог передаются в CreateProcessW (UTF-16), вывод
+   cmd.exe (OEM-кодировка консоли) перекодируется в UTF-8 - так же, как в
+   interp (subprocess_windows.go, decodeShellOutput). */
+static wchar_t *rech_win_wide(const char *s) {
+    int n = MultiByteToWideChar(CP_UTF8, 0, s, -1, NULL, 0);
+    wchar_t *w = malloc(sizeof(wchar_t) * (size_t)(n > 0 ? n : 1));
+    if (n <= 0) {
+        w[0] = 0;
+        return w;
+    }
+    MultiByteToWideChar(CP_UTF8, 0, s, -1, w, n);
+    return w;
+}
+
+static char *rech_win_oem_to_utf8(const char *b, size_t len, size_t *out_len) {
+    int wn = len ? MultiByteToWideChar(CP_OEMCP, 0, b, (int)len, NULL, 0) : 0;
+    if (wn <= 0) {
+        *out_len = len;
+        char *same = malloc(len + 1);
+        memcpy(same, b, len);
+        same[len] = '\0';
+        return same;
+    }
+    wchar_t *w = malloc(sizeof(wchar_t) * (size_t)wn);
+    MultiByteToWideChar(CP_OEMCP, 0, b, (int)len, w, wn);
+    int un = WideCharToMultiByte(CP_UTF8, 0, w, wn, NULL, 0, NULL, NULL);
+    char *u = malloc((size_t)un + 1);
+    WideCharToMultiByte(CP_UTF8, 0, w, wn, u, un, NULL, NULL);
+    u[un] = '\0';
+    free(w);
+    *out_len = (size_t)un;
+    return u;
+}
+#endif
+
+static %[1]s rech_spawn_process(const char *cmd, %[2]s *args) {
 #ifndef _WIN32
     int errpipe[2];
     if (pipe(errpipe) != 0) {
@@ -96,7 +133,7 @@ func RuntimeCode(procType, splitResultC, pidField, resultType, outputField, erro
     out.%[3]s = (long long)pid;
     return out;
 #else
-    STARTUPINFOA si;
+    STARTUPINFOW si;
     PROCESS_INFORMATION pi;
     ZeroMemory(&si, sizeof(si));
     si.cb = sizeof(si);
@@ -116,7 +153,10 @@ func RuntimeCode(procType, splitResultC, pidField, resultType, outputField, erro
         strcat(cmdline, args->data[i]);
         strcat(cmdline, "\"");
     }
-    if (!CreateProcessA(NULL, cmdline, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+    wchar_t *wcmdline = rech_win_wide(cmdline);
+    BOOL spawned = CreateProcessW(NULL, wcmdline, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi);
+    free(wcmdline);
+    if (!spawned) {
         rech_error_as(RECH_ERR_PROCESS, "%[8]s");
     }
     CloseHandle(pi.hThread);
@@ -181,7 +221,10 @@ static DWORD WINAPI rech_read_pipe_thread(LPVOID arg) {
         }
         len += (size_t)n;
     }
-    a->result = rech_text_take(buf, len);
+    size_t utf8_len;
+    char *utf8 = rech_win_oem_to_utf8(buf, len, &utf8_len);
+    free(buf);
+    a->result = rech_text_take(utf8, utf8_len);
     return 0;
 }
 #endif
@@ -294,7 +337,7 @@ static %[4]s rech_run_command(const char *cmd, const char *dir) {
     SetHandleInformation(out_read, HANDLE_FLAG_INHERIT, 0);
     SetHandleInformation(err_read, HANDLE_FLAG_INHERIT, 0);
 
-    STARTUPINFOA si;
+    STARTUPINFOW si;
     PROCESS_INFORMATION pi;
     ZeroMemory(&si, sizeof(si));
     si.cb = sizeof(si);
@@ -308,8 +351,11 @@ static %[4]s rech_run_command(const char *cmd, const char *dir) {
     char *cmdline = malloc(cmdline_len);
     snprintf(cmdline, cmdline_len, "cmd /C %%s", cmd);
 
-    BOOL started = CreateProcessA(NULL, cmdline, NULL, NULL, TRUE, 0, NULL,
-        dir[0] != '\0' ? dir : NULL, &si, &pi);
+    wchar_t *wcmdline = rech_win_wide(cmdline);
+    wchar_t *wdir = dir[0] != '\0' ? rech_win_wide(dir) : NULL;
+    BOOL started = CreateProcessW(NULL, wcmdline, NULL, NULL, TRUE, 0, NULL, wdir, &si, &pi);
+    free(wcmdline);
+    free(wdir);
     CloseHandle(out_write);
     CloseHandle(err_write);
     if (!started) {
