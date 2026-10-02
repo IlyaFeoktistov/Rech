@@ -1117,6 +1117,10 @@ func analyzeBinaryExpr(sc *ctx, e *ast.BinaryExpr) (ir.Expr, error) {
 	if left, right, err = coerceNumericConstPair(left, right, e.Line); err != nil {
 		return nil, err
 	}
+	switch e.Op {
+	case "==", "!=", "<", ">", "<=", ">=":
+		left, right, _ = widenNumericPair(left, right)
+	}
 	lt, rt := ir.TypeOf(left), ir.TypeOf(right)
 
 	// Перегрузка оператора (internal/semantic/operator.go) - ДО встроенной

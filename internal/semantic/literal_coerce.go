@@ -29,6 +29,10 @@ func coerceNumericConst(value ir.Expr, target ir.Type, line int) (ir.Expr, bool,
 		if !ok {
 			return value, false, nil
 		}
+		if target == ir.TypeFloat || target == ir.TypeFloat32 {
+			// "д < 2", "Дробное д = 2" - как в C.
+			return floatConstAs(float64(v), target), true, nil
+		}
 		min, max, ok := intTargetRange(target)
 		if !ok {
 			return value, false, nil
@@ -73,6 +77,23 @@ func coerceNumericConstPair(left, right ir.Expr, line int) (ir.Expr, ir.Expr, er
 		return coerced, right, nil
 	}
 	return left, right, nil
+}
+
+// widenNumericPair - операнды сравнения Целое/Дробное/Действительное
+// разных типов: более узкий явно приводится к более широкому (как usual
+// arithmetic conversions в C и смешанная арифметика, numericRanks), чтобы
+// оба backend'а сравнивали в одном и том же типе. ok=false - пара не такая.
+func widenNumericPair(left, right ir.Expr) (ir.Expr, ir.Expr, bool) {
+	lt, rt := ir.TypeOf(left), ir.TypeOf(right)
+	lr, lok := numericRanks[lt]
+	rr, rok := numericRanks[rt]
+	if !lok || !rok || lt == rt {
+		return left, right, false
+	}
+	if lr < rr {
+		return &ir.CastExpr{Value: left, To: rt}, right, true
+	}
+	return left, &ir.CastExpr{Value: right, To: lt}, true
 }
 
 // intTargetRange - диапазон целочисленного типа t, кроме самого Целое
