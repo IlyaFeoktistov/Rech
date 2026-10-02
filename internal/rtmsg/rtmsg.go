@@ -33,6 +33,13 @@ func PointerIndexOutOfRange(i int64) string {
 	return fmt.Sprintf("индекс %d у указателя на одиночное значение (не элемент массива)", i)
 }
 
+// InterpPointerCastUnsupported - интерпретатор не может привести адрес
+// Rech-переменной/поля/элемента (у него нет настоящего адреса памяти) к
+// другому типу указателя или к числу.
+func InterpPointerCastUnsupported(from, to string) string {
+	return fmt.Sprintf("приведение %s к %s: в rech test приводится только адрес, пришедший из C (результат внешней функции), не &переменная", from, to)
+}
+
 // EmptyStackOp - сообщение при "снять"/"верх" на пустой Стопке.
 func EmptyStackOp(typeName string) string {
 	return fmt.Sprintf("нельзя снять/получить верх пустой %s", typeName)

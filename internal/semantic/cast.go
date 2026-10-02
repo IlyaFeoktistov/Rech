@@ -265,6 +265,9 @@ func analyzeCastExpr(sc *ctx, e *ast.CastExpr) (ir.Expr, error) {
 	if from == to {
 		return value, nil
 	}
+	if e.Named {
+		return analyzeNamedCast(sc, e, value, from, to)
+	}
 	// "(Строка) x" у сущности/интерфейса, реализующего "Строчный" - его
 	// в_строку(), как и у "вывести x" (а значит и "${x}" в шаблоне).
 	if to == ir.TypeString {
@@ -318,6 +321,9 @@ func analyzeCastExpr(sc *ctx, e *ast.CastExpr) (ir.Expr, error) {
 		if from.Kind == ir.KindEntity {
 			sc.a.registerReflectTarget(from)
 		}
+		return &ir.CastExpr{Value: value, To: to}, nil
+	}
+	if pointerCastAllowed(from, to) {
 		return &ir.CastExpr{Value: value, To: to}, nil
 	}
 	if !allowedCasts[from][to] {

@@ -71,6 +71,12 @@ func generateIRCastExpr(ctx *irGenCtx, e *ir.CastExpr) (string, valueType, error
 		return fmt.Sprintf("rech_cast_int_to_str((long long)%s)", code), typeString, nil
 	}
 
+	// Указатель <-> адрес числом/внешняя сущность/другой указатель - через
+	// uintptr_t: обычный C-каст между указателем и целым той же ширины.
+	if e.To.Kind == ir.KindPointer || ir.TypeOf(e.Value).Kind == ir.KindPointer {
+		return fmt.Sprintf("((%s)(uintptr_t)(%s))", to.cType(ctx), code), to, nil
+	}
+
 	// Прямое числовое приведение (в т. ч. Символ<->Целое/Байт) - обычный
 	// C-каст, без рантайм-хелпера.
 	return fmt.Sprintf("((%s)(%s))", to.cType(ctx), code), to, nil

@@ -54,8 +54,8 @@ func (p *Parser) tryParseCast() (ast.Expr, bool, error) {
 		return nil, false, nil
 	}
 	typeTok := p.peekAt(1)
-	if typeTok.Type == lexer.IDENT && !primitiveCastTypes[typeTok.Value] {
-		return nil, false, p.nonPrimitiveCastError()
+	if typeTok.Type == lexer.STAR || (typeTok.Type == lexer.IDENT && !primitiveCastTypes[typeTok.Value]) {
+		return p.tryParseNamedCast()
 	}
 	if typeTok.Type != lexer.IDENT {
 		return nil, false, nil
@@ -73,37 +73,6 @@ func (p *Parser) tryParseCast() (ast.Expr, bool, error) {
 	return &ast.CastExpr{Type: typeTok.Value, Value: value, Line: lparen.Line}, true, nil
 }
 
-// nonPrimitiveCastError - "(Пара) з"/"(Список<Целое>) з": приведение
-// "(Тип) x" есть только у primitiveCastTypes, к сущности/коллекции
-// значение "Значение" распаковывается через "x как Тип". Без этой проверки
-// "(Пара)" разбиралось бы как скобки вокруг имени, а "з" - как лишний
-// токен ("инструкции должны быть разделены..."). nil - это не такая форма
-// (обычные скобки вокруг выражения). Позиция парсера не меняется.
-func (p *Parser) nonPrimitiveCastError() error {
-	lparen := p.cur()
-	first := p.peekAt(1)
-	if first.Value == "" || !unicode.IsUpper([]rune(first.Value)[0]) {
-		return nil
-	}
-	save, saveGT := p.pos, p.pendingGT
-	defer func() { p.pos, p.pendingGT = save, saveGT }()
-	p.advance() // "("
-	typeName, err := p.parseTypeName()
-	if err != nil || p.cur().Type != lexer.RPAREN {
-		return nil
-	}
-	rparen := p.advance()
-	if !startsOperand(p.cur()) || p.cur().Line != rparen.Line {
-		return nil
-	}
-	operand := "значение"
-	if p.cur().Type == lexer.IDENT {
-		operand = p.cur().Value
-	}
-	return errAt(lparen.Line, lparen.Col, CodeUnexpectedToken, "приведение \"(%s) значение\" есть только у примитивов - распаковать \"Значение\" в %s можно через \"как\"", typeName, typeName).
-		WithHint("%s как %s", operand, typeName)
-}
-
 // startsOperand - tok может начинать операнд выражения.
 func startsOperand(tok lexer.Token) bool {
 	switch tok.Type {
@@ -111,4 +80,52 @@ func startsOperand(tok lexer.Token) bool {
 		return true
 	}
 	return false
+}
+
+// pointerTypeName - имя Указателя<T> в касте "(Указатель<T>) x".
+const pointerTypeName = "Указатель"
+
+// tryParseNamedCast - "(Тип) значение", где Тип - не примитив:
+// "(Указатель<T>) x", "(*T) x", "(ВнешняяСущность) x" (приведение между
+// адресами), а также "(Пара) з" - ошибка с подсказкой "з как Пара" уже в
+// semantic, когда тип известен. Каст - только когда Тип начинается с
+// заглавной буквы и сразу за ")" на той же строке идёт операнд: "(*п).x" и
+// "(х)" - скобки вокруг выражения. Операнд не может начинаться с "*" -
+// "(*а) * б", "(Икс) * 2" - умножение (кроме "(Указатель<T>) *пп").
+// Не каст - позиция парсера не меняется.
+func (p *Parser) tryParseNamedCast() (ast.Expr, bool, error) {
+	if !startsTypeName(p, 1) {
+		return nil, false, nil
+	}
+	first := p.peekAt(1)
+	explicitPointer := first.Type == lexer.IDENT && first.Value == pointerTypeName && p.peekAt(2).Type == lexer.LT
+	save, saveGT := p.pos, p.pendingGT
+	lparen := p.advance() // "("
+	typeName, err := p.parseTypeName()
+	if err != nil || p.cur().Type != lexer.RPAREN {
+		p.pos, p.pendingGT = save, saveGT
+		return nil, false, nil
+	}
+	rparen := p.advance() // ")"
+	next := p.cur()
+	operand := startsOperand(next) || next.Type == lexer.BITAND || (explicitPointer && next.Type == lexer.STAR)
+	if !operand || next.Line != rparen.Line {
+		p.pos, p.pendingGT = save, saveGT
+		return nil, false, nil
+	}
+	value, err := p.parseUnary()
+	if err != nil {
+		return nil, false, diagnostics.Wrap(err, "после каста (%s) ожидалось выражение", typeName)
+	}
+	return &ast.CastExpr{Type: typeName, Value: value, Line: lparen.Line, Named: true}, true, nil
+}
+
+// startsTypeName - с токена на смещении off (после цепочки "*") начинается
+// имя типа: IDENT с заглавной буквы.
+func startsTypeName(p *Parser, off int) bool {
+	for p.peekAt(off).Type == lexer.STAR {
+		off++
+	}
+	tok := p.peekAt(off)
+	return tok.Type == lexer.IDENT && tok.Value != "" && unicode.IsUpper([]rune(tok.Value)[0])
 }

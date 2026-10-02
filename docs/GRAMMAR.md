@@ -225,7 +225,11 @@ bitand_expr    := shift_expr { "&" shift_expr }          (* только Цел�
 shift_expr     := additive { ("<<" | ">>") additive }    (* только Целое/Байт *)
 additive       := multiplicative { ("+" | "-") multiplicative }
 multiplicative := unary { ("*" | "/" | "%") unary }
-unary          := "-" unary | "~" unary | "!" unary | "&" addressable | "*" unary | incdec_prefix | postfix
+unary          := cast | "-" unary | "~" unary | "!" unary | "&" addressable | "*" unary | incdec_prefix | postfix
+cast           := "(" type_name ")" unary
+                                             (* type_name - примитив, Указатель<T>/"*T" или внешняя сущность;
+                                                не примитив - каст, только если имя с заглавной буквы и операнд
+                                                идёт сразу на той же строке ("(*п).x" - скобки) *)
                                              (* "~" - только Целое/Байт; "!x" - у Логическое отрицание,
                                                 у nullable - "x == Ничто"; "&"/"*" - адрес/разыменование (раздел 22),
                                                 тот же токен "&", что и у ссылки на функцию в primary ниже -
