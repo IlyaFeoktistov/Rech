@@ -35,21 +35,3 @@ func maybeDecimalMethod(sc *ctx, e *ast.MethodCallExpr) (ir.Expr, bool, error) {
 	}
 	return &ir.DecimalRoundExpr{Value: receiver, Places: places}, true, nil
 }
-
-// entityHasDecimal - у сущности name есть поле Десятичное (в т. ч. во
-// вложенной сущности): рефлексия ("Значение") его пока не умеет.
-func entityHasDecimal(entities map[string]entitySig, name string, seen map[string]bool) bool {
-	if seen[name] {
-		return false
-	}
-	seen[name] = true
-	for _, t := range entities[name].FieldTypes {
-		if t.Kind == ir.KindNullable {
-			t = entities[t.Entity].ElemType
-		}
-		if t == ir.TypeDecimal || t.Kind == ir.KindEntity && entityHasDecimal(entities, t.Entity, seen) {
-			return true
-		}
-	}
-	return false
-}

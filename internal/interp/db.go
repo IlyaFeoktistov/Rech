@@ -272,6 +272,9 @@ func dbParamValue(v *Value) any {
 		return v.S
 	case ir.KindBool:
 		return v.B
+	case ir.KindDecimal:
+		// Записью числа: драйвер передаёт её без потери точности.
+		return v.Dec.String()
 	default:
 		panicRuntime("%s", rtmsg.DBInvalidParamType)
 		return nil

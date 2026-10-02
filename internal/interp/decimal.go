@@ -68,7 +68,7 @@ func decimalBinary(op string, l, r Value) (Value, bool) {
 // ok=false - пара не про Десятичное.
 func castDecimal(v Value, to ir.Type) (Value, bool) {
 	from := v.Type
-	if from != ir.TypeDecimal && to != ir.TypeDecimal {
+	if from != ir.TypeDecimal && to != ir.TypeDecimal || to.Kind == ir.KindAny {
 		return Value{}, false
 	}
 	if to == ir.TypeDecimal {

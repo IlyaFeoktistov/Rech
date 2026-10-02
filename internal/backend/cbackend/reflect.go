@@ -37,6 +37,7 @@ typedef struct {
         long long i;
         double f64;
         float f32;
+        rech_dec d;
         bool b;
         const char *s;
         void *ptr;
@@ -401,7 +402,7 @@ var reflectPrimitiveKinds = []ir.TypeKind{
 	ir.KindInt, ir.KindInt8, ir.KindInt16, ir.KindInt32,
 	ir.KindUint, ir.KindUint16, ir.KindUint32,
 	ir.KindFloat32, ir.KindFloat, ir.KindString, ir.KindBool, ir.KindChar, ir.KindByte,
-	ir.KindNull, ir.KindFile, ir.KindSocket, ir.KindDB, ir.KindHTTP2Session,
+	ir.KindDecimal, ir.KindNull, ir.KindFile, ir.KindSocket, ir.KindDB, ir.KindHTTP2Session,
 }
 
 // reflectMetaName - имя C-переменной статического дескриптора для
@@ -413,7 +414,9 @@ func isReflectPrimitive(t ir.Type) bool {
 }
 
 func reflectMetaName(name string) string {
-	return "rech_type_meta_" + transliterate(name)
+	// Не "rech_type_meta_": сущность "Т" (транслитерация "t") дала бы
+	// rech_type_meta_t - имя C-типа дескриптора.
+	return "rech_tmeta_" + transliterate(name)
 }
 
 // reflectMetaVarFor - то же самое, что reflectMetaName, но по ir.Type -
@@ -484,6 +487,8 @@ func reflectBoxExprCode(ctx *irGenCtx, t ir.Type, cExpr string) string {
 		return fmt.Sprintf("(rech_any_t){.type = &%s, .v.f32 = (float)(%s)}", meta, cExpr)
 	case ir.KindFloat:
 		return fmt.Sprintf("(rech_any_t){.type = &%s, .v.f64 = (double)(%s)}", meta, cExpr)
+	case ir.KindDecimal:
+		return fmt.Sprintf("(rech_any_t){.type = &%s, .v.d = (%s)}", meta, cExpr)
 	case ir.KindBool:
 		return fmt.Sprintf("(rech_any_t){.type = &%s, .v.b = (bool)(%s)}", meta, cExpr)
 	case ir.KindString:
@@ -592,6 +597,8 @@ func reflectUnboxExprCode(ctx *irGenCtx, t ir.Type, anyExpr string) string {
 		return fmt.Sprintf("((float)(%s).v.f32)", anyExpr)
 	case ir.KindFloat:
 		return fmt.Sprintf("((double)(%s).v.f64)", anyExpr)
+	case ir.KindDecimal:
+		return fmt.Sprintf("((%s).v.d)", anyExpr)
 	case ir.KindBool:
 		return fmt.Sprintf("((bool)(%s).v.b)", anyExpr)
 	case ir.KindString:

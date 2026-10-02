@@ -57,11 +57,11 @@ func checkSQLKeysDistinct(sig entitySig) error {
 // КАЖДОЙ строке (сравнение типа "как"/AsExpr - точное, не приводящее).
 func dbRowFieldTypeOK(entities map[string]entitySig, t ir.Type) bool {
 	switch t.Kind {
-	case ir.KindInt, ir.KindFloat, ir.KindString, ir.KindBool:
+	case ir.KindInt, ir.KindFloat, ir.KindString, ir.KindBool, ir.KindDecimal:
 		return true
 	case ir.KindNullable:
 		switch entities[t.Entity].ElemType.Kind {
-		case ir.KindInt, ir.KindFloat, ir.KindString, ir.KindBool:
+		case ir.KindInt, ir.KindFloat, ir.KindString, ir.KindBool, ir.KindDecimal:
 			return true
 		}
 	}

@@ -33,6 +33,7 @@ var xmlPrimitiveExtractors = map[ir.TypeKind]string{
 	ir.KindFloat:   "rech_xml_extract_float64",
 	ir.KindString:  "rech_xml_extract_string",
 	ir.KindBool:    "rech_xml_extract_bool",
+	ir.KindDecimal: "rech_xml_extract_decimal",
 }
 
 type xmlExtractorGen struct {
@@ -123,6 +124,14 @@ func xmlPrimitiveExtractorCode(name string, t ir.Type) string {
     double n = strtod(v.text, &end);
     if (end == v.text || *end != '\0') { %s }
     return n;
+}
+
+`, name, mismatch)
+	case ir.KindDecimal:
+		return fmt.Sprintf(`static rech_dec %s(rech_xn v) {
+    rech_dec d;
+    if (!rech_dec_parse(v.text, &d)) { %s }
+    return d;
 }
 
 `, name, mismatch)

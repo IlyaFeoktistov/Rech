@@ -20,7 +20,7 @@ func xmlFieldName(sig entitySig, i int) (string, bool) {
 // атрибута нет вложенных элементов.
 func isXMLAttrType(t ir.Type) bool {
 	switch t.Kind {
-	case ir.KindInt, ir.KindFloat32, ir.KindFloat, ir.KindString, ir.KindBool:
+	case ir.KindInt, ir.KindFloat32, ir.KindFloat, ir.KindString, ir.KindBool, ir.KindDecimal:
 		return true
 	}
 	return false

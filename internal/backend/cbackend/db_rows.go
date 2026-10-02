@@ -38,6 +38,7 @@ func dbRowsRuntimeCode(ctx *irGenCtx, prog *ir.Program, targets []ir.Type) (stri
 	nullMeta := reflectMetaVarFor(ir.TypeNullValue)
 
 	var sb strings.Builder
+	sb.WriteString(dbDecimalFromAnyCode())
 	for _, t := range targets {
 		ent, ok := entities[t.Entity]
 		if !ok {
@@ -81,9 +82,9 @@ func dbRowsRuntimeCode(ctx *irGenCtx, prog *ir.Program, targets []ir.Type) (stri
 				valVar := fmt.Sprintf("v%d", i)
 				fmt.Fprintf(&body, "        rech_any_t %s = %s;\n", valVar, rowGet)
 				fmt.Fprintf(&body, "        item%s%s = (%s.type == &%s) ? %s() : %s(%s);\n",
-					access, mangleField(f.Name), valVar, nullMeta, empty, wrap, reflectCheckedUnboxExprCode(ctx, inner, valVar))
+					access, mangleField(f.Name), valVar, nullMeta, empty, wrap, dbColumnValueCode(ctx, inner, valVar))
 			} else {
-				fmt.Fprintf(&body, "        item%s%s = %s;\n", access, mangleField(f.Name), reflectCheckedUnboxExprCode(ctx, f.Type, rowGet))
+				fmt.Fprintf(&body, "        item%s%s = %s;\n", access, mangleField(f.Name), dbColumnValueCode(ctx, f.Type, rowGet))
 			}
 		}
 
@@ -117,4 +118,33 @@ func generateIRDBRowsAsExpr(ctx *irGenCtx, e *ir.DBRowsAsExpr) (string, valueTyp
 		return "", typeUnknown, err
 	}
 	return fmt.Sprintf("%s(%s)", dbRowsFuncName(e.Elem.Entity), code), fromIRType(e.To), nil
+}
+
+// dbColumnValueCode - значение колонки anyExpr для поля типа t:
+// Десятичное - преобразованием (rech_db_dec_from_any), остальное - точной
+// распаковкой.
+func dbColumnValueCode(ctx *irGenCtx, t ir.Type, anyExpr string) string {
+	if t == ir.TypeDecimal {
+		ctx.usesDecimal = true
+		return fmt.Sprintf("rech_db_dec_from_any(%s)", anyExpr)
+	}
+	return reflectCheckedUnboxExprCode(ctx, t, anyExpr)
+}
+
+// dbDecimalFromAnyCode - rech_db_dec_from_any: колонка в поле
+// Десятичное. Драйверы отдают числа как Целое или Действительное, текст -
+// как Строка: целое и строка - точно, Действительное - через кратчайшую
+// запись (interp dbDecimalFromBoxed - то же правило). Иное - паника
+// несовпадения типа, как у обычной распаковки.
+func dbDecimalFromAnyCode() string {
+	return fmt.Sprintf(`static rech_dec rech_db_dec_from_any(rech_any_t v) {
+    rech_dec d;
+    if (v.type == &%[1]s) return v.v.d;
+    if (v.type == &%[2]s) return rech_dec_from_int(v.v.i);
+    if (v.type == &%[3]s) return rech_dec_from_double(v.v.f64);
+    if (v.type == &%[4]s && rech_dec_parse(v.v.s, &d)) return d;
+    return rech_unbox_check(v, &%[1]s).v.d;
+}
+
+`, reflectMetaVarFor(ir.TypeDecimal), reflectMetaVarFor(ir.TypeInt), reflectMetaVarFor(ir.TypeFloat), reflectMetaVarFor(ir.TypeString))
 }

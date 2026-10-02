@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/IlyaFeoktistov/Rech/internal/decimal"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
@@ -205,7 +206,7 @@ func classifyPlain(text string) yamlValue {
 		return yamlValue{kind: yamlBool, b: false}
 	}
 	if n, err := strconv.ParseFloat(text, 64); err == nil {
-		return yamlValue{kind: yamlNum, num: n}
+		return yamlValue{kind: yamlNum, num: n, str: text}
 	}
 	return yamlValue{kind: yamlStr, str: text}
 }
@@ -581,6 +582,12 @@ func (in *Interp) yamlExtract(v yamlValue, target ir.Type) (Value, error) {
 			return Value{}, mismatch()
 		}
 		return stringValue(v.str), nil
+	case ir.KindDecimal:
+		d, err := decimal.Parse(v.str)
+		if v.kind != yamlNum && v.kind != yamlStr || err != nil {
+			return Value{}, mismatch()
+		}
+		return decimalValue(d), nil
 	case ir.KindBool:
 		if v.kind != yamlBool {
 			return Value{}, mismatch()

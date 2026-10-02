@@ -29,6 +29,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/IlyaFeoktistov/Rech/internal/decimal"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
@@ -106,6 +107,12 @@ func (in *Interp) xmlExtract(node xmlNode, target ir.Type) (Value, error) {
 		return floatValue(f), nil
 	case ir.KindString:
 		return stringValue(node.text), nil
+	case ir.KindDecimal:
+		d, err := decimal.Parse(node.text)
+		if err != nil {
+			return Value{}, mismatch()
+		}
+		return decimalValue(d), nil
 	case ir.KindBool:
 		switch node.text {
 		case "true":

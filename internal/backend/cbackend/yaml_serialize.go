@@ -134,6 +134,7 @@ var yamlPrimitiveSerializers = map[ir.TypeKind]string{
 	ir.KindFloat:   "rech_yaml_serialize_float64",
 	ir.KindString:  "rech_yaml_serialize_string",
 	ir.KindBool:    "rech_yaml_serialize_bool",
+	ir.KindDecimal: "rech_yaml_serialize_decimal",
 }
 
 func yamlSerializerNameFor(t ir.Type) string {
@@ -173,6 +174,13 @@ func yamlPrimitiveSerializerCode(name string, t ir.Type) string {
     char buf[64];
     rech_fmt_float(buf, v, 0);
     rech_yaml_sb_puts(sb, buf);
+}
+
+`, name)
+	case ir.KindDecimal:
+		return fmt.Sprintf(`static void %s(rech_dec v, rech_yaml_sb *sb) {
+    char buf[48];
+    rech_yaml_sb_puts(sb, rech_dec_to_text(buf, v));
 }
 
 `, name)

@@ -23,7 +23,7 @@ func generateIRCastExpr(ctx *irGenCtx, e *ir.CastExpr) (string, valueType, error
 	if e.AsPrinted {
 		return printedTextCode(ctx, from, code), typeString, nil
 	}
-	if dc, ok := decimalCastCode(ctx, code, from, to, e.To.String()); ok {
+	if dc, ok := decimalCastCode(ctx, code, from, to, e.To.String()); ok && to != typeAny {
 		return dc, to, nil
 	}
 

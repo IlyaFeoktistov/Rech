@@ -61,6 +61,10 @@ func generateIRShowExpr(ctx *irGenCtx, t ir.Type, cExpr string) string {
 		a := ctx.arrays[t.Entity]
 		return fmt.Sprintf(`{ %[1]s %[2]s = %[3]s; printf("%[4]s ["); for (long long %[2]s_i = 0; %[2]s_i < %[5]d; %[2]s_i++) { if (%[2]s_i > 0) printf(", "); %[6]s; } printf("]"); }`,
 			mangleType(t.Entity), tmp, cExpr, escapeCString(t.String()), a.Len, generateIRShowExpr(ctx, a.Elem, tmp+".a["+tmp+"_i]"))
+	case ir.KindAny:
+		// Содержимое и его тип (interp showValue - тот же текст).
+		ctx.usesAnyText, ctx.usesCast = true, true
+		return fmt.Sprintf(`{ rech_any_t rech_sa = %s; printf("%%s (Значение: %%s)", rech_any_to_str(rech_sa), rech_sa.type->name); }`, cExpr)
 	default:
 		return fmt.Sprintf(`printf("%%s", "?")`)
 	}

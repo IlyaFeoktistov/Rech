@@ -13,7 +13,10 @@ package interp
 
 import (
 	"encoding/json"
+	"strconv"
+	"strings"
 
+	"github.com/IlyaFeoktistov/Rech/internal/decimal"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
@@ -38,8 +41,12 @@ func (in *Interp) evalParseExpr(e *ir.ParseExpr, env *Env, cc *callCtx) (Value, 
 	if e.Format == "PROTOBUF" {
 		return in.evalProtobufParseExpr(e, src)
 	}
+	// UseNumber - число остаётся записью (json.Number): Десятичное
+	// читается из неё точно.
 	var raw any
-	if err := json.Unmarshal([]byte(src.S), &raw); err != nil {
+	dec := json.NewDecoder(strings.NewReader(src.S))
+	dec.UseNumber()
+	if err := dec.Decode(&raw); err != nil || dec.More() {
 		return Value{}, in.jsonParseFail(rtmsg.JSONParseError)
 	}
 	return in.jsonExtract(raw, e.To)
@@ -55,19 +62,19 @@ func (in *Interp) jsonExtract(raw any, target ir.Type) (Value, error) {
 	mismatch := func() error { return in.jsonParseFail(rtmsg.JSONValueMismatch) }
 	switch target.Kind {
 	case ir.KindInt:
-		n, ok := raw.(float64)
+		n, ok := jsonNumber(raw)
 		if !ok || n != float64(int64(n)) {
 			return Value{}, mismatch()
 		}
 		return intValue(int64(n)), nil
 	case ir.KindFloat32:
-		n, ok := raw.(float64)
+		n, ok := jsonNumber(raw)
 		if !ok {
 			return Value{}, mismatch()
 		}
 		return Value{Type: ir.TypeFloat32, F: n}, nil
 	case ir.KindFloat:
-		n, ok := raw.(float64)
+		n, ok := jsonNumber(raw)
 		if !ok {
 			return Value{}, mismatch()
 		}
@@ -78,6 +85,18 @@ func (in *Interp) jsonExtract(raw any, target ir.Type) (Value, error) {
 			return Value{}, mismatch()
 		}
 		return stringValue(s), nil
+	case ir.KindDecimal:
+		// Число - точно по записи; строка ("129.90") - тоже, как в cbackend.
+		text, isNum := raw.(json.Number)
+		s, isStr := raw.(string)
+		if isStr {
+			text = json.Number(s)
+		}
+		d, err := decimal.Parse(string(text))
+		if !isNum && !isStr || err != nil {
+			return Value{}, mismatch()
+		}
+		return decimalValue(d), nil
 	case ir.KindBool:
 		b, ok := raw.(bool)
 		if !ok {
@@ -124,4 +143,14 @@ func (in *Interp) jsonExtract(raw any, target ir.Type) (Value, error) {
 	default:
 		return Value{}, mismatch()
 	}
+}
+
+// jsonNumber - число JSON-значения raw (json.Number после UseNumber).
+func jsonNumber(raw any) (float64, bool) {
+	n, ok := raw.(json.Number)
+	if !ok {
+		return 0, false
+	}
+	f, err := strconv.ParseFloat(string(n), 64)
+	return f, err == nil
 }

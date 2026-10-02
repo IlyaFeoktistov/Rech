@@ -257,6 +257,14 @@ func analyzeCastExpr(sc *ctx, e *ast.CastExpr) (ir.Expr, error) {
 	if err != nil {
 		return nil, err
 	}
+	if to == ir.TypeDecimal {
+		// "(Десятичное) 1.5" - константа точно, из текста литерала.
+		if coerced, ok, err := coerceNumericConst(value, to, e.Line); err != nil {
+			return nil, err
+		} else if ok {
+			return coerced, nil
+		}
+	}
 	// Доказанная непустота (established, "если а != Ничто {...}")
 	// разворачивает nullable ДО решения from/to - без этого "(Целое)
 	// из_окружения" (из_окружения: ?Строка, уже сужена) не находила пути:
@@ -324,12 +332,7 @@ func analyzeCastExpr(sc *ctx, e *ast.CastExpr) (ir.Expr, error) {
 		if from.Kind == ir.KindNullable {
 			from = nullableInner(sc, from)
 		}
-		if from == ir.TypeDecimal || from.Kind == ir.KindEntity && entityHasDecimal(sc.entities, from.Entity, map[string]bool{}) {
-			if from == ir.TypeDecimal {
-				return nil, errAtLine(e.Line, CodeTypeMismatch, "Десятичное пока не боксируется в \"Значение\" - передайте (Строка) значение или (Действительное) значение")
-			}
-			return nil, errAtLine(e.Line, CodeTypeMismatch, "%s пока не боксируется в \"Значение\": у неё есть поле Десятичное, а рефлексия его пока не поддерживает", from)
-		}
+
 		sc.a.markUsesReflection()
 		if from.Kind == ir.KindEntity {
 			sc.a.registerReflectTarget(from)

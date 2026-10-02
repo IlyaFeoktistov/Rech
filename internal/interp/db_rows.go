@@ -11,7 +11,9 @@ package interp
 import (
 	"strings"
 
+	"github.com/IlyaFeoktistov/Rech/internal/decimal"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
+	"github.com/IlyaFeoktistov/Rech/internal/numfmt"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
 
@@ -31,6 +33,8 @@ func dbNullableInnerType(nullableEntity string) ir.Type {
 		return ir.TypeString
 	case "Логическое":
 		return ir.TypeBool
+	case "Десятичное":
+		return ir.TypeDecimal
 	default:
 		return ir.Type{}
 	}
@@ -74,11 +78,20 @@ func (in *Interp) dbRowToEntity(row Value, ent *ir.Entity) (Value, error) {
 				continue
 			}
 			inner := dbNullableInnerType(f.Type.Entity)
+			if inner == ir.TypeDecimal {
+				d := dbDecimalFromBoxed(*boxed.Boxed)
+				fields[f.Name] = Value{Type: f.Type, Nullable: &d}
+				continue
+			}
 			if boxed.Boxed.Type != inner {
 				panicRuntimeAs(rtmsg.PanicBadCast, "%s", rtmsg.AsTypeMismatchFormat(boxed.Boxed.Type.String(), inner.String()))
 			}
 			unwrapped := *boxed.Boxed
 			fields[f.Name] = Value{Type: f.Type, Nullable: &unwrapped}
+			continue
+		}
+		if f.Type == ir.TypeDecimal {
+			fields[f.Name] = dbDecimalFromBoxed(*boxed.Boxed)
 			continue
 		}
 		if boxed.Boxed.Type != f.Type {
@@ -87,4 +100,24 @@ func (in *Interp) dbRowToEntity(row Value, ent *ir.Entity) (Value, error) {
 		fields[f.Name] = *boxed.Boxed
 	}
 	return Value{Type: ir.EntityType(ent.Name), Obj: &entityObj{typeName: ent.Name, fields: fields}}, nil
+}
+
+// dbDecimalFromBoxed - колонка в поле Десятичное (cbackend
+// rech_db_dec_from_any - то же правило): Целое и Строка - точно,
+// Действительное - через кратчайшую запись.
+func dbDecimalFromBoxed(v Value) Value {
+	switch v.Type {
+	case ir.TypeDecimal:
+		return v
+	case ir.TypeInt:
+		return decimalValue(decimal.FromInt(v.I))
+	case ir.TypeFloat:
+		return decimalResult(decimal.Parse(numfmt.Float(v.F, 64)))
+	case ir.TypeString:
+		if d, err := decimal.Parse(v.S); err == nil {
+			return decimalValue(d)
+		}
+	}
+	panicRuntimeAs(rtmsg.PanicBadCast, "%s", rtmsg.AsTypeMismatchFormat(v.Type.String(), ir.TypeDecimal.String()))
+	return Value{}
 }

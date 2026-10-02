@@ -145,6 +145,7 @@ var xmlPrimitiveSerializers = map[ir.TypeKind]string{
 	ir.KindFloat:   "rech_xml_serialize_float64",
 	ir.KindString:  "rech_xml_serialize_string",
 	ir.KindBool:    "rech_xml_serialize_bool",
+	ir.KindDecimal: "rech_xml_serialize_decimal",
 }
 
 func xmlSerializerNameFor(t ir.Type) string {
@@ -185,6 +186,13 @@ func xmlPrimitiveSerializerCode(name string, t ir.Type) string {
 %s    char buf[64];
     rech_fmt_float(buf, v, 0);
     rech_xml_sb_puts(sb, buf);
+%s}
+
+`, name, open, close)
+	case ir.KindDecimal:
+		return fmt.Sprintf(`static void %s(rech_dec v, const char *tag, rech_xml_sb *sb) {
+%s    char buf[48];
+    rech_xml_sb_puts(sb, rech_dec_to_text(buf, v));
 %s}
 
 `, name, open, close)
@@ -273,6 +281,8 @@ func (g *xmlSerializerGen) xmlAttrWriteCode(name string, t ir.Type, value string
 		fmt.Fprintf(&sb, "    { char buf[32]; snprintf(buf, sizeof buf, \"%%lld\", %s); rech_xml_sb_puts(sb, buf); }\n", value)
 	case ir.KindFloat32, ir.KindFloat:
 		fmt.Fprintf(&sb, "    { char buf[48]; rech_xml_sb_puts(sb, rech_fmt_float(buf, (double)%s, %d)); }\n", value, float32Flag(t.Kind == ir.KindFloat32))
+	case ir.KindDecimal:
+		fmt.Fprintf(&sb, "    { char buf[48]; rech_xml_sb_puts(sb, rech_dec_to_text(buf, %s)); }\n", value)
 	case ir.KindBool:
 		fmt.Fprintf(&sb, "    rech_xml_sb_puts(sb, %s ? \"true\" : \"false\");\n", value)
 	default: // ir.KindString

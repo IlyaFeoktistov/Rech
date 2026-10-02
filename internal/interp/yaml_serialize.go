@@ -74,7 +74,7 @@ func (in *Interp) yamlSerializeList(sb *strings.Builder, v Value, indent int) {
 
 func isYAMLPrimitiveKind(k ir.TypeKind) bool {
 	switch k {
-	case ir.KindInt, ir.KindFloat32, ir.KindFloat, ir.KindString, ir.KindBool:
+	case ir.KindInt, ir.KindFloat32, ir.KindFloat, ir.KindString, ir.KindBool, ir.KindDecimal:
 		return true
 	default:
 		return false
@@ -91,6 +91,8 @@ func yamlWriteScalar(sb *strings.Builder, v Value) {
 		sb.WriteString(strconv.FormatInt(v.I, 10))
 	case ir.KindFloat32, ir.KindFloat:
 		sb.WriteString(formatFloat(v))
+	case ir.KindDecimal:
+		sb.WriteString(v.Dec.String())
 	case ir.KindBool:
 		if v.B {
 			sb.WriteString("true")

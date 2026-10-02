@@ -39,6 +39,8 @@ func (in *Interp) jsonSerialize(sb *strings.Builder, v Value) {
 		sb.WriteString(strconv.FormatInt(v.I, 10))
 	case ir.KindFloat32, ir.KindFloat:
 		sb.WriteString(formatFloat(v))
+	case ir.KindDecimal:
+		sb.WriteString(v.Dec.String())
 	case ir.KindString:
 		jsonWriteEscapedString(sb, v.S)
 	case ir.KindBool:

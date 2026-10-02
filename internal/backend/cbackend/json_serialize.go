@@ -121,6 +121,7 @@ var jsonPrimitiveSerializers = map[ir.TypeKind]string{
 	ir.KindInt:     "rech_json_serialize_int",
 	ir.KindFloat32: "rech_json_serialize_float32",
 	ir.KindFloat:   "rech_json_serialize_float64",
+	ir.KindDecimal: "rech_json_serialize_decimal",
 	ir.KindString:  "rech_json_serialize_string",
 	ir.KindBool:    "rech_json_serialize_bool",
 }
@@ -155,6 +156,14 @@ func jsonPrimitiveSerializerCode(name string, t ir.Type) string {
     char buf[64];
     rech_fmt_float(buf, v, 0);
     rech_json_sb_puts(sb, buf);
+}
+
+`, name)
+	case ir.KindDecimal:
+		// Число как есть, с масштабом: 129.90 - не 129.9.
+		return fmt.Sprintf(`static void %s(rech_dec v, rech_json_sb *sb) {
+    char buf[48];
+    rech_json_sb_puts(sb, rech_dec_to_text(buf, v));
 }
 
 `, name)

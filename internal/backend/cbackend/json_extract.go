@@ -62,6 +62,7 @@ var jsonPrimitiveExtractors = map[ir.TypeKind]string{
 	ir.KindFloat:   "rech_json_extract_float64",
 	ir.KindString:  "rech_json_extract_string",
 	ir.KindBool:    "rech_json_extract_bool",
+	ir.KindDecimal: "rech_json_extract_decimal",
 }
 
 type jsonExtractorGen struct {
@@ -168,6 +169,16 @@ func jsonPrimitiveExtractorCode(name string, t ir.Type) string {
 		return fmt.Sprintf(`static const char *%s(rech_jv v) {
     if (v.kind != RECH_JV_STR) { %s }
     return v.str;
+}
+
+`, name, mismatch)
+	case ir.KindDecimal:
+		// Число - точно по записи; строка ("129.90") - тоже: деньги в API
+		// часто передают строкой.
+		return fmt.Sprintf(`static rech_dec %s(rech_jv v) {
+    rech_dec d;
+    if ((v.kind != RECH_JV_NUM && v.kind != RECH_JV_STR) || !rech_dec_parse(v.str, &d)) { %s }
+    return d;
 }
 
 `, name, mismatch)
@@ -533,10 +544,14 @@ static rech_jv rech_json_parse_value(rech_jvp *p) {
         char *end;
         double n = strtod(p->cur, &end);
         if (end == p->cur) rech_struct_throw(RECH_JSON_PARSE_ERR);
-        p->cur = end;
         rech_jv v = {0};
         v.kind = RECH_JV_NUM;
         v.num = n;
+        /* Запись числа как в тексте - для точного Десятичное. */
+        v.str = GC_MALLOC((size_t)(end - p->cur) + 1);
+        memcpy(v.str, p->cur, (size_t)(end - p->cur));
+        v.str[end - p->cur] = 0;
+        p->cur = end;
         return v;
     }
     rech_struct_throw(RECH_JSON_PARSE_ERR);

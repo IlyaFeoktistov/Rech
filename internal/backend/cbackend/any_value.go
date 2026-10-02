@@ -53,6 +53,7 @@ func anyValueHelpers(ctx *irGenCtx) string {
 		fmt.Fprintf(&sb, "    if (a.type == %s) return strcmp(a.v.s, b.v.s) == 0;\n", meta(ir.KindString))
 		fmt.Fprintf(&sb, "    if (a.type == %s) return a.v.f64 == b.v.f64;\n", meta(ir.KindFloat))
 		fmt.Fprintf(&sb, "    if (a.type == %s) return a.v.f32 == b.v.f32;\n", meta(ir.KindFloat32))
+		fmt.Fprintf(&sb, "    if (a.type == %s) return rech_dec_cmp(a.v.d, b.v.d) == 0;\n", meta(ir.KindDecimal))
 		fmt.Fprintf(&sb, "    if (a.type == %s) return a.v.b == b.v.b;\n", meta(ir.KindBool))
 		sb.WriteString(`    if (a.type->is_value) {
         for (int i = 0; i < a.type->field_count; i++) {
@@ -82,6 +83,8 @@ func anyTextOf(k ir.TypeKind) string {
 		return "rech_cast_float_to_str(v.v.f64, 0)"
 	case ir.KindFloat32:
 		return "rech_cast_float_to_str((double)v.v.f32, 1)"
+	case ir.KindDecimal:
+		return "({ char rech_db[48]; rech_dec_to_text(rech_db, v.v.d); rech_cast_alloc(rech_db, strlen(rech_db)); })"
 	case ir.KindChar:
 		return "rech_cast_char_to_str((int32_t)v.v.i)"
 	case ir.KindUint, ir.KindUint16, ir.KindUint32:

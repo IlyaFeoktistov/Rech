@@ -639,6 +639,9 @@ func dbSubstituteCode(paramsListC string) string {
             rech_db_sb_puts(&sb, v.v.b ? "TRUE" : "FALSE");
         } else if (v.type == &%[8]s) {
             rech_db_sb_puts(&sb, "NULL");
+        } else if (v.type == &%[10]s) {
+            char buf[48];
+            rech_db_sb_puts(&sb, rech_dec_to_text(buf, v.v.d));
         } else {
             rech_panic("%[9]s");
         }
@@ -651,7 +654,7 @@ func dbSubstituteCode(paramsListC string) string {
 `, paramsListC, escapeCString(rtmsg.DBTooFewParams),
 		reflectMetaVarFor(ir.TypeInt), reflectMetaVarFor(ir.TypeFloat), reflectMetaVarFor(ir.TypeFloat32),
 		reflectMetaVarFor(ir.TypeString), reflectMetaVarFor(ir.TypeBool), reflectMetaVarFor(ir.TypeNullValue),
-		escapeCString(rtmsg.DBInvalidParamType))
+		escapeCString(rtmsg.DBInvalidParamType), reflectMetaVarFor(ir.TypeDecimal))
 }
 
 // sqliteQueryExecCode - разбор через sqlite3_prepare_v2/step (не

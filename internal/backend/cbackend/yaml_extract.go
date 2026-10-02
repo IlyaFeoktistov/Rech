@@ -44,6 +44,7 @@ var yamlPrimitiveExtractors = map[ir.TypeKind]string{
 	ir.KindFloat:   "rech_yaml_extract_float64",
 	ir.KindString:  "rech_yaml_extract_string",
 	ir.KindBool:    "rech_yaml_extract_bool",
+	ir.KindDecimal: "rech_yaml_extract_decimal",
 }
 
 type yamlExtractorGen struct {
@@ -138,6 +139,14 @@ func yamlPrimitiveExtractorCode(name string, t ir.Type) string {
 		return fmt.Sprintf(`static double %s(rech_yv v) {
     if (v.kind != RECH_YV_NUM) { %s }
     return v.num;
+}
+
+`, name, mismatch)
+	case ir.KindDecimal:
+		return fmt.Sprintf(`static rech_dec %s(rech_yv v) {
+    rech_dec d;
+    if ((v.kind != RECH_YV_NUM && v.kind != RECH_YV_STR) || !rech_dec_parse(v.str, &d)) { %s }
+    return d;
 }
 
 `, name, mismatch)
@@ -403,6 +412,7 @@ static rech_yv rech_yaml_classify_plain(const char *text, long long len) {
     if (end == buf + len) {
         v.kind = RECH_YV_NUM;
         v.num = n;
+        v.str = buf; /* запись числа - для точного Десятичное */
         return v;
     }
     v.kind = RECH_YV_STR;

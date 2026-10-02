@@ -126,7 +126,7 @@ func analyzeSerializeExpr(sc *ctx, e *ast.SerializeExpr) (ir.Expr, error) {
 // сериализовать его конечным текстом.
 func structCompatible(entities map[string]entitySig, t ir.Type, seen map[string]bool, format string) error {
 	switch t.Kind {
-	case ir.KindInt, ir.KindFloat32, ir.KindFloat, ir.KindString, ir.KindBool:
+	case ir.KindInt, ir.KindFloat32, ir.KindFloat, ir.KindString, ir.KindBool, ir.KindDecimal:
 		return nil
 	case ir.KindEntity:
 		sig, ok := entities[t.Entity]

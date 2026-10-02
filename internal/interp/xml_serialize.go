@@ -43,7 +43,7 @@ func (in *Interp) evalXMLSerializeExpr(v Value) Value {
 // дополнительной обёртки - см. package doc, "Список<T> как поле").
 func (in *Interp) xmlSerializeTagged(sb *strings.Builder, v Value, tag string) {
 	switch v.Type.Kind {
-	case ir.KindInt, ir.KindFloat32, ir.KindFloat, ir.KindBool:
+	case ir.KindInt, ir.KindFloat32, ir.KindFloat, ir.KindBool, ir.KindDecimal:
 		fmt.Fprintf(sb, "<%s>%s</%s>", tag, xmlPrimitiveText(v), tag)
 	case ir.KindString:
 		sb.WriteByte('<')
@@ -113,6 +113,8 @@ func xmlPrimitiveText(v Value) string {
 		return strconv.FormatInt(v.I, 10)
 	case ir.KindFloat32, ir.KindFloat:
 		return formatFloat(v)
+	case ir.KindDecimal:
+		return v.Dec.String()
 	case ir.KindBool:
 		if v.B {
 			return "true"

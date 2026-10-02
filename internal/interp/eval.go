@@ -1051,6 +1051,13 @@ func (in *Interp) showValue(v Value) string {
 		return fmt.Sprintf("%s (Действительное)", formatFloat(v))
 	case ir.KindDecimal:
 		return fmt.Sprintf("%s (Десятичное)", v.Dec.String())
+	case ir.KindAny:
+		// Содержимое и его тип (cbackend/show.go - тот же текст).
+		inner := "Ничто"
+		if v.Boxed != nil && v.Boxed.Type.Kind != ir.KindNull {
+			inner = v.Boxed.Type.String()
+		}
+		return fmt.Sprintf("%s (Значение: %s)", in.printText(v), inner)
 	case ir.KindChar:
 		return fmt.Sprintf("%s (Символ)", string(rune(v.I)))
 	case ir.KindBool:

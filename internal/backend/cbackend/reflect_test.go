@@ -18,10 +18,10 @@ func TestGenerateFromIRTypeOfPrimitiveEmitsDescriptor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, "v_t_INIT = (&rech_type_meta_celoe);") {
+	if !strings.Contains(out, "v_t_INIT = (&rech_tmeta_celoe);") {
 		t.Fatalf("ожидался адрес дескриптора Целое, получено:\n%s", out)
 	}
-	if !strings.Contains(out, `static const rech_type_meta_t rech_type_meta_celoe = {"Целое", NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0, ""};`) {
+	if !strings.Contains(out, `static const rech_type_meta_t rech_tmeta_celoe = {"Целое", NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0, ""};`) {
 		t.Fatalf("ожидался статический дескриптор примитива Целое, получено:\n%s", out)
 	}
 }
@@ -36,7 +36,7 @@ func TestGenerateFromIRBoxPrimitiveCast(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, "(rech_any_t){.type = &rech_type_meta_celoe, .v.i = (long long)(5LL)}") {
+	if !strings.Contains(out, "(rech_any_t){.type = &rech_tmeta_celoe, .v.i = (long long)(5LL)}") {
 		t.Fatalf("ожидалось боксирование Целое в rech_any_t, получено:\n%s", out)
 	}
 }
@@ -52,7 +52,7 @@ func TestGenerateFromIRAsExprUsesCheckedUnbox(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, "((long long)(rech_unbox_check(v_korobka, &rech_type_meta_celoe)).v.i)") {
+	if !strings.Contains(out, "((long long)(rech_unbox_check(v_korobka, &rech_tmeta_celoe)).v.i)") {
 		t.Fatalf("ожидался rech_unbox_check перед распаковкой, получено:\n%s", out)
 	}
 }
@@ -143,7 +143,7 @@ func TestGenerateFromIREntityReflectTargetGeneratesAccessorsAndDescriptor(t *tes
 	if !strings.Contains(out, "static rech_any_t rech_reflect_ctor_tochka(rech_any_t *args, int argc) {") {
 		t.Fatalf("ожидалась обёртка конструктора, получено:\n%s", out)
 	}
-	if !strings.Contains(out, `static const rech_type_meta_t rech_type_meta_tochka = {"Точка",`) {
+	if !strings.Contains(out, `static const rech_type_meta_t rech_tmeta_tochka = {"Точка",`) {
 		t.Fatalf("ожидался дескриптор типа Точка, получено:\n%s", out)
 	}
 }
@@ -282,10 +282,10 @@ func TestGenerateFromIRInterfaceReflectTargetGeneratesDescriptor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, `static const rech_type_meta_t rech_type_meta_zvuchaschij = {"Звучащий", NULL, 0,`) {
+	if !strings.Contains(out, `static const rech_type_meta_t rech_tmeta_zvuchaschij = {"Звучащий", NULL, 0,`) {
 		t.Fatalf("ожидался дескриптор интерфейса Звучащий без полей, получено:\n%s", out)
 	}
-	if !strings.Contains(out, `{"издать_звук", 0, NULL, &rech_type_meta_stroka, NULL, ""},`) {
+	if !strings.Contains(out, `{"издать_звук", 0, NULL, &rech_tmeta_stroka, NULL, ""},`) {
 		t.Fatalf("ожидался метод \"издать_звук\" с invoke=NULL, получено:\n%s", out)
 	}
 }
@@ -319,7 +319,7 @@ func TestGenerateFromIRAsInterfaceUsesImplementorsCheck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, "static const rech_type_meta_t *const rech_iface_impls_zvuchaschij[] = {&rech_type_meta_kot};") {
+	if !strings.Contains(out, "static const rech_type_meta_t *const rech_iface_impls_zvuchaschij[] = {&rech_tmeta_kot};") {
 		t.Fatalf("ожидался массив реализаций rech_iface_impls_zvuchaschij, получено:\n%s", out)
 	}
 	if !strings.Contains(out, `rech_unbox_check_iface(v_korobka, rech_iface_impls_zvuchaschij, 1, "Звучащий")`) {
@@ -353,12 +353,12 @@ func TestGenerateFromIREntityDescriptorCarriesBaseAndInterfaces(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if !strings.Contains(out, "static const rech_type_meta_t *const rech_type_meta_kot_interfaces[] = {&rech_type_meta_zvuchaschij};") {
-		t.Fatalf("ожидался массив rech_type_meta_kot_interfaces, получено:\n%s", out)
+	if !strings.Contains(out, "static const rech_type_meta_t *const rech_tmeta_kot_interfaces[] = {&rech_tmeta_zvuchaschij};") {
+		t.Fatalf("ожидался массив rech_tmeta_kot_interfaces, получено:\n%s", out)
 	}
-	if !strings.Contains(out, `rech_type_meta_kot = {"Кот", NULL, 0,`) ||
-		!strings.Contains(out, `&rech_type_meta_zhivotnoe, rech_type_meta_kot_interfaces, 1, "", false};`) {
-		t.Fatalf("ожидался дескриптор Кот с base=&rech_type_meta_zhivotnoe и interfaces/interface_count=1, получено:\n%s", out)
+	if !strings.Contains(out, `rech_tmeta_kot = {"Кот", NULL, 0,`) ||
+		!strings.Contains(out, `&rech_tmeta_zhivotnoe, rech_tmeta_kot_interfaces, 1, "", false};`) {
+		t.Fatalf("ожидался дескриптор Кот с base=&rech_tmeta_zhivotnoe и interfaces/interface_count=1, получено:\n%s", out)
 	}
 }
 
@@ -399,13 +399,13 @@ func TestGenerateFromIRTypeInfoBaseAndInterfaceReflectionMethods(t *testing.T) {
 // интерфейс, чей InterfaceImplementors указывает на ТУ ЖЕ сущность
 // (обычный случай - "Кот реализует Звучащий", "Звучащий".implementors ==
 // ["Кот"]) - раньше тентативное объявление "static const rech_type_meta_t
-// rech_type_meta_kot;" писалось ПОСЛЕ ensure() полей/методов/base/
+// rech_tmeta_kot;" писалось ПОСЛЕ ensure() полей/методов/base/
 // interfaces сущности, а не сразу после появления записи в g.generated -
 // ensure(Кот) помечал себя сгенерированным, рекурсивно вызывал
 // ensure(Звучащий), тот - ensure(Кот) СНОВА (implementors), видел
 // g.generated[Кот]==true и возвращался БЕЗ единой написанной строки -
 // ensureInterface(Звучащий) продолжал и писал "rech_iface_impls_zvuchaschij
-// = {&rech_type_meta_kot}", ссылаясь на СИМВОЛ, ЕЩЁ НЕ ОБЪЯВЛЕННЫЙ НИ
+// = {&rech_tmeta_kot}", ссылаясь на СИМВОЛ, ЕЩЁ НЕ ОБЪЯВЛЕННЫЙ НИ
 // ТЕНТАТИВНО, НИ ПОЛНОСТЬЮ (настоящий cc падал "undeclared identifier").
 // Тест проверяет ПОРЯДОК текста - тентативное объявление обязано появиться
 // РАНЬШЕ первой ссылки на него.
@@ -430,10 +430,10 @@ func TestGenerateFromIREntityInterfaceCircularReflectOrderingRegression(t *testi
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	declPos := strings.Index(out, "static const rech_type_meta_t rech_type_meta_kot;")
-	usePos := strings.Index(out, "rech_iface_impls_zvuchaschij[] = {&rech_type_meta_kot};")
+	declPos := strings.Index(out, "static const rech_type_meta_t rech_tmeta_kot;")
+	usePos := strings.Index(out, "rech_iface_impls_zvuchaschij[] = {&rech_tmeta_kot};")
 	if declPos == -1 || usePos == -1 || declPos >= usePos {
-		t.Fatalf("ожидалось опережающее объявление rech_type_meta_kot РАНЬШЕ ссылки на него в rech_iface_impls_zvuchaschij, получено:\n%s", out)
+		t.Fatalf("ожидалось опережающее объявление rech_tmeta_kot РАНЬШЕ ссылки на него в rech_iface_impls_zvuchaschij, получено:\n%s", out)
 	}
 }
 
@@ -455,10 +455,10 @@ func TestGenerateFromIRPrimitiveTagIsEmptyStringNotNull(t *testing.T) {
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if strings.Contains(out, `rech_type_meta_celoe = {"Целое", NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0, NULL};`) {
+	if strings.Contains(out, `rech_tmeta_celoe = {"Целое", NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0, NULL};`) {
 		t.Fatalf("поле tag дескриптора примитива - буквальный NULL, ожидалась пустая строка \"\", получено:\n%s", out)
 	}
-	if !strings.Contains(out, `rech_type_meta_celoe = {"Целое", NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0, ""};`) {
+	if !strings.Contains(out, `rech_tmeta_celoe = {"Целое", NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0, ""};`) {
 		t.Fatalf("ожидался дескриптор Целое с tag = \"\", получено:\n%s", out)
 	}
 }
@@ -505,8 +505,8 @@ func TestGenerateFromIREntityMethodAndFieldTagReflection(t *testing.T) {
 		`rech_tag_lookup(rech_method_at(v_t, 0LL)->tag, "выполняет")`,
 		"rech_method_at(v_t, 0LL)->tag",
 		`, "таблица:users", false};`,
-		`"имя", &rech_type_meta_stroka, rech_reflect_get_polzovatel_imya, rech_reflect_set_polzovatel_imya, "json:name"`,
-		`{"сохранить", 0, NULL, &rech_type_meta_stroka, rech_reflect_invoke_polzovatel_sohranit, "выполняет:запись"}`,
+		`"имя", &rech_tmeta_stroka, rech_reflect_get_polzovatel_imya, rech_reflect_set_polzovatel_imya, "json:name"`,
+		`{"сохранить", 0, NULL, &rech_tmeta_stroka, rech_reflect_invoke_polzovatel_sohranit, "выполняет:запись"}`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("ожидалось %q, получено:\n%s", want, out)
