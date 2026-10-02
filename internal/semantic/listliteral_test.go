@@ -20,7 +20,7 @@ func TestAnalyzeListLiteralNonEmptyInfersType(t *testing.T) {
 func TestAnalyzeListLiteralEmptyWithAnnotationOK(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 функция главная {
-    переменная а: Список<Целое> = []
+    Список<Целое> а = []
     вывести а.длина()
 }
 `)
@@ -35,7 +35,7 @@ func TestAnalyzeListLiteralEmptyWithoutAnnotationRejected(t *testing.T) {
     переменная а = []
 }
 `)
-	if err == nil || !strings.Contains(err.Error(), "требует известный тип") {
+	if err == nil || !strings.Contains(err.Error(), "невозможно вычислить тип переменной \"а\" из пустого списка") {
 		t.Fatalf("ожидалась ошибка про пустой литерал без известного типа, получено: %v", err)
 	}
 }

@@ -144,8 +144,8 @@ func TestMultiFileHoverShowsDisplayNameNotMangled(t *testing.T) {
 	if !ok {
 		t.Fatalf("ожидался hover переменной \"л\"")
 	}
-	if !strings.Contains(text, "л: КонсольныйЛоггер") {
-		t.Fatalf("ожидалось \"л: КонсольныйЛоггер\" (без манглинга), получено:\n%s", text)
+	if !strings.Contains(text, "КонсольныйЛоггер л") {
+		t.Fatalf("ожидалось \"КонсольныйЛоггер л\" (без манглинга), получено:\n%s", text)
 	}
 	if strings.Contains(text, "_") {
 		t.Fatalf("hover не должен содержать внутреннее смангленное имя, получено:\n%s", text)

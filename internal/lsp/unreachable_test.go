@@ -180,7 +180,7 @@ func TestUnreachableShownWithOtherErrorsInFile(t *testing.T) {
 	expectRegions(t, `
 функция сломанная()
 {
-    переменная т: Целое = "строка"
+    Целое т = "строка"
 }
 
 функция ф(): Целое

@@ -53,7 +53,7 @@ func TestParseAddressOfIndex(t *testing.T) {
 }
 
 func TestParseDerefExpr(t *testing.T) {
-	src := "функция главная { переменная п: Указатель<Целое> = &а\nвывести *п }\n"
+	src := "функция главная { Указатель<Целое> п = &а\nвывести *п }\n"
 	prog, err := parseSource(t, src)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
@@ -68,7 +68,7 @@ func TestParseDerefExpr(t *testing.T) {
 // синтаксический сахар над "Указатель<Тип>" (как в C/Go/Rust) - оба
 // разбираются в одну и ту же строку типа, дальше по конвейеру неразличимы.
 func TestParseStarTypeSugarEqualsPointerGeneric(t *testing.T) {
-	src := "функция главная { переменная п: *Целое = &а\nвывести *п }\n"
+	src := "функция главная { *Целое п = &а\nвывести *п }\n"
 	prog, err := parseSource(t, src)
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)

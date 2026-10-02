@@ -17,7 +17,6 @@ func (p *Parser) parseBlock() ([]ast.Stmt, error) {
 	// же строке или с переносом - вопрос стиля, а не грамматики.
 	p.skipSeparators()
 
-	savedPending := p.beginPendingScope()
 	var stmts []ast.Stmt
 	for p.cur().Type != lexer.RBRACE {
 		if p.cur().Type == lexer.EOF {
@@ -61,9 +60,6 @@ func (p *Parser) parseBlock() ([]ast.Stmt, error) {
 		}
 	}
 	if _, err := p.expect(lexer.RBRACE); err != nil {
-		return nil, err
-	}
-	if err := p.endPendingScope(savedPending); err != nil {
 		return nil, err
 	}
 	return stmts, nil
@@ -392,19 +388,17 @@ func (p *Parser) parseAssertStmt() (ast.Stmt, error) {
 	return &ast.AssertStmt{Cond: cond, Message: message, Line: kw.Line}, nil
 }
 
-// parseVarDecl разбирает "переменная <имя> = <выражение>" - тип выводится
-// из Value, как раньше - либо, начиная с этой сессии, "переменная <имя>: <Тип>
-// = <выражение>" с явной аннотацией типа (нужна там, куда тип неоткуда
-// вывести из самого Value: "Ничто" у nullable-переменной, пустой литерал
-// списка "[]" - см. ast.VarDecl.Type).
+// parseVarDecl разбирает "[статическая] переменная <имя> = <выражение>" -
+// тип выводится из значения (если вывести нельзя - ошибка семантики с
+// просьбой указать тип). Явный тип - другая форма объявления: "<Тип> <имя>
+// [= <выражение>]" (tryParseTypedVarDecl), поэтому ни "переменная <имя>:
+// <Тип>", ни "переменная <имя>" без значения не бывает.
 func (p *Parser) parseVarDecl() (ast.Stmt, error) {
 	isStatic := false
 	if p.cur().Type == lexer.KwStatic {
 		tok := p.advance()
 		// "переменная" - существительное женского рода, модификатор
-		// согласуется с НИМ, не с именем объявляемой переменной (в отличие
-		// от "статический"/"приватный" у поля сущности) - единственная
-		// правильная форма всегда "статическая".
+		// согласуется с НИМ - единственная правильная форма "статическая".
 		if tok.Value != "статическая" {
 			return nil, errAt(tok.Line, tok.Col, CodeStmtRestrict, "перед \"переменная\" нужна форма \"статическая\", получено %q", tok.Value)
 		}
@@ -418,52 +412,48 @@ func (p *Parser) parseVarDecl() (ast.Stmt, error) {
 	if err != nil {
 		return nil, diagnostics.Wrap(err, "после \"переменная\" ожидалось имя переменной")
 	}
-	var typeName string
 	if p.cur().Type == lexer.COLON {
-		p.advance()
-		typeName, err = p.parseTypeName()
-		if err != nil {
-			return nil, diagnostics.Wrap(err, "в аннотации типа переменной %q", name.Value)
-		}
+		return nil, p.typedVariableKeywordError(name)
 	}
 	// Перенос строки перед "=" ("переменная X\n= значение") допустим, только
-	// если за ним ДЕЙСТВИТЕЛЬНО следует "=" - неоднозначности с отложенным
-	// объявлением (ветка ниже) нет: последующее самостоятельное
-	// использование X всегда повторяет имя ("X = значение"), голое "="
-	// без имени переменной не бывает отдельной инструкцией.
+	// если за ним ДЕЙСТВИТЕЛЬНО следует "=".
 	if p.cur().Type == lexer.NEWLINE && p.peekPastNewlines().Type == lexer.ASSIGN {
 		p.skipNewlines()
 	}
-	if p.cur().Type != lexer.ASSIGN && typeName != "" && !isStatic {
-		// "переменная X: Тип" без значения - значение присваивается позже;
-		// чтение до присваивания отвергает семантика.
-		p.registerNoun(name.Value)
-		p.registerVarEntityType(name.Value, typeName)
-		return &ast.VarDecl{Name: name.Value, Type: typeName, Line: kw.Line}, nil
-	}
-	if p.cur().Type != lexer.ASSIGN && typeName == "" {
+	if p.cur().Type != lexer.ASSIGN {
 		if isStatic {
 			return nil, errAt(p.cur().Line, p.cur().Col, CodeStmtRestrict, "\"статическая переменная\" должна содержать инициализацию (\"=\") - без неё непонятно, каким значением она заполнится ровно один раз")
 		}
-		// Отложенное объявление (pendingvar.go, "переменная X" без "=") -
-		// настоящий ast.VarDecl появится позже, в точке первого
-		// присваивания X в этом же блоке (тип выводится из значения).
-		p.registerPendingVarDecl(name)
-		return nil, nil
+		return nil, errAt(name.Line, name.Col, CodeStmtRestrict, "у \"переменная %s\" без значения не вычислить тип - укажите тип явно", name.Value).
+			WithHint("<Тип> %s, например: Целое %s", name.Value, name.Value)
 	}
-	if _, err := p.expect(lexer.ASSIGN); err != nil {
-		return nil, diagnostics.Wrap(err, "объявление переменной %q должно содержать инициализацию (\"=\")", name.Value)
-	}
+	p.advance()      // "="
 	p.skipNewlines() // "=\nзначение" - перенос сразу после "=" тоже незначим.
 	value, err := p.parseExpr()
 	if err != nil {
 		return nil, diagnostics.Wrap(err, "в инициализации переменной %q", name.Value)
 	}
 	p.registerNoun(name.Value)
-	if typeName != "" {
-		p.registerVarEntityType(name.Value, typeName)
+	return &ast.VarDecl{Name: name.Value, Value: value, IsStatic: isStatic, Line: kw.Line}, nil
+}
+
+// typedVariableKeywordError - "переменная <имя>: <Тип>": "переменная"
+// выводит тип сам, явный тип пишется первым. Позиция - на ":".
+func (p *Parser) typedVariableKeywordError(name lexer.Token) error {
+	colon := p.cur()
+	save, saveGT := p.pos, p.pendingGT
+	defer func() { p.pos, p.pendingGT = save, saveGT }()
+	p.advance()
+	typeName, err := p.parseTypeName()
+	if err != nil {
+		typeName = "<Тип>"
 	}
-	return &ast.VarDecl{Name: name.Value, Type: typeName, Value: value, IsStatic: isStatic, Line: kw.Line}, nil
+	value := ""
+	if p.cur().Type == lexer.ASSIGN {
+		value = " = ..."
+	}
+	return errAt(colon.Line, colon.Col, CodeStmtRestrict, "\"переменная\" выводит тип из значения - объявление с явным типом пишется \"Тип имя\"").
+		WithHint("%s %s%s", typeName, name.Value, value)
 }
 
 // parseConstDecl - "константа <имя> = <значение>" (шаг 12) - синтаксически
@@ -556,14 +546,9 @@ func (p *Parser) parseAssign() (ast.Stmt, error) {
 		return nil, diagnostics.Wrap(err, "в присваивании %q", name.Value)
 	}
 	if baseOp, ok := compoundAssignOps[opTok.Type]; ok {
-		// Составное присваивание всегда читает старое значение name -
-		// отложенное объявление (pendingvar.go) им заведомо не разрешается
-		// (у него ещё нет значения, которое можно было бы прочитать),
-		// resolveAssignTarget здесь не нужен.
 		value = &ast.BinaryExpr{Op: baseOp, Left: &ast.Identifier{Name: name.Value, Line: name.Line}, Right: value, Line: opTok.Line}
-		return &ast.Assign{Name: name.Value, Value: value, Line: name.Line}, nil
 	}
-	return p.resolveAssignTarget(name, value), nil
+	return &ast.Assign{Name: name.Value, Value: value, Line: name.Line}, nil
 }
 
 // parseNullCoalesceAssign разбирает "а ?= б" (null-coalescing присваивание,

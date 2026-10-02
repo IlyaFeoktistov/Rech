@@ -170,6 +170,9 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if hasAnnotation {
 			value, err = coerceExpr(sc, s.Value, declared)
 		} else {
+			if err := uninferableVarError(s); err != nil {
+				return nil, err
+			}
 			value, err = analyzeExpr(sc, s.Value)
 		}
 		if err != nil {
@@ -227,7 +230,7 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 	case *ast.Assign:
 		declared, exists := sc.lookup(s.Name)
 		if !exists {
-			return nil, errAtLine(s.Line, CodeNameResolution, "переменная %q не объявлена - используйте \"переменная\" для объявления", s.Name)
+			return nil, errAtLine(s.Line, CodeNameResolution, "переменная %q не объявлена - объявите её: \"переменная %s = ...\" или \"<Тип> %s = ...\"", s.Name, s.Name, s.Name)
 		}
 		if sc.isConst(s.Name) {
 			return nil, errAtLine(s.Line, CodeStmtCheck, "%q объявлено как \"константа\" - нельзя присвоить новое значение", s.Name)

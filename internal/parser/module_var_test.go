@@ -77,7 +77,7 @@ func TestModuleVarsErrors(t *testing.T) {
 	}
 }
 
-// TestBareVarDeclParsed - "Тип имя" и "переменная имя: Тип" без значения
+// TestBareVarDeclParsed - "Тип имя" и "Тип имя" без значения
 // внутри функции - объявление без значения; строчное слово в начале
 // строки ("напечатать отчёт") - не объявление.
 func TestBareVarDeclParsed(t *testing.T) {
@@ -90,7 +90,7 @@ func TestBareVarDeclParsed(t *testing.T) {
     Целое число
     ?Строка имя
     Список<Целое> числа
-    переменная другое: Целое
+    Целое другое
     Строка отчёт = ""
     напечатать отчёт
 }

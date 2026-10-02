@@ -106,8 +106,7 @@ type VarDecl struct {
 	// IsStatic == false.
 	StaticID int
 	Line     int
-	// DeclType - тип из аннотации ("Фигура ф = ...", "переменная ф: Фигура
-	// = ..."), тип переменной; нулевое значение (KindUnknown) - аннотации
+	// DeclType - тип из аннотации ("Фигура ф = ..."), тип переменной; нулевое значение (KindUnknown) - аннотации
 	// не было, тип переменной - TypeOf(Value).
 	DeclType Type
 	// IsConst - объявлена "константа" (для инструментов: hover пишет

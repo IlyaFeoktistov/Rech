@@ -16,7 +16,7 @@ import (
 func analyzeListLiteralExpr(sc *ctx, e *ast.ListLiteral, targetElem ir.Type, hasTarget bool) (ir.Expr, error) {
 	if len(e.Elems) == 0 {
 		if !hasTarget {
-			return nil, errAtLine(e.Line, CodeSemanticOther, "пустой литерал списка \"[]\" требует известный тип - объявите тип переменной явно (\"переменная а: Список<Тип> = []\")")
+			return nil, errAtLine(e.Line, CodeSemanticOther, "пустой литерал списка \"[]\" требует известный тип - объявите тип переменной явно (\"Список<Тип> а = []\")")
 		}
 		return buildListLiteral(sc, nil, targetElem, e.Line)
 	}
@@ -90,7 +90,7 @@ func literalElemType(sc *ctx, e *ast.ListLiteral, types []ir.Type) (ir.Type, err
 		}
 	}
 	if !haveBase {
-		return ir.Type{}, errAtLine(e.Line, CodeNullable, "литерал списка только из \"Ничто\" - тип элемента неоткуда вывести, объявите тип переменной явно (\"переменная а: Список<?Тип> = [Ничто]\")")
+		return ir.Type{}, errAtLine(e.Line, CodeNullable, "литерал списка только из \"Ничто\" - тип элемента неоткуда вывести, объявите тип переменной явно (\"Список<?Тип> а = [Ничто]\")")
 	}
 	if !nullable {
 		return base, nil

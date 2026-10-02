@@ -153,7 +153,7 @@ func TestLSPServerFullSession(t *testing.T) {
 		t.Fatalf("ожидался непустой результат hover: %+v", hoverResp)
 	}
 	contents, ok := result["contents"].(map[string]any)
-	if !ok || !strings.Contains(contents["value"].(string), "Точка.x: Целое") {
+	if !ok || !strings.Contains(contents["value"].(string), "Целое Точка.x") {
 		t.Fatalf("неожиданное содержимое hover: %+v", result)
 	}
 

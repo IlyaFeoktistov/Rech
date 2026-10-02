@@ -8,7 +8,7 @@ import (
 func TestAnalyzeNullableVarDeclOK(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 функция главная {
-    переменная а: ?Целое = Ничто
+    ?Целое а = Ничто
     а = 10
     утверждать а != Ничто
 }
@@ -24,7 +24,7 @@ func TestAnalyzeNullLiteralWithoutContextRejected(t *testing.T) {
     переменная а = Ничто
 }
 `)
-	if err == nil || !strings.Contains(err.Error(), "неоткуда вывести") {
+	if err == nil || !strings.Contains(err.Error(), "невозможно вычислить тип переменной \"а\" из \"Ничто\"") {
 		t.Fatalf("ожидалась ошибка про отсутствие контекста типа у \"Ничто\", получено: %v", err)
 	}
 }
@@ -32,7 +32,7 @@ func TestAnalyzeNullLiteralWithoutContextRejected(t *testing.T) {
 func TestAnalyzeNullableUseWithoutNarrowingRejected(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 функция главная {
-    переменная а: ?Целое = Ничто
+    ?Целое а = Ничто
     вывести а + 1
 }
 `)
@@ -44,7 +44,7 @@ func TestAnalyzeNullableUseWithoutNarrowingRejected(t *testing.T) {
 func TestAnalyzeNullableNarrowingInIfAllowsUse(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 функция главная {
-    переменная а: ?Целое = Ничто
+    ?Целое а = Ничто
     а = 5
     если а != Ничто {
         вывести а + 1
@@ -59,7 +59,7 @@ func TestAnalyzeNullableNarrowingInIfAllowsUse(t *testing.T) {
 func TestAnalyzeNullableNarrowingInElseBranch(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 функция главная {
-    переменная а: ?Целое = Ничто
+    ?Целое а = Ничто
     а = 5
     если а == Ничто {
         вывести 0
@@ -81,7 +81,7 @@ func TestAnalyzeNullableNarrowingInElseBranch(t *testing.T) {
 func TestAnalyzeNullableNarrowingInWhileAllowsUse(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 функция главная {
-    переменная а: ?Целое = Ничто
+    ?Целое а = Ничто
     а = 5
     пока а != Ничто {
         вывести а + 1
@@ -103,7 +103,7 @@ func TestAnalyzeNullableNarrowingInWhileAllowsUse(t *testing.T) {
 func TestAnalyzeNullableNarrowingDoesNotSurviveAfterWhile(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 функция главная {
-    переменная а: ?Целое = Ничто
+    ?Целое а = Ничто
     а = 5
     пока а != Ничто {
         а = Ничто
@@ -128,8 +128,8 @@ func TestAnalyzeNullableNarrowingDoesNotSurviveAfterWhile(t *testing.T) {
 func TestAnalyzeNullableNarrowingAppliesToCallValueExpr(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 функция главная {
-    переменная ф: Вызываемый(Строка): Целое = &длина
-    переменная а: ?Строка = Ничто
+    Вызываемый(Строка): Целое ф = &длина
+    ?Строка а = Ничто
     а = "привет"
     если а != Ничто {
         вывести ф(а)
@@ -159,7 +159,7 @@ func TestAnalyzeNullCheckOnNonNullableRejected(t *testing.T) {
 func TestAnalyzeNullCoalesceUnwraps(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 функция главная {
-    переменная а: ?Целое = Ничто
+    ?Целое а = Ничто
     переменная б = а ?? 0
     вывести б + 1
 }
@@ -184,7 +184,7 @@ func TestAnalyzeNullCoalesceAssignRequiresNullable(t *testing.T) {
 func TestAnalyzeExplicitCastUnwrapsNullable(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 функция главная {
-    переменная а: ?Целое = Ничто
+    ?Целое а = Ничто
     вывести (Целое) а
 }
 `)
@@ -205,7 +205,7 @@ func TestAnalyzeExplicitCastUnwrapsNullable(t *testing.T) {
 func TestAnalyzeExplicitCastToOtherTypeUnwrapsNarrowedNullable(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 функция главная {
-    переменная а: ?Строка = Ничто
+    ?Строка а = Ничто
     а = "42"
     если а != Ничто {
         вывести (Целое) а
@@ -247,7 +247,7 @@ func TestAnalyzeExplicitCastUnwrapsNullableOpaqueType(t *testing.T) {
 func TestAnalyzeNullableNarrowedAfterEarlyReturnOnEqualNichto(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 функция главная {
-    переменная а: ?Целое = Ничто
+    ?Целое а = Ничто
     а = 5
     если а == Ничто {
         вернуть
@@ -267,7 +267,7 @@ func TestAnalyzeNullableNarrowedAfterEarlyReturnOnEqualNichto(t *testing.T) {
 func TestAnalyzeNullableNotNarrowedAfterNonDivergingIf(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 функция главная {
-    переменная а: ?Целое = Ничто
+    ?Целое а = Ничто
     а = 5
     если а == Ничто {
         вывести 0
@@ -293,7 +293,7 @@ func TestAnalyzeSerializeJSONUnwrapsNarrowedNullable(t *testing.T) {
         Целое x
 }
 функция главная {
-    переменная т: ?Точка = Ничто
+    ?Точка т = Ничто
     т = новая Точка()
     если т != Ничто {
         вывести сериализовать JSON т
@@ -310,11 +310,11 @@ func TestAnalyzeSerializeJSONUnwrapsNarrowedNullable(t *testing.T) {
 func TestAnalyzeNullableCollectionElementAllowed(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 функция главная {
-    переменная а: Список<?Целое> = [1, Ничто]
-    переменная б: ?Целое = а[0]
+    Список<?Целое> а = [1, Ничто]
+    ?Целое б = а[0]
     переменная сл = новый Словарь<Строка, ?Строка>()
     сл.установить("к", Ничто)
-    переменная зн: ?Строка = сл["к"]
+    ?Строка зн = сл["к"]
 }
 `)
 	if err != nil {
@@ -357,7 +357,7 @@ func TestAnalyzeBangRejectsNonBoolNonNullable(t *testing.T) {
 func TestAnalyzeBangIsSugarForEqualNichto(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 функция главная {
-    переменная а: ?Целое = Ничто
+    ?Целое а = Ничто
     а = 5
     если !а {
         вернуть
@@ -375,7 +375,7 @@ func TestAnalyzeBangIsSugarForEqualNichto(t *testing.T) {
 func TestAnalyzeBangInElseNarrowsValue(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 функция главная {
-    переменная а: ?Целое = Ничто
+    ?Целое а = Ничто
     а = 5
     если !а {
         вывести 0
@@ -401,7 +401,7 @@ func TestAnalyzeNullableNarrowedAfterContinueOnBang(t *testing.T) {
     переменная i = 0
     пока i < 3 {
         i = i + 1
-        переменная а: ?Целое = Ничто
+        ?Целое а = Ничто
         а = i
         если !а {
             продолжить
@@ -423,7 +423,7 @@ func TestAnalyzeNullableNarrowedAfterBreakOnEqualNichto(t *testing.T) {
     переменная i = 0
     пока i < 3 {
         i = i + 1
-        переменная а: ?Целое = Ничто
+        ?Целое а = Ничто
         а = i
         если а == Ничто {
             прервать
@@ -446,7 +446,7 @@ func TestAnalyzeNullableCallableCallAfterCheck(t *testing.T) {
     вернуть х * 2
 }
 функция главная {
-    переменная г: ?Вызываемый(Целое): Целое = &удвоить
+    ?Вызываемый(Целое): Целое г = &удвоить
     если г != Ничто {
         переменная р = г(21)
     }
@@ -457,7 +457,7 @@ func TestAnalyzeNullableCallableCallAfterCheck(t *testing.T) {
 	}
 	_, err = AnalyzeSource(t, `
 функция главная {
-    переменная г: ?Вызываемый(Целое): Целое = Ничто
+    ?Вызываемый(Целое): Целое г = Ничто
     переменная р = г(1)
 }
 `)

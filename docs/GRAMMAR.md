@@ -23,12 +23,12 @@ program        := { sep } { top_decl { sep } }
 top_decl       := function | entity | interface_decl | extern_decl | enum | synonym_decl | import_decl
                 | { modifier } const_decl
                 | { modifier } module_var_decl
-module_var_decl := "переменная" IDENT [ ":" type_name ] "=" expr
+module_var_decl := "переменная" IDENT "=" expr
                 | type_name IDENT "=" expr
                                              (* переменная уровня модуля: значение обязательно, вычисляется
                                                 до "главная" по порядку объявления. Модификатор перед
                                                 "переменная" согласуется со словом "переменная", перед
-                                                type_name - с IDENT. В файле-скрипте (инструкции на верхнем
+                                                type_name - с type_name. В файле-скрипте (инструкции на верхнем
                                                 уровне без "функция главная") - обычный var_decl неявной
                                                 "главная", не объявление модуля *)
                 | platform_block | statement
@@ -137,9 +137,8 @@ catch_clause   := "поймать" "(" IDENT ":" type_name { "|" type_name } ")"
                 (* типы - "Исключение"/"Паника" или их наследники, можно вперемешку *)
 await_stmt     := "дождаться" postfix   (* значение отбрасывается - валидно, только если обёрнутая функция без результата *)
 incdec_stmt    := incdec_prefix | IDENT ( "++" | "--" )   (* значение отбрасывается *)
-var_decl       := "переменная" IDENT [ ":" type_name ] "=" expr
-                | type_name IDENT "=" expr  (* сахар без "переменная" - тип пишется первым *)
-                | "переменная" IDENT ":" type_name
+var_decl       := "переменная" IDENT "=" expr   (* тип вычисляется из expr; если нельзя - ошибка RECH3120 *)
+                | type_name IDENT "=" expr  (* явный тип - первым *)
                 | type_name IDENT           (* без значения - присваивается позже; чтение до присваивания
                                                на каждом пути - ошибка компиляции. type_name - с заглавной
                                                буквы и не имя функции, иначе это естественный вызов *)

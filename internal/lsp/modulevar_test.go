@@ -16,7 +16,7 @@ func TestHoverAndDefinitionOfModuleVar(t *testing.T) {
 	}
 	for _, pos := range [][2]int{{6, 5}, {7, 16}, {2, 7}} {
 		text, ok := d.hover(pos[0], pos[1])
-		if !ok || !strings.Contains(text, "переменная модуля счётчик: Целое") || !strings.Contains(text, "Сколько раз вызвали.") {
+		if !ok || !strings.Contains(text, "Целое счётчик (переменная модуля)") || !strings.Contains(text, "Сколько раз вызвали.") {
 			t.Fatalf("hover %v: %q, %v", pos, text, ok)
 		}
 		if loc, ok := d.definition(pos[0], pos[1]); !ok || loc.Line != 2 {

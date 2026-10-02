@@ -13,7 +13,7 @@ func TestRunPointerNullLiteralOK(t *testing.T) {
 	got := runSrc(t, `
 функция главная
 {
-    переменная п: Указатель<Целое> = Ничто
+    Указатель<Целое> п = Ничто
     вывести `+"`${"+`п == Ничто}\n`+"`"+`
     переменная а = 5
     п = &а
@@ -32,7 +32,7 @@ func TestRunDerefNullPointerRuntimeError(t *testing.T) {
 	err := runSrcExpectRuntimeError(t, `
 функция главная
 {
-    переменная п: Указатель<Целое> = Ничто
+    Указатель<Целое> п = Ничто
     вывести `+"`${"+`*п}\n`+"`"+`
 }
 `)

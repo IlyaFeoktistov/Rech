@@ -50,7 +50,7 @@ func TestAnalyzeCookieValueReturnsNullableString(t *testing.T) {
 {
     переменная запрос = новый Запрос("GET", "", 0, "/", "", "")
     переменная имя = значение_куки(запрос, "сессия")
-    переменная х: Строка = имя
+    Строка х = имя
 }
 `)
 	if err == nil || !strings.Contains(err.Error(), "?Строка") {

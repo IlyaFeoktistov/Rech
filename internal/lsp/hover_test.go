@@ -71,7 +71,7 @@ func TestHoverOnFieldAccessShowsFieldTypeAndDoc(t *testing.T) {
 	if !ok {
 		t.Fatalf("ожидался hover на поле x")
 	}
-	if !strings.Contains(text, "Точка.x: Целое") {
+	if !strings.Contains(text, "Целое Точка.x") {
 		t.Fatalf("неожиданный текст hover: %q", text)
 	}
 	if !strings.Contains(text, "Горизонтальная координата.") {
@@ -100,7 +100,7 @@ func TestHoverInsideConstructorBodyShowsParamAndField(t *testing.T) {
 	if !ok {
 		t.Fatalf("ожидался hover на \"этот.x\" внутри конструктора")
 	}
-	if !strings.Contains(fieldText, "Точка.x: Целое") {
+	if !strings.Contains(fieldText, "Целое Точка.x") {
 		t.Fatalf("неожиданный текст hover поля: %q", fieldText)
 	}
 }
@@ -117,7 +117,7 @@ func TestHoverOnFieldOwnDeclarationShowsTypeAndDoc(t *testing.T) {
 	if !ok {
 		t.Fatalf("ожидался hover на собственном объявлении поля \"x\"")
 	}
-	if !strings.Contains(text, "Точка.x: Целое") {
+	if !strings.Contains(text, "Целое Точка.x") {
 		t.Fatalf("неожиданный текст hover: %q", text)
 	}
 	if !strings.Contains(text, "Горизонтальная координата.") {
@@ -149,7 +149,7 @@ func TestHoverOnLocalVariableShowsType(t *testing.T) {
 	if !ok {
 		t.Fatalf("ожидался hover на локальной переменной")
 	}
-	if !strings.Contains(text, "переменная итог: Целое") {
+	if !strings.Contains(text, "Целое итог") {
 		t.Fatalf("неожиданный текст hover: %q", text)
 	}
 }

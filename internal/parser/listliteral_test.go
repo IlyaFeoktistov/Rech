@@ -9,7 +9,7 @@ import (
 func TestParseListLiteralEmpty(t *testing.T) {
 	prog, err := parseSource(t, `
 функция главная {
-    переменная а: Список<Целое> = []
+    Список<Целое> а = []
 }
 `)
 	if err != nil {

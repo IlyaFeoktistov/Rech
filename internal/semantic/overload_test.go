@@ -206,7 +206,7 @@ func TestOverloadFuncRefResolvesByExpectedType(t *testing.T) {
 }
 функция главная
 {
-    переменная ф: Вызываемый(Строка, Строка): Строка = &сложить
+    Вызываемый(Строка, Строка): Строка ф = &сложить
 }
 `)
 	var main *ir.Function
@@ -234,7 +234,7 @@ func TestOverloadFuncRefRejectsMismatchedExpectedType(t *testing.T) {
 }
 функция главная
 {
-    переменная ф: Вызываемый(Логическое, Логическое): Логическое = &сложить
+    Вызываемый(Логическое, Логическое): Логическое ф = &сложить
 }
 `)
 	if err == nil || !strings.Contains(err.Error(), "ни одна перегрузка") {

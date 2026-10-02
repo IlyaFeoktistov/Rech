@@ -27,7 +27,7 @@ func TestGenerateFromIRSubprocessNotEmittedWithoutUse(t *testing.T) {
 func TestGenerateFromIRSpawnProcessEmitsSelfPipe(t *testing.T) {
 	src := `функция главная
 {
-    переменная аргументы: Список<Строка> = новый Список<Строка>()
+    Список<Строка> аргументы = новый Список<Строка>()
     вывести запустить_процесс("ls", аргументы).pid
 }
 `
@@ -49,8 +49,8 @@ func TestGenerateFromIRSpawnProcessEmitsSelfPipe(t *testing.T) {
 func TestGenerateFromIRWaitProcessEmitsWaitpid(t *testing.T) {
 	src := `функция главная
 {
-    переменная аргументы: Список<Строка> = новый Список<Строка>()
-    переменная п: Процесс = запустить_процесс("ls", аргументы)
+    Список<Строка> аргументы = новый Список<Строка>()
+    Процесс п = запустить_процесс("ls", аргументы)
     вывести дождаться_процесса(п)
 }
 `
@@ -69,7 +69,7 @@ func TestGenerateFromIRWaitProcessEmitsWaitpid(t *testing.T) {
 func TestGenerateFromIRRunCommandEmitsDualPipePoll(t *testing.T) {
 	src := `функция главная
 {
-    переменная р: РезультатКоманды = выполнить_команду("ls", "/tmp")
+    РезультатКоманды р = выполнить_команду("ls", "/tmp")
     вывести р.вывод
 }
 `

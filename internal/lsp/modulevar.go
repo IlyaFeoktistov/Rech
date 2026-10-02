@@ -26,7 +26,7 @@ func (d *doc) hoverModuleVar(name string) (string, bool) {
 	if d.irProg != nil {
 		for _, g := range d.irProg.Globals {
 			if g.Name == name {
-				header = fmt.Sprintf("%s: %s", header, d.dispType(g.Type))
+				header = fmt.Sprintf("%s %s (переменная модуля)", d.dispType(g.Type), name)
 				break
 			}
 		}

@@ -107,8 +107,7 @@ type Parser struct {
 	entityMethods map[string]map[string][]ast.Param
 
 	// varEntityTypes - переменная/параметр -> имя сущностного типа, если он
-	// указан ЯВНО (аннотация "переменная x: Тип"/типизированная форма
-	// "Тип x = ..."/тип параметра функции или метода - у параметра тип
+	// указан ЯВНО (типизированная форма "Тип x = ..."/тип параметра функции или метода - у параметра тип
 	// всегда явный). Заполняется по ходу разбора ТЕЛА текущей функции/
 	// метода (не предварительным проходом - тип переменной в общем случае
 	// неизвестен до места её объявления, а вывод типа из значения парсеру
@@ -145,10 +144,6 @@ type Parser struct {
 	// отсутствие тела у метода валидным (parseMethod, ast.MethodDecl.
 	// IsAbstract), тем же принципом, что и inMethodBody у "этот".
 	inAbstractEntity bool
-
-	// pendingVarDecls - отложенные объявления ("переменная X" без "=") в
-	// ТЕКУЩЕМ блоке - см. pendingvar.go.
-	pendingVarDecls []pendingVarDecl
 
 	// moduleVarCandidates/topVisibility - переменные верхнего уровня файла
 	// и модификатор видимости текущего объявления верхнего уровня (см.
@@ -360,11 +355,9 @@ func (p *Parser) parseDocumentedStatement() (ast.Stmt, error) {
 }
 
 // parseStatementWithDoc - parseStatement, doc (если не "") привязывается к
-// объявлению переменной/константы, в том числе отложенному "переменная X"
-// без значения (pendingVarDecl.doc). Перед любой другой инструкцией
+// объявлению переменной/константы. Перед любой другой инструкцией
 // doc-комментарий - ошибка: документируются только объявления.
 func (p *Parser) parseStatementWithDoc(doc string, docLine int) (ast.Stmt, error) {
-	pendingBefore := len(p.pendingVarDecls)
 	stmt, err := p.parseStatement()
 	if err != nil || doc == "" {
 		return stmt, err
@@ -374,12 +367,6 @@ func (p *Parser) parseStatementWithDoc(doc string, docLine int) (ast.Stmt, error
 		s.Doc = doc
 	case *ast.ConstDecl:
 		s.Doc = doc
-	case nil:
-		if len(p.pendingVarDecls) > pendingBefore {
-			p.pendingVarDecls[len(p.pendingVarDecls)-1].doc = doc
-			return nil, nil
-		}
-		return nil, errDocNotDeclaration(docLine)
 	default:
 		return nil, errDocNotDeclaration(docLine)
 	}
@@ -675,10 +662,6 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 	var topLevelStmts []ast.Stmt
 	var explicitMain *ast.FunctionDecl
 	p.skipSeparators()
-	// Инструкции верхнего уровня - тело неявной "главная" (см. ниже) - та
-	// же область отложенных объявлений (pendingvar.go), что и у настоящего
-	// тела функции.
-	savedPending := p.beginPendingScope()
 	for p.cur().Type != lexer.EOF {
 		start := p.pos
 		skip, err := p.parseTopLevelItem(prog, &topLevelStmts, &explicitMain)
@@ -708,13 +691,6 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 			p.errors = append(p.errors, err)
 			p.recoverToNextTopLevel()
 		}
-	}
-	if err := p.endPendingScope(savedPending); err != nil {
-		if !p.lenient {
-			return nil, err
-		}
-		p.errors = append(p.errors, err)
-		p.pendingVarDecls = savedPending
 	}
 	for _, err := range p.resolveModuleVars(prog, &topLevelStmts, explicitMain != nil) {
 		if !p.lenient {

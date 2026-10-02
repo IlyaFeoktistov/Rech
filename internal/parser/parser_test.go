@@ -1352,27 +1352,6 @@ func TestParseAssignAllowsLineBreakAroundEquals(t *testing.T) {
 // регресс для TestParseAssignAllowsLineBreakAroundEquals выше (диспетчер
 // заглядывает вперёд через переносы в поиске "=", но не должен находить его
 // там, где инструкция вообще про другое).
-func TestParsePendingVarDeclStillWorksAcrossNewline(t *testing.T) {
-	prog, err := parseSource(t, `
-функция главная {
-    переменная х
-
-    вывести "до"
-    х = 1
-    вывести х
-}
-`)
-	if err != nil {
-		t.Fatalf("неожиданная ошибка: %v", err)
-	}
-	if len(prog.Functions[0].Body) != 3 {
-		t.Fatalf("ожидалось 3 инструкции (вывести, X = 1 как VarDecl, вывести) - объявление X должно остаться отложенным, получено %d: %+v", len(prog.Functions[0].Body), prog.Functions[0].Body)
-	}
-	if _, ok := prog.Functions[0].Body[1].(*ast.VarDecl); !ok {
-		t.Fatalf("инструкция 1: ожидался VarDecl (разрешённое отложенное объявление), получено %T", prog.Functions[0].Body[1])
-	}
-}
-
 func TestParseNewExprGenderAgreement(t *testing.T) {
 	// "Сова" (женский род, окончание "-а"), "Окно" (средний род, окончание
 	// "-о"), "Пользователь" (мужской род, курируемое исключение) - по одному

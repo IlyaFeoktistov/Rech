@@ -103,8 +103,8 @@ func TestParseDocCommentOnLocalsInterfaceEnum(t *testing.T) {
     Строка имя = "а"
     /** Предел. */
     константа ПРЕДЕЛ = 10
-    /** Отложенная. */
-    переменная позже
+    /** Без значения. */
+    Целое позже
     позже = 2
     вывести счётчик + ПРЕДЕЛ + позже
     вывести имя
@@ -120,7 +120,7 @@ func TestParseDocCommentOnLocalsInterfaceEnum(t *testing.T) {
 	if prog.Enums[0].Doc != "Цвет." {
 		t.Errorf("doc перечисления: %q", prog.Enums[0].Doc)
 	}
-	want := map[string]string{"счётчик": "Счётчик.", "имя": "Имя.", "ПРЕДЕЛ": "Предел.", "позже": "Отложенная."}
+	want := map[string]string{"счётчик": "Счётчик.", "имя": "Имя.", "ПРЕДЕЛ": "Предел.", "позже": "Без значения."}
 	for _, st := range prog.Functions[0].Body {
 		switch s := st.(type) {
 		case *ast.VarDecl:

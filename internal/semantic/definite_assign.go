@@ -6,7 +6,7 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
-// Переменная, объявленная без значения ("Целое х", "переменная х: Целое"),
+// Переменная, объявленная без значения ("Целое х"),
 // читается только после присваивания на КАЖДОМ пути до точки чтения -
 // иначе ошибка компиляции. "Присвоена" - доказанный факт того же
 // потокового механизма established, что и состояния typestate: после
@@ -46,7 +46,7 @@ func (c *ctx) isDeclaredBare(name string) bool {
 	return false
 }
 
-// analyzeBareVarDecl - "Тип имя"/"переменная имя: Тип" без значения (тип
+// analyzeBareVarDecl - "Тип имя" без значения (тип
 // declared уже разрешён): переменная объявлена, но не присвоена.
 func analyzeBareVarDecl(sc *ctx, s *ast.VarDecl, declared ir.Type) (ir.Stmt, error) {
 	if err := sc.declare(s.Name, declared); err != nil {

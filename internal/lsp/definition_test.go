@@ -164,10 +164,10 @@ func TestDefinitionOnBuiltinFuncJumpsToSyntheticStub(t *testing.T) {
 // синтетически, internal/semantic/analyzer.go), в отличие от обычных
 // сущностей "перейти к определению" на ней не делал ничего.
 func TestDefinitionOnReservedEntityWithFieldsJumpsToSyntheticStub(t *testing.T) {
-	src := "функция главная\n{\n    переменная x: Процесс = запустить_процесс(\"ls\", новый Список<Строка>())\n}\n"
+	src := "функция главная\n{\n    Процесс x = запустить_процесс(\"ls\", новый Список<Строка>())\n}\n"
 	d := newDoc("test://a.rech", src)
-	line := lineOf(t, src, "x: Процесс")
-	col := runeCol(t, "    переменная x: Процесс = запустить_процесс(\"ls\", новый Список<Строка>())", "Процесс")
+	line := lineOf(t, src, "Процесс x")
+	col := runeCol(t, "    Процесс x = запустить_процесс(\"ls\", новый Список<Строка>())", "Процесс")
 	pos, ok := d.definition(line, col)
 	if !ok {
 		t.Fatalf("ожидалось определение зарезервированной сущности \"Процесс\"")
@@ -189,10 +189,10 @@ func TestDefinitionOnReservedEntityWithFieldsJumpsToSyntheticStub(t *testing.T) 
 // reservedEntityFields) - "Файл" - заглушка тогда несёт только голое имя,
 // без блока "{ имеет: ... }".
 func TestDefinitionOnBareBuiltinTypeJumpsToSyntheticStub(t *testing.T) {
-	src := "функция главная\n{\n    переменная x: Файл = стандартный_ввод()\n}\n"
+	src := "функция главная\n{\n    Файл x = стандартный_ввод()\n}\n"
 	d := newDoc("test://a.rech", src)
-	line := lineOf(t, src, "x: Файл")
-	col := runeCol(t, "    переменная x: Файл = стандартный_ввод()", "Файл")
+	line := lineOf(t, src, "Файл x")
+	col := runeCol(t, "    Файл x = стандартный_ввод()", "Файл")
 	pos, ok := d.definition(line, col)
 	if !ok {
 		t.Fatalf("ожидалось определение встроенного типа \"Файл\"")

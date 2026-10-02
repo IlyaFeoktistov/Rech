@@ -100,14 +100,16 @@ func (d *doc) hoverBareName(name string, line int) (string, bool) {
 			}
 		}
 		if t, ok := localsAt(scope, line)[name]; ok {
-			kind, doc := "переменная", ""
+			// Переменная - так, как она объявляется ("Целое итог"),
+			// константа - без типа в объявлении, тип после ":".
+			header, doc := fmt.Sprintf("%s %s", d.dispType(t), name), ""
 			if decl := localDeclsAt(scope, line)[name]; decl != nil {
 				doc = decl.Doc
 				if decl.IsConst {
-					kind = "константа"
+					header = fmt.Sprintf("константа %s: %s", name, d.dispType(t))
 				}
 			}
-			return withDoc(codeBlock(fmt.Sprintf("%s %s: %s", kind, name, d.dispType(t))), doc), true
+			return withDoc(codeBlock(header), doc), true
 		}
 	}
 	if block, ok := d.hoverModuleVar(name); ok {
@@ -358,7 +360,7 @@ func (d *doc) hoverMember(ent *ir.Entity, name string) (string, bool) {
 	}
 	for _, f := range ent.Fields {
 		if f.Name == name {
-			block := withDoc(codeBlock(fmt.Sprintf("%s.%s: %s", entName, f.Name, d.dispType(f.Type))), f.Doc)
+			block := withDoc(codeBlock(fmt.Sprintf("%s %s.%s", d.dispType(f.Type), entName, f.Name)), f.Doc)
 			return block, true
 		}
 	}

@@ -397,7 +397,7 @@ func (p *Parser) parseNaturalCallContinuationCore(call ast.Expr, line int) (stmt
 		if err != nil {
 			return nil, true, diagnostics.Wrap(err, "после \"в\" ожидалось имя переменной")
 		}
-		return p.resolveAssignTarget(target, call), true, nil
+		return &ast.Assign{Name: target.Value, Value: call, Line: target.Line}, true, nil
 	}
 	return nil, true, errAt(p.cur().Line, p.cur().Col, CodeUnexpectedToken, "после \"и\" ожидалось \"вывести\" или %q в <переменная>, получено %q", naturalCallPutWord, p.cur().Value)
 }

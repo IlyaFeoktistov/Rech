@@ -9,7 +9,7 @@ import (
 func TestParseVarDeclWithNullableAnnotation(t *testing.T) {
 	prog, err := parseSource(t, `
 функция главная {
-    переменная а: ?Целое = Ничто
+    ?Целое а = Ничто
 }
 `)
 	if err != nil {
@@ -85,7 +85,7 @@ func TestParseBangDesugarsToEqualNichto(t *testing.T) {
 func TestParseNullCoalesce(t *testing.T) {
 	prog, err := parseSource(t, `
 функция главная {
-    переменная а: ?Целое = Ничто
+    ?Целое а = Ничто
     вывести а ?? 0
 }
 `)
@@ -105,7 +105,7 @@ func TestParseNullCoalesce(t *testing.T) {
 func TestParseNullCoalesceAssign(t *testing.T) {
 	prog, err := parseSource(t, `
 функция главная {
-    переменная а: ?Целое = Ничто
+    ?Целое а = Ничто
     а ?= 5
 }
 `)

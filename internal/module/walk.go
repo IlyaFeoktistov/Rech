@@ -447,7 +447,7 @@ func (r *rewriter) rewriteStmt(s ast.Stmt) error {
 		return r.rewriteExpr(s.Value)
 	case *ast.VarDecl:
 		r.addLocal(s.Name)
-		// s.Type - явная аннотация ("переменная а: Тип = ...") ИЛИ сахарная
+		// s.Type - явная аннотация ("Тип а = ...") ИЛИ сахарная
 		// форма "Тип а = ..." (оба хранятся в одном и том же поле, см. package
 		// doc ast.VarDecl) - НАЙДЕННЫЙ БАГ (исправлен здесь): в отличие от
 		// ast.NewExpr.Type чуть ниже, это поле не резолвилось вовсе - сущность

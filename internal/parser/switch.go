@@ -133,11 +133,8 @@ func (p *Parser) parseSwitchValues() ([]ast.Expr, error) {
 
 // parseSwitchCaseBody разбирает инструкции одной ветки "когда"/"иначе" -
 // до следующей такой ветки или закрывающей "}" самого "выбрать" (без
-// собственных фигурных скобок у ветки, см. package doc). Собственная
-// область видимости отложенных объявлений ("переменная X" без "="),
-// тем же приёмом, что и parseBlock.
+// собственных фигурных скобок у ветки, см. package doc).
 func (p *Parser) parseSwitchCaseBody() ([]ast.Stmt, error) {
-	savedPending := p.beginPendingScope()
 	var stmts []ast.Stmt
 	for {
 		t := p.cur().Type
@@ -164,9 +161,6 @@ func (p *Parser) parseSwitchCaseBody() ([]ast.Stmt, error) {
 		if err := p.requireSeparator(); err != nil {
 			return nil, err
 		}
-	}
-	if err := p.endPendingScope(savedPending); err != nil {
-		return nil, err
 	}
 	return stmts, nil
 }

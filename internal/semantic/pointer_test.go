@@ -93,7 +93,7 @@ func TestAnalyzePointerNullLiteralOK(t *testing.T) {
 функция взять_указатель(п: Указатель<Целое>) { }
 функция главная
 {
-    переменная а: Указатель<Целое> = Ничто
+    Указатель<Целое> а = Ничто
     утверждать а == Ничто
     переменная б = 5
     а = &б
@@ -112,7 +112,7 @@ func TestAnalyzeNullLiteralStillRejectedForNonPointerNonNullable(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 функция главная
 {
-    переменная а: Целое = Ничто
+    Целое а = Ничто
 }
 `)
 	if err == nil || !strings.Contains(err.Error(), "\"Ничто\" допустимо только") {

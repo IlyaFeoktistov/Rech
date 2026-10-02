@@ -166,7 +166,7 @@ func TestHoverOnReservedBuiltinFuncShowsSignature(t *testing.T) {
 // TestHoverShowsCallableTypeAsWritten - тип "Вызываемый" в hover - как
 // в исходнике, не каноническое внутреннее имя.
 func TestHoverShowsCallableTypeAsWritten(t *testing.T) {
-	src := "функция главная\n{\n    переменная г: ?Вызываемый(Целое): Строка = Ничто\n    переменная х = г\n}\n"
+	src := "функция главная\n{\n    ?Вызываемый(Целое): Строка г = Ничто\n    переменная х = г\n}\n"
 	d := newDoc("test://a.rech", src)
 	h, ok := d.hover(4, 20)
 	if !ok || !strings.Contains(h, "?Вызываемый(Целое): Строка") {

@@ -131,7 +131,7 @@ func TestAnalyzeSwitchStmtNullableSubjectFails(t *testing.T) {
 	_, err := AnalyzeSource(t, `
 функция главная
 {
-    переменная а: ?Целое = Ничто
+    ?Целое а = Ничто
     выбрать а
     {
         когда 1:

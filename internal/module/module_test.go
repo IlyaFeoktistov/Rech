@@ -211,7 +211,7 @@ func TestLinkManglesNonEntryDeclarations(t *testing.T) {
 
 // TestLinkResolvesVarDeclTypeAnnotation - НАЙДЕННЫЙ БАГ (исправлен в
 // rewriteStmt, walk.go): "Тип имя = выражение" (сахарная форма объявления
-// переменной, ast.VarDecl.Type) и "переменная имя: Тип = выражение" (та же
+// переменной, ast.VarDecl.Type) и "Тип имя = выражение" (та же
 // структура, явная аннотация) - Type раньше НЕ переписывался при линковке
 // вовсе, в отличие от того же имени типа справа, в "новый Тип(...)"
 // (ast.NewExpr.Type - уже резолвился верно). Импортированная из НЕ-entry
@@ -225,7 +225,7 @@ func TestLinkResolvesVarDeclTypeAnnotation(t *testing.T) {
 		"использовать Точка из \"точка\"\n\n"+
 			"функция главная\n{\n"+
 			"    Точка а = новая Точка()\n"+
-			"    переменная б: Точка = новая Точка()\n"+
+			"    Точка б = новая Точка()\n"+
 			"    вывести а.x\n"+
 			"    вывести б.x\n"+
 			"}\n")
@@ -264,14 +264,14 @@ func TestLinkResolvesVarDeclTypeAnnotation(t *testing.T) {
 // "использовать" - но пропущенные при добавлении этих сущностей в
 // builtinTypeBases. Обнаружился только когда rewriteStmt(*ast.VarDecl)
 // начал резолвить Type (см. TestLinkResolvesVarDeclTypeAnnotation выше) -
-// "переменная р: Процесс = ..." (см. examples/основы/сторонний_процесс.rech)
+// "Процесс р = ..." (см. examples/основы/сторонний_процесс.rech)
 // падал "не объявлено и не импортировано", хотя тот же файл без единого
 // "использовать" и не должен объявлять "Процесс" вовсе.
 func TestLinkResolvesBuiltinEntityTypeAnnotationWithoutImport(t *testing.T) {
 	dir := t.TempDir()
 	entry := writeFile(t, dir, "главный.rech",
 		"функция главная\n{\n"+
-			"    переменная р: Процесс = запустить_процесс(\"echo\", новый Список<Строка>())\n"+
+			"    Процесс р = запустить_процесс(\"echo\", новый Список<Строка>())\n"+
 			"}\n")
 
 	prog, err := Load(entry, testFrontend{})

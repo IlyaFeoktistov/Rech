@@ -17,6 +17,7 @@ var (
 	// По подсистеме (файлу).
 	CodeTypeMismatch   = diagnostics.Register("RECH3101", "несовпадение типов / нужно явное приведение")
 	CodeTypeResolution = diagnostics.Register("RECH3110", "разрешение имени типа/generic-коллекции")
+	CodeVarInference   = diagnostics.Register("RECH3120", "тип переменной не вычислить из значения - нужен явный тип")
 	CodeStmtCheck      = diagnostics.Register("RECH3130", "проверка на уровне инструкции")
 	CodeExprCheck      = diagnostics.Register("RECH3140", "проверка на уровне выражения/встроенной функции/оператора")
 	CodeEntityDecl     = diagnostics.Register("RECH3210", "объявление сущности/структуры/функции верхнего уровня")

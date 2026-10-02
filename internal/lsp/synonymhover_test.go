@@ -17,8 +17,8 @@ const synonymHoverSrc = `
 функция главная
 {
     переменная г = новые Группы()
-    переменная ч: Числа = []
-    переменная ф: Ф = функция(х: Целое): Строка { вернуть "" }
+    Числа ч = []
+    Ф ф = функция(х: Целое): Строка { вернуть "" }
 }
 `
 
@@ -29,8 +29,8 @@ func TestHoverSynonymShowsDeclarationAsWritten(t *testing.T) {
 	}
 	cases := []struct{ line, word, want, doc string }{
 		{"переменная г = новые Группы()", "Группы", "приватный синоним Группы = Словарь<Строка, Список<Числа>>", "Числа по названию."},
-		{"переменная ч: Числа = []", "Числа", "публичный синоним Числа = Список<Целое>", "Набор целых чисел."},
-		{"переменная ф: Ф = функция", "Ф", "синоним Ф = Вызываемый(Целое): Строка", ""},
+		{"Числа ч = []", "Числа", "публичный синоним Числа = Список<Целое>", "Набор целых чисел."},
+		{"Ф ф = функция", "Ф", "синоним Ф = Вызываемый(Целое): Строка", ""},
 		{"публичный синоним Числа", "Числа", "публичный синоним Числа = Список<Целое>", ""},
 	}
 	for _, c := range cases {
@@ -43,7 +43,7 @@ func TestHoverSynonymShowsDeclarationAsWritten(t *testing.T) {
 
 func TestDefinitionOnSynonymUse(t *testing.T) {
 	d := newDoc("test://a.rech", synonymHoverSrc)
-	line := lineOf(t, synonymHoverSrc, "переменная ч: Числа = []")
+	line := lineOf(t, synonymHoverSrc, "Числа ч = []")
 	pos, ok := d.bareNameDeclPos("Числа", line, d.scopeAt(line))
 	if !ok || pos.Line != lineOf(t, synonymHoverSrc, "публичный синоним Числа") {
 		t.Fatalf("переход к объявлению синонима: %+v, %v", pos, ok)
