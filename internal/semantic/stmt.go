@@ -597,8 +597,8 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if s.Static {
 			return analyzeStaticFieldAssign(sc, s)
 		}
-		if coll, index, ok := elementFieldTarget(sc, s.Receiver); ok {
-			return analyzeElementFieldAssign(sc, s, coll, index)
+		if base, levels, ok := elementFieldTarget(sc, s.Receiver); ok {
+			return analyzeElementFieldAssign(sc, s, base, levels)
 		}
 		// "п.a = 1" у структуры без значения - запись поля, не чтение "п"
 		// (bare_struct_fields.go).

@@ -37,3 +37,19 @@ func TestAnalyzeElementFieldAssign(t *testing.T) {
 		t.Fatalf("ожидалась ошибка про коллекцию-результат вызова, получено %v", err)
 	}
 }
+
+// TestAnalyzeNestedElementFieldAssign - цепочка индексов любой длины.
+func TestAnalyzeNestedElementFieldAssign(t *testing.T) {
+	if _, err := AnalyzeSource(t, elemHeader+`
+функция главная
+{
+    Пара[][][] куб = [[[новая Пара(a: 1)]]]
+    куб[0][0][0].a = 7
+    куб[0][0][0].a += 1
+    Целое[][] м = [[1]]
+    м[0][0] = 5
+}
+`); err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}

@@ -579,25 +579,32 @@ func (p *Parser) parseNullCoalesceAssign() (ast.Stmt, error) {
 // элемента, строка остаётся тем же объектом).
 func (p *Parser) parseIndexAssign() (ast.Stmt, error) {
 	receiverTok := p.advance() // IDENT
-	receiver := &ast.Identifier{Name: receiverTok.Value, Line: receiverTok.Line}
-	p.advance() // "["
-	index, err := p.parseExpr()
-	if err != nil {
-		return nil, diagnostics.Wrap(err, "в индексе \"[...]\"")
-	}
-	if _, err := p.expect(lexer.RBRACKET); err != nil {
-		return nil, diagnostics.Wrap(err, "после индекса ожидалось \"]\"")
+	var target ast.Expr = &ast.Identifier{Name: receiverTok.Value, Line: receiverTok.Line}
+	// "м[i][j]...": все индексы цепочки; последний - позиция записи.
+	var indices []ast.Expr
+	for p.cur().Type == lexer.LBRACKET {
+		p.advance() // "["
+		index, err := p.parseExpr()
+		if err != nil {
+			return nil, diagnostics.Wrap(err, "в индексе \"[...]\"")
+		}
+		if _, err := p.expect(lexer.RBRACKET); err != nil {
+			return nil, diagnostics.Wrap(err, "после индекса ожидалось \"]\"")
+		}
+		indices = append(indices, index)
 	}
 	if p.cur().Type == lexer.DOT && p.peekAt(1).Type == lexer.IDENT {
-		// "сп[i].поле = значение" - запись поля элемента (semantic,
+		// "м[i][j].поле = значение" - запись поля элемента (semantic,
 		// element_field_assign.go).
 		p.advance() // "."
 		field := p.advance()
-		elem := &ast.IndexExpr{Receiver: receiver, Index: index, Line: receiverTok.Line}
-		if isIncDecTok(p.cur().Type) {
-			return p.finishFieldIncDec(elem, field.Value, false, receiverTok.Line)
+		for _, index := range indices {
+			target = &ast.IndexExpr{Receiver: target, Index: index, Line: receiverTok.Line}
 		}
-		return p.finishFieldAssign(elem, field.Value, false, receiverTok.Line)
+		if isIncDecTok(p.cur().Type) {
+			return p.finishFieldIncDec(target, field.Value, false, receiverTok.Line)
+		}
+		return p.finishFieldAssign(target, field.Value, false, receiverTok.Line)
 	}
 	if _, err := p.expect(lexer.ASSIGN); err != nil {
 		return nil, diagnostics.Wrap(err, "после %q[...] ожидалось \"=\" (индексация сама по себе не инструкция)", receiverTok.Value)
@@ -606,7 +613,12 @@ func (p *Parser) parseIndexAssign() (ast.Stmt, error) {
 	if err != nil {
 		return nil, diagnostics.Wrap(err, "в присваивании по индексу")
 	}
-	call := &ast.MethodCallExpr{Receiver: receiver, Method: "установить", Args: []ast.Expr{index, value}, Line: receiverTok.Line}
+	// "м[i][j] = значение": внешние уровни - "получить" (выход за границы -
+	// паника), последний - "установить".
+	for _, index := range indices[:len(indices)-1] {
+		target = &ast.MethodCallExpr{Receiver: target, Method: "получить", Args: []ast.Expr{index}, Line: receiverTok.Line}
+	}
+	call := &ast.MethodCallExpr{Receiver: target, Method: "установить", Args: []ast.Expr{indices[len(indices)-1], value}, Line: receiverTok.Line}
 	return &ast.ExprStmt{MethodCall: call, Line: receiverTok.Line}, nil
 }
 

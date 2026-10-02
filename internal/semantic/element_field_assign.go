@@ -7,59 +7,86 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
 
-// Запись поля элемента коллекции структур - "сп[i].поле = значение" и
-// "сп.получить(i).поле = значение" (то же для Словарь по ключу) меняют
-// САМ элемент: структура - значение, и без этого запись ушла бы во
-// временную копию элемента и потерялась. Разворачивается в
+// Запись поля элемента коллекции структур - "сп[i].поле = значение",
+// "м[i][j][k].поле = значение", "сп.получить(i).поле = значение" (то же
+// для Словарь по ключу) - меняет САМ элемент: структура - значение, и без
+// этого запись ушла бы во временную копию элемента и потерялась.
+// Разворачивается в
 //
-//	{ индекс = i; элемент = сп.получить(индекс); элемент.поле = значение;
-//	  сп.установить(индекс, элемент) }
+//	{ и1 = i; э1 = м.получить(и1); и2 = j; э2 = э1.получить(и2); ...
+//	  эN.поле = значение; э(N-1).установить(иN, эN); ...; м.установить(и1, э1) }
 //
 // Выход индекса за границы/нет ключа - паника, как у "получить".
 
-// elementFieldTarget - s.Receiver - элемент коллекции структур: коллекция
-// и индекс/ключ. ok == false - другой получатель.
-func elementFieldTarget(sc *ctx, recv ast.Expr) (coll, index ast.Expr, ok bool) {
-	switch r := recv.(type) {
-	case *ast.IndexExpr:
-		coll, index = r.Receiver, r.Index
-	case *ast.MethodCallExpr:
-		if r.Method != "получить" || len(r.Args) != 1 || r.Static {
-			return nil, nil, false
+// elementLevel - один уровень цепочки: коллекция и индекс/ключ в ней.
+type elementLevel struct {
+	coll, index ast.Expr
+}
+
+// elementFieldTarget - recv - элемент-структура (возможно вложенной)
+// коллекции: база цепочки (переменная/поле/результат вызова) и уровни от
+// внешнего к внутреннему. ok == false - другой получатель.
+func elementFieldTarget(sc *ctx, recv ast.Expr) (base ast.Expr, levels []elementLevel, ok bool) {
+	cur := recv
+	for {
+		switch r := cur.(type) {
+		case *ast.IndexExpr:
+			levels = append([]elementLevel{{r.Receiver, r.Index}}, levels...)
+			cur = r.Receiver
+			continue
+		case *ast.MethodCallExpr:
+			if r.Method == "получить" && len(r.Args) == 1 && !r.Static {
+				levels = append([]elementLevel{{r.Receiver, r.Args[0]}}, levels...)
+				cur = r.Receiver
+				continue
+			}
 		}
-		coll, index = r.Receiver, r.Args[0]
-	default:
+		break
+	}
+	if len(levels) == 0 {
 		return nil, nil, false
 	}
-	collIR, err := analyzeExpr(sc, coll)
+	baseIR, err := analyzeExpr(sc, cur)
 	if err != nil {
 		return nil, nil, false
 	}
-	sig, isEnt := sc.entities[ir.TypeOf(collIR).Entity]
-	if !isEnt || !(sig.IsList || sig.IsDict) {
+	typ := ir.TypeOf(baseIR)
+	for range levels {
+		sig, isEnt := sc.entities[typ.Entity]
+		if typ.Kind != ir.KindEntity || !isEnt || !(sig.IsList || sig.IsDict) {
+			return nil, nil, false
+		}
+		typ = sig.ElemType
+	}
+	elem, isElemEnt := sc.entities[typ.Entity]
+	if typ.Kind != ir.KindEntity || !isElemEnt || !elem.IsStruct {
 		return nil, nil, false
 	}
-	elem, isElemEnt := sc.entities[sig.ElemType.Entity]
-	if sig.ElemType.Kind != ir.KindEntity || !isElemEnt || !elem.IsStruct {
-		return nil, nil, false
-	}
-	return coll, index, true
+	return cur, levels, true
 }
 
-// analyzeElementFieldAssign - развёртка (см. package doc выше). Коллекция
-// обязана быть переменной/полем: её выражение вычисляется дважды
+// analyzeElementFieldAssign - развёртка (см. package doc выше). База
+// цепочки обязана быть переменной/полем: её выражение вычисляется дважды
 // (получить/установить).
-func analyzeElementFieldAssign(sc *ctx, s *ast.FieldAssign, coll, index ast.Expr) (ir.Stmt, error) {
-	if !receiverAddressable(coll) {
+func analyzeElementFieldAssign(sc *ctx, s *ast.FieldAssign, base ast.Expr, levels []elementLevel) (ir.Stmt, error) {
+	if !receiverAddressable(base) {
 		return nil, errAtLine(s.Line, CodeStmtCheck, "запись поля %q элемента коллекции - коллекция должна быть переменной или полем, не результатом вызова", s.Field)
 	}
-	sc.a.elementAssignSeq++
-	idxName := fmt.Sprintf("__индекс_%d", sc.a.elementAssignSeq)
-	elemName := fmt.Sprintf("__элемент_%d", sc.a.elementAssignSeq)
-	idxID := &ast.Identifier{Name: idxName, Line: s.Line}
-	elemID := &ast.Identifier{Name: elemName, Line: s.Line}
+	var stmts, writeBack []ast.Stmt
+	var coll = base
+	var elemID *ast.Identifier
+	for _, lv := range levels {
+		sc.a.elementAssignSeq++
+		idxID := &ast.Identifier{Name: fmt.Sprintf("__индекс_%d", sc.a.elementAssignSeq), Line: s.Line}
+		elemID = &ast.Identifier{Name: fmt.Sprintf("__элемент_%d", sc.a.elementAssignSeq), Line: s.Line}
+		stmts = append(stmts,
+			&ast.VarDecl{Name: idxID.Name, Value: lv.index, Line: s.Line},
+			&ast.VarDecl{Name: elemID.Name, Value: &ast.MethodCallExpr{Receiver: coll, Method: "получить", Args: []ast.Expr{idxID}, Line: s.Line}, Line: s.Line})
+		writeBack = append([]ast.Stmt{&ast.ExprStmt{MethodCall: &ast.MethodCallExpr{Receiver: coll, Method: "установить", Args: []ast.Expr{idxID, elemID}, Line: s.Line}, Line: s.Line}}, writeBack...)
+		coll = elemID
+	}
 	value := s.Value
-	// "сп[i].поле += 1"/"сп[i].поле++" - парсер строит значение
+	// "м[i].поле += 1"/"м[i].поле++" - парсер строит значение
 	// "<тот же получатель>.поле + 1": читаем поле временного элемента.
 	if bin, ok := value.(*ast.BinaryExpr); ok {
 		if fa, ok := bin.Left.(*ast.FieldAccess); ok && fa.Receiver == s.Receiver {
@@ -68,12 +95,8 @@ func analyzeElementFieldAssign(sc *ctx, s *ast.FieldAssign, coll, index ast.Expr
 			value = &copied
 		}
 	}
-	stmts := []ast.Stmt{
-		&ast.VarDecl{Name: idxName, Value: index, Line: s.Line},
-		&ast.VarDecl{Name: elemName, Value: &ast.MethodCallExpr{Receiver: coll, Method: "получить", Args: []ast.Expr{idxID}, Line: s.Line}, Line: s.Line},
-		&ast.FieldAssign{Receiver: elemID, Field: s.Field, Value: value, Line: s.Line},
-		&ast.ExprStmt{MethodCall: &ast.MethodCallExpr{Receiver: coll, Method: "установить", Args: []ast.Expr{idxID, elemID}, Line: s.Line}, Line: s.Line},
-	}
+	stmts = append(stmts, &ast.FieldAssign{Receiver: elemID, Field: s.Field, Value: value, Line: s.Line})
+	stmts = append(stmts, writeBack...)
 	sc.push()
 	defer sc.pop()
 	body := make([]ir.Stmt, 0, len(stmts))
