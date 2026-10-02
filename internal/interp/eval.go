@@ -519,7 +519,7 @@ func (in *Interp) evalNewExpr(e *ir.NewExpr, env *Env, cc *callCtx) (Value, erro
 // (поле generic-коллекции без "имеет: ... = ..." - см. её package doc).
 func (in *Interp) newEmptyCollection(entName string, g ir.GenericInstantiation) Value {
 	coll := &collection{template: g.Template}
-	if g.Template == "Словарь" {
+	if g.Template == "Словарь" || g.Template == "Множество" {
 		coll.pairs = newDictPairs()
 	}
 	return Value{Type: ir.EntityType(entName), Obj: &entityObj{typeName: entName, coll: coll}}
@@ -637,6 +637,9 @@ func (in *Interp) evalMethodCallExpr(e *ir.MethodCallExpr, env *Env, cc *callCtx
 	if recv.Obj.coll != nil {
 		if recv.Obj.coll.template == "Словарь" {
 			return in.evalDictMethod(recv.Obj, e, env, cc)
+		}
+		if recv.Obj.coll.template == "Множество" {
+			return in.evalSetMethod(recv.Obj, e, env, cc)
 		}
 		return in.evalCollectionMethod(recv.Obj, e, env, cc)
 	}
@@ -1025,6 +1028,13 @@ func (in *Interp) showValue(v Value) string {
 		return fmt.Sprintf("%s (Логическое)", word)
 	case ir.KindEntity:
 		if v.Obj.coll != nil {
+			if v.Obj.coll.template == "Множество" {
+				parts := make([]string, 0, v.Obj.coll.pairs.size())
+				for _, key := range v.Obj.coll.pairs.keys {
+					parts = append(parts, in.showValue(key))
+				}
+				return fmt.Sprintf("%s {%s}", v.Obj.typeName, strings.Join(parts, ", "))
+			}
 			if v.Obj.coll.template == "Словарь" {
 				parts := make([]string, 0, v.Obj.coll.pairs.size())
 				for i, key := range v.Obj.coll.pairs.keys {

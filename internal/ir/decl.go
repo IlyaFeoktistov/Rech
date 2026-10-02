@@ -281,7 +281,7 @@ type ExternFuncDecl struct {
 // нечего показывать через Fields.
 type GenericInstantiation struct {
 	Name     string // "Список<Целое>"
-	Template string // "Список" | "Стопка" | "Очередь" | "Словарь"
+	Template string // "Список" | "Стопка" | "Очередь" | "Словарь" | "Множество"
 	ElemType Type
 	// KeyType - тип ключа, валиден только у Template == "Словарь" (тип
 	// значения при этом несёт ElemType выше, то же поле, что и у

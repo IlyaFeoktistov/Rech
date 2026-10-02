@@ -8,10 +8,11 @@ import (
 // forEachKindByTemplate - вид цикла "для x в ..." по шаблону встроенной
 // generic-коллекции (parseGenericTypeName).
 var forEachKindByTemplate = map[string]ir.ForEachKind{
-	"Список":  ir.ForEachList,
-	"Стопка":  ir.ForEachStack,
-	"Очередь": ir.ForEachQueue,
-	"Словарь": ir.ForEachDict,
+	"Список":    ir.ForEachList,
+	"Стопка":    ir.ForEachStack,
+	"Очередь":   ir.ForEachQueue,
+	"Словарь":   ir.ForEachDict,
+	"Множество": ir.ForEachSet,
 }
 
 // analyzeForEachStmt - "для [<ключ>,] <имя> в <коллекция>". Файл -

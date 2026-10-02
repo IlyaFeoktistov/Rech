@@ -96,6 +96,9 @@ func generateIRGenericShowFunc(ctx *irGenCtx, g ir.GenericInstantiation) string 
 	if g.Template == "Словарь" {
 		return generateIRDictShowFunc(ctx, g)
 	}
+	if g.Template == "Множество" {
+		return generateIRSetShowFunc(ctx, g)
+	}
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "static void %s(%s *v) {\n", showFuncName(g.Name), mangleType(g.Name))
 	fmt.Fprintf(&sb, "    printf(\"%s [\");\n", escapeCString(g.Name))

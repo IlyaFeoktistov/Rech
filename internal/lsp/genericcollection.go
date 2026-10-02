@@ -103,6 +103,20 @@ func methodsFor(template string, args []string) ([]collectionMethod, bool) {
 			{"пусто", nil, "Логическое"},
 			{"равен", []string{"другой: Словарь<" + k + ", " + v + ">"}, "Логическое"},
 		}, true
+	case "Множество":
+		if len(args) != 1 {
+			return nil, false
+		}
+		t := args[0]
+		return []collectionMethod{
+			{"добавить", []string{"элемент: " + t}, ""},
+			{"содержит", []string{"элемент: " + t}, "Логическое"},
+			{"удалить", []string{"элемент: " + t}, ""},
+			{"длина", nil, "Целое"},
+			{"пусто", nil, "Логическое"},
+			{"значения", nil, "Список<" + t + ">"},
+			{"равен", []string{"другой: Множество<" + t + ">"}, "Логическое"},
+		}, true
 	}
 	return nil, false
 }

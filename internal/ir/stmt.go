@@ -247,6 +247,8 @@ const (
 	ForEachDict
 	// ForEachFile - Файл, построчно до конца файла.
 	ForEachFile
+	// ForEachSet - Множество<T>, элементы в порядке добавления.
+	ForEachSet
 )
 
 // ForEachStmt соответствует "для [<ключ>,] <имя> в <коллекция> { <тело> }" -

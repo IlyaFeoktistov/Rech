@@ -44,6 +44,10 @@ func generateIRForEachStmt(sb *strings.Builder, ctx *irGenCtx, s *ir.ForEachStmt
 			fmt.Fprintf(sb, "%s%s %s = %s->slots[%s].key;\n", inner, fromIRType(s.KeyType).cType(ctx), mangleVar(s.KeyVar), collCode, idxC)
 		}
 		fmt.Fprintf(sb, "%s%s %s = %s->slots[%s].value;\n", inner, elemC, varC, collCode, idxC)
+	case ir.ForEachSet:
+		fmt.Fprintf(sb, "%sif (%s->slots[%s].state != 1) { continue; }\n", inner, collCode, idxC)
+		writeForEachIndexVar(sb, s, inner, idxC)
+		fmt.Fprintf(sb, "%s%s %s = %s->slots[%s].key;\n", inner, elemC, varC, collCode, idxC)
 	case ir.ForEachStack:
 		writeForEachIndexVar(sb, s, inner, idxC)
 		fmt.Fprintf(sb, "%s%s %s = %s->data[%s->len - 1 - %s];\n", inner, elemC, varC, collCode, collCode, idxC)

@@ -222,7 +222,9 @@ type entitySig struct {
 	// ValueType), KeyType - тип ключа. У "Словарь" нет цикла "для x в Y"
 	// (см. package doc dictCollectionCCode) - IsDict не участвует в той же
 	// проверке, что и IsList.
-	IsDict  bool
+	IsDict bool
+	// IsSet - Множество<T> (set_type.go): KeyType == ElemType - тип элемента.
+	IsSet   bool
 	KeyType ir.Type
 
 	// Equatable - заполнено только у IsList/IsDict: элемент (ElemType)

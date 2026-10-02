@@ -948,6 +948,10 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 			if g.NeedsSafeIndex {
 				indexSafeGetCode.WriteString(collections.DictIndexSafeGetCode(mangleType(g.Name), keyC, mangleType(ir.NullableOf(g.ElemType).String()), g.ElemType.Kind == ir.KindNullable))
 			}
+		case "Множество":
+			ctx.usesDictString = ctx.usesDictString || g.KeyType.Kind == ir.KindString
+			dest.WriteString(setCollectionCode(ctx, g))
+			writeToListCode(&toListCode, generics, "dictKeys", g, "значения", g.KeyType)
 		default:
 			return "", fmt.Errorf("неизвестный generic-шаблон %q", g.Template)
 		}

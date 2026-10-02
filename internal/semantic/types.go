@@ -705,6 +705,9 @@ func resolveGenericTypeName(entities map[string]entitySig, methods map[string]ma
 	if template == "Словарь" {
 		return resolveDictTypeName(entities, methods, aliases, interfaces, enums, name)
 	}
+	if template == "Множество" {
+		return resolveSetTypeName(entities, methods, aliases, interfaces, enums, name, argName)
+	}
 	if template == "Указатель" {
 		return resolvePointerTypeName(entities, methods, aliases, interfaces, enums, name, argName)
 	}
