@@ -445,6 +445,18 @@ func (p *Parser) parsePostfixTail(expr ast.Expr) (ast.Expr, error) {
 				return nil, diagnostics.Wrap(err, "после индекса ожидалось \"]\"")
 			}
 			expr = &ast.IndexExpr{Receiver: expr, Index: index, Line: lb.Line}
+		case lexer.LPAREN:
+			// "сп.получить(0)(3)" - вызов результата вызова/индексации;
+			// "(" вплотную, без пробела - иначе это не вызов.
+			if p.cur().SpaceBefore || !isCallableResult(expr) {
+				return expr, nil
+			}
+			lp := p.cur()
+			args, err := p.parseArgList()
+			if err != nil {
+				return nil, diagnostics.Wrap(err, "в аргументах вызова результата выражения")
+			}
+			expr = &ast.CallValueExpr{Callee: expr, Args: args, Line: lp.Line}
 		default:
 			return expr, nil
 		}
@@ -628,4 +640,14 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 	default:
 		return nil, errAt(tok.Line, tok.Col, CodeUnexpectedToken, "ожидалось выражение, получено %q", tok.Value)
 	}
+}
+
+// isCallableResult - expr может давать значение "Вызываемый", которое
+// вызывают сразу: результат вызова функции/метода или индексации.
+func isCallableResult(expr ast.Expr) bool {
+	switch expr.(type) {
+	case *ast.CallExpr, *ast.MethodCallExpr, *ast.IndexExpr, *ast.CallValueExpr:
+		return true
+	}
+	return false
 }

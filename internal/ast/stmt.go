@@ -362,9 +362,11 @@ func (*ReturnStmt) stmt() {}
 type ExprStmt struct {
 	Call       *CallExpr
 	MethodCall *MethodCallExpr
-	IncDec     *IncDecExpr
-	Await      *AwaitExpr
-	Line       int
+	// CallValue - вызов результата выражения ("создать_обработчик()(запрос)").
+	CallValue *CallValueExpr
+	IncDec    *IncDecExpr
+	Await     *AwaitExpr
+	Line      int
 }
 
 func (*ExprStmt) node() {}

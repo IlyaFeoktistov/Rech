@@ -204,6 +204,8 @@ func substStmt(s ast.Stmt, subst map[string]string) ast.Stmt {
 		switch {
 		case s.MethodCall != nil:
 			out.MethodCall = substExpr(s.MethodCall, subst).(*ast.MethodCallExpr)
+		case s.CallValue != nil:
+			out.CallValue = substExpr(s.CallValue, subst).(*ast.CallValueExpr)
 		case s.IncDec != nil:
 			out.IncDec = s.IncDec
 		case s.Await != nil:
@@ -266,6 +268,8 @@ func substExpr(e ast.Expr, subst map[string]string) ast.Expr {
 			}
 		}
 		return &ast.CallExpr{Callee: e.Callee, Args: substExprs(e.Args, subst), TypeArgs: typeArgs, Line: e.Line, ID: e.ID}
+	case *ast.CallValueExpr:
+		return &ast.CallValueExpr{Callee: substExpr(e.Callee, subst), Args: substExprs(e.Args, subst), Line: e.Line}
 	case *ast.NewExpr:
 		return &ast.NewExpr{Type: substituteTypeString(e.Type, subst), Args: substExprs(e.Args, subst), FieldNames: e.FieldNames, Line: e.Line, ID: e.ID}
 	case *ast.FieldAccess:

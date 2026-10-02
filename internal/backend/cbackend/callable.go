@@ -74,9 +74,24 @@ func callableStructTypedef(ctx *irGenCtx, sig ir.CallableSig) string {
 		callableResultCType(ctx, sig.Result), strings.Join(parts, ", "), mangleCallableType(sig.Name))
 	// Голый C-указатель на функцию той же сигнатуры (без env) - FFI:
 	// результат внешней функции/поле внешней структуры (ffi_callback.go).
-	fmt.Fprintf(&sb, "typedef %s (*%s)(%s);\n\n", callableResultCType(ctx, sig.Result), mangleRawFnType(sig.Name), bare)
+	fmt.Fprintf(&sb, "typedef %s (*%s)(%s);\n", callableResultCType(ctx, sig.Result), mangleRawFnType(sig.Name), bare)
+	// Вызыватель - значение вычисляется один раз (вызов результата
+	// выражения "создать()(3)", generateIRCallValueExpr).
+	params := []string{mangleCallableType(sig.Name) + " f"}
+	args := []string{"f.env"}
+	for i, p := range sig.Params {
+		params = append(params, fmt.Sprintf("%s a%d", fromIRType(p).cType(ctx), i))
+		args = append(args, fmt.Sprintf("a%d", i))
+	}
+	ret := "return "
+	if sig.Result == nil {
+		ret = ""
+	}
+	fmt.Fprintf(&sb, "static inline %s %s(%s) {\n    %sf.fn(%s);\n}\n\n", callableResultCType(ctx, sig.Result), mangleCallableInvoke(sig.Name), strings.Join(params, ", "), ret, strings.Join(args, ", "))
 	return sb.String()
 }
+
+func mangleCallableInvoke(sigName string) string { return "rech_call_" + transliterate(sigName) }
 
 // ensureFuncRefTrampoline эмитит (один раз на funcName, ctx.funcRefTrampolines -
 // дедупликация, тот же принцип, что ctx.launchedFuncs у "запустить") C-функцию
@@ -273,14 +288,20 @@ func generateIRCallValueExpr(ctx *irGenCtx, e *ir.CallValueExpr) (string, valueT
 	if err != nil {
 		return "", typeUnknown, err
 	}
-	args := make([]string, 0, len(e.Args)+1)
-	args = append(args, fmt.Sprintf("(%s).env", fCode))
+	argCodes := make([]string, 0, len(e.Args))
 	for _, a := range e.Args {
 		code, _, err := generateIRExpr(ctx, a)
 		if err != nil {
 			return "", typeUnknown, err
 		}
-		args = append(args, code)
+		argCodes = append(argCodes, code)
 	}
+	if _, isName := e.Value.(*ir.Identifier); !isName {
+		// Значение - результат выражения: через вызыватель, чтобы
+		// вычислить его один раз.
+		all := append([]string{fCode}, argCodes...)
+		return fmt.Sprintf("%s(%s)", mangleCallableInvoke(ir.TypeOf(e.Value).Entity), strings.Join(all, ", ")), fromIRType(e.Type), nil
+	}
+	args := append([]string{fmt.Sprintf("(%s).env", fCode)}, argCodes...)
 	return fmt.Sprintf("(%s).fn(%s)", fCode, strings.Join(args, ", ")), fromIRType(e.Type), nil
 }

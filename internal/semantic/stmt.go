@@ -525,6 +525,13 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		return &ir.ReturnStmt{Value: value, Line: s.Line}, nil
 
 	case *ast.ExprStmt:
+		if s.CallValue != nil {
+			call, err := analyzeCallResultCall(sc, s.CallValue)
+			if err != nil {
+				return nil, err
+			}
+			return &ir.ExprStmt{CallValue: call, Line: s.Line}, nil
+		}
 		if s.Await != nil {
 			await, err := analyzeAwaitExpr(sc, s.Await)
 			if err != nil {

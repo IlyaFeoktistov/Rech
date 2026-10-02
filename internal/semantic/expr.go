@@ -107,6 +107,9 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 	case *ast.TernaryExpr:
 		return analyzeTernaryExpr(sc, e)
 
+	case *ast.CallValueExpr:
+		return analyzeCallResultExpr(sc, e)
+
 	case *ast.CallExpr:
 		call, err := analyzeCallExpr(sc, e)
 		if err != nil {

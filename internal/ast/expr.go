@@ -75,6 +75,22 @@ type CallExpr struct {
 func (*CallExpr) node() {}
 func (*CallExpr) expr() {}
 
+// CallValueExpr - вызов РЕЗУЛЬТАТА выражения типа "Вызываемый":
+//
+//	сп.получить(0)(3)
+//	создать_обработчик()(запрос)
+//
+// В отличие от CallExpr (вызов по имени функции или переменной), Callee -
+// произвольное выражение: результат вызова, метода или индексации.
+type CallValueExpr struct {
+	Callee Expr
+	Args   []Expr
+	Line   int
+}
+
+func (*CallValueExpr) node() {}
+func (*CallValueExpr) expr() {}
+
 // NewExpr - конструктор сущности, дающий значение:
 //
 //	новый Тип(<арг>, ...)                       - позиционная форма

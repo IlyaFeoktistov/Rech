@@ -582,6 +582,9 @@ func (r *rewriter) rewriteStmt(s ast.Stmt) error {
 		if s.Call != nil {
 			return r.rewriteExpr(s.Call)
 		}
+		if s.CallValue != nil {
+			return r.rewriteExpr(s.CallValue)
+		}
 		if s.MethodCall != nil {
 			return r.rewriteExpr(s.MethodCall)
 		}
@@ -788,6 +791,11 @@ func (r *rewriter) rewriteExpr(e ast.Expr) error {
 		return r.rewriteExpr(e.Value)
 	case *ast.MethodCallExpr:
 		if err := r.rewriteExpr(e.Receiver); err != nil {
+			return err
+		}
+		return r.rewriteExprs(e.Args)
+	case *ast.CallValueExpr:
+		if err := r.rewriteExpr(e.Callee); err != nil {
 			return err
 		}
 		return r.rewriteExprs(e.Args)

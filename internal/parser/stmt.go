@@ -275,7 +275,8 @@ func (p *Parser) parseOptionalLoopDepth() (int, error) {
 // analyzeMethodCallExpr/analyzeFieldAssign, internal/semantic). Без
 // продолжения - просто вызов как самостоятельная инструкция, как и раньше.
 func (p *Parser) finishCallChainStmt(call *ast.CallExpr) (ast.Stmt, error) {
-	if p.cur().Type != lexer.DOT && p.cur().Type != lexer.DBLCOLON {
+	callsResult := p.cur().Type == lexer.LPAREN && !p.cur().SpaceBefore
+	if p.cur().Type != lexer.DOT && p.cur().Type != lexer.DBLCOLON && !callsResult {
 		return &ast.ExprStmt{Call: call, Line: call.Line}, nil
 	}
 	startLine, startCol := p.cur().Line, p.cur().Col
@@ -286,6 +287,8 @@ func (p *Parser) finishCallChainStmt(call *ast.CallExpr) (ast.Stmt, error) {
 	switch e := expr.(type) {
 	case *ast.MethodCallExpr:
 		return &ast.ExprStmt{MethodCall: e, Line: e.Line}, nil
+	case *ast.CallValueExpr:
+		return &ast.ExprStmt{CallValue: e, Line: e.Line}, nil
 	case *ast.FieldAccess:
 		opTok := p.cur()
 		if opTok.Type == lexer.ASSIGN || isCompoundAssignTok(opTok.Type) {
@@ -318,6 +321,8 @@ func (p *Parser) parseDotStatement() (ast.Stmt, error) {
 	switch e := expr.(type) {
 	case *ast.MethodCallExpr:
 		return &ast.ExprStmt{MethodCall: e, Line: e.Line}, nil
+	case *ast.CallValueExpr:
+		return &ast.ExprStmt{CallValue: e, Line: e.Line}, nil
 	case *ast.FieldAccess:
 		opTok := p.cur()
 		if opTok.Type == lexer.ASSIGN || isCompoundAssignTok(opTok.Type) {
