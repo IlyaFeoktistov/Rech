@@ -441,6 +441,10 @@ const RandomIntInvalidRange = "случайное_целое: минимум д�
 // же принципом, что и ReadInvalidMax/RandomIntInvalidRange выше.
 const SplitEmptySeparator = "разбить: разделитель не может быть пустой строкой"
 
+// ReplaceEmptyPattern - "заменить(строка, образец, замена)" с пустым
+// образцом: непонятно, между какими символами вставлять замену.
+const ReplaceEmptyPattern = "заменить: образец не может быть пустой строкой"
+
 // RegexInvalidPatternTemplate/RegexInvalidPatternFormat - "регулярное
 // (строка, шаблон)" с шаблоном, который движок регулярных выражений не
 // смог скомпилировать - detail - диагностика САМОГО движка (Go regexp у

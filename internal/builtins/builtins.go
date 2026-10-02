@@ -127,6 +127,13 @@ var All = []Func{
 	// Unicode-набор (см. package doc trimSpace/rech_string_trim - оба
 	// backend'а обязаны совпадать байт-в-байт).
 	{Name: "обрезать", Params: []Kind{KindString}, ReturnKind: KindString, HasReturn: true},
+	// Регистр - посимвольно по таблицам Unicode (ToUpper/ToLower), замена -
+	// всех вхождений образца.
+	{Name: "в_верхний_регистр", Params: []Kind{KindString}, ReturnKind: KindString, HasReturn: true},
+	{Name: "в_нижний_регистр", Params: []Kind{KindString}, ReturnKind: KindString, HasReturn: true},
+	{Name: "заменить", Params: []Kind{KindString, KindString, KindString}, ReturnKind: KindString, HasReturn: true},
+	{Name: "начинается_с", Params: []Kind{KindString, KindString}, ReturnKind: KindBool, HasReturn: true},
+	{Name: "заканчивается_на", Params: []Kind{KindString, KindString}, ReturnKind: KindBool, HasReturn: true},
 
 	// Ввод консоли (обёртки над <stdio.h> в C, os.Stdin в интерпретаторе).
 	{Name: "прочитать_строку", Params: nil, ReturnKind: KindString, HasReturn: true},

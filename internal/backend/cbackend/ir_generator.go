@@ -1155,7 +1155,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// место, где эти флаги взводятся, поэтому раньше их не узнать.
 	// Точки входа внешних байт в Строку - используют strutil.TextCode.
 	ctx.usesText = ctx.usesText || ctx.usesFileIO || ctx.usesConsoleInput || ctx.usesByteStringConv || ctx.usesBytesIO || ctx.usesSockets || ctx.usesEnv || ctx.usesSubprocess || prog.UsesDB || ctx.usesHTTP || ctx.usesHTTPServer || ctx.usesHTTP2 || ctx.usesMultipart || ctx.usesUDPDatagram || ctx.usesCrypto || ctx.usesAES || hasStructTargets || ctx.usesQueryParams
-	ctx.includesStringH = ctx.usesText || ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesExceptions || ctx.usesStringSplit || ctx.usesRegex || ctx.usesHTTPHeaders || ctx.usesHTTPHeaderValues || ctx.usesColor || ctx.usesSubprocess || ctx.usesCwd || hasStructTargets || prog.UsesReflection || ctx.usesTZ || ctx.usesDateParse
+	ctx.includesStringH = ctx.usesText || ctx.usesConcat || ctx.usesStrCmp || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesSockets || ctx.usesCast || ctx.usesMemcpy || ctx.usesDictString || ctx.usesQueryParams || ctx.usesCookies || ctx.usesStringOps || ctx.usesStringText || ctx.usesCrypto || ctx.usesEnv || ctx.usesExceptions || ctx.usesStringSplit || ctx.usesRegex || ctx.usesHTTPHeaders || ctx.usesHTTPHeaderValues || ctx.usesColor || ctx.usesSubprocess || ctx.usesCwd || hasStructTargets || prog.UsesReflection || ctx.usesTZ || ctx.usesDateParse
 	// usesNullables/prog.UsesReflection - те же два условия, что у panicGate
 	// (ниже) сверх её собственных: panicGate решает, эмитить ли panicPrototypes
 	// (безусловный exit(1)), includesStdlibH - подключать ли <stdlib.h>, где
@@ -1167,7 +1167,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// "код" (см. package doc systemExceptionFields), значит panicPrototypes (а
 	// с ним и <stdlib.h>) эмитится в подавляющем большинстве программ, не
 	// только там, где пользователь сам пишет "?Тип".
-	ctx.includesStdlibH = ctx.usesText || ctx.usesConcat || usesGenerics || usesNullables || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesColor || ctx.usesQueryParams || ctx.usesCookies || ctx.usesRandom || ctx.usesStringOps || ctx.usesCrypto || ctx.usesEnv || ctx.usesRegex || ctx.usesHTTPHeaders || ctx.usesHTTPHeaderValues || hasStructTargets || ctx.usesExit || ctx.usesTZ || ctx.usesHumanDate || prog.UsesReflection
+	ctx.includesStdlibH = ctx.usesText || ctx.usesConcat || usesGenerics || usesNullables || ctx.usesPanic || ctx.usesConsoleInput || ctx.usesFileIO || ctx.usesCast || ctx.usesExceptions || ctx.usesDateTime || ctx.usesColor || ctx.usesQueryParams || ctx.usesCookies || ctx.usesRandom || ctx.usesStringOps || ctx.usesStringText || ctx.usesCrypto || ctx.usesEnv || ctx.usesRegex || ctx.usesHTTPHeaders || ctx.usesHTTPHeaderValues || hasStructTargets || ctx.usesExit || ctx.usesTZ || ctx.usesHumanDate || prog.UsesReflection
 	ctx.includesMathH = ctx.usesMath
 	if len(prog.ExternFuncs) > 0 {
 		protos.WriteString(externSymbolMacros)
@@ -1948,6 +1948,9 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// Не зависит от typedefs - только примитивы (const char *) - после
 	// panicPrototypes выше (rech_substring зовёт rech_panic).
 	appendCodeIf(&sb, ctx.usesStringOps, strutil.Helpers)
+	if ctx.usesStringText {
+		sb.WriteString(strutil.TextHelpers())
+	}
 	// Не зависит от typedefs - только примитивы (const char *) - после
 	// panicPrototypes выше (rech_base64url_decode зовёт rech_panic).
 	appendCodeIf(&sb, ctx.usesCrypto, crypto.Helpers)

@@ -30,6 +30,15 @@ func stringSplit(s, sep string) Value {
 	return stringListValue(elems)
 }
 
+// stringReplace - "заменить": все вхождения pattern на with; пустой
+// pattern - паника, как в cbackend (rech_string_replace).
+func stringReplace(s, pattern, with string) string {
+	if pattern == "" {
+		panicRuntime("%s", rtmsg.ReplaceEmptyPattern)
+	}
+	return strings.ReplaceAll(s, pattern, with)
+}
+
 // stringListValue - значение "Список<Строка>" из готовых элементов.
 func stringListValue(elems []Value) Value {
 	return Value{Type: ir.EntityType(splitResultType), Obj: &entityObj{typeName: splitResultType, coll: &collection{template: "Список", elems: elems}}}

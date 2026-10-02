@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
@@ -370,6 +371,16 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return intValue(stringFind(args[0].S, args[1].S)), true
 	case "обрезать":
 		return stringValue(trimSpace(args[0].S)), true
+	case "в_верхний_регистр":
+		return stringValue(strings.Map(unicode.ToUpper, args[0].S)), true
+	case "в_нижний_регистр":
+		return stringValue(strings.Map(unicode.ToLower, args[0].S)), true
+	case "заменить":
+		return stringValue(stringReplace(args[0].S, args[1].S, args[2].S)), true
+	case "начинается_с":
+		return boolValue(strings.HasPrefix(args[0].S, args[1].S)), true
+	case "заканчивается_на":
+		return boolValue(strings.HasSuffix(args[0].S, args[1].S)), true
 	case "случайное":
 		return floatValue(randomFloat()), true
 	case "случайное_целое":

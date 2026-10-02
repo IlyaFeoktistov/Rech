@@ -57,6 +57,8 @@ type builtinFlags struct {
 	// "позиция_в_строке", string_ops.go) - индексация по code point'ам
 	// Unicode, не байтам.
 	usesStringOps bool
+	// usesStringText - регистр/замена/префикс/суффикс (strutil.TextHelpers).
+	usesStringText bool
 	// usesConsoleInput - нужны ли rech_read_line/rech_read_int/
 	// rech_read_float (встроенные функции шага 8: прочитать_строку,
 	// прочитать_целое, прочитать_число) - все три хелпера эмитятся вместе,
@@ -842,6 +844,22 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 	case "обрезать":
 		flags.usesStringOps = true
 		return fmt.Sprintf("rech_string_trim(%s)", args[0]), true
+	case "в_верхний_регистр":
+		flags.usesStringText = true
+		return fmt.Sprintf("rech_string_upper(%s)", args[0]), true
+	case "в_нижний_регистр":
+		flags.usesStringText = true
+		return fmt.Sprintf("rech_string_lower(%s)", args[0]), true
+	case "заменить":
+		flags.usesStringText = true
+		flags.usesPanic = true
+		return fmt.Sprintf("rech_string_replace(%s, %s, %s)", args[0], args[1], args[2]), true
+	case "начинается_с":
+		flags.usesStringText = true
+		return fmt.Sprintf("rech_string_starts_with(%s, %s)", args[0], args[1]), true
+	case "заканчивается_на":
+		flags.usesStringText = true
+		return fmt.Sprintf("rech_string_ends_with(%s, %s)", args[0], args[1]), true
 	case "случайное":
 		flags.usesRandom = true
 		return "rech_random()", true
