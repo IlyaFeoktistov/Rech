@@ -37,3 +37,20 @@ func TestGenerateFromIRNestedCollectionOfStructCompiles(t *testing.T) {
 		t.Fatalf("сгенерированный C не компилируется: %v\n%s", err, msg)
 	}
 }
+
+// TestGenerateFromIRRunCommandAloneCompiles - программа только с
+// "выполнить_команду" (без Список<Строка> в своём коде) - рантайм
+// процессов объявляет rech_spawn_process(..., Список<Строка> *), тип обязан
+// быть зарегистрирован.
+func TestGenerateFromIRRunCommandAloneCompiles(t *testing.T) {
+	out := generateFromSrc(t, "функция главная\n{\n    РезультатКоманды р = выполнить_команду(\"echo 1\")\n    вывести р.вывод\n}\n")
+	ccPath := findTestCCompiler(t)
+	cPath := filepath.Join(t.TempDir(), "runcmd.c")
+	if err := os.WriteFile(cPath, []byte(out), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// #nosec G204 -- ccPath найден локальным поиском (CC/cc/clang/gcc), cPath - файл этого теста.
+	if msg, err := exec.Command(ccPath, "-fsyntax-only", cPath).CombinedOutput(); err != nil {
+		t.Fatalf("сгенерированный C не компилируется: %v\n%s", err, msg)
+	}
+}

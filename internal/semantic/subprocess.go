@@ -69,10 +69,20 @@ func registerSubprocessFuncs(entities map[string]entitySig, funcs map[string]fun
 	}
 }
 
+// subprocessFuncNames - функции, вместе с которыми cbackend эмитит весь
+// рантайм процессов (runtime/subprocess) - а он объявляет
+// rech_spawn_process(..., Список<Строка> *), значит тип нужен любой из них,
+// не только "запустить_процесс" (иначе программа с одним
+// "выполнить_команду" не компилировалась).
+var subprocessFuncNames = map[string]bool{
+	"запустить_процесс":  true,
+	"выполнить_команду":  true,
+	"дождаться_процесса": true,
+}
+
 // registerSubprocessTypesOnCall - вызывается из analyzeCallExpr при каждом
-// вызове "запустить_процесс" - единственной из трёх функций, принимающей
-// Список<Строка> (generic-коллекция, свой typedef/методы в cbackend, нужен
-// только программе, реально вызвавшей "запустить_процесс") - тем же
+// вызове функции из subprocessFuncNames - Список<Строка> (generic-коллекция,
+// свой typedef/методы в cbackend) - тем же
 // принципом, что и registerSplitTypeOnCall/registerDBTypesOnCall.
 // resolveTypeName сам идемпотентен, поэтому безопасно звать на каждый
 // вызов, не только на первый.

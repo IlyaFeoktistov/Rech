@@ -681,9 +681,9 @@ func analyzeCallExpr(sc *ctx, e *ast.CallExpr) (ir.Expr, error) {
 				return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "встроенная функция \"регулярное\"")
 			}
 		}
-		if callee == "запустить_процесс" {
+		if subprocessFuncNames[callee] {
 			if err := registerSubprocessTypesOnCall(sc.entities, sc.methods, sc.aliases, sc.interfaces, sc.enums); err != nil {
-				return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "встроенная функция \"запустить_процесс\"")
+				return nil, diagnostics.WrapAt(err, diagnostics.Position{File: currentFile, Line: e.Line}, "встроенная функция %q", callee)
 			}
 		}
 		if bytesIOFuncNames[callee] {
