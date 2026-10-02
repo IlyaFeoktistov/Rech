@@ -105,6 +105,11 @@ type funcSig struct {
 	// гарантии потокобезопасности произвольного C-символа).
 	IsExtern bool
 
+	// CVariadic - вариативная C-функция ("..." последним у "внешняя
+	// функция"): сверх Params - любое число аргументов, каждый своего типа
+	// (analyzeCVariadicArgs).
+	CVariadic bool
+
 	// IsAsync - объявлена с "асинхронная" (ast.FunctionDecl.IsAsync) -
 	// только у элементов funcs, никогда у methods. Нужен analyzeAwaitExpr:
 	// "дождаться <прямой вызов>()" такой функции - сахар, эквивалентный

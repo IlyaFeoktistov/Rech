@@ -384,13 +384,18 @@ func (in *Interp) setRawPointerValue(addr unsafe.Pointer, elemType ir.Type, v Va
 // символ decl.CName среди defaultFFILibraryNames(), строит его Go-сигнатуру
 // через reflect.FuncOf (по ffiGoType каждого параметра/результата) и
 // регистрирует настоящий вызывающий stub через purego.RegisterFunc.
-func (in *Interp) ensureExternFunc(decl *ir.ExternFuncDecl) (reflect.Value, error) {
-	if fn, ok := in.ffi.fns[decl.Alias]; ok {
+func (in *Interp) ensureExternFunc(decl *ir.ExternFuncDecl, params []ir.Type) (reflect.Value, error) {
+	key := decl.Alias
+	if decl.Variadic {
+		// Своя Go-сигнатура на каждый набор типов аргументов "...".
+		key = cVariadicKey(decl.Alias, params)
+	}
+	if fn, ok := in.ffi.fns[key]; ok {
 		return fn, nil
 	}
 
-	paramTypes := make([]reflect.Type, len(decl.Params))
-	for i, p := range decl.Params {
+	paramTypes := make([]reflect.Type, len(params))
+	for i, p := range params {
 		goType, err := in.ffiGoType(p)
 		if err != nil {
 			return reflect.Value{}, fmt.Errorf("внешняя функция %q: параметр %d: %w", decl.Alias, i+1, err)
@@ -410,13 +415,18 @@ func (in *Interp) ensureExternFunc(decl *ir.ExternFuncDecl) (reflect.Value, erro
 	if err != nil {
 		return reflect.Value{}, fmt.Errorf("внешняя функция %q (%s): %w", decl.Alias, decl.CName, err)
 	}
+	if decl.Variadic {
+		if addr, err = cVariadicEntry(addr); err != nil {
+			return reflect.Value{}, fmt.Errorf("внешняя функция %q (%s): %w", decl.Alias, decl.CName, err)
+		}
+	}
 
 	fnType := reflect.FuncOf(paramTypes, resultTypes, false)
 	fnPtr := reflect.New(fnType)
 	purego.RegisterFunc(fnPtr.Interface(), addr)
 
 	fn := fnPtr.Elem()
-	in.ffi.fns[decl.Alias] = fn
+	in.ffi.fns[key] = fn
 	return fn, nil
 }
 
@@ -500,7 +510,11 @@ func (in *Interp) tryFFISymbol(libPath, cname string) (uintptr, bool) {
 // callExternFunc - "внешняя функция" в позиции вызова (ir.CallExpr), см.
 // eval.go, case *ir.CallExpr.
 func (in *Interp) callExternFunc(decl *ir.ExternFuncDecl, args []Value) (Value, error) {
-	fn, err := in.ensureExternFunc(decl)
+	params := decl.Params
+	if decl.Variadic {
+		params, args = in.cVariadicArgs(decl, args)
+	}
+	fn, err := in.ensureExternFunc(decl, params)
 	if err != nil {
 		return Value{}, err
 	}
@@ -508,9 +522,9 @@ func (in *Interp) callExternFunc(decl *ir.ExternFuncDecl, args []Value) (Value, 
 	var writebacks []func()
 	for i, a := range args {
 		paramType := fn.Type().In(i)
-		switch decl.Params[i].Kind {
+		switch params[i].Kind {
 		case ir.KindPointer:
-			elemType := in.pointerElemTypes[decl.Params[i].Entity]
+			elemType := in.pointerElemTypes[params[i].Entity]
 			arg, writeback := in.ffiPointerArg(a, elemType, paramType)
 			argVals[i] = arg
 			writebacks = append(writebacks, writeback)

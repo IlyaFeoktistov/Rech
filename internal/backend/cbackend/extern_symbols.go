@@ -52,6 +52,9 @@ func externPrototypeOfIR(ctx *irGenCtx, ext *ir.ExternFuncDecl) (string, error) 
 		}
 		types[i] = t
 	}
+	if ext.Variadic {
+		types = append(types, "...")
+	}
 	params := "void"
 	if len(types) > 0 {
 		params = strings.Join(types, ", ")

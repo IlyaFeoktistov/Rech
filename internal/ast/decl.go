@@ -107,7 +107,11 @@ type ExternFuncDecl struct {
 	Alias      string
 	Params     []Param
 	ReturnType string // "" - функция ничего не возвращает (C void)
-	Line       int
+	// Variadic - "..." последним параметром, без имени: вариативная
+	// C-функция (printf, open, ioctl) - сверх Params вызов передаёт любое
+	// число аргументов.
+	Variadic bool
+	Line     int
 	// Doc - текст doc-комментария ("/** ... */") прямо перед объявлением,
 	// "" - его не было (см. EntityDecl.Doc про общий принцип). internal/lsp
 	// показывает его при наведении на Alias вместо описания из заголовка,

@@ -54,7 +54,7 @@ function       := { modifier } "функция" IDENT [ type_params ] [ "(" [ pa
 params         := param { "," param }
 param          := [ "..." ] IDENT ":" type_name [ "=" expr ]
                                              (* "..." - вариативный параметр: только последний, не у лямбды/
-                                                конструктора/внешней функции, без значений по умолчанию у
+                                                конструктора/внешней функции (у неё - "..." без имени, extern_func), без значений по умолчанию у
                                                 любого параметра той же функции, в теле - Список<Тип> *)
 type_name      := [ "?" ] ( IDENT [ "<" type_name { "," type_name } ">" ] | "*" type_name | callable_type ) { "[" [ INT ] "]" }
                                              (* "Тип[]"/"Тип[][]" - сахар над "Список<Тип>"/"Список<Список<Тип>>";
@@ -106,7 +106,10 @@ interface_method := IDENT "(" [ params ] ")" [ ":" ( type_name | "этот" ) ]
 extern_decl    := extern_func | extern_entity | extern_struct | extern_var
 extern_var     := "внешняя" type_name IDENT [ "как" IDENT ]
                                              (* C-глобальная переменная: числовой тип/Логическое/Символ/Байт *)
-extern_func    := "внешняя" "функция" IDENT [ "как" IDENT ] "(" [ params ] ")" [ ":" type_name ]
+extern_func    := "внешняя" "функция" IDENT [ "как" IDENT ] "(" [ params [ "," "..." ] ] ")" [ ":" type_name ]
+                                             (* "..." без имени - вариативная C-функция (printf): перед ним
+                                                хотя бы один параметр, аргументы сверх params - любого
+                                                FFI-скалярного типа, указателя или внешней сущности *)
 extern_entity  := "внешняя" "сущность" IDENT [ "как" IDENT ]
 extern_struct  := "внешняя" "структура" IDENT [ "как" IDENT ] { sep } "{" { sep } fields_section { sep } "}"
                                              (* внешняя функция/структура/сущность - раздел 12 (FFI) *)

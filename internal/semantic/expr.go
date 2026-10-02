@@ -915,6 +915,13 @@ func checkCallArgs(sc *ctx, args []ast.Expr, sig funcSig, line int, callee, argL
 	if err := checkSpreadPlacement(args, sig, line, callee); err != nil {
 		return nil, err
 	}
+	var cExtra []ast.Expr
+	if sig.CVariadic {
+		if len(args) < len(sig.Params) {
+			return nil, errAtLine(line, CodeExprCheck, "%s ожидает аргументов: минимум %d, передано: %d", callee, len(sig.Params), len(args))
+		}
+		args, cExtra = args[:len(sig.Params)], args[len(sig.Params):]
+	}
 	var variadicTail []ast.Expr
 	if sig.Variadic {
 		fixed := len(sig.Params) - 1
@@ -968,6 +975,13 @@ func checkCallArgs(sc *ctx, args []ast.Expr, sig funcSig, line int, callee, argL
 		}
 		invalidateEstablishedForOpaqueArg(sc, arg)
 		out[i] = arg
+	}
+	if sig.CVariadic {
+		extra, err := analyzeCVariadicArgs(sc, cExtra, len(sig.Params), line, argLabel)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, extra...)
 	}
 	return out, nil
 }

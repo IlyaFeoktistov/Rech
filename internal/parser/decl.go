@@ -100,10 +100,17 @@ func (p *Parser) parseExternFuncDecl() (*ast.ExternFuncDecl, error) {
 	}
 
 	var params []ast.Param
+	variadic := false
 	if p.cur().Type == lexer.LPAREN {
+		p.externParams = true
 		params, err = p.parseParams()
+		p.externParams = false
 		if err != nil {
 			return nil, diagnostics.Wrap(err, "в списке параметров внешней функции %q", alias)
+		}
+		if n := len(params); n > 0 && params[n-1].Variadic && params[n-1].Name == "" {
+			params = params[:n-1]
+			variadic = true
 		}
 		if err := rejectVariadicParam(params, "внешней функции"); err != nil {
 			return nil, err
@@ -120,7 +127,7 @@ func (p *Parser) parseExternFuncDecl() (*ast.ExternFuncDecl, error) {
 		returnType = normalizeReturnType(returnType)
 	}
 
-	return &ast.ExternFuncDecl{CName: cName.Value, Alias: alias, Params: params, ReturnType: returnType, Line: kw.Line}, nil
+	return &ast.ExternFuncDecl{CName: cName.Value, Alias: alias, Params: params, ReturnType: returnType, Variadic: variadic, Line: kw.Line}, nil
 }
 
 // parseEnumDecl разбирает "перечисление <Имя> { Член1, Член2 = 5, ... }"
@@ -299,7 +306,9 @@ func (p *Parser) parseParams() ([]ast.Param, error) {
 			// параметр нельзя было передать в НАТУРАЛЬНЫЙ вызов (ни
 			// свободной функции, ни метода) без предварительного
 			// присваивания его локальной переменной.
-			p.registerNoun(param.Name)
+			if param.Name != "" {
+				p.registerNoun(param.Name)
+			}
 			if param.CaseWord != "" {
 				c, _ := morph.CaseOfParamName(param.CaseWord)
 				if prev, exists := seenCases[c]; exists {
@@ -325,6 +334,11 @@ func (p *Parser) parseParams() ([]ast.Param, error) {
 	if _, err := p.expect(lexer.RPAREN); err != nil {
 		return nil, err
 	}
+	if !p.externParams {
+		if err := rejectCVariadic(params); err != nil {
+			return nil, err
+		}
+	}
 	if err := checkVariadicParam(params); err != nil {
 		return nil, err
 	}
@@ -339,7 +353,7 @@ func (p *Parser) parseParams() ([]ast.Param, error) {
 // переписывается в "Список<Тип>" - так параметр виден в теле функции.
 func checkVariadicParam(params []ast.Param) error {
 	for i := range params {
-		if !params[i].Variadic {
+		if !params[i].Variadic || params[i].Name == "" {
 			continue
 		}
 		if i != len(params)-1 {
@@ -361,6 +375,17 @@ func rejectVariadicParam(params []ast.Param, where string) error {
 	for _, param := range params {
 		if param.Variadic {
 			return errAtLine(param.Line, CodeUnexpectedToken, "у %s не может быть вариативного параметра %q - только у функций и методов", where, param.Name)
+		}
+	}
+	return nil
+}
+
+// rejectCVariadic - "..." без имени допустим только последним параметром
+// внешней функции (вариативная C-функция).
+func rejectCVariadic(params []ast.Param) error {
+	for _, param := range params {
+		if param.Variadic && param.Name == "" {
+			return errAtLine(param.Line, CodeUnexpectedToken, "\"...\" без имени - только у внешней функции (вариативная C-функция, как printf); у функции Rech вариативный параметр именованный: \"...имя: Тип\"")
 		}
 	}
 	return nil
@@ -565,6 +590,12 @@ func (p *Parser) parseTypeArgsSuffix(name string) (string, error) {
 // и следом идёт ещё один IDENT (а не ":"), это двусловная форма; иначе
 // первое слово - и есть Name (падежное или нет).
 func (p *Parser) parseParam() (ast.Param, error) {
+	if p.cur().Type == lexer.ELLIPSIS && p.peekPastNewlinesFrom(1).Type == lexer.RPAREN {
+		// "..." без имени - вариативная C-функция; где это не внешняя
+		// функция, ошибку даёт rejectCVariadic.
+		tok := p.advance()
+		return ast.Param{Variadic: true, Line: tok.Line}, nil
+	}
 	if p.cur().Type == lexer.ELLIPSIS {
 		p.advance() // "..."
 		param, err := p.parseParam()

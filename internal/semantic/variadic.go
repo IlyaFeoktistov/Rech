@@ -48,6 +48,9 @@ func checkSpreadPlacement(args []ast.Expr, sig funcSig, line int, callee string)
 		if _, ok := arg.(*ast.SpreadExpr); !ok {
 			continue
 		}
+		if sig.CVariadic {
+			return errAtLine(line, CodeExprCheck, "аргумент %d: \"...список\" не раскрывается в аргументы C-функции %s - передайте значения по одному", i+1, callee)
+		}
 		if !sig.Variadic {
 			return errAtLine(line, CodeExprCheck, "аргумент %d: \"...\" допустимо только в вариативной части вызова, а %s не вариативна", i+1, callee)
 		}

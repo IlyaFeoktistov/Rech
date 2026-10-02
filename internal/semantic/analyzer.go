@@ -893,12 +893,16 @@ func (a *Analyzer) collectExternFuncSigs(bag *diagnostics.Bag, funcs map[string]
 			}
 			params[i] = typ
 		}
+		if !failed && ext.Variadic && len(params) == 0 {
+			bag.AddErr(atLine(errNoPos(CodeEntityDecl, "%s: перед \"...\" нужен хотя бы один обычный параметр - как и у вариативной функции в C", label), ext.Line))
+			failed = true
+		}
 		if failed {
 			funcs[ext.Alias] = funcSig{IsExtern: true}
 			continue
 		}
-		decl := &ir.ExternFuncDecl{CName: ext.CName, Alias: ext.Alias, Params: params}
-		sig := funcSig{Params: params, IsExtern: true}
+		decl := &ir.ExternFuncDecl{CName: ext.CName, Alias: ext.Alias, Params: params, Variadic: ext.Variadic}
+		sig := funcSig{Params: params, IsExtern: true, CVariadic: ext.Variadic}
 		if ext.ReturnType != "" {
 			typ, err := resolveTypeName(entities, methods, aliases, a.interfaces, enums, ext.ReturnType)
 			if err != nil {

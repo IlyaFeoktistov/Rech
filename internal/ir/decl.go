@@ -270,6 +270,9 @@ type ExternFuncDecl struct {
 	Params     []Type
 	ReturnType Type
 	HasReturn  bool
+	// Variadic - вариативная C-функция ("..." в конце): аргументы вызова
+	// сверх Params - каждый своего типа (уже допустимого для "...").
+	Variadic bool
 }
 
 // GenericInstantiation - конкретная инстанциация встроенной generic-

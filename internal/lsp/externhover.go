@@ -37,7 +37,7 @@ func (d *doc) hoverExternFunc(name string) (string, bool) {
 		if ef.Alias != name {
 			continue
 		}
-		header := "внешняя функция " + externFuncSignature(ef.Alias, ef.Params, ef.ReturnType)
+		header := "внешняя функция " + externFuncSignature(ef.Alias, ef.Params, ef.Variadic, ef.ReturnType)
 		if ef.Alias != ef.CName {
 			header += fmt.Sprintf("\n\nC-имя: `%s`", ef.CName)
 		}
@@ -81,10 +81,13 @@ func (d *doc) hoverExternEntity(name string) (string, bool) {
 // тип результата ПРЯМО из AST (уже строки, как написал пользователь), в
 // отличие от d.functionSignature (hover.go), которая форматирует уже
 // разрешённые ir.Type обычных функций.
-func externFuncSignature(name string, params []ast.Param, returnType string) string {
+func externFuncSignature(name string, params []ast.Param, variadic bool, returnType string) string {
 	parts := make([]string, len(params))
 	for i, p := range params {
 		parts[i] = p.Name + ": " + p.Type
+	}
+	if variadic {
+		parts = append(parts, "...")
 	}
 	sig := fmt.Sprintf("%s(%s)", name, strings.Join(parts, ", "))
 	if returnType != "" {
