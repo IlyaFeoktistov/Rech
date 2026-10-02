@@ -20,6 +20,16 @@ func analyzeIndexExpr(sc *ctx, e *ast.IndexExpr) (ir.Expr, error) {
 		return nil, err
 	}
 	receiver = maybeUnwrapNarrowed(sc, receiver)
+	if _, chained := e.Receiver.(*ast.IndexExpr); chained && ir.TypeOf(receiver).Kind == ir.KindNullable {
+		return analyzeIndexChain(sc, e, receiver)
+	}
+	return analyzeIndexOn(sc, e, receiver, receiverAddressable(e.Receiver))
+}
+
+// analyzeIndexOn - "[index]" над уже разобранным receiver; addressable -
+// receiver можно вычислять как lvalue (переменная, поле, "этот").
+func analyzeIndexOn(sc *ctx, e *ast.IndexExpr, receiver ir.Expr, addressable bool) (ir.Expr, error) {
+	var err error
 	typ := ir.TypeOf(receiver)
 	if typ.Kind == ir.KindPointer {
 		return pointerElementRead(sc, receiver, e.Index, e.Line)
@@ -27,7 +37,7 @@ func analyzeIndexExpr(sc *ctx, e *ast.IndexExpr) (ir.Expr, error) {
 	if typ.Kind == ir.KindArray {
 		return analyzeArrayIndex(sc, receiver, e.Index, e.Line)
 	}
-	if !receiverAddressable(e.Receiver) {
+	if !addressable {
 		return nil, errAtLine(e.Line, CodeSemanticOther, "получателем индексации \"[]\" может быть только переменная, поле или \"этот\"")
 	}
 	sig, ok := sc.entities[typ.Entity]
