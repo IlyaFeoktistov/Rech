@@ -81,7 +81,9 @@ func defaultFFILibraryNames() []string {
 		// kernel32.dll - как и libc/libm на других платформах, доступна любому
 		// Windows-процессу без явного подключения (cbackend её тоже не
 		// перечисляет отдельно - компоновщик MinGW/MSVC линкует её всегда).
-		return []string{"ucrtbase.dll", "msvcrt.dll", "kernel32.dll"}
+		// shell32.dll/ws2_32.dll - cbackend линкует их всегда (-lshell32
+		// -lws2_32, internal/toolchain): "htons" и прочий Winsock2.
+		return []string{"ucrtbase.dll", "msvcrt.dll", "kernel32.dll", "shell32.dll", "ws2_32.dll"}
 	case "darwin":
 		return []string{"libSystem.dylib"}
 	default:

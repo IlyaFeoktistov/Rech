@@ -202,8 +202,10 @@ static void rech_send_signal(long long pid, long long ordinal) {
        что и Ctrl+C в реальном терминале, работает только с процессами
        собственной консольной группы), SIGKILL/SIGTERM - через
        TerminateProcess (безусловное завершение, ближайший аналог "убить
-       процесс" на этой платформе). Остальные ordinal - ОшибкаПроцесса, POSIX-
-       сигнал без аналога послать некому. */
+       процесс" на этой платформе) с кодом 128 + номер сигнала, как у
+       POSIX-оболочки (143 у SIGTERM, 137 у SIGKILL) - тот же код, что
+       "дождаться_процесса" видит на Linux и в interp. Остальные ordinal -
+       ОшибкаПроцесса, POSIX-сигнал без аналога послать некому. */
     if (ordinal == 1) {
         if (!GenerateConsoleCtrlEvent(CTRL_C_EVENT, (DWORD)pid)) {
             rech_error_as(RECH_ERR_PROCESS, "` + sendFailedMsg + `");
@@ -212,7 +214,7 @@ static void rech_send_signal(long long pid, long long ordinal) {
     }
     if (ordinal == 4 || ordinal == 9) {
         HANDLE h = OpenProcess(PROCESS_TERMINATE, FALSE, (DWORD)pid);
-        if (h == NULL || !TerminateProcess(h, 1)) {
+        if (h == NULL || !TerminateProcess(h, ordinal == 4 ? 137 : 143)) {
             if (h != NULL) CloseHandle(h);
             rech_error_as(RECH_ERR_PROCESS, "` + sendFailedMsg + `");
         }

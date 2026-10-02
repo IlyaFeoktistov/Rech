@@ -75,7 +75,18 @@ func init() {
 // но там ordinal - SIGUSR2, который на Windows sigUnsupported (signalSend,
 // signals.go, паникует ДО вызова этой функции), так что этот случай сюда
 // и не доходит.
+//
+// Как и cbackend (runtime/signals): SIGINT - GenerateConsoleCtrlEvent
+// (Ctrl+C процессу своей консольной группы), SIGTERM/SIGKILL -
+// TerminateProcess, остальные - ошибка.
 func signalKill(pid int, sig syscall.Signal) error {
+	switch sig {
+	case syscall.SIGINT:
+		return windows.GenerateConsoleCtrlEvent(windows.CTRL_C_EVENT, uint32(pid))
+	case syscall.SIGTERM, syscall.SIGKILL:
+	default:
+		return syscall.EWINDOWS
+	}
 	h, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, uint32(pid))
 	if err != nil {
 		return err

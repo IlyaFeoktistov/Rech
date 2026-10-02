@@ -3,6 +3,7 @@ package interp
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -30,6 +31,9 @@ func TestSignalReceivedSIGKILLPanics(t *testing.T) {
 // путём, что настоящая внешняя отправка в TestSignalReceivedDetectsRealSignal
 // выше, только источник сигнала - сам Rech-код, а не тестовая горутина.
 func TestSignalSendDeliversToOwnProcess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("на Windows нет SIGUSR2 и доставки сигнала процессу - отправить_сигнал только останавливает чужой процесс (signals_windows.go)")
+	}
 	src := fmt.Sprintf(`функция главная
 {
     отправить_сигнал(%d, СигналОС.SIGUSR2)

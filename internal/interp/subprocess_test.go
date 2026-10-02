@@ -2,35 +2,62 @@ package interp
 
 import (
 	"fmt"
+	"os"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
+// helperProcessSrc - Rech-строка запуска самого тестового бинарника как
+// дочернего процесса в режиме mode ("exit=N" - завершиться с кодом N,
+// "sleep" - спать): одинаково на любой ОС, без POSIX-утилит
+// ("true"/"false"/"sleep" на Windows нет). Режим ловит TestHelperProcess.
+func helperProcessSrc(t *testing.T, mode string) string {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fmt.Sprintf(`Список<Строка> аргументы = [%q, "--", %q]
+    Процесс процесс = запустить_процесс(%q, аргументы)`, "-test.run=^TestHelperProcess$", "rech-helper:"+mode, exe)
+}
+
+// TestHelperProcess - не тест: тело дочернего процесса helperProcessSrc.
+func TestHelperProcess(t *testing.T) {
+	var mode string
+	for _, a := range os.Args {
+		if m, ok := strings.CutPrefix(a, "rech-helper:"); ok {
+			mode = m
+		}
+	}
+	switch {
+	case mode == "sleep":
+		time.Sleep(30 * time.Second)
+		os.Exit(0)
+	case strings.HasPrefix(mode, "exit="):
+		code, _ := strconv.Atoi(strings.TrimPrefix(mode, "exit="))
+		os.Exit(code)
+	}
+}
+
 // TestSpawnProcessAndWaitExitCode - "запустить_процесс"/"дождаться_процесса"
-// на настоящем короткоживущем процессе ("true"/"false" - стандартные
-// POSIX-утилиты с гарантированным кодом возврата) - подтверждает, что pid
-// реальный (waitpid по нему успешен) и код возврата извлечён корректно, не
-// только что структура полей компилируется.
+// на настоящем короткоживущем процессе с известным кодом возврата -
+// подтверждает, что pid реальный (ожидание по нему успешно) и код возврата
+// извлечён корректно, не только что структура полей компилируется.
 func TestSpawnProcessAndWaitExitCode(t *testing.T) {
-	for _, tc := range []struct {
-		cmd  string
-		want string
-	}{
-		{"true", "0"},
-		{"false", "1"},
-	} {
+	for _, code := range []string{"0", "3"} {
 		src := fmt.Sprintf(`функция главная
 {
-    Список<Строка> аргументы = новый Список<Строка>()
-    Процесс процесс = запустить_процесс(%q, аргументы)
+    %s
     Целое код = дождаться_процесса(процесс)
     вывести `+"`${"+`код}\n`+"`"+`
 }
-`, tc.cmd)
+`, helperProcessSrc(t, "exit="+code))
 		out := runSrc(t, src)
-		if strings.TrimSpace(out) != tc.want {
-			t.Fatalf("%s: ожидался код %s, получено %q", tc.cmd, tc.want, out)
+		if strings.TrimSpace(out) != code {
+			t.Fatalf("ожидался код %s, получено %q", code, out)
 		}
 	}
 }
@@ -39,18 +66,17 @@ func TestSpawnProcessAndWaitExitCode(t *testing.T) {
 // которой заведена сущность "Процесс": запустить долгоживущий процесс,
 // получить pid, отправить ему сигнал уже существующей "отправить_сигнал",
 // дождаться и убедиться, что код возврата отражает именно этот сигнал
-// (128+номер, соглашение POSIX-оболочки).
+// (128+номер, соглашение POSIX-оболочки - на Windows тот же код ставит
+// TerminateProcess).
 func TestSpawnProcessThenSignalThenWait(t *testing.T) {
-	src := `функция главная
+	src := fmt.Sprintf(`функция главная
 {
-    Список<Строка> аргументы = новый Список<Строка>()
-    аргументы.добавить("30")
-    Процесс процесс = запустить_процесс("sleep", аргументы)
+    %s
     отправить_сигнал(процесс.pid, СигналОС.SIGTERM)
     Целое код = дождаться_процесса(процесс)
-    вывести ` + "`${" + `код}\n` + "`" + `
+    вывести `+"`${"+`код}\n`+"`"+`
 }
-`
+`, helperProcessSrc(t, "sleep"))
 	out := runSrc(t, src)
 	if strings.TrimSpace(out) != "143" {
 		t.Fatalf("ожидался код 143 (128+SIGTERM), получено %q", out)
