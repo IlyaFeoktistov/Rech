@@ -946,3 +946,18 @@ func TestFormatEscapedNewlineInBacktickIsNotSourceLine(t *testing.T) {
 		t.Fatalf("строка с `\\n` переотступлена:\nполучено:\n%q\nожидалось:\n%q", got, src)
 	}
 }
+
+// TestFormatAlignsDeclarationsAsTable - тип/"переменная"/"константа", имя и
+// "= значение" соседних объявлений - три столбца, и в теле, и на верхнем
+// уровне.
+func TestFormatAlignsDeclarationsAsTable(t *testing.T) {
+	src := "константа МАКС = 10\nприватное Целое счётчик = 0\n\nфункция главная\n{\n    Целое число = 2\n    Действительное действительное = 2.10\n    переменная а = 1\n    Строка текст\n}\n"
+	want := "константа       МАКС    = 10\nприватное Целое счётчик = 0\n\nфункция главная\n{\n    Целое          число          = 2\n    Действительное действительное = 2.10\n    переменная     а              = 1\n    Строка         текст\n}\n"
+	got, err := Format(src)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if got != want {
+		t.Fatalf("получено:\n%q\nожидалось:\n%q", got, want)
+	}
+}

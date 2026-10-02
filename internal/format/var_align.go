@@ -2,6 +2,7 @@ package format
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"text/tabwriter"
 
@@ -10,16 +11,23 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/parser"
 )
 
-// alignVarDecls выравнивает соседние "переменная имя[: Тип] = значение" в
-// таблицу по "=" - тот же принцип, что gofmt применяет к соседним
-// "имя = значение"/"имя Тип = значение" внутри одного "var (...)"/"const
-// (...)" блока (пользователь попросил явно - "как в Go... выравнивание
-// переменных", см. [[alignEntityFields]] про то же самое для полей
-// сущности). "Соседние" - подряд идущие ast.VarDecl в ОДНОМ списке
-// инструкций (тело функции/метода/если/пока/для/... - любой блок), без
-// пустой строки и без ЛЮБОЙ другой инструкции между ними - как только
-// встречается что-то ещё, текущий пробег выравнивания завершается, копится
-// новый после.
+// alignVarDecls выравнивает соседние объявления переменных и констант в
+// таблицу из трёх столбцов - тот же принцип, что gofmt применяет к "var
+// (...)"/"const (...)", и тот же, что у полей сущности (alignEntityFields):
+//
+//	Целое          число          = 2
+//	Действительное действительное = 2.10
+//	переменная     доля           = 0.5
+//
+// Первый столбец - всё до имени (модификаторы с типом, "переменная",
+// "константа"), второй - имя, третий - "= значение" (у объявления без
+// значения его нет). Охватывает локальные объявления в любом блоке,
+// переменные и константы модуля, константы сущности.
+//
+// "Соседние" - объявления на подряд идущих строках с одинаковым отступом:
+// пустая строка, комментарий или любая другая инструкция между ними
+// завершает пробег. Объявление, чьё значение не уместилось в одну строку,
+// выравниванием не трогается и тоже обрывает пробег.
 func alignVarDecls(src string) (string, error) {
 	toks, err := lexer.New(src).Tokenize()
 	if err != nil {
@@ -41,34 +49,15 @@ func alignVarDecls(src string) (string, error) {
 	normalized := strings.ReplaceAll(src, "\r\n", "\n")
 	lines := strings.Split(normalized, "\n")
 
+	decls := map[int]string{} // строка -> имя объявленного
 	var walkBody func(body []ast.Stmt)
 	walkBody = func(body []ast.Stmt) {
-		var run []varRow
-		flush := func() {
-			if len(run) >= 2 {
-				renderVarRun(lines, run)
-			}
-			run = nil
-		}
-		prevLine := 0
 		for _, s := range body {
-			v, ok := s.(*ast.VarDecl)
-			if !ok {
-				flush()
-				prevLine = 0
-			} else {
-				if prevLine != 0 && hasBlankLineBetween(lines, prevLine, v.Line) {
-					flush()
-				}
-				row, ok := buildVarRow(lines, lineToks, v)
-				if !ok {
-					flush()
-				} else {
-					run = append(run, row)
-				}
-				prevLine = v.Line
-			}
 			switch st := s.(type) {
+			case *ast.VarDecl:
+				decls[st.Line] = st.Name
+			case *ast.ConstDecl:
+				decls[st.Line] = st.Name
 			case *ast.IfStmt:
 				walkBody(st.Then)
 				walkBody(st.Else)
@@ -93,7 +82,6 @@ func alignVarDecls(src string) (string, error) {
 				walkBody(st.Body)
 			}
 		}
-		flush()
 	}
 
 	for _, fn := range prog.Functions {
@@ -108,51 +96,91 @@ func alignVarDecls(src string) (string, error) {
 				walkBody(m.Body)
 			}
 		}
+		for _, c := range ent.Constants {
+			decls[c.Line] = c.Name
+		}
 	}
+	for _, c := range prog.Consts {
+		decls[c.Line] = c.Name
+	}
+	for _, v := range prog.Vars {
+		decls[v.Line] = v.Name
+	}
+
+	declLines := make([]int, 0, len(decls))
+	for l := range decls {
+		declLines = append(declLines, l)
+	}
+	sort.Ints(declLines)
+
+	var run []varRow
+	flush := func() {
+		if len(run) >= 2 {
+			renderVarRun(lines, run)
+		}
+		run = nil
+	}
+	for _, l := range declLines {
+		row, ok := buildVarRow(lines, lineToks, l, decls[l])
+		if !ok {
+			flush()
+			continue
+		}
+		if len(run) > 0 {
+			prev := run[len(run)-1]
+			if prev.line+1 != l || leadingIndent(lines[prev.line-1]) != leadingIndent(lines[l-1]) {
+				flush()
+			}
+		}
+		run = append(run, row)
+	}
+	flush()
 
 	return strings.Join(lines, "\n") + "\n", nil
 }
 
-// varRow - один ряд будущей таблицы "переменная ... = ..." - cells[0] -
-// "переменная имя[: Тип]" (включая ведущий отступ строки - НЕ обрезается,
-// тем же принципом и по той же причине, что и у fieldRow.cells[0],
-// field_align.go), cells[1] - "= значение" (сырой текст правой части, как
-// в исходнике).
-type varRow struct {
-	line  int
-	cells [2]string
+func leadingIndent(line string) string {
+	return line[:len(line)-len(strings.TrimLeft(line, " \t"))]
 }
 
-// buildVarRow разбирает "переменная ... = ..." на строке v.Line на две
-// ячейки - false, если объявление растянуто на несколько строк (значение
-// само многострочное - редкость) - тогда выравниванием эта строка не
-// трогается и обрывает текущий пробег, как и пустая строка.
-func buildVarRow(lines []string, lineToks map[int][]lexer.Token, v *ast.VarDecl) (varRow, bool) {
-	row := varRow{line: v.Line}
-	if v.Line < 1 || v.Line > len(lines) {
+// varRow - один ряд будущей таблицы: cells[0] - всё до имени (включая
+// ведущий отступ строки - НЕ обрезается, тем же принципом и по той же
+// причине, что и у fieldRow.cells[0], field_align.go), cells[1] - имя,
+// cells[2] - "= значение" (сырой текст правой части, как в исходнике; ""
+// у объявления без значения).
+type varRow struct {
+	line  int
+	cells [3]string
+}
+
+// buildVarRow разбирает объявление name на строке line на ячейки - false,
+// если строка не начинается этим объявлением или значение растянуто на
+// несколько строк.
+func buildVarRow(lines []string, lineToks map[int][]lexer.Token, line int, name string) (varRow, bool) {
+	row := varRow{line: line}
+	if line < 1 || line > len(lines) {
 		return row, false
 	}
-	toks := lineToks[v.Line]
-	assignIdx := -1
+	toks := lineToks[line]
+	assignIdx := len(toks)
 	for i, t := range toks {
 		if t.Type == lexer.ASSIGN {
 			assignIdx = i
 			break
 		}
 	}
-	if assignIdx == -1 {
+	nameIdx := assignIdx - 1
+	if nameIdx < 1 || toks[nameIdx].Type != lexer.IDENT || toks[nameIdx].Value != name {
 		return row, false
 	}
-	// Значение обязано завершиться на ЭТОЙ ЖЕ строке - все токены после "="
-	// на строке v.Line.
-	for i := assignIdx + 1; i < len(toks); i++ {
-		if toks[i].Line != v.Line {
+	// Значение обязано завершиться на ЭТОЙ ЖЕ строке.
+	for i := assignIdx; i < len(toks); i++ {
+		if toks[i].Line != line {
 			return row, false
 		}
 	}
 
-	lineText := lines[v.Line-1]
-	runeLine := []rune(lineText)
+	runeLine := []rune(lines[line-1])
 	lineEndCol := len(runeLine) + 1
 	slice := func(fromCol, toCol int) string {
 		from, to := fromCol-1, toCol-1
@@ -168,18 +196,31 @@ func buildVarRow(lines []string, lineToks map[int][]lexer.Token, v *ast.VarDecl)
 		return string(runeLine[from:to])
 	}
 
-	row.cells[0] = strings.TrimRight(slice(1, toks[assignIdx].Col), " \t")
-	row.cells[1] = strings.TrimRight(slice(toks[assignIdx].Col, lineEndCol), " \t\r")
+	nameCol := toks[nameIdx].Col
+	nameEnd := lineEndCol
+	if assignIdx < len(toks) {
+		nameEnd = toks[assignIdx].Col
+	}
+	row.cells[0] = strings.TrimRight(slice(1, nameCol), " \t")
+	row.cells[1] = strings.TrimSpace(slice(nameCol, nameEnd))
+	if assignIdx < len(toks) {
+		row.cells[2] = strings.TrimRight(slice(toks[assignIdx].Col, lineEndCol), " \t\r")
+	}
 	return row, true
 }
 
 // renderVarRun - тот же text/tabwriter, что и renderFieldRun (field_align.go) -
-// padding=1, без выравнивания по правому краю.
+// padding=1, без выравнивания по правому краю; столбец "=" пустой у всего
+// пробега не добавляет хвостовых пробелов.
 func renderVarRun(lines []string, run []varRow) {
 	var buf strings.Builder
 	tw := tabwriter.NewWriter(&buf, 0, 0, 1, ' ', 0)
 	for _, row := range run {
-		fmt.Fprintln(tw, row.cells[0]+"\t"+row.cells[1])
+		cells := row.cells[:]
+		if cells[2] == "" {
+			cells = cells[:2]
+		}
+		fmt.Fprintln(tw, strings.Join(cells, "\t"))
 	}
 	tw.Flush()
 
@@ -188,6 +229,6 @@ func renderVarRun(lines []string, run []varRow) {
 		return
 	}
 	for i, row := range run {
-		lines[row.line-1] = rendered[i]
+		lines[row.line-1] = strings.TrimRight(rendered[i], " ")
 	}
 }
