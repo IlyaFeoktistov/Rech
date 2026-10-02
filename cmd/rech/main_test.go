@@ -171,7 +171,7 @@ func TestRunBinaryPassesEnv(t *testing.T) {
 
 	os.Unsetenv("RECH_TEST_VAR")
 	out := captureStdout(t, func() {
-		if err := runBinary(binPath, map[string]string{"RECH_TEST_VAR": "из_манифеста"}); err != nil {
+		if err := runBinary(binPath, map[string]string{"RECH_TEST_VAR": "из_манифеста"}, nil); err != nil {
 			t.Fatalf("runBinary: %v", err)
 		}
 	})
@@ -191,7 +191,7 @@ func TestRunBinaryExternalEnvOverridesManifest(t *testing.T) {
 
 	t.Setenv("RECH_TEST_VAR", "снаружи")
 	out := captureStdout(t, func() {
-		if err := runBinary(binPath, map[string]string{"RECH_TEST_VAR": "из_манифеста"}); err != nil {
+		if err := runBinary(binPath, map[string]string{"RECH_TEST_VAR": "из_манифеста"}, nil); err != nil {
 			t.Fatalf("runBinary: %v", err)
 		}
 	})

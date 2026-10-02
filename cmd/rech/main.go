@@ -40,6 +40,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/compiler"
@@ -377,7 +378,7 @@ func main() {
 				os.Exit(1)
 			}
 		}
-		if err := runBinary(binPath, runEnv); err != nil {
+		if err := runBinary(binPath, runEnv, extraLibPaths); err != nil {
 			fmt.Fprintln(os.Stderr, "ошибка выполнения:", err)
 			os.Exit(1)
 		}
@@ -498,7 +499,11 @@ func runTests(path string) bool {
 // имени), тот же принцип приоритета, что у 12-factor-конфигурации/
 // docker-compose (внешнее окружение развёртывания важнее значения,
 // зашитого в файл, который лежит в репозитории вместе с исходниками).
-func runBinary(binPath string, env map[string]string) error {
+//
+// libPaths - каталоги "путь_библиотек": на Linux/macOS путь к библиотекам
+// уже зашит в программу (rpath), а Windows ищет DLL по PATH - каталоги
+// дописываются в его начало (иначе 0xc0000135, "DLL не найдена").
+func runBinary(binPath string, env map[string]string, libPaths []string) error {
 	abs, err := filepath.Abs(binPath)
 	if err != nil {
 		return err
@@ -515,5 +520,31 @@ func runBinary(binPath string, env map[string]string) error {
 		}
 		cmd.Env = append(cmd.Env, os.Environ()...)
 	}
+	if runtime.GOOS == "windows" && len(libPaths) > 0 {
+		if cmd.Env == nil {
+			cmd.Env = os.Environ()
+		}
+		cmd.Env = withDLLSearchPath(cmd.Env, libPaths)
+	}
 	return cmd.Run()
+}
+
+// withDLLSearchPath - env с libPaths в начале PATH (имя переменной на
+// Windows без учёта регистра - "Path"/"PATH").
+func withDLLSearchPath(env, libPaths []string) []string {
+	prefix := strings.Join(libPaths, string(os.PathListSeparator))
+	out := make([]string, 0, len(env)+1)
+	found := false
+	for _, kv := range env {
+		k, v, _ := strings.Cut(kv, "=")
+		if strings.EqualFold(k, "PATH") {
+			kv = k + "=" + prefix + string(os.PathListSeparator) + v
+			found = true
+		}
+		out = append(out, kv)
+	}
+	if !found {
+		out = append(out, "PATH="+prefix)
+	}
+	return out
 }
