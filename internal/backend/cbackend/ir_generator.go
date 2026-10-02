@@ -2023,6 +2023,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	appendCodeIf(&sb, vtables.Len() > 0, vtables.String())
 	appendCodeIf(&sb, staticInit != "", staticInit)
 	appendCodeIf(&sb, globalInit != "", globalInit)
+	sb.WriteString(libraryInitCode(ctx))
 	// После ctors - функции извлечения ("разобрать JSON"/"разобрать
 	// XML") конструируют целевые сущности через уже сгенерированный
 	// rech_new_<Тип> (mangleCtor) и выбрасывают "ОшибкаРазбора" через
