@@ -20,12 +20,19 @@ func decodeShellOutput(b []byte) string {
 	if len(b) == 0 {
 		return ""
 	}
-	n, err := windows.MultiByteToWideChar(cpOEM, 0, &b[0], int32(len(b)), nil, 0)
+	// Дочерний cmd.exe пишет в кодировке консоли, которую унаследовал
+	// (GetConsoleOutputCP; без консоли - OEM) - то же правило, что у
+	// cbackend (rech_win_oem_to_utf8).
+	cp := uint32(cpOEM)
+	if c, err := windows.GetConsoleOutputCP(); err == nil && c != 0 {
+		cp = c
+	}
+	n, err := windows.MultiByteToWideChar(cp, 0, &b[0], int32(len(b)), nil, 0)
 	if err != nil || n == 0 {
 		return string(b)
 	}
 	buf := make([]uint16, n)
-	if _, err := windows.MultiByteToWideChar(cpOEM, 0, &b[0], int32(len(b)), &buf[0], n); err != nil {
+	if _, err := windows.MultiByteToWideChar(cp, 0, &b[0], int32(len(b)), &buf[0], n); err != nil {
 		return string(b)
 	}
 	return windows.UTF16ToString(buf)

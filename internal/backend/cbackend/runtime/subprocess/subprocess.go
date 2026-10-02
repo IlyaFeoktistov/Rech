@@ -60,8 +60,9 @@ func RuntimeCode(procType, splitResultC, pidField, resultType, outputField, erro
 	return fmt.Sprintf(`#ifdef _WIN32
 /* Строки Rech - UTF-8, а *A-версии WinAPI читают их в ANSI-кодировке:
    командная строка и каталог передаются в CreateProcessW (UTF-16), вывод
-   cmd.exe (OEM-кодировка консоли) перекодируется в UTF-8 - так же, как в
-   interp (subprocess_windows.go, decodeShellOutput). */
+   cmd.exe - в кодировке консоли, которую он унаследовал (GetConsoleOutputCP;
+   без консоли - OEM), перекодируется в UTF-8 - так же, как в interp
+   (subprocess_windows.go, decodeShellOutput). */
 static wchar_t *rech_win_wide(const char *s) {
     int n = MultiByteToWideChar(CP_UTF8, 0, s, -1, NULL, 0);
     wchar_t *w = malloc(sizeof(wchar_t) * (size_t)(n > 0 ? n : 1));
@@ -74,7 +75,11 @@ static wchar_t *rech_win_wide(const char *s) {
 }
 
 static char *rech_win_oem_to_utf8(const char *b, size_t len, size_t *out_len) {
-    int wn = len ? MultiByteToWideChar(CP_OEMCP, 0, b, (int)len, NULL, 0) : 0;
+    UINT cp = GetConsoleOutputCP();
+    if (cp == 0) {
+        cp = CP_OEMCP;
+    }
+    int wn = len ? MultiByteToWideChar(cp, 0, b, (int)len, NULL, 0) : 0;
     if (wn <= 0) {
         *out_len = len;
         char *same = malloc(len + 1);
@@ -83,7 +88,7 @@ static char *rech_win_oem_to_utf8(const char *b, size_t len, size_t *out_len) {
         return same;
     }
     wchar_t *w = malloc(sizeof(wchar_t) * (size_t)wn);
-    MultiByteToWideChar(CP_OEMCP, 0, b, (int)len, w, wn);
+    MultiByteToWideChar(cp, 0, b, (int)len, w, wn);
     int un = WideCharToMultiByte(CP_UTF8, 0, w, wn, NULL, 0, NULL, NULL);
     char *u = malloc((size_t)un + 1);
     WideCharToMultiByte(CP_UTF8, 0, w, wn, u, un, NULL, NULL);
