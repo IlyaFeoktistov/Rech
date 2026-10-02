@@ -416,6 +416,9 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 			return err
 		}
 		varC := mangleVar(s.Var)
+		if s.TypedVar() {
+			return generateIRTypedRangeFor(sb, ctx, s, fromCode, toCode, depth)
+		}
 		fmt.Fprintf(sb, "%sfor (long long %s = %s; %s <= %s; %s++) {\n", ind, varC, fromCode, varC, toCode, varC)
 		lf := ctx.pushLoop()
 		for _, st := range s.Body {

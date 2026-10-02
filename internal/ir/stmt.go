@@ -224,14 +224,22 @@ func (*WhileStmt) stmt() {}
 // целочисленному диапазону (включая обе границы). Var - переменная цикла,
 // всегда типа Целое.
 type ForStmt struct {
-	Var  string
-	From Expr
-	To   Expr
-	Body []Stmt
-	Line int
+	Var string
+	// VarType - тип переменной цикла (нулевой - Целое): у других целых
+	// типов цикл идёт до To включительно без переполнения (TypedVar).
+	VarType Type
+	From    Expr
+	To      Expr
+	Body    []Stmt
+	Line    int
 }
 
 func (*ForStmt) stmt() {}
+
+// TypedVar - переменная цикла не Целое (VarType задан и другой).
+func (s *ForStmt) TypedVar() bool {
+	return s.VarType != (Type{}) && s.VarType != TypeInt
+}
 
 // ForEachKind - вид коллекции, по которой идёт ForEachStmt: определяет
 // порядок обхода и представление коллекции в backend'е.

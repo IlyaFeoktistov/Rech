@@ -30,6 +30,9 @@ func analyzeForEachStmt(sc *ctx, s *ast.ForEachStmt) (ir.Stmt, error) {
 		if s.KeyVar != "" {
 			return nil, errAtLine(s.Line, CodeStmtCheck, "цикл \"для %s, %s в ...\" по Файлу не поддерживается - только \"для %s в ...\" (построчно)", s.KeyVar, s.Var, s.Var)
 		}
+		if err := checkLoopVarType(sc, s.VarType, ir.TypeString, s.Var, s.Line); err != nil {
+			return nil, err
+		}
 		body, err := analyzeLoopBody(sc, s.Body, s.Line, loopVar{s.Var, ir.TypeString})
 		if err != nil {
 			return nil, err
@@ -52,6 +55,12 @@ func analyzeForEachStmt(sc *ctx, s *ast.ForEachStmt) (ir.Stmt, error) {
 	keyType := ir.TypeInt
 	if kind == ir.ForEachDict {
 		keyType = sig.KeyType
+	}
+	if err := checkLoopVarType(sc, s.KeyType, keyType, s.KeyVar, s.Line); err != nil {
+		return nil, err
+	}
+	if err := checkLoopVarType(sc, s.VarType, sig.ElemType, s.Var, s.Line); err != nil {
+		return nil, err
 	}
 	vars := []loopVar{{s.Var, sig.ElemType}}
 	if s.KeyVar != "" {

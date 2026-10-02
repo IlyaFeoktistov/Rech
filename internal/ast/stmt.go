@@ -244,11 +244,14 @@ func (*WhileStmt) stmt() {}
 //
 //	для <имя> от <from> до <to> { <тело> }
 type ForStmt struct {
-	Var  string
-	From Expr
-	To   Expr
-	Body []Stmt
-	Line int
+	Var string
+	// VarType - "для Целое32 i от ...": тип переменной цикла как написан;
+	// "" - Целое.
+	VarType string
+	From    Expr
+	To      Expr
+	Body    []Stmt
+	Line    int
 }
 
 func (*ForStmt) node() {}
@@ -270,8 +273,12 @@ func (*ForStmt) stmt() {}
 // Словарь<К, В>, порядковый номер элемента в обходе (с 0) у Список/Стопка/
 // Очередь. Var в обеих формах - сам элемент (значение у Словаря).
 type ForEachStmt struct {
-	KeyVar     string
-	Var        string
+	KeyVar string
+	Var    string
+	// KeyType/VarType - "для Целое i, Строка x в ...": типы переменных как
+	// написаны (обязаны совпасть с типами ключа/элемента); "" - не указан.
+	KeyType    string
+	VarType    string
 	Collection Expr
 	Body       []Stmt
 	Line       int

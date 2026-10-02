@@ -399,25 +399,23 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		return &ir.WhileStmt{Cond: cond, Body: body, Line: s.Line}, nil
 
 	case *ast.ForStmt:
-		from, err := analyzeExpr(sc, s.From)
+		varType, err := rangeVarType(sc, s)
 		if err != nil {
 			return nil, err
 		}
-		if typ := ir.TypeOf(from); typ != ir.TypeInt {
-			return nil, errAtLine(s.Line, CodeStmtCheck, "граница диапазона после \"от\" должна быть целым числом, получено %s", typ)
-		}
-		to, err := analyzeExpr(sc, s.To)
+		from, err := rangeBound(sc, s.From, varType, "от", s.Line)
 		if err != nil {
 			return nil, err
 		}
-		if typ := ir.TypeOf(to); typ != ir.TypeInt {
-			return nil, errAtLine(s.Line, CodeStmtCheck, "граница диапазона после \"до\" должна быть целым числом, получено %s", typ)
-		}
-		body, err := analyzeLoopBody(sc, s.Body, s.Line, loopVar{s.Var, ir.TypeInt})
+		to, err := rangeBound(sc, s.To, varType, "до", s.Line)
 		if err != nil {
 			return nil, err
 		}
-		return &ir.ForStmt{Var: s.Var, From: from, To: to, Body: body, Line: s.Line}, nil
+		body, err := analyzeLoopBody(sc, s.Body, s.Line, loopVar{s.Var, varType})
+		if err != nil {
+			return nil, err
+		}
+		return &ir.ForStmt{Var: s.Var, VarType: varType, From: from, To: to, Body: body, Line: s.Line}, nil
 
 	case *ast.ForEachStmt:
 		return analyzeForEachStmt(sc, s)

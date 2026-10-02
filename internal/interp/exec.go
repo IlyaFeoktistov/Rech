@@ -244,6 +244,9 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 		if err != nil {
 			return ctrl{}, err
 		}
+		if s.TypedVar() {
+			return in.execTypedRangeFor(s, from, to, env, cc)
+		}
 		for i := from.I; i <= to.I; i++ {
 			loopEnv := newEnv(env)
 			loopEnv.declare(s.Var, intValue(i))

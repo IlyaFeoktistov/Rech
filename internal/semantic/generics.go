@@ -167,9 +167,9 @@ func substStmt(s ast.Stmt, subst map[string]string) ast.Stmt {
 	case *ast.WhileStmt:
 		return &ast.WhileStmt{Cond: substExpr(s.Cond, subst), Body: substStmts(s.Body, subst), Line: s.Line}
 	case *ast.ForStmt:
-		return &ast.ForStmt{Var: s.Var, From: substExpr(s.From, subst), To: substExpr(s.To, subst), Body: substStmts(s.Body, subst), Line: s.Line}
+		return &ast.ForStmt{Var: s.Var, VarType: substituteTypeString(s.VarType, subst), From: substExpr(s.From, subst), To: substExpr(s.To, subst), Body: substStmts(s.Body, subst), Line: s.Line}
 	case *ast.ForEachStmt:
-		return &ast.ForEachStmt{KeyVar: s.KeyVar, Var: s.Var, Collection: substExpr(s.Collection, subst), Body: substStmts(s.Body, subst), Line: s.Line}
+		return &ast.ForEachStmt{KeyVar: s.KeyVar, Var: s.Var, KeyType: substituteTypeString(s.KeyType, subst), VarType: substituteTypeString(s.VarType, subst), Collection: substExpr(s.Collection, subst), Body: substStmts(s.Body, subst), Line: s.Line}
 	case *ast.CStyleForStmt:
 		// s.Init - *ast.VarDecl (не ast.Stmt) - nil здесь ("для ;; {...}"
 		// без инициализации, package doc ast.CStyleForStmt) нужно проверить

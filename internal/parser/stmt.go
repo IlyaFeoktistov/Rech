@@ -2,6 +2,7 @@ package parser
 
 import (
 	"slices"
+	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
 	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
@@ -880,17 +881,25 @@ func (p *Parser) parseForStmt() (ast.Stmt, error) {
 	if err != nil {
 		return nil, err
 	}
-	if p.cur().Type == lexer.IDENT && p.peekAt(1).Type == lexer.COMMA && p.peekAt(2).Type == lexer.IDENT && p.peekAt(3).Type == lexer.KwIn {
+	saved := p.pos
+	keyType := p.tryParseLoopVarType()
+	if p.cur().Type == lexer.IDENT && p.peekAt(1).Type == lexer.COMMA {
 		key := p.advance()
 		p.advance() // ","
-		name := p.advance()
-		p.registerNoun(key.Value)
-		return p.parseForEachStmt(kw, key.Value, name)
+		varType := p.tryParseLoopVarType()
+		if p.cur().Type == lexer.IDENT && p.peekAt(1).Type == lexer.KwIn {
+			name := p.advance()
+			p.registerNoun(key.Value)
+			return p.parseForEachStmt(kw, key.Value, name, keyType, varType)
+		}
+		p.pos = saved
+		keyType = p.tryParseLoopVarType()
 	}
+	varType := keyType
 	if p.cur().Type == lexer.IDENT && (p.peekAt(1).Type == lexer.KwIn || p.peekAt(1).Type == lexer.KwFrom) {
 		name := p.advance()
 		if p.cur().Type == lexer.KwIn {
-			return p.parseForEachStmt(kw, "", name)
+			return p.parseForEachStmt(kw, "", name, "", varType)
 		}
 		p.advance() // "от"
 		from, err := p.parseExpr()
@@ -910,9 +919,28 @@ func (p *Parser) parseForStmt() (ast.Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &ast.ForStmt{Var: name.Value, From: from, To: to, Body: body, Line: kw.Line}, nil
+		return &ast.ForStmt{Var: name.Value, VarType: varType, From: from, To: to, Body: body, Line: kw.Line}, nil
 	}
+	p.pos = saved
 	return p.parseCStyleForStmt(kw)
+}
+
+// tryParseLoopVarType - "Тип" перед именем переменной цикла "для Тип имя
+// в/от ...", "для Тип к, ..." - "" и позиция не тронута, если типа нет.
+func (p *Parser) tryParseLoopVarType() string {
+	saved := p.pos
+	if p.cur().Type != lexer.IDENT && p.cur().Type != lexer.STAR && p.cur().Type != lexer.QUESTION {
+		return ""
+	}
+	typeName, err := p.parseTypeName()
+	if err == nil && p.looksLikeTypeName(strings.TrimLeft(typeName, "*")) && p.cur().Type == lexer.IDENT {
+		switch p.peekAt(1).Type {
+		case lexer.KwIn, lexer.KwFrom, lexer.COMMA:
+			return typeName
+		}
+	}
+	p.pos = saved
+	return ""
 }
 
 // parseCStyleForStmt разбирает общий цикл (ни диапазон "от...до", ни
@@ -1028,7 +1056,7 @@ func (p *Parser) parseForInitStmt() (*ast.VarDecl, error) {
 // переменную через resolvePrepositionalNoun - тот же механизм падежного
 // сопоставления, что и у аргументов естественного вызова (шаг 3.4), а не
 // совпадение текста.
-func (p *Parser) parseForEachStmt(kw lexer.Token, key string, name lexer.Token) (ast.Stmt, error) {
+func (p *Parser) parseForEachStmt(kw lexer.Token, key string, name lexer.Token, keyType, varType string) (ast.Stmt, error) {
 	p.advance() // "в"
 	collTok, err := p.expect(lexer.IDENT)
 	if err != nil {
@@ -1047,6 +1075,8 @@ func (p *Parser) parseForEachStmt(kw lexer.Token, key string, name lexer.Token) 
 	return &ast.ForEachStmt{
 		KeyVar:     key,
 		Var:        name.Value,
+		KeyType:    keyType,
+		VarType:    varType,
 		Collection: &ast.Identifier{Name: lemma, Line: collTok.Line},
 		Body:       body,
 		Line:       kw.Line,

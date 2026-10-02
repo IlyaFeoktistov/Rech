@@ -185,8 +185,11 @@ switch_stmt    := "выбрать" expr { sep } "{" { sep } case_clause { sep ca
 case_clause    := "когда" case_value { "|" case_value } ":" { sep } statement { sep statement }
 case_value     := expr | IDENT   (* голое имя типа сущности/интерфейса - сравнение "относится к"
                                     (раздел 6); переменная с тем же именем в области видимости побеждает *)
-for_stmt       := "для" IDENT "от" expr "до" expr block
-                | "для" [ IDENT "," ] IDENT "в" NOUN_PREP block
+for_stmt       := "для" [ type_name ] IDENT "от" expr "до" expr block
+                | "для" [ [ type_name ] IDENT "," ] [ type_name ] IDENT "в" NOUN_PREP block
+                                             (* type_name - явный тип переменной цикла: у "от...до" - целый
+                                                тип/Байт/Символ (без типа - Целое), у "в" - ровно тип
+                                                ключа/элемента *)
                                              (* NOUN_PREP - см. SPEC.md, раздел 8; первое IDENT формы с
                                                 двумя переменными - ключ Словаря или номер элемента *)
                 | "для" [ for_init ] ";" [ expr ] ";" [ stmt ] block
