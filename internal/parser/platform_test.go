@@ -3,6 +3,8 @@ package parser
 import (
 	"strings"
 	"testing"
+
+	"github.com/IlyaFeoktistov/Rech/internal/ast"
 )
 
 func TestParsePlatformBlockTwoArms(t *testing.T) {
@@ -87,5 +89,22 @@ func TestParsePlatformBlockRejectsBareStatement(t *testing.T) {
 `)
 	if err == nil || !strings.Contains(err.Error(), "не обычные инструкции") {
 		t.Fatalf("ожидалась ошибка про недопустимую инструкцию внутри \"#если\", получено: %v", err)
+	}
+}
+
+// TestParsePlatformBlockModuleVar - переменная модуля внутри "#если" -
+// объявление выбранной ветки (ResolvePlatformBlocks), на своём месте по
+// строке среди остальных переменных модуля.
+func TestParsePlatformBlockModuleVar(t *testing.T) {
+	prog, err := parseSource(t, "Целое первая = 1\n#если ОС.Linux {\n    Строка платформа = \"linux\"\n} #иначе {\n    Строка платформа = \"другая\"\n}\nЦелое последняя = 2\n\nфункция главная\n{\n}\n")
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	ast.ResolvePlatformBlocks(prog, "Linux")
+	if len(prog.Vars) != 3 || prog.Vars[1].Name != "платформа" {
+		t.Fatalf("ожидались первая, платформа, последняя - получено %+v", prog.Vars)
+	}
+	if _, err := parseSource(t, "#если ОС.Linux {\n    Строка платформа\n}\n\nфункция главная\n{\n}\n"); err == nil {
+		t.Fatal("ожидалась ошибка: у переменной модуля нужно значение")
 	}
 }

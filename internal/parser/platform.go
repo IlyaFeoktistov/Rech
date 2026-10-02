@@ -91,6 +91,7 @@ func (p *Parser) parsePlatformArmBody() (ast.PlatformArm, error) {
 	armProg := &ast.Program{}
 	var stmts []ast.Stmt
 	var explicitMain *ast.FunctionDecl
+	var vars []*ast.VarDecl
 	p.skipSeparators()
 	for p.cur().Type != lexer.RBRACE {
 		if p.cur().Type == lexer.EOF {
@@ -105,7 +106,19 @@ func (p *Parser) parsePlatformArmBody() (ast.PlatformArm, error) {
 			continue
 		}
 		if len(stmts) > 0 {
-			return ast.PlatformArm{}, errAtLine(itemLine, CodeConditionalBuild, "внутри \"#если\" разрешены только объявления (функция/сущность/внешняя функция/использовать/...), не обычные инструкции")
+			// Объявление переменной - переменная модуля (noteTopLevelStmt уже
+			// записал её кандидатом - здесь она становится объявлением ветки).
+			decl, isVar := stmts[0].(*ast.VarDecl)
+			last := len(p.moduleVarCandidates) - 1
+			if !isVar || len(stmts) > 1 || last < 0 || p.moduleVarCandidates[last].decl != decl {
+				return ast.PlatformArm{}, errAtLine(itemLine, CodeConditionalBuild, "внутри \"#если\" разрешены только объявления (функция/сущность/переменная модуля/внешняя функция/использовать/...), не обычные инструкции")
+			}
+			if decl.Value == nil {
+				return ast.PlatformArm{}, errAtLine(decl.Line, CodeStmtRestrict, "у переменной модуля %q нужно начальное значение (\"= <выражение>\")", decl.Name)
+			}
+			p.moduleVarCandidates = p.moduleVarCandidates[:last]
+			vars = append(vars, decl)
+			stmts = stmts[:0]
 		}
 		if p.cur().Type == lexer.RBRACE {
 			break
@@ -127,5 +140,6 @@ func (p *Parser) parsePlatformArmBody() (ast.PlatformArm, error) {
 		Interfaces:     armProg.Interfaces,
 		Consts:         armProg.Consts,
 		Synonyms:       armProg.Synonyms,
+		Vars:           vars,
 	}, nil
 }

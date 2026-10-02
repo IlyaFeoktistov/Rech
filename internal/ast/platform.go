@@ -1,5 +1,7 @@
 package ast
 
+import "sort"
+
 import "runtime"
 
 // PlatformNames - три платформы, которые понимает компилятор (`internal/
@@ -50,6 +52,9 @@ type PlatformArm struct {
 	Interfaces     []*InterfaceDecl
 	Consts         []*ConstDecl
 	Synonyms       []*SynonymDecl
+	// Vars - переменные модуля ("Строка платформа = ..."), значение
+	// обязательно.
+	Vars []*VarDecl
 }
 
 // ResolvePlatformBlocks сплющивает prog.PlatformBlocks в обычные
@@ -76,9 +81,13 @@ func ResolvePlatformBlocks(prog *Program, current string) {
 			prog.Interfaces = append(prog.Interfaces, arm.Interfaces...)
 			prog.Consts = append(prog.Consts, arm.Consts...)
 			prog.Synonyms = append(prog.Synonyms, arm.Synonyms...)
+			prog.Vars = append(prog.Vars, arm.Vars...)
 			break
 		}
 	}
+	// Переменные модуля инициализируются по порядку объявления - и те, что
+	// пришли из "#если", встают на своё место по строке.
+	sort.SliceStable(prog.Vars, func(i, j int) bool { return prog.Vars[i].Line < prog.Vars[j].Line })
 	prog.PlatformBlocks = nil
 }
 
