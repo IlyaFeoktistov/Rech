@@ -156,9 +156,19 @@ func coerceExpr(sc *ctx, e ast.Expr, target ir.Type) (ir.Expr, error) {
 		}
 		return &ir.NullLiteral{Type: target, Line: nl.Line}, nil
 	}
-	if ll, ok := e.(*ast.ListLiteral); ok && target.Kind == ir.KindEntity {
-		if sig, ok := sc.entities[target.Entity]; ok && sig.IsList {
-			return analyzeListLiteralExpr(sc, ll, sig.ElemType, true)
+	if ll, ok := e.(*ast.ListLiteral); ok {
+		// Цель - список или nullable-список ("?Клетка[] х = [...]"): тип
+		// элемента известен из неё, у "?" литерал заворачивается.
+		listTarget := target
+		if target.Kind == ir.KindNullable {
+			listTarget = nullableInner(sc, target)
+		}
+		if sig, ok := sc.entities[listTarget.Entity]; ok && listTarget.Kind == ir.KindEntity && sig.IsList {
+			v, err := analyzeListLiteralExpr(sc, ll, sig.ElemType, true)
+			if err != nil || listTarget == target {
+				return v, err
+			}
+			return &ir.NullWrapExpr{Value: v, Type: target}, nil
 		}
 	}
 	if fr, ok := e.(*ast.FuncRefExpr); ok {

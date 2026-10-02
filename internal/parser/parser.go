@@ -283,9 +283,19 @@ func (p *Parser) expectCloseAngle() error {
 
 func (p *Parser) expect(tt lexer.TokenType) (lexer.Token, error) {
 	if p.cur().Type != tt {
+		if tt == lexer.IDENT && lexer.IsKeyword(p.cur().Value) {
+			return lexer.Token{}, reservedNameError(p.cur())
+		}
 		return lexer.Token{}, errAt(p.cur().Line, p.cur().Col, CodeUnexpectedToken, "ожидался %s, получен %q", tt, p.cur().Value)
 	}
 	return p.advance(), nil
+}
+
+// reservedNameError - на месте имени стоит служебное слово ("с", "в", "к",
+// "если", ...).
+func reservedNameError(tok lexer.Token) error {
+	return errAt(tok.Line, tok.Col, CodeUnexpectedToken, "ожидалось имя, получено служебное слово %q - его нельзя использовать как имя", tok.Value).
+		WithHint("выберите другое имя, например %q", tok.Value+"_")
 }
 
 func (p *Parser) skipNewlines() {

@@ -312,7 +312,16 @@ func analyzeCastExpr(sc *ctx, e *ast.CastExpr) (ir.Expr, error) {
 		return &ir.CastExpr{Value: value, To: to}, nil
 	}
 	if !allowedCasts[from][to] {
-		return nil, errAtLine(e.Line, CodeTypeMismatch, "нельзя привести %s к %s", from, to)
+		err := errAtLine(e.Line, CodeTypeMismatch, "нельзя привести %s к %s", from, to)
+		if from == ir.TypeAny {
+			// "(Целое) з" у "Значение" - распаковка пишется через "как".
+			operand := "<значение>"
+			if id, ok := e.Value.(*ast.Identifier); ok {
+				operand = id.Name
+			}
+			return nil, err.WithHint("распаковать \"Значение\": %s как %s", operand, to)
+		}
+		return nil, err
 	}
 	return &ir.CastExpr{Value: value, To: to}, nil
 }

@@ -557,3 +557,9 @@ func (t TokenType) String() string {
 		return "UNKNOWN"
 	}
 }
+
+// IsKeyword - word - служебное слово языка (не годится как имя).
+func IsKeyword(word string) bool {
+	_, ok := keywords[word]
+	return ok
+}

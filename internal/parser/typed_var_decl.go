@@ -48,6 +48,10 @@ func (p *Parser) tryParseTypedVarDecl() (ast.Stmt, bool, error) {
 		p.pos = saved
 		return nil, false, nil
 	}
+	if lexer.IsKeyword(p.cur().Value) && p.peekAt(1).Type == lexer.ASSIGN && p.looksLikeTypeName(typeName) {
+		// "Список<Целое> с = []" - "с" служебное слово, не имя.
+		return nil, true, reservedNameError(p.cur())
+	}
 	if p.cur().Type == lexer.IDENT && isStatementEnd(p.peekAt(1).Type) && p.looksLikeTypeName(typeName) {
 		name := p.advance()
 		p.registerNoun(name.Value)
