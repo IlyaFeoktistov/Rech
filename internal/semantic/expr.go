@@ -84,6 +84,9 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 			return nil, d
 		}
 		if sc.readBeforeAssign(e.Name) {
+			if _, btyp, bsig, ok := bareStruct(sc, e); ok && bsig.IsStruct {
+				return nil, errReadBareStruct(sc, e.Name, btyp, bsig, e.Line)
+			}
 			return nil, errReadBeforeAssign(e.Name, e.Line)
 		}
 		// Захвачено лямбдой по ссылке ("&имя" в явном списке захвата,
@@ -168,9 +171,21 @@ func analyzeExpr(sc *ctx, e ast.Expr) (ir.Expr, error) {
 				}
 			}
 		}
-		receiver, err := analyzeExpr(sc, e.Receiver)
-		if err != nil {
-			return nil, err
+		var receiver ir.Expr
+		if id, btyp, bsig, ok := bareStruct(sc, e.Receiver); ok && bsig.IsStruct {
+			// Поле структуры без значения - читается, если уже записано
+			// или у него есть значение по умолчанию (bare_struct_fields.go).
+			if idx := bsig.fieldIndex(e.Field); idx != -1 && bsig.FieldDefaultExprs[idx] == nil && !sc.fieldAssigned(id.Name, e.Field) {
+				return nil, errAtLine(e.Line, CodeStmtCheck, "поле %s.%s читается до того, как ему присвоено значение", id.Name, e.Field).
+					WithHint("%s.%s = ... до этого места", id.Name, e.Field)
+			}
+			receiver = &ir.Identifier{Name: id.Name, Type: btyp}
+		} else {
+			var err error
+			receiver, err = analyzeExpr(sc, e.Receiver)
+			if err != nil {
+				return nil, err
+			}
 		}
 		receiver = maybeUnwrapNarrowed(sc, receiver)
 		typ := ir.TypeOf(receiver)

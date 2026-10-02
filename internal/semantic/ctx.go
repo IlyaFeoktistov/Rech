@@ -2,6 +2,7 @@ package semantic
 
 import (
 	"slices"
+	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 )
@@ -226,10 +227,30 @@ func (c *ctx) setEstablished(name string, states map[string]bool) {
 			if c.established[i] == nil {
 				c.established[i] = map[string]map[string]bool{}
 			}
-			c.established[i][name] = states
+			c.established[i][name] = keepAssignmentFacts(c.established[i][name], states)
 			return
 		}
 	}
+}
+
+// keepAssignmentFacts - states плюс факты "присвоена"/"поле записано" из
+// old: сброс доказанных состояний (передача в функцию, вызов метода) не
+// делает уже присвоенную переменную снова неприсвоенной.
+func keepAssignmentFacts(old, states map[string]bool) map[string]bool {
+	var out map[string]bool
+	for s := range old {
+		if s != assignedState && !strings.HasPrefix(s, fieldAssignedState) || states[s] {
+			continue
+		}
+		if out == nil {
+			out = cloneStates(states)
+		}
+		out[s] = true
+	}
+	if out == nil {
+		return states
+	}
+	return out
 }
 
 // establishedStatesOf возвращает набор доказанных состояний для выражения

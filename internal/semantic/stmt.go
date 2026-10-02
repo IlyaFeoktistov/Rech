@@ -597,9 +597,21 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if s.Static {
 			return analyzeStaticFieldAssign(sc, s)
 		}
-		receiver, err := analyzeExpr(sc, s.Receiver)
-		if err != nil {
-			return nil, err
+		// "п.a = 1" у структуры без значения - запись поля, не чтение "п"
+		// (bare_struct_fields.go).
+		var bareName string
+		var receiver ir.Expr
+		if id, typ, bsig, ok := bareStruct(sc, s.Receiver); ok {
+			if !bsig.IsStruct {
+				return nil, errAtLine(s.Line, CodeStmtCheck, "%q - сущность без значения: сначала создайте её (%s = %s %s(...)), поля появляются вместе с объектом", id.Name, id.Name, newWordFor(typ.Entity), typ.Entity)
+			}
+			bareName, receiver = id.Name, &ir.Identifier{Name: id.Name, Type: typ}
+		} else {
+			var err error
+			receiver, err = analyzeExpr(sc, s.Receiver)
+			if err != nil {
+				return nil, err
+			}
 		}
 		typ := ir.TypeOf(receiver)
 		if typ.Kind != ir.KindEntity {
@@ -638,6 +650,9 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		}
 		if vt := ir.TypeOf(value); !isAssignable(sc.entities, sc.interfaces, vt, sig.FieldTypes[idx]) {
 			return nil, errAtLine(s.Line, CodeStmtCheck, "полю %q типа %s нельзя присвоить значение типа %s", s.Field, sig.FieldTypes[idx], vt)
+		}
+		if bareName != "" {
+			sc.markFieldAssigned(bareName, s.Field, sig)
 		}
 		return &ir.FieldAssign{Receiver: receiver, Field: s.Field, Value: value, Line: s.Line}, nil
 

@@ -77,6 +77,20 @@ func generateIRStmtBody(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int
 			// Объявлена без значения - семантика гарантирует присваивание до
 			// первого чтения, "{0}" только даёт C определённое содержимое.
 			fmt.Fprintf(sb, "%s%s %s = {0};\n", ind, fromIRType(s.DeclType).cType(ctx), mangleVar(s.Name))
+			// Структура заполняется по полям ("п.a = 1") - поля со
+			// значением по умолчанию получают его сразу.
+			if ent := ctx.entities[s.DeclType.Entity]; s.DeclType.Kind == ir.KindEntity && ent != nil && ent.IsStruct {
+				for _, f := range ent.Fields {
+					if f.Default == nil {
+						continue
+					}
+					code, _, err := generateIRExpr(ctx, f.Default)
+					if err != nil {
+						return err
+					}
+					fmt.Fprintf(sb, "%s%s.%s = %s;\n", ind, mangleVar(s.Name), mangleField(f.Name), code)
+				}
+			}
 			return nil
 		}
 		code, typ, err := generateIRExpr(ctx, s.Value)

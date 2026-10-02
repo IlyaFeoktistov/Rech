@@ -554,6 +554,24 @@ func (in *Interp) constructEntity(ent *ir.Entity, entName string, args []Value, 
 	return Value{Type: ir.EntityType(entName), Obj: obj}, nil
 }
 
+// bareStruct - структура, объявленная без значения ("Пара п"): поля -
+// значения по умолчанию или нулевые, дальше заполняются по одному.
+func (in *Interp) bareStruct(ent *ir.Entity, entName string, env *Env, cc *callCtx) (Value, error) {
+	obj := &entityObj{typeName: entName, fields: make(map[string]Value, len(ent.Fields))}
+	for _, f := range ent.Fields {
+		if f.Default != nil {
+			v, err := in.evalExpr(f.Default, env, cc)
+			if err != nil {
+				return Value{}, err
+			}
+			obj.setField(f.Name, in.cloneValue(v))
+			continue
+		}
+		obj.setField(f.Name, in.zeroFieldValue(f.Type))
+	}
+	return Value{Type: ir.EntityType(entName), Obj: obj}, nil
+}
+
 // zeroFieldValue - нулевое значение поля БЕЗ "имеет: имя: Тип = выражение"
 // (см. package doc constructEntity) - zeroValue(t) для примитива (0/""/
 // ложь/...), НО для generic-коллекции (Список<T>/Словарь<К,В>/Стопка<T>/

@@ -63,6 +63,15 @@ func (in *Interp) execStmt(s ir.Stmt, env *Env, cc *callCtx) (ctrl, error) {
 		if s.Value == nil {
 			// Объявлена без значения - присваивание до первого чтения
 			// гарантирует семантика.
+			if ent, ok := in.entities[s.DeclType.Entity]; ok && s.DeclType.Kind == ir.KindEntity && ent.IsStruct {
+				// Структура заполняется по полям ("п.a = 1").
+				v, err := in.bareStruct(ent, s.DeclType.Entity, env, cc)
+				if err != nil {
+					return ctrl{}, err
+				}
+				env.declare(s.Name, v)
+				return ctrl{}, nil
+			}
 			env.declare(s.Name, zeroValue(s.DeclType))
 			return ctrl{}, nil
 		}
