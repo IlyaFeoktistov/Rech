@@ -79,9 +79,9 @@ func anyTextOf(k ir.TypeKind) string {
 	case ir.KindBool:
 		return `(v.v.b ? "истина" : "ложь")`
 	case ir.KindFloat:
-		return "rech_cast_float_to_str(v.v.f64)"
+		return "rech_cast_float_to_str(v.v.f64, 0)"
 	case ir.KindFloat32:
-		return "rech_cast_float_to_str((double)v.v.f32)"
+		return "rech_cast_float_to_str((double)v.v.f32, 1)"
 	case ir.KindChar:
 		return "rech_cast_char_to_str((int32_t)v.v.i)"
 	case ir.KindUint, ir.KindUint16, ir.KindUint32:

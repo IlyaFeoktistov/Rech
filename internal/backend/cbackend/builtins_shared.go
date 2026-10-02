@@ -448,6 +448,10 @@ func builtinCallCode(flags *builtinFlags, name string, args []string) (string, b
 	case "конечно":
 		flags.usesMath = true
 		return fmt.Sprintf("(isfinite(%s) != 0)", args[0]), true
+	case "почти_равно":
+		// То же правило, что builtins.AlmostEqualTolerance/interp.
+		flags.usesMath = true
+		return fmt.Sprintf("({ double rech_ae_a = (%s), rech_ae_b = (%s), rech_ae_t = (%s); rech_ae_a == rech_ae_b || fabs(rech_ae_a - rech_ae_b) <= rech_ae_t * fmax(1.0, fmax(fabs(rech_ae_a), fabs(rech_ae_b))); })", args[0], args[1], args[2]), true
 	case "прочитать_строку":
 		flags.usesConsoleInput = true
 		flags.usesPanic = true

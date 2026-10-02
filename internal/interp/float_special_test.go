@@ -23,7 +23,7 @@ func TestFloatInfinityAndNaN(t *testing.T) {
 // Арифметика и функции на бесконечности/NaN - по IEEE 754, как у C;
 // минимум/максимум пропускают NaN (fmin/fmax).
 func TestFloatInfinityArithmeticLaws(t *testing.T) {
-	const want = "inf inf -inf 0 -0\nnan nan nan nan\nистина истина ложь истина ложь\ninf 0 -inf nan 1.5708\n1 1 inf\n"
+	const want = "inf inf -inf 0 -0\nnan nan nan nan\nистина истина ложь истина ложь\ninf 0 -inf nan 1.5707963267948966\n1 1 inf\n"
 	if got := runSrc(t, `функция главная
 {
     Действительное б = Действительное::БЕСКОНЕЧНОСТЬ

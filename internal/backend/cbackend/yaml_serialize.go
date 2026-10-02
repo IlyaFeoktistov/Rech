@@ -163,7 +163,7 @@ func yamlPrimitiveSerializerCode(name string, t ir.Type) string {
 	case ir.KindFloat32:
 		return fmt.Sprintf(`static void %s(float v, rech_yaml_sb *sb) {
     char buf[64];
-    snprintf(buf, sizeof buf, "%%g", (double)v);
+    rech_fmt_float(buf, (double)v, 1);
     rech_yaml_sb_puts(sb, buf);
 }
 
@@ -171,7 +171,7 @@ func yamlPrimitiveSerializerCode(name string, t ir.Type) string {
 	case ir.KindFloat:
 		return fmt.Sprintf(`static void %s(double v, rech_yaml_sb *sb) {
     char buf[64];
-    snprintf(buf, sizeof buf, "%%g", v);
+    rech_fmt_float(buf, v, 0);
     rech_yaml_sb_puts(sb, buf);
 }
 

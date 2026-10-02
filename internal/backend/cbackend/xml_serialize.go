@@ -175,7 +175,7 @@ func xmlPrimitiveSerializerCode(name string, t ir.Type) string {
 	case ir.KindFloat32:
 		return fmt.Sprintf(`static void %s(float v, const char *tag, rech_xml_sb *sb) {
 %s    char buf[64];
-    snprintf(buf, sizeof buf, "%%g", (double)v);
+    rech_fmt_float(buf, (double)v, 1);
     rech_xml_sb_puts(sb, buf);
 %s}
 
@@ -183,7 +183,7 @@ func xmlPrimitiveSerializerCode(name string, t ir.Type) string {
 	case ir.KindFloat:
 		return fmt.Sprintf(`static void %s(double v, const char *tag, rech_xml_sb *sb) {
 %s    char buf[64];
-    snprintf(buf, sizeof buf, "%%g", v);
+    rech_fmt_float(buf, v, 0);
     rech_xml_sb_puts(sb, buf);
 %s}
 
@@ -272,7 +272,7 @@ func (g *xmlSerializerGen) xmlAttrWriteCode(name string, t ir.Type, value string
 	case ir.KindInt:
 		fmt.Fprintf(&sb, "    { char buf[32]; snprintf(buf, sizeof buf, \"%%lld\", %s); rech_xml_sb_puts(sb, buf); }\n", value)
 	case ir.KindFloat32, ir.KindFloat:
-		fmt.Fprintf(&sb, "    { char buf[64]; snprintf(buf, sizeof buf, \"%%g\", (double)%s); rech_xml_sb_puts(sb, buf); }\n", value)
+		fmt.Fprintf(&sb, "    { char buf[48]; rech_xml_sb_puts(sb, rech_fmt_float(buf, (double)%s, %d)); }\n", value, float32Flag(t.Kind == ir.KindFloat32))
 	case ir.KindBool:
 		fmt.Fprintf(&sb, "    rech_xml_sb_puts(sb, %s ? \"true\" : \"false\");\n", value)
 	default: // ir.KindString

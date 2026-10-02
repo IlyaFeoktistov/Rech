@@ -489,7 +489,7 @@ func (d *Debugger) formatValue(v Value) string {
 	case ir.KindInt, ir.KindByte:
 		return strconv.FormatInt(v.I, 10)
 	case ir.KindFloat, ir.KindFloat32:
-		return formatFloatForPrint(v.F)
+		return formatFloat(v)
 	case ir.KindChar:
 		return string(rune(v.I))
 	case ir.KindBool:

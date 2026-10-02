@@ -2,6 +2,7 @@ package interp
 
 import (
 	"fmt"
+	"github.com/IlyaFeoktistov/Rech/internal/numfmt"
 	"math"
 	"strconv"
 	"strings"
@@ -921,26 +922,15 @@ func (in *Interp) valueDeepEqual(l, r Value) bool {
 // (точность 6 значащих цифр, дефолт printf) для Число, "истина"/"ложь" для
 // Логическое - иначе сравнение вывода интерпретатора со скомпилированной
 // программой byte-for-byte не имело бы смысла.
-// formatFloatForPrint - как %g в сгенерированном C (printCall), включая
-// бесконечности: printf("%g", ...) печатает "inf"/"-inf", а
-// strconv.FormatFloat - "+Inf"/"-Inf" - без этой поправки печать
-// разошлась бы между интерпретатором и скомпилированной программой.
-// NaN печатается как "nan" без знака - у glibc есть свой (платформенно-
-// зависимый, не гарантированный ни C, ни IEEE 754) выбор знакового бита
-// для NaN, полученного как результат вычисления (например, 0.0/0.0) - это
-// деталь конкретной реализации libm, а не что-то, что язык обещает
-// воспроизводить побитово.
-func formatFloatForPrint(f float64) string {
-	switch {
-	case math.IsInf(f, 1):
-		return "inf"
-	case math.IsInf(f, -1):
-		return "-inf"
-	case math.IsNaN(f):
-		return "nan"
-	default:
-		return strconv.FormatFloat(f, 'g', 6, 64)
+// formatFloat - дробное v текстом (печать, "(Строка) x", сериализация):
+// кратчайшая запись, читающаяся обратно в то же значение, в точности
+// своего типа - internal/numfmt, тот же алгоритм, что rech_fmt_float в
+// cbackend.
+func formatFloat(v Value) string {
+	if v.Type.Kind == ir.KindFloat32 {
+		return numfmt.Float(v.F, 32)
 	}
+	return numfmt.Float(v.F, 64)
 }
 
 // printValue - "вывести <выражение>": один формат на примитив, дружелюбный
@@ -970,7 +960,7 @@ func (in *Interp) printText(v Value) string {
 		// если печатать v.I напрямую как знаковое (см. wrapFixedWidth).
 		return strconv.FormatUint(uint64(v.I), 10)
 	case ir.KindFloat, ir.KindFloat32:
-		return formatFloatForPrint(v.F)
+		return formatFloat(v)
 	case ir.KindChar:
 		return string(rune(v.I))
 	case ir.KindBool:
@@ -1029,9 +1019,9 @@ func (in *Interp) showValue(v Value) string {
 	case ir.KindUint, ir.KindUint16, ir.KindUint32:
 		return fmt.Sprintf("%s (%s)", strconv.FormatUint(uint64(v.I), 10), v.Type.String())
 	case ir.KindFloat32:
-		return fmt.Sprintf("%s (Дробное)", formatFloatForPrint(v.F))
+		return fmt.Sprintf("%s (Дробное)", formatFloat(v))
 	case ir.KindFloat:
-		return fmt.Sprintf("%s (Действительное)", formatFloatForPrint(v.F))
+		return fmt.Sprintf("%s (Действительное)", formatFloat(v))
 	case ir.KindChar:
 		return fmt.Sprintf("%s (Символ)", string(rune(v.I)))
 	case ir.KindBool:

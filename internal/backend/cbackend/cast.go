@@ -61,7 +61,7 @@ func generateIRCastExpr(ctx *irGenCtx, e *ir.CastExpr) (string, valueType, error
 			return fmt.Sprintf("rech_cast_char_to_str(%s)", code), typeString, nil
 		}
 		if from == typeFloat || from == typeFloat32 {
-			return fmt.Sprintf("rech_cast_float_to_str((double)%s)", code), typeString, nil
+			return fmt.Sprintf("rech_cast_float_to_str((double)%s, %d)", code, float32Flag(from == typeFloat32)), typeString, nil
 		}
 		if isUnsignedFixedWidth(from) {
 			// Не (long long) - Натуральное64 может нести значение выше
@@ -164,9 +164,9 @@ static char *rech_cast_ptr_to_str(void *v) {
     return rech_cast_alloc(buf, strlen(buf));
 }
 
-static char *rech_cast_float_to_str(double v) {
-    char buf[64];
-    snprintf(buf, sizeof(buf), v != v ? "nan" : "%g", v);
+static char *rech_cast_float_to_str(double v, int f32) {
+    char buf[48];
+    rech_fmt_float(buf, v, f32);
     return rech_cast_alloc(buf, strlen(buf));
 }
 

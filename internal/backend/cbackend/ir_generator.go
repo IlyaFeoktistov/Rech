@@ -1585,6 +1585,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	appendCodeIf(&sb, ctx.usesCoroutines || ctx.usesSockets, concurrency.CoroutineRuntimeCode)
 	appendCodeIf(&sb, ctx.usesCoroutines || ctx.usesSockets, concurrency.CoroutineRuntimeWindowsCode)
 	appendCodeIf(&sb, ctx.usesCurrentOS, currentOSHelper)
+	sb.WriteString(floatFormatHelper)
 	appendCodeIf(&sb, ctx.usesCast, castHelpers)
 	appendCodeIf(&sb, ctx.usesIntSign, rechSignHelper)
 	appendCodeIf(&sb, ctx.usesIntMinMax, rechIntMinMaxHelper)

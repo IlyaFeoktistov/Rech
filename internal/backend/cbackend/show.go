@@ -31,9 +31,9 @@ func generateIRShowExpr(ctx *irGenCtx, t ir.Type, cExpr string) string {
 	case ir.KindInt:
 		return fmt.Sprintf(`printf("%%lld (Целое)", %s)`, cExpr)
 	case ir.KindFloat32:
-		return fmt.Sprintf(`printf("%%g (Дробное)", (double)(%s))`, cExpr)
+		return fmt.Sprintf(`{ char rech_fb[48]; printf("%%s (Дробное)", rech_fmt_float(rech_fb, (double)(%s), 1)); }`, cExpr)
 	case ir.KindFloat:
-		return fmt.Sprintf(`printf("%%g (Действительное)", %s)`, cExpr)
+		return fmt.Sprintf(`{ char rech_fb[48]; printf("%%s (Действительное)", rech_fmt_float(rech_fb, %s, 0)); }`, cExpr)
 	case ir.KindChar:
 		ctx.usesCast = true
 		return fmt.Sprintf(`printf("%%s (Символ)", rech_cast_char_to_str(%s))`, cExpr)

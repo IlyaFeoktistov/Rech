@@ -44,7 +44,13 @@ type Func struct {
 	Params     []Kind
 	ReturnKind Kind
 	HasReturn  bool
+	// FloatDefaults - значения по умолчанию последних len(FloatDefaults)
+	// параметров (дробных): их можно не передавать.
+	FloatDefaults []float64
 }
+
+// AlmostEqualTolerance - допуск "почти_равно" по умолчанию.
+const AlmostEqualTolerance = 1e-9
 
 // All - полный список встроенных функций (порядок значим только для
 // вывода документации/ошибок, не для логики).
@@ -106,6 +112,10 @@ var All = []Func{
 	{Name: "бесконечно", Params: []Kind{KindFloat}, ReturnKind: KindBool, HasReturn: true},
 	{Name: "не_число", Params: []Kind{KindFloat}, ReturnKind: KindBool, HasReturn: true},
 	{Name: "конечно", Params: []Kind{KindFloat}, ReturnKind: KindBool, HasReturn: true},
+	// Сравнение дробных с допуском: а == б или |а - б| <= допуск *
+	// max(1, |а|, |б|) - около единицы и меньше погрешность абсолютная,
+	// у больших чисел - относительная. Тоже метод ("а.почти_равно(б)").
+	{Name: "почти_равно", Params: []Kind{KindFloat, KindFloat, KindFloat}, ReturnKind: KindBool, HasReturn: true, FloatDefaults: []float64{AlmostEqualTolerance}},
 
 	// Случайные числа (криптографически стойкий источник - arc4random* в
 	// cbackend, crypto/rand в интерпретаторе - НЕ math/rand/rand(), см.

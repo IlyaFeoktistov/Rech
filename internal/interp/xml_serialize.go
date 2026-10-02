@@ -112,7 +112,7 @@ func xmlPrimitiveText(v Value) string {
 	case ir.KindInt:
 		return strconv.FormatInt(v.I, 10)
 	case ir.KindFloat32, ir.KindFloat:
-		return strconv.FormatFloat(v.F, 'g', -1, 64)
+		return formatFloat(v)
 	case ir.KindBool:
 		if v.B {
 			return "true"

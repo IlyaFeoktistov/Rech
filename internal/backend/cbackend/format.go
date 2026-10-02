@@ -29,10 +29,9 @@ func printCall(ctx *irGenCtx, typ valueType, code string) string {
 		// INT64_MAX, которое (long long) отобразил бы как отрицательное.
 		return fmt.Sprintf(`printf("%%llu", (unsigned long long)(%s));`, code)
 	case typeFloat, typeFloat32:
-		// NaN - "nan" без знака: знак NaN из вычисления (0.0/0.0 даёт
-		// "-nan" у glibc на x86) не часть значения для языка, и interp
-		// печатает так же (formatFloatForPrint).
-		return fmt.Sprintf(`{ double rech_pf = (double)(%s); printf(rech_pf != rech_pf ? "nan" : "%%g", rech_pf); }`, code)
+		// rech_fmt_float (float_format.go) - кратчайшая точная запись, та
+		// же, что interp formatFloat; NaN - "nan" без знака.
+		return fmt.Sprintf(`{ char rech_fb[48]; printf("%%s", rech_fmt_float(rech_fb, (double)(%s), %d)); }`, code, float32Flag(typ == typeFloat32))
 	case typeBool:
 		return fmt.Sprintf(`printf("%%s", (%s) ? "истина" : "ложь");`, code)
 	case typeChar:

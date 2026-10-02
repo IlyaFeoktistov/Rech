@@ -129,6 +129,9 @@ func (in *Interp) evalBuiltinCall(name string, args []Value) (Value, bool) {
 		return boolValue(math.IsNaN(args[0].F)), true
 	case "конечно":
 		return boolValue(!math.IsInf(args[0].F, 0) && !math.IsNaN(args[0].F)), true
+	case "почти_равно":
+		a, b, tol := args[0].F, args[1].F, args[2].F
+		return boolValue(a == b || math.Abs(a-b) <= tol*math.Max(1, math.Max(math.Abs(a), math.Abs(b)))), true
 	case "прочитать_строку":
 		return stringValue(in.readLine()), true
 	case "прочитать_целое":

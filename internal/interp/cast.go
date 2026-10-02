@@ -136,7 +136,7 @@ func (in *Interp) evalCastExpr(e *ir.CastExpr, env *Env, cc *callCtx) (Value, er
 		case from.Kind == ir.KindInt || from.Kind == ir.KindByte || isFixedWidthInt(from.Kind):
 			return stringValue(strconv.FormatInt(v.I, 10)), nil
 		case from.Kind == ir.KindFloat || from.Kind == ir.KindFloat32:
-			return stringValue(formatFloatForPrint(v.F)), nil
+			return stringValue(formatFloat(v)), nil
 		case from.Kind == ir.KindChar:
 			return stringValue(string(rune(v.I))), nil
 		case from.Kind == ir.KindBool:

@@ -35,7 +35,15 @@ func registerBuiltinFuncs(funcs map[string]funcSig) {
 		for i, k := range f.Params {
 			params[i] = builtinIRType(k)
 		}
-		funcs[f.Name] = funcSig{Params: params, ReturnType: builtinIRType(f.ReturnKind), HasReturn: f.HasReturn}
+		sig := funcSig{Params: params, ReturnType: builtinIRType(f.ReturnKind), HasReturn: f.HasReturn}
+		if len(f.FloatDefaults) > 0 {
+			sig.ParamDefaults = make([]ast.Expr, len(params))
+			first := len(params) - len(f.FloatDefaults)
+			for i, v := range f.FloatDefaults {
+				sig.ParamDefaults[first+i] = &ast.FloatLiteral{Value: v}
+			}
+		}
+		funcs[f.Name] = sig
 	}
 }
 
