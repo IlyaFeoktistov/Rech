@@ -102,9 +102,19 @@ func (p *Parser) typeFirstFieldError(mods []lexer.Token) error {
 		WithHint("%s%s: %s", fieldModifierPrefix(mods), name, typeName)
 }
 
-// staticAfterVisibilityError - "публичное статическое ..." у поля:
-// "статический" пишется первым.
-func staticAfterVisibilityError(vis, static lexer.Token) error {
-	return errAt(static.Line, static.Col, CodeUnexpectedToken, "модификатор %q пишется перед модификатором видимости", static.Value).
-		WithHint("%s %s ...", static.Value, vis.Value)
+// memberModifiers - "статический" и модификатор видимости члена сущности
+// в любом порядке, каждый не больше одного раза; nil - модификатора нет.
+func (p *Parser) memberModifiers() (staticTok, visTok *lexer.Token) {
+	for {
+		switch {
+		case staticTok == nil && p.cur().Type == lexer.KwStatic:
+			tok := p.advance()
+			staticTok = &tok
+		case visTok == nil && isVisibilityKeyword(p.cur().Type):
+			tok := p.advance()
+			visTok = &tok
+		default:
+			return staticTok, visTok
+		}
+	}
 }

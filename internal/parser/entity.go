@@ -163,9 +163,10 @@ func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
 		return nil, err
 	}
 	p.enterDecl()
+	staticTok, visTok := p.memberModifiers()
 	isStatic := false
-	if p.cur().Type == lexer.KwStatic {
-		tok := p.advance()
+	if staticTok != nil {
+		tok := *staticTok
 		if tok.Value != "статический" {
 			return nil, errAt(tok.Line, tok.Col, CodeModifierAgree, "у метода модификатор \"статический\" не согласуется по роду (метод - не существительное)").
 				WithHint("нужна форма \"статический\", получено %q", tok.Value)
@@ -173,8 +174,8 @@ func (p *Parser) parseMethod() (*ast.MethodDecl, error) {
 		isStatic = true
 	}
 	var vis ast.Visibility
-	if isVisibilityKeyword(p.cur().Type) {
-		tok := p.advance()
+	if visTok != nil {
+		tok := *visTok
 		vis = visibilityFromToken(tok)
 		want := methodVisibilityWord(vis)
 		if tok.Value != want {
@@ -427,19 +428,7 @@ func (p *Parser) parseFieldsSection() ([]ast.Field, error) {
 // "статический" - обычное поле экземпляра (Field.IsStatic == false, см.
 // package doc ast.Field.IsStatic).
 func (p *Parser) parseField() (ast.Field, error) {
-	var staticTok *lexer.Token
-	if p.cur().Type == lexer.KwStatic {
-		tok := p.advance()
-		staticTok = &tok
-	}
-	var visTok *lexer.Token
-	if isVisibilityKeyword(p.cur().Type) {
-		tok := p.advance()
-		visTok = &tok
-	}
-	if visTok != nil && staticTok == nil && p.cur().Type == lexer.KwStatic {
-		return ast.Field{}, staticAfterVisibilityError(*visTok, p.cur())
-	}
+	staticTok, visTok := p.memberModifiers()
 	if p.peekAt(1).Type != lexer.COLON {
 		var mods []lexer.Token
 		for _, m := range []*lexer.Token{staticTok, visTok} {
