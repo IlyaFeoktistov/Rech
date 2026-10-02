@@ -128,6 +128,9 @@ type Analyzer struct {
 	// обязаны получить разные хранилища у backend'а, см. package doc
 	// ir.VarDecl.IsStatic.
 	nextStaticVarID int
+	// elementAssignSeq - номер временных имён развёртки "сп[i].поле = ..."
+	// (element_field_assign.go).
+	elementAssignSeq int
 
 	// parseTargets/serializeTargets/xmlParseTargets/xmlSerializeTargets/
 	// yamlParseTargets/yamlSerializeTargets - дедуплицированные по имени

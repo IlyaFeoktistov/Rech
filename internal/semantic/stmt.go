@@ -597,6 +597,9 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 		if s.Static {
 			return analyzeStaticFieldAssign(sc, s)
 		}
+		if coll, index, ok := elementFieldTarget(sc, s.Receiver); ok {
+			return analyzeElementFieldAssign(sc, s, coll, index)
+		}
 		// "п.a = 1" у структуры без значения - запись поля, не чтение "п"
 		// (bare_struct_fields.go).
 		var bareName string
@@ -618,6 +621,12 @@ func analyzeStmt(sc *ctx, s ast.Stmt) (ir.Stmt, error) {
 			return nil, errAtLine(s.Line, CodeStmtCheck, "нельзя присвоить полю %q - тип %s не сущность", s.Field, typ)
 		}
 		sig := sc.entities[typ.Entity]
+		if sig.IsStruct && isCallResult(s.Receiver) {
+			// Структура - значение: результат вызова - копия, запись в её
+			// поле никуда не попадёт.
+			return nil, errAtLine(s.Line, CodeStmtCheck, "поле %q присваивается копии структуры %s - результату вызова: изменение потеряется", s.Field, typ.Entity).
+				WithHint("сохраните её в переменную, измените поле и запишите обратно")
+		}
 		// Получатель НЕ обязан быть адресуемым на уровне семантики - как и у
 		// analyzeMethodCallExpr, cbackend сам материализует временную
 		// переменную для получателя-"структуры" без постоянного адреса (см.

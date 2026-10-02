@@ -1226,12 +1226,10 @@ func TestAnalyzeFieldAssignOnTemporaryEntityAllowed(t *testing.T) {
 	}
 }
 
-func TestAnalyzeFieldAssignOnTemporaryStructAllowed(t *testing.T) {
-	// Получатель-"структура" (значение) как результат вызова функции - как
-	// и у TestAnalyzeMethodCallOnTemporaryStructAllowed, у неё нет
-	// постоянного C-адреса, но семантика это больше не проверяет вовсе -
-	// cbackend материализует временную переменную (materializeIfNeeded).
-	toks, err := lexer.New(`
+func TestAnalyzeFieldAssignOnTemporaryStructRejected(t *testing.T) {
+	// Получатель-"структура" (значение) - результат вызова: это копия,
+	// запись в её поле потерялась бы - ошибка компиляции, не тихий no-op.
+	_, err := AnalyzeSource(t, `
 структура Точка
 {
     имеет:
@@ -1245,16 +1243,9 @@ func TestAnalyzeFieldAssignOnTemporaryStructAllowed(t *testing.T) {
 {
     создать().x = 5
 }
-`).Tokenize()
-	if err != nil {
-		t.Fatalf("лексер: %v", err)
-	}
-	prog, err := parser.New(toks).ParseProgram()
-	if err != nil {
-		t.Fatalf("парсер: %v", err)
-	}
-	if _, err = Analyze(prog); err != nil {
-		t.Fatalf("неожиданная ошибка: %v", err)
+`)
+	if err == nil || !strings.Contains(err.Error(), "присваивается копии структуры") {
+		t.Fatalf("ожидалась ошибка про копию структуры, получено %v", err)
 	}
 }
 

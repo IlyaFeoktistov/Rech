@@ -588,6 +588,17 @@ func (p *Parser) parseIndexAssign() (ast.Stmt, error) {
 	if _, err := p.expect(lexer.RBRACKET); err != nil {
 		return nil, diagnostics.Wrap(err, "после индекса ожидалось \"]\"")
 	}
+	if p.cur().Type == lexer.DOT && p.peekAt(1).Type == lexer.IDENT {
+		// "сп[i].поле = значение" - запись поля элемента (semantic,
+		// element_field_assign.go).
+		p.advance() // "."
+		field := p.advance()
+		elem := &ast.IndexExpr{Receiver: receiver, Index: index, Line: receiverTok.Line}
+		if isIncDecTok(p.cur().Type) {
+			return p.finishFieldIncDec(elem, field.Value, false, receiverTok.Line)
+		}
+		return p.finishFieldAssign(elem, field.Value, false, receiverTok.Line)
+	}
 	if _, err := p.expect(lexer.ASSIGN); err != nil {
 		return nil, diagnostics.Wrap(err, "после %q[...] ожидалось \"=\" (индексация сама по себе не инструкция)", receiverTok.Value)
 	}
