@@ -142,12 +142,10 @@ func (p *Parser) parseNewExpr() (ast.Expr, error) {
 // согласование по имени шаблона (до "<"), у самого аргумента типа рода нет
 // значения здесь.
 func (p *Parser) checkNewKeywordAgreement(kw lexer.Token, typeName string) error {
-	base, _, _ := strings.Cut(typeName, "<")
-	gender, number, ok := morph.CompoundNounAgreement(base)
+	want, ok := newKeywordFor(typeName)
 	if !ok {
 		return nil
 	}
-	want := morph.NewKeywordFor(gender, number)
 	if kw.Value != want {
 		return errAt(kw.Line, kw.Col, CodeModifierAgree, "модификатор \"новый\" не согласован по роду с сущностью %q", typeName).
 			WithHint("требует форму %q, получено %q", want, kw.Value)

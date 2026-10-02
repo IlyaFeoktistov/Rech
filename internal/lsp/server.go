@@ -536,6 +536,7 @@ func (s *server) handleCodeAction(msg *Message) {
 		out = append(out, quickFixJSON(p.TextDocument.URI, sug.Title,
 			sug.StartLine, sug.StartCol-1, sug.EndLine, sug.EndCol-1, sug.NewText))
 	}
+	out = append(out, d.agreementCodeActions(p.TextDocument.URI, reqStart, reqEnd)...)
 	if out == nil {
 		out = []any{}
 	}
@@ -552,17 +553,21 @@ func quickFixJSON(uri, title string, startLine, startChar, endLine, endChar int,
 		"kind":  "quickfix",
 		"edit": map[string]any{
 			"changes": map[string]any{
-				uri: []any{
-					map[string]any{
-						"range": map[string]any{
-							"start": map[string]any{"line": startLine - 1, "character": startChar},
-							"end":   map[string]any{"line": endLine - 1, "character": endChar},
-						},
-						"newText": newText,
-					},
-				},
+				uri: []any{textEditJSON(startLine, startChar, endLine, endChar, newText)},
 			},
 		},
+	}
+}
+
+// textEditJSON - один LSP TextEdit, те же соглашения о строках/символах,
+// что у quickFixJSON.
+func textEditJSON(startLine, startChar, endLine, endChar int, newText string) map[string]any {
+	return map[string]any{
+		"range": map[string]any{
+			"start": map[string]any{"line": startLine - 1, "character": startChar},
+			"end":   map[string]any{"line": endLine - 1, "character": endChar},
+		},
+		"newText": newText,
 	}
 }
 
