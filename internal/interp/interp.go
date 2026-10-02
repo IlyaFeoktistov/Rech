@@ -345,6 +345,9 @@ type Env struct {
 	// mu - только у окружения переменных модуля (Interp.globals): его
 	// читают и пишут все потоки ("запустить") одновременно.
 	mu *sync.Mutex
+	// externs - внешние переменные модуля (extern_var.go): значение - в
+	// памяти C-символа, не в vars.
+	externs map[string]*externVar
 
 	// staticIDs - имя "статической переменной" (ir.VarDecl.IsStatic) в
 	// этой области видимости -> ir.VarDecl.StaticID. Параллельная vars
@@ -405,6 +408,9 @@ func (e *Env) lockedGet(name string) (Value, bool) {
 		e.mu.Lock()
 		defer e.mu.Unlock()
 	}
+	if ev, ok := e.externs[name]; ok {
+		return ev.read(), true
+	}
 	v, ok := e.vars[name]
 	return v, ok
 }
@@ -427,6 +433,10 @@ func (e *Env) lockedSetExisting(name string, v Value) bool {
 	if e.mu != nil {
 		e.mu.Lock()
 		defer e.mu.Unlock()
+	}
+	if ev, ok := e.externs[name]; ok {
+		ev.write(v)
+		return true
 	}
 	if _, ok := e.vars[name]; ok {
 		e.vars[name] = v
@@ -744,6 +754,12 @@ func newInterp(prog *ir.Program, out io.Writer, stdin io.Reader) (*Interp, *ir.F
 func (in *Interp) initGlobals(prog *ir.Program) error {
 	cc := &callCtx{curLine: new(int)}
 	for _, g := range prog.Globals {
+		if g.ExternCName != "" {
+			if err := in.declareExternVar(g); err != nil {
+				return err
+			}
+			continue
+		}
 		v, err := in.evalExpr(g.Value, newEnv(in.globals), cc)
 		if err != nil {
 			return fmt.Errorf("переменная модуля %q: %w", g.Name, err)

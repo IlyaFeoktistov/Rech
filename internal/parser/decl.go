@@ -633,3 +633,29 @@ func validEntrySignature(params []ast.Param, returnType string) bool {
 		return false
 	}
 }
+
+// parseExternVarDecl - "внешняя <Тип> <ИмяC> [как <Псевдоним>]": уже
+// существующая C-глобальная переменная (или экспортированная переменная
+// модуля закрытого пакета), читается и пишется как переменная модуля.
+// Допустимость типа - в internal/semantic (isFFIVarType).
+func (p *Parser) parseExternVarDecl() (*ast.VarDecl, error) {
+	kw, err := p.expect(lexer.KwExternal)
+	if err != nil {
+		return nil, err
+	}
+	typeName, err := p.parseTypeName()
+	if err != nil {
+		return nil, diagnostics.Wrap(err, "после \"внешняя\" ожидалось \"функция\", \"сущность\", \"структура\" или тип внешней переменной")
+	}
+	cName, err := p.expect(lexer.IDENT)
+	if err != nil {
+		return nil, diagnostics.Wrap(err, "после \"внешняя %s\" ожидалось имя C-переменной", typeName)
+	}
+	name := cName.Value
+	if a, err := p.parseOptionalAlias(); err != nil {
+		return nil, err
+	} else if a != "" {
+		name = a
+	}
+	return &ast.VarDecl{Name: name, Type: typeName, ExternCName: cName.Value, Line: kw.Line}, nil
+}

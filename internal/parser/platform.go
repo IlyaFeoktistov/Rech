@@ -140,6 +140,6 @@ func (p *Parser) parsePlatformArmBody() (ast.PlatformArm, error) {
 		Interfaces:     armProg.Interfaces,
 		Consts:         armProg.Consts,
 		Synonyms:       armProg.Synonyms,
-		Vars:           vars,
+		Vars:           append(vars, armProg.Vars...),
 	}, nil
 }

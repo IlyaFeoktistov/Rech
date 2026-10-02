@@ -616,13 +616,16 @@ func (p *Parser) collectOneSignature(sigs map[string][]ast.Param, generics map[s
 		case lexer.KwStruct:
 			_, err := p.parseExternStructDecl()
 			return err
-		default:
+		case lexer.KwFunction:
 			ext, err := p.parseExternFuncDecl()
 			if err != nil {
 				return err
 			}
 			sigs[ext.Alias] = ext.Params
 			return nil
+		default:
+			_, err := p.parseExternVarDecl()
+			return err
 		}
 	default:
 		p.advance()
@@ -770,6 +773,25 @@ func (p *Parser) parseTopLevelItem(prog *ast.Program, topLevelStmts *[]ast.Stmt,
 		ent.Visibility = vis
 		prog.Entities = append(prog.Entities, ent)
 	case lexer.KwExport:
+		if p.exportsModuleVar() {
+			// "экспортировать Целое счётчик = 0" - переменная модуля.
+			p.advance() // "экспортировать"
+			stmt, err := p.parseStatement()
+			if err != nil {
+				return false, err
+			}
+			decl, ok := stmt.(*ast.VarDecl)
+			if !ok {
+				return false, errAtLine(p.cur().Line, CodeExport, "после \"экспортировать\" ожидалось объявление функции, сущности или переменной \"Тип имя = значение\"")
+			}
+			decl.Exported = true
+			decl.Doc = doc
+			*topLevelStmts = append(*topLevelStmts, decl)
+			if err := p.noteTopLevelStmt(decl); err != nil {
+				return false, err
+			}
+			break
+		}
 		if isExportListStart(p.peekAt(1).Type) {
 			items, err := p.parseExportPathList()
 			if err != nil {
@@ -823,13 +845,21 @@ func (p *Parser) parseTopLevelItem(prog *ast.Program, topLevelStmts *[]ast.Stmt,
 			}
 			extStruct.Doc = doc
 			prog.Entities = append(prog.Entities, extStruct)
-		default:
+		case lexer.KwFunction:
 			ext, err := p.parseExternFuncDecl()
 			if err != nil {
 				return false, err
 			}
 			ext.Doc = doc
 			prog.ExternFuncs = append(prog.ExternFuncs, ext)
+		default:
+			v, err := p.parseExternVarDecl()
+			if err != nil {
+				return false, err
+			}
+			v.Doc = doc
+			v.Visibility = vis
+			prog.Vars = append(prog.Vars, v)
 		}
 	case lexer.KwEnum:
 		enum, err := p.parseEnumDecl()
@@ -877,8 +907,6 @@ func (p *Parser) parseTopLevelItem(prog *ast.Program, topLevelStmts *[]ast.Stmt,
 			return false, err
 		}
 		if stmt != nil {
-			// nil - "переменная X" без инициализации (pendingvar.go),
-			// см. тот же случай в parseBlock.
 			*topLevelStmts = append(*topLevelStmts, stmt)
 		}
 	}

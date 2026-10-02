@@ -100,7 +100,9 @@ op_symbol      := "==" | "!=" | "<=" | ">=" | "+" | "-" | "*" | "/" | "%" | "<" 
 interface_decl := "интерфейс" IDENT [ "наследует" IDENT { "," IDENT } ] { sep } "{" { sep } { interface_method { sep } } "}"
 interface_method := IDENT "(" [ params ] ")" [ ":" ( type_name | "этот" ) ]
 
-extern_decl    := extern_func | extern_entity | extern_struct
+extern_decl    := extern_func | extern_entity | extern_struct | extern_var
+extern_var     := "внешняя" type_name IDENT [ "как" IDENT ]
+                                             (* C-глобальная переменная: числовой тип/Логическое/Символ/Байт *)
 extern_func    := "внешняя" "функция" IDENT [ "как" IDENT ] "(" [ params ] ")" [ ":" type_name ]
 extern_entity  := "внешняя" "сущность" IDENT [ "как" IDENT ]
 extern_struct  := "внешняя" "структура" IDENT [ "как" IDENT ] { sep } "{" { sep } fields_section { sep } "}"

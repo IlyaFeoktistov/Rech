@@ -29,6 +29,15 @@ func (a *Analyzer) analyzeModuleVars(prog *ast.Program, bag *diagnostics.Bag) []
 			bag.AddErr(err)
 			continue
 		}
+		if v.ExternCName != "" {
+			g, err := a.analyzeExternVar(v)
+			if err != nil {
+				bag.AddErr(err)
+				continue
+			}
+			out = append(out, g)
+			continue
+		}
 		sc := newCtx(a, a.funcs, a.entities, a.methods, a.aliases, a.interfaces, a.enums, "", ir.Type{}, false, a.resolvedConsts, a.resolvingConsts)
 		sc.inferScope = v.Name
 		stmt, err := analyzeStmt(sc, v)
@@ -46,8 +55,11 @@ func (a *Analyzer) analyzeModuleVars(prog *ast.Program, bag *diagnostics.Bag) []
 		if decl.DeclType.Kind != ir.KindUnknown {
 			typ = decl.DeclType
 		}
+		if v.Exported && !isFFIVarType(typ) {
+			bag.AddErr(errAtLine(v.Line, CodeExportSemantic, "экспортировать можно переменную модуля числового типа, Логическое, Символ или Байт - у %q тип %s", v.Name, typ))
+		}
 		a.moduleVars[v.Name] = typ
-		out = append(out, &ir.GlobalVar{Name: v.Name, Type: typ, Value: decl.Value, Line: v.Line, File: v.File, Doc: v.Doc})
+		out = append(out, &ir.GlobalVar{Name: v.Name, Type: typ, Value: decl.Value, Line: v.Line, File: v.File, Doc: v.Doc, Exported: v.Exported})
 	}
 	return out
 }
@@ -83,4 +95,26 @@ func (a *Analyzer) checkModuleVarName(v *ast.VarDecl) error {
 		return clash("ым интерфейсом")
 	}
 	return nil
+}
+
+// analyzeExternVar - "внешняя Целое счётчик": переменная модуля, значение
+// которой живёт в C-символе ExternCName (FFI или экспортированная
+// переменная закрытого пакета) - тип обязан быть представим в C один в
+// один.
+func (a *Analyzer) analyzeExternVar(v *ast.VarDecl) (*ir.GlobalVar, error) {
+	typ, err := resolveTypeName(a.entities, a.methods, a.aliases, a.interfaces, a.enums, v.Type)
+	if err != nil {
+		return nil, diagnostics.WithPos(err, diagnostics.Position{File: currentFile, Line: v.Line})
+	}
+	if !isFFIVarType(typ) {
+		return nil, errAtLine(v.Line, CodeExportSemantic, "внешняя переменная %q: тип %s не поддерживается - допустимы числовые типы, Логическое, Символ, Байт", v.Name, typ)
+	}
+	a.moduleVars[v.Name] = typ
+	return &ir.GlobalVar{Name: v.Name, Type: typ, Line: v.Line, File: v.File, Doc: v.Doc, ExternCName: v.ExternCName}, nil
+}
+
+// isFFIVarType - тип переменной, общей с C-кодом: скаляр FFI, кроме
+// Строка (чей указатель и память у двух сторон разные).
+func isFFIVarType(t ir.Type) bool {
+	return isFFIScalar(t) && t.Kind != ir.KindString
 }

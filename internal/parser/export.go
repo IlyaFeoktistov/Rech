@@ -38,3 +38,20 @@ func (p *Parser) parseExportedDecl() (fn *ast.FunctionDecl, ent *ast.EntityDecl,
 		return nil, nil, errAtLine(p.cur().Line, CodeUnexpectedToken, "после %q ожидалось \"функция\", \"сущность\", \"класс\" или \"структура\", получено %q", kw.Value, p.cur().Value)
 	}
 }
+
+// exportsModuleVar - после "экспортировать" (текущий токен) объявление
+// переменной "Тип имя = ...", а не списковая форма "экспортировать Точка"/
+// "экспортировать Точка.метод": за именем типа идёт ещё одно имя (или
+// "<"/"[" generic/массива), либо тип начинается с "?".
+func (p *Parser) exportsModuleVar() bool {
+	switch p.peekAt(1).Type {
+	case lexer.QUESTION:
+		return true
+	case lexer.IDENT:
+		switch p.peekAt(2).Type {
+		case lexer.IDENT, lexer.LT, lexer.LBRACKET:
+			return true
+		}
+	}
+	return false
+}

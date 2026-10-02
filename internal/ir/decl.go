@@ -635,4 +635,10 @@ type GlobalVar struct {
 	Line  int
 	File  string
 	Doc   string
+	// ExternCName - внешняя переменная: имя C-символа, Value == nil
+	// (значение живёт в чужом коде); "" - переменная этой программы.
+	ExternCName string
+	// Exported - переменная модуля библиотеки, видимая снаружи под своим
+	// настоящим именем (символ, заголовок .h, "внешняя" в .rechi).
+	Exported bool
 }

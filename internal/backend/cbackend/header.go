@@ -104,6 +104,13 @@ func generateHeader(prog *ir.Program) (string, error) {
 			fmt.Fprintf(&protos, "%s *%s(%s);\n", entityCName(ctx, ent.Name), ctorCName(ctx, ent.Name), cParamListIR(ctx, ent.Ctor.Params))
 		}
 	}
+	for _, g := range prog.Globals {
+		if !g.Exported {
+			continue
+		}
+		protos.WriteString(cDocComment(g.Doc))
+		fmt.Fprintf(&protos, "extern %s %s;\n", fromIRType(g.Type).cType(ctx), g.Name)
+	}
 
 	var sb strings.Builder
 	sb.WriteString("// Автоматически сгенерировано компилятором rech (rech build --lib). Не редактировать руками.\n")
@@ -160,6 +167,11 @@ func ExportedSymbols(prog *ir.Program) []string {
 		}
 		if ent.Ctor != nil && ent.Ctor.Exported {
 			names = append(names, ctorCName(ctx, ent.Name))
+		}
+	}
+	for _, g := range prog.Globals {
+		if g.Exported {
+			names = append(names, g.Name)
 		}
 	}
 	return names

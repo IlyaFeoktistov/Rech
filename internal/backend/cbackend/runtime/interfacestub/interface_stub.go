@@ -100,7 +100,13 @@ func Generate(prog *ir.Program) (string, error) {
 			ents = append(ents, ent)
 		}
 	}
-	return render(fns, ents), nil
+	var vars []*ir.GlobalVar
+	for _, g := range prog.Globals {
+		if g.Exported {
+			vars = append(vars, g)
+		}
+	}
+	return render(fns, ents, vars), nil
 }
 
 // GenerateByFile - как Generate, но результат разбит по ИСХОДНЫМ файлам
@@ -143,6 +149,7 @@ func GenerateByFile(prog *ir.Program, libRoot string) (map[string]string, error)
 	seen := map[string]bool{}
 	fnsByFile := map[string][]*ir.Function{}
 	entsByFile := map[string][]*ir.Entity{}
+	varsByFile := map[string][]*ir.GlobalVar{}
 	touch := func(rp string) {
 		if !seen[rp] {
 			seen[rp] = true
@@ -173,9 +180,21 @@ func GenerateByFile(prog *ir.Program, libRoot string) (map[string]string, error)
 		entsByFile[rp] = append(entsByFile[rp], ent)
 	}
 
+	for _, g := range prog.Globals {
+		if !g.Exported {
+			continue
+		}
+		rp, err := relPath(g.File)
+		if err != nil {
+			return nil, fmt.Errorf("переменная %q: %w", g.Name, err)
+		}
+		touch(rp)
+		varsByFile[rp] = append(varsByFile[rp], g)
+	}
+
 	out := make(map[string]string, len(order))
 	for _, rp := range order {
-		out[rp] = render(fnsByFile[rp], entsByFile[rp])
+		out[rp] = render(fnsByFile[rp], entsByFile[rp], varsByFile[rp])
 	}
 	return out, nil
 }
@@ -184,10 +203,16 @@ func GenerateByFile(prog *ir.Program, libRoot string) (map[string]string, error)
 // по Exported (и, у второй, по исходному файлу) - сама генерация синтаксиса
 // не знает и не обязана знать, как именно вызывающая сторона их
 // сгруппировала.
-func render(fns []*ir.Function, ents []*ir.Entity) string {
+func render(fns []*ir.Function, ents []*ir.Entity, vars []*ir.GlobalVar) string {
 	var sb strings.Builder
 	sb.WriteString("// Автоматически сгенерировано компилятором rech (rech build --lib). Не редактировать руками.\n")
 	sb.WriteString("// Публичный интерфейс библиотеки в синтаксисе Rech - \"использовать\" подключает его вместо ручного FFI.\n\n")
+
+	// Экспортированная переменная модуля - внешняя переменная под тем же
+	// именем (символ библиотеки - настоящее имя, cbackend/globals.go).
+	for _, g := range vars {
+		fmt.Fprintf(&sb, "внешняя %s %s\n", g.Type.String(), g.Name)
+	}
 
 	for _, fn := range fns {
 		fmt.Fprintf(&sb, "внешняя функция %s(%s)%s\n", fn.Name, rechParamList(fn.Params), rechReturnSuffix(fn.HasReturn, fn.ReturnType))
