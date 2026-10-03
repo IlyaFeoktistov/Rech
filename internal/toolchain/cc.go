@@ -121,11 +121,8 @@ func autoLinkFlags(src []byte, goos string) []string {
 const windowsGUIFlag = "-mwindows"
 
 // ccArgs - аргументы компилятора C для runCC (goos - целевая ОС).
-func ccArgs(b compiler.CBuild, cPath, out string, defaultLink []string, goos string) []string {
-	var args []string
-	if b.CFlagsSet {
-		args = append(args, b.CFlags...)
-	}
+func ccArgs(b compiler.CBuild, cPath, out string, defaultLink []string, goos string, info ccInfo) []string {
+	args := cFlags(b, info)
 	args = append(args, cPath, "-o", out)
 	if b.LinkFlagsSet {
 		args = append(args, b.LinkFlags...)
@@ -148,7 +145,11 @@ func runCC(b compiler.CBuild, cPath, out string, defaultLink []string) error {
 	if err != nil {
 		return err
 	}
-	args := ccArgs(b, cPath, out, defaultLink, runtime.GOOS)
+	info := identifyCC(path)
+	if err := checkCCVersion(path, info); err != nil {
+		return err
+	}
+	args := ccArgs(b, cPath, out, defaultLink, runtime.GOOS, info)
 	// #nosec G204 -- пути приходят от локального пользователя, вызывающего свой же компилятор.
 	cmd := exec.Command(path, args...)
 	output, err := cmd.CombinedOutput()

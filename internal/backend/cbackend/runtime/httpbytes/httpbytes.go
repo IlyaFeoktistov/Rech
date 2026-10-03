@@ -40,7 +40,13 @@ func Helpers(reqType, respType, addrField, portField, methodField, pathField, bo
     req.%[7]s = rech_bytes_wrap(NULL, 0);
 
     const char *body_sep = NULL;
-    rech_http_parse_head(raw, &req.%[5]s, &req.%[6]s, &req.%[8]s, &body_sep);
+    /* Поля ЗапросБайты - const char *, хелпер пишет char * - через
+       временные (gcc 14+ считает несовпадение указателей ошибкой). */
+    char *method, *path, *headers;
+    rech_http_parse_head(raw, &method, &path, &headers, &body_sep);
+    req.%[5]s = method;
+    req.%[6]s = path;
+    req.%[8]s = headers;
     if (body_sep) {
         long long body_offset = (long long)(body_sep - raw) + 4;
         long long body_len = raw_len - body_offset;

@@ -293,7 +293,13 @@ static %[7]s rech_http_accept_request(rech_socket_t s) {
     req.%[6]s = rech_dup("");
 
     const char *body_sep = NULL;
-    rech_http_parse_head(raw, &req.%[1]s, &req.%[2]s, &req.%[4]s, &body_sep);
+    /* Поля Запрос - const char *, хелпер пишет char * - через временные
+       (gcc 14+ считает несовпадение указателей ошибкой). */
+    char *method, *path, *headers;
+    rech_http_parse_head(raw, &method, &path, &headers, &body_sep);
+    req.%[1]s = method;
+    req.%[2]s = path;
+    req.%[4]s = headers;
     if (body_sep) {
         free(req.%[6]s);
         size_t body_len = (size_t)raw_len - (size_t)(body_sep + 4 - raw);

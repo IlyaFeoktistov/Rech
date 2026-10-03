@@ -94,6 +94,13 @@ func (in *Interp) ensureCallbackTrampoline(sigName string, idx int) (uintptr, er
 		return []reflect.Value{in.newFFIArgValue(result, resultTypes[0])}
 	})
 
+	if callbackNeedsUintptrABI {
+		adapted, err := uintptrCallback(impl, paramTypes, resultTypes)
+		if err != nil {
+			return 0, fmt.Errorf("колбэк %q: %w", sigName, err)
+		}
+		impl = adapted
+	}
 	addr := purego.NewCallback(impl.Interface())
 	in.ffi.callbackAddrs[sigName] = append(in.ffi.callbackAddrs[sigName], addr)
 	return addr, nil

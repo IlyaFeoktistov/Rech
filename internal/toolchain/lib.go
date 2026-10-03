@@ -79,7 +79,7 @@ func compileStaticLib(cPath, libPath string, b compiler.CBuild) error {
 	}
 	base := strings.TrimSuffix(cPath, filepath.Ext(cPath))
 	objPath := base + ".o"
-	args := append(append([]string{}, b.CFlags...), "-c", cPath, "-o", objPath)
+	args := append(cFlags(b, identifyCC(cc)), "-c", cPath, "-o", objPath)
 	if err := runTool(cc, args...); err != nil {
 		return err
 	}

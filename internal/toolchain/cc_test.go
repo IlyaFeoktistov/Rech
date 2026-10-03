@@ -273,14 +273,14 @@ func TestCompileCLinksDBLibrariesOnlyWhenSourceUsesThem(t *testing.T) {
 // -mwindows только для Windows и даже при флагах линковки проекта.
 func TestCCArgsWindowedAddsGUIFlagOnlyOnWindows(t *testing.T) {
 	b := compiler.CBuild{Windowed: true, LinkFlags: []string{"-lgc"}, LinkFlagsSet: true}
-	if got := ccArgs(b, "a.c", "a.exe", nil, "windows"); !slices.Contains(got, windowsGUIFlag) {
+	if got := ccArgs(b, "a.c", "a.exe", nil, "windows", ccInfo{}); !slices.Contains(got, windowsGUIFlag) {
 		t.Fatalf("на Windows ожидался %s, получено %q", windowsGUIFlag, got)
 	}
-	if got := ccArgs(b, "a.c", "a", nil, "linux"); slices.Contains(got, windowsGUIFlag) {
+	if got := ccArgs(b, "a.c", "a", nil, "linux", ccInfo{}); slices.Contains(got, windowsGUIFlag) {
 		t.Fatalf("на Linux %s не нужен, получено %q", windowsGUIFlag, got)
 	}
 	b.Windowed = false
-	if got := ccArgs(b, "a.c", "a.exe", nil, "windows"); slices.Contains(got, windowsGUIFlag) {
+	if got := ccArgs(b, "a.c", "a.exe", nil, "windows", ccInfo{}); slices.Contains(got, windowsGUIFlag) {
 		t.Fatalf("консольное приложение не должно получать %s: %q", windowsGUIFlag, got)
 	}
 }
