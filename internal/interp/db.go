@@ -24,6 +24,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/IlyaFeoktistov/Rech/internal/dbscheme"
+	"github.com/IlyaFeoktistov/Rech/internal/decimal"
 	"github.com/IlyaFeoktistov/Rech/internal/ir"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
 )
@@ -186,6 +187,7 @@ func (in *Interp) dbQuery(db *sql.DB, sqlText string, params []Value) Value {
 	if err != nil {
 		throwRuntimeError(rtmsg.ErrorDB, "%s", rtmsg.DBQueryFailedFormat(sqlText))
 	}
+	numeric := dbNumericColumns(rows, len(cols))
 	scanTargets := make([]any, len(cols))
 	scanValues := make([]any, len(cols))
 	for i := range scanValues {
@@ -198,7 +200,7 @@ func (in *Interp) dbQuery(db *sql.DB, sqlText string, params []Value) Value {
 		}
 		pairs := newDictPairs()
 		for i, col := range cols {
-			pairs.set(stringValue(col), dbBoxColumnValue(scanValues[i]))
+			pairs.set(stringValue(col), dbBoxColumnValue(scanValues[i], numeric[i]))
 		}
 		rowElems = append(rowElems, Value{
 			Type: ir.EntityType(dbRowType),
@@ -292,9 +294,15 @@ func dbParamValue(v *Value) any {
 // (time.Time и т. п.) - как есть в текстовом виде через fmt.Sprint,
 // запасной путь на случай нестандартной колонки, которую драйвер не привёл
 // ни к одному из четырёх основных типов.
-func dbBoxColumnValue(raw any) Value {
+func dbBoxColumnValue(raw any, numeric bool) Value {
 	var inner Value
 	switch v := raw.(type) {
+	case []byte:
+		if numeric {
+			inner = dbNumericValue(string(v))
+		} else {
+			inner = stringValue(string(v))
+		}
 	case nil:
 		inner = Value{Type: ir.TypeNullValue}
 	case int64:
@@ -305,10 +313,38 @@ func dbBoxColumnValue(raw any) Value {
 		inner = boolValue(v)
 	case string:
 		inner = stringValue(v)
-	case []byte:
-		inner = stringValue(string(v))
 	default:
 		inner = stringValue(fmt.Sprint(v))
 	}
 	return Value{Type: ir.TypeAny, Boxed: &inner}
+}
+
+// dbNumericColumns - какие колонки результата - numeric (PostgreSQL) /
+// DECIMAL (MySQL): их драйверы отдают записью числа ([]byte).
+func dbNumericColumns(rows *sql.Rows, n int) []bool {
+	numeric := make([]bool, n)
+	types, err := rows.ColumnTypes()
+	if err != nil || len(types) != n {
+		return numeric
+	}
+	for i, t := range types {
+		name := t.DatabaseTypeName()
+		numeric[i] = name == "NUMERIC" || name == "DECIMAL"
+	}
+	return numeric
+}
+
+// dbNumericValue - колонка numeric/DECIMAL в Десятичное (cbackend
+// rech_db_numeric - то же правило): точно, с масштабом из БД; лишние знаки -
+// банковское округление, не помещается - паника переполнения, не число
+// (NaN/Infinity) - НеверноеПриведение.
+func dbNumericValue(text string) Value {
+	d, err := decimal.Parse(text)
+	switch {
+	case err == decimal.ErrOverflow:
+		panicRuntime("%s", rtmsg.DecimalOverflow)
+	case err != nil:
+		panicRuntimeAs(rtmsg.PanicBadCast, "%s", rtmsg.DBNumericNotNumber+text)
+	}
+	return decimalValue(d)
 }

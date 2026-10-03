@@ -158,3 +158,31 @@ func TestGenerateFromIRDBHandleMethodSugarGeneratesSameCallsAsFreeFunctions(t *t
 		}
 	}
 }
+
+// numeric (PostgreSQL) / DECIMAL (MySQL) - Десятичное из текстовой записи
+// (rech_db_numeric), а не double через strtod; у программы только с SQLite
+// этого хелпера нет.
+func TestGenerateFromIRDBNumericColumnsAreDecimal(t *testing.T) {
+	out := generateFromSrc(t, `
+функция главная
+{
+    переменная бд = подключиться_к_бд("postgres://localhost/db")
+    закрыть_бд(бд)
+}
+`)
+	for _, want := range []string{"static rech_any_t rech_db_numeric(", "} else if (oid == 1700) {\n                    v = rech_db_numeric(text);"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ожидалось %q, получено:\n%s", want, out)
+		}
+	}
+	sqliteOnly := generateFromSrc(t, `
+функция главная
+{
+    переменная бд = подключиться_к_бд("sqlite::memory:")
+    закрыть_бд(бд)
+}
+`)
+	if strings.Contains(sqliteOnly, "rech_db_numeric") {
+		t.Fatal("у программы только с SQLite rech_db_numeric не нужен")
+	}
+}

@@ -1590,7 +1590,8 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	appendCodeIf(&sb, ctx.usesCurrentOS, currentOSHelper)
 	sb.WriteString(floatFormatHelper)
 	// Рефлексия - тоже: rech_any_eq/rech_any_to_str знают Десятичное.
-	appendCodeIf(&sb, ctx.usesDecimal || prog.UsesReflection, decimalRuntime)
+	// БД - тоже: параметр Десятичное и колонки numeric/DECIMAL.
+	appendCodeIf(&sb, ctx.usesDecimal || prog.UsesReflection || prog.UsesDB, decimalRuntime)
 	appendCodeIf(&sb, ctx.usesCast, castHelpers)
 	appendCodeIf(&sb, ctx.usesIntSign, rechSignHelper)
 	appendCodeIf(&sb, ctx.usesIntMinMax, rechIntMinMaxHelper)

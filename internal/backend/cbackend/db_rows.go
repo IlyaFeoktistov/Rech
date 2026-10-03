@@ -121,21 +121,27 @@ func generateIRDBRowsAsExpr(ctx *irGenCtx, e *ir.DBRowsAsExpr) (string, valueTyp
 }
 
 // dbColumnValueCode - значение колонки anyExpr для поля типа t:
-// Десятичное - преобразованием (rech_db_dec_from_any), остальное - точной
-// распаковкой.
+// Десятичное и Действительное - преобразованием (rech_db_dec_from_any,
+// rech_db_float_from_any), остальное - точной распаковкой.
 func dbColumnValueCode(ctx *irGenCtx, t ir.Type, anyExpr string) string {
-	if t == ir.TypeDecimal {
+	switch t {
+	case ir.TypeDecimal:
 		ctx.usesDecimal = true
 		return fmt.Sprintf("rech_db_dec_from_any(%s)", anyExpr)
+	case ir.TypeFloat:
+		ctx.usesDecimal = true
+		return fmt.Sprintf("rech_db_float_from_any(%s)", anyExpr)
 	}
 	return reflectCheckedUnboxExprCode(ctx, t, anyExpr)
 }
 
 // dbDecimalFromAnyCode - rech_db_dec_from_any: колонка в поле
-// Десятичное. Драйверы отдают числа как Целое или Действительное, текст -
-// как Строка: целое и строка - точно, Действительное - через кратчайшую
-// запись (interp dbDecimalFromBoxed - то же правило). Иное - паника
-// несовпадения типа, как у обычной распаковки.
+// Десятичное. Драйверы отдают числа как Целое, Действительное или
+// Десятичное (numeric/DECIMAL), текст - как Строка: целое, Десятичное и
+// строка - точно, Действительное - через кратчайшую запись. И
+// rech_db_float_from_any: колонка numeric/DECIMAL в поле Действительное -
+// ближайшее double (interp dbDecimalFromBoxed/dbFloatFromBoxed - те же
+// правила). Иное - паника несовпадения типа, как у обычной распаковки.
 func dbDecimalFromAnyCode() string {
 	return fmt.Sprintf(`static rech_dec rech_db_dec_from_any(rech_any_t v) {
     rech_dec d;
@@ -144,6 +150,10 @@ func dbDecimalFromAnyCode() string {
     if (v.type == &%[3]s) return rech_dec_from_double(v.v.f64, 0);
     if (v.type == &%[4]s && rech_dec_parse(v.v.s, &d)) return d;
     return rech_unbox_check(v, &%[1]s).v.d;
+}
+static double rech_db_float_from_any(rech_any_t v) {
+    if (v.type == &%[1]s) return rech_dec_to_double(v.v.d);
+    return rech_unbox_check(v, &%[3]s).v.f64;
 }
 
 `, reflectMetaVarFor(ir.TypeDecimal), reflectMetaVarFor(ir.TypeInt), reflectMetaVarFor(ir.TypeFloat), reflectMetaVarFor(ir.TypeString))

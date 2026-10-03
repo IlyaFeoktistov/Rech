@@ -725,8 +725,8 @@ static long long rech_db_sqlite_exec(rech_db_t *db, const char *sql) {
 // pgQueryExecCode - PostgreSQL всегда отдаёт значения текстом в простом
 // протоколе запроса (PQexec) - PQftype даёт OID типа колонки для
 // классификации (well-known системные OID, стабильны с первых версий
-// PostgreSQL: int2/int4/int8=21/23/20, float4/float8/numeric=700/701/1700,
-// bool=16). PGRES_COMMAND_OK=1/PGRES_TUPLES_OK=2 - тоже часть публичного,
+// PostgreSQL: int2/int4/int8=21/23/20, float4/float8=700/701,
+// numeric=1700 - Десятичное из записи, bool=16). PGRES_COMMAND_OK=1/PGRES_TUPLES_OK=2 - тоже часть публичного,
 // стабильного ABI (enum ExecStatusType, libpq-fe.h).
 //
 // rech_db_checkout/rech_db_checkin (см. package doc) держатся только вокруг
@@ -760,7 +760,9 @@ func pgQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCtor 
                 const char *text = PQgetvalue(res, r, c);
                 if (oid == 20 || oid == 21 || oid == 23) {
                     v = (rech_any_t){.type = &%[6]s, .v.i = strtoll(text, NULL, 10)};
-                } else if (oid == 700 || oid == 701 || oid == 1700) {
+                } else if (oid == 1700) {
+                    v = rech_db_numeric(text);
+                } else if (oid == 700 || oid == 701) {
                     v = (rech_any_t){.type = &%[7]s, .v.f64 = strtod(text, NULL)};
                 } else if (oid == 16) {
                     v = (rech_any_t){.type = &%[10]s, .v.b = (text[0] == 't')};
@@ -797,14 +799,34 @@ static long long rech_db_pg_exec(rech_db_t *db, const char *sql) {
 		resultCtor, dictCtor)
 }
 
+// dbNumericColumnCode - rech_db_numeric: колонка numeric (PostgreSQL) /
+// DECIMAL (MySQL) из её текстовой записи в Десятичное - точно, с масштабом
+// из БД; лишние знаки - банковское округление, не помещается - паника
+// переполнения, не число (NaN/Infinity) - НеверноеПриведение. interp
+// dbBoxColumnValue - то же правило.
+func dbNumericColumnCode() string {
+	return fmt.Sprintf(`static rech_any_t rech_db_numeric(const char *text) {
+    rech_dec d;
+    if (!rech_dec_parse(text, &d)) {
+        char msg[256];
+        snprintf(msg, sizeof msg, "%%s%%.120s", "%[2]s", text);
+        %[3]s;
+    }
+    return (rech_any_t){.type = &%[1]s, .v.d = d};
+}
+
+`, reflectMetaVarFor(ir.TypeDecimal), escapeCString(rtmsg.DBNumericNotNumber), panicCallC(rtmsg.PanicBadCast, "msg"))
+}
+
 // mysqlQueryExecCode - libmysqlclient без подготовленных выражений
 // (mysql_real_query/mysql_store_result/mysql_fetch_row) - тот же принцип
 // упрощения, что у PostgreSQL/SQLite: значения читаются как текст
 // (MYSQL_ROW - массив char*, NULL - SQL NULL), тип колонки - из
 // rech_mysql_field_t.type (публичные, стабильные числовые константы
 // enum_field_types, field_types.h: TINY=1/SHORT=2/LONG=3/LONGLONG=8/
-// INT24=9/YEAR=13 - целые; DECIMAL=0/FLOAT=4/DOUBLE=5/NEWDECIMAL=246 -
-// дробные; всё остальное - текст).
+// INT24=9/YEAR=13 - целые; FLOAT=4/DOUBLE=5 - Действительное;
+// DECIMAL=0/NEWDECIMAL=246 - Десятичное (rech_db_numeric); всё остальное -
+// текст).
 //
 // rech_db_checkout/rech_db_checkin (см. package doc dbHandleTypedefCode)
 // держатся вокруг mysql_real_query+mysql_store_result - у MySQL, в отличие
@@ -846,7 +868,9 @@ func mysqlQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCt
                 unsigned int t = coltypes[i];
                 if (t == 1 || t == 2 || t == 3 || t == 8 || t == 9 || t == 13) {
                     v = (rech_any_t){.type = &%[6]s, .v.i = strtoll(row_data[i], NULL, 10)};
-                } else if (t == 0 || t == 4 || t == 5 || t == 246) {
+                } else if (t == 0 || t == 246) {
+                    v = rech_db_numeric(row_data[i]);
+                } else if (t == 4 || t == 5) {
                     v = (rech_any_t){.type = &%[7]s, .v.f64 = strtod(row_data[i], NULL)};
                 } else {
                     v = (rech_any_t){.type = &%[9]s, .v.s = rech_db_text(row_data[i], (size_t)lens[i])};
@@ -949,6 +973,9 @@ func dbRuntimeCode(backends dbscheme.Set) string {
 	sb.WriteString(dbConnectCloseCode(backends))
 	sb.WriteString(dbPoolStateFuncCode())
 	sb.WriteString(dbSubstituteCode(paramsListC))
+	if backends.NeedsPostgres() || backends.NeedsMySQL() {
+		sb.WriteString(dbNumericColumnCode())
+	}
 	if backends.NeedsSQLite() {
 		sb.WriteString(sqliteQueryExecCode(resultListC, dictC, dictSet, listAdd, resultCtor, dictCtor))
 	}

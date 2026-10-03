@@ -150,6 +150,7 @@ func (in *Interp) dbTxQuery(state *dbTxState, sqlText string, params []Value) Va
 	if err != nil {
 		throwRuntimeError(rtmsg.ErrorDB, "%s", rtmsg.DBQueryFailedFormat(sqlText))
 	}
+	numeric := dbNumericColumns(rows, len(cols))
 	scanTargets := make([]any, len(cols))
 	scanValues := make([]any, len(cols))
 	for i := range scanValues {
@@ -162,7 +163,7 @@ func (in *Interp) dbTxQuery(state *dbTxState, sqlText string, params []Value) Va
 		}
 		pairs := newDictPairs()
 		for i, col := range cols {
-			pairs.set(stringValue(col), dbBoxColumnValue(scanValues[i]))
+			pairs.set(stringValue(col), dbBoxColumnValue(scanValues[i], numeric[i]))
 		}
 		rowElems = append(rowElems, Value{
 			Type: ir.EntityType(dbRowType),

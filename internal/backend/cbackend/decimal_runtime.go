@@ -196,11 +196,17 @@ static const char *rech_dec_to_text(char *buf, rech_dec d) {
     buf[o] = 0;
     return buf;
 }
-/* rech_dec_parse - "-123.4500", "1e-5"; 0 - не число или больше 57
-   значащих цифр (тот же предел, что internal/decimal.Parse). */
+/* rech_dec_parse - "-123.4500", "1e-5"; 0 - не число. В 192 бита
+   помещаются 57 значащих цифр: дальше целая часть - уже переполнение, а
+   После 57 значащих цифр остальные отбрасываются (отброшенная цифра целой
+   части - сдвиг масштаба) с признаком "остаток не ноль" (sticky).
+   Мантисса результата - не больше 29 цифр, так что последняя сохранённая
+   цифра стоит минимум на 28 знаков правее места округления, и ненулевой
+   остаток, помеченный в ней, меняет только решение о ничьей - результат тот
+   же, что у точного internal/decimal.Parse. */
 static int rech_dec_parse(const char *s, rech_dec *out) {
     rech_u192 n = {{0, 0, 0}};
-    int neg = 0, frac = 0, point = 0, any = 0, sig = 0, exp = 0, scale;
+    int neg = 0, frac = 0, point = 0, any = 0, sig = 0, exp = 0, sticky = 0, dropped = 0, last = 0, scale;
     if (*s == '-' || *s == '+') { neg = *s == '-'; s++; }
     for (; *s && *s != 'e' && *s != 'E'; s++) {
         if (*s == '.') {
@@ -210,13 +216,20 @@ static int rech_dec_parse(const char *s, rech_dec *out) {
         }
         if (*s < '0' || *s > '9') { return 0; }
         any = 1;
+        if (sig >= 57) {
+            if (!point) { dropped++; }
+            sticky |= *s != '0';
+            continue;
+        }
         if (point) { frac++; }
         if (sig > 0 || *s != '0') {
-            if (++sig > 57) { return 0; }
-            n = rech_u192_add(rech_u192_mul_small(n, 10), (rech_u192){{(uint64_t)(*s - '0'), 0, 0}});
+            sig++;
+            last = *s - '0';
+            n = rech_u192_add(rech_u192_mul_small(n, 10), (rech_u192){{(uint64_t)last, 0, 0}});
         }
     }
     if (!any) { return 0; }
+    if (sticky && last == 0) { n = rech_u192_add(n, (rech_u192){{1, 0, 0}}); }
     if (*s) {
         int eneg = 0, ed = 0;
         s++;
@@ -228,7 +241,7 @@ static int rech_dec_parse(const char *s, rech_dec *out) {
         if (ed == 0) { return 0; }
         if (eneg) { exp = -exp; }
     }
-    scale = frac - exp;
+    scale = frac - dropped - exp;
     if (scale < 0) {
         if (!rech_u192_zero(n)) {
             if (sig - scale > 58) { RECH_DEC_OVERFLOW; }

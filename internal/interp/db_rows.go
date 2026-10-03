@@ -77,34 +77,33 @@ func (in *Interp) dbRowToEntity(row Value, ent *ir.Entity) (Value, error) {
 				fields[f.Name] = Value{Type: f.Type}
 				continue
 			}
-			inner := dbNullableInnerType(f.Type.Entity)
-			if inner == ir.TypeDecimal {
-				d := dbDecimalFromBoxed(*boxed.Boxed)
-				fields[f.Name] = Value{Type: f.Type, Nullable: &d}
-				continue
-			}
-			if boxed.Boxed.Type != inner {
-				panicRuntimeAs(rtmsg.PanicBadCast, "%s", rtmsg.AsTypeMismatchFormat(boxed.Boxed.Type.String(), inner.String()))
-			}
-			unwrapped := *boxed.Boxed
+			unwrapped := dbColumnFieldValue(*boxed.Boxed, dbNullableInnerType(f.Type.Entity))
 			fields[f.Name] = Value{Type: f.Type, Nullable: &unwrapped}
 			continue
 		}
-		if f.Type == ir.TypeDecimal {
-			fields[f.Name] = dbDecimalFromBoxed(*boxed.Boxed)
-			continue
-		}
-		if boxed.Boxed.Type != f.Type {
-			panicRuntimeAs(rtmsg.PanicBadCast, "%s", rtmsg.AsTypeMismatchFormat(boxed.Boxed.Type.String(), f.Type.String()))
-		}
-		fields[f.Name] = *boxed.Boxed
+		fields[f.Name] = dbColumnFieldValue(*boxed.Boxed, f.Type)
 	}
 	return Value{Type: ir.EntityType(ent.Name), Obj: &entityObj{typeName: ent.Name, fields: fields}}, nil
 }
 
+// dbColumnFieldValue - значение колонки v для поля типа t (cbackend
+// dbColumnValueCode - те же правила): Десятичное и Действительное -
+// преобразованием, остальное - только точное совпадение типа.
+func dbColumnFieldValue(v Value, t ir.Type) Value {
+	switch {
+	case t == ir.TypeDecimal:
+		return dbDecimalFromBoxed(v)
+	case t == ir.TypeFloat && v.Type == ir.TypeDecimal:
+		return floatValue(decimalToFloat(v.Dec))
+	case v.Type != t:
+		panicRuntimeAs(rtmsg.PanicBadCast, "%s", rtmsg.AsTypeMismatchFormat(v.Type.String(), t.String()))
+	}
+	return v
+}
+
 // dbDecimalFromBoxed - колонка в поле Десятичное (cbackend
-// rech_db_dec_from_any - то же правило): Целое и Строка - точно,
-// Действительное - через кратчайшую запись.
+// rech_db_dec_from_any - то же правило): Целое, Десятичное и Строка -
+// точно, Действительное - через кратчайшую запись.
 func dbDecimalFromBoxed(v Value) Value {
 	switch v.Type {
 	case ir.TypeDecimal:

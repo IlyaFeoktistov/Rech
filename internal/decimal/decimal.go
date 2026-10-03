@@ -20,10 +20,6 @@ import (
 // MaxScale - наибольший масштаб (знаков после запятой).
 const MaxScale = 28
 
-// MaxParseDigits - наибольшее число значащих цифр в записи числа (Parse):
-// C-рантайм разбирает запись в 192-битное целое.
-const MaxParseDigits = 57
-
 // Decimal - значение "Десятичное". Нулевое значение - 0.
 type Decimal struct {
 	Lo    uint64 // младшие 64 бита мантиссы
@@ -111,8 +107,8 @@ func FromInt(v int64) Decimal {
 // FromUint - беззнаковое v ровно.
 func FromUint(v uint64) Decimal { return fromMant(new(big.Int).SetUint64(v), 0, false) }
 
-// Parse - "-123.4500", "1e-5", "+7": точно (лишние знаки после 28-го -
-// банковское округление).
+// Parse - "-123.4500", "1e-5", "+7": точно, длина записи не ограничена
+// (лишние знаки после 28-го - банковское округление).
 func Parse(s string) (Decimal, error) {
 	t := s
 	neg := false
@@ -138,12 +134,13 @@ func Parse(s string) (Decimal, error) {
 			return Decimal{}, ErrSyntax
 		}
 	}
-	if len(strings.TrimLeft(digits, "0")) > MaxParseDigits {
-		return Decimal{}, ErrSyntax
-	}
 	n, _ := new(big.Int).SetString(digits, 10)
 	scale := len(frac) - exp
 	if scale < 0 {
+		// Целая часть длиннее 29 цифр - больше 2^96 при любой мантиссе.
+		if len(n.String())-scale > 29 && n.Sign() != 0 {
+			return Decimal{}, ErrOverflow
+		}
 		n.Mul(n, pow10(-scale))
 		scale = 0
 	}
