@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -51,5 +52,29 @@ func TestStrictFlagsRejectFutureErrors(t *testing.T) {
 	args := append(cFlags(compiler.CBuild{}, info), "-c", src, "-o", src+".o")
 	if out, err := exec.Command(path, args...).CombinedOutput(); err == nil {
 		t.Fatalf("%s %d: несовместимые указатели должны быть ошибкой, вывод:\n%s", info.family, info.major, out)
+	}
+}
+
+// Отладка: -Og -g; релиз: -O2 и -s при линковке (кроме macOS); флаги
+// проекта заменяют встроенные целиком, вместе с режимными.
+func TestBuildModeFlags(t *testing.T) {
+	gcc := ccInfo{family: "gcc", major: 13}
+	dbg := strings.Join(cFlags(compiler.CBuild{}, gcc), " ")
+	if !strings.Contains(dbg, "-Og -g") || !strings.Contains(dbg, "-fwrapv") {
+		t.Fatalf("отладка: получено %q", dbg)
+	}
+	rel := compiler.CBuild{Release: true}
+	if got := strings.Join(cFlags(rel, gcc), " "); !strings.Contains(got, "-O2") || strings.Contains(got, "-g") {
+		t.Fatalf("релиз: получено %q", got)
+	}
+	if got := ccArgs(rel, "a.c", "a", nil, "linux", gcc); !slices.Contains(got, "-s") {
+		t.Fatalf("релиз на Linux: ожидался -s, получено %q", got)
+	}
+	if got := ccArgs(rel, "a.c", "a", nil, "darwin", gcc); slices.Contains(got, "-s") {
+		t.Fatalf("релиз на macOS: -s не нужен, получено %q", got)
+	}
+	own := compiler.CBuild{Release: true, CFlags: []string{"-O1"}, CFlagsSet: true, LinkFlags: []string{"-lm"}, LinkFlagsSet: true}
+	if got := strings.Join(ccArgs(own, "a.c", "a", nil, "linux", gcc), " "); got != "-O1 a.c -o a -lm" {
+		t.Fatalf("флаги проекта: получено %q", got)
 	}
 }

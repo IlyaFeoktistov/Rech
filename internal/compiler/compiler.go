@@ -56,38 +56,69 @@ func NewFrontend() Frontend { return frontend.NewFrontend() }
 
 // Backend превращает AST в исходник на целевом языке (сейчас - C).
 type Backend interface {
-	// dbPoolSize - "бд.размер_пула" файла проекта (0 - не указан, значит
-	// используй встроенное умолчание internal/semantic.DefaultDBPoolSize,
-	// см. package doc ir.Program.DBPoolSize) - единственная настройка
-	// .rechproj, влияющая на саму КОДОГЕНЕРАЦИЮ (не на процесс сборки, как
-	// extraLibs/keepC), поэтому передаётся сюда явным параметром, а не
-	// полем Compiler, которое Backend не видит. dbPoolTimeoutMs - "бд.
-	// таймаут_пула_мс" файла проекта, тем же принципом (0 - тоже
-	// содержательное значение "ждать бесконечно", не сентинел - см. package
-	// doc ir.Program.DBPoolTimeoutMs). dbSQLiteBusyTimeoutMs - "бд.
-	// sqlite_таймаут_блокировки_мс", тем же принципом, что dbPoolSize (0 -
-	// используй встроенное умолчание internal/semantic.
-	// DefaultDBSQLiteBusyTimeoutMs).
-	// poolShrinkEnabled - "потоки.сжатие_пула" файла проекта (false - пул
-	// воркер-потоков "запустить" растёт и никогда не сжимается, см.
-	// ir.Program.PoolShrinkEnabled). poolIdleTimeoutMs - "потоки.
-	// таймаут_простоя_мс", тем же принципом, что dbPoolSize (0 - используй
-	// встроенное умолчание internal/semantic.DefaultPoolIdleTimeoutMs) -
-	// имеет значение, только если poolShrinkEnabled. httpMaxRequestBytes -
-	// "http.макс_размер_запроса_байт" файла проекта, тем же принципом, что
-	// dbPoolSize (0 - используй встроенное умолчание internal/semantic.
-	// DefaultHTTPMaxRequestBytes). externHeaders - "сборка.заголовки" файла
-	// проекта (internal/project.File.Заголовки) - nil, если не указаны (см.
-	// ir.Program.ExternHeaders).
-	// optionsYAML - "опции:" файла проекта (internal/project.File.Опции) -
-	// см. ir.Program.OptionsYAML, тем же принципом, что и externHeaders.
-	// warnings - предупреждения анализа (ir.Program.Warnings): сборку не
-	// останавливают.
-	Generate(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int, externHeaders []string, optionsYAML string, service bool) (cSource string, warnings []error, err error)
+	// Generate - C-исходник программы; opts - настройки файла проекта и
+	// режим сборки (см. GenOptions). warnings - предупреждения анализа
+	// (ir.Program.Warnings): сборку не останавливают.
+	Generate(prog *ast.Program, opts GenOptions) (cSource string, warnings []error, err error)
 	// GenerateLib - как Generate, но для библиотеки (`rech build --lib`),
 	// см. LibSource. libRoot == "" - нет файла проекта (BuildLibSource) -
 	// интерфейс одним плоским результатом под ключом "".
-	GenerateLib(prog *ast.Program, libRoot string, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int, externHeaders []string, optionsYAML string) (LibSource, error)
+	GenerateLib(prog *ast.Program, libRoot string, opts GenOptions) (LibSource, error)
+}
+
+// GenOptions - настройки, влияющие на саму кодогенерацию (не на процесс
+// сборки, как extraLibs/keepC): поля файла проекта и режим сборки.
+// Заполняются cmd/rech; нулевое значение int-поля - "не указано, встроенное
+// умолчание internal/semantic".
+type GenOptions struct {
+	// DBPoolSize - "бд.размер_пула" (см. ir.Program.DBPoolSize).
+	DBPoolSize int
+	// DBPoolTimeoutMs - "бд.таймаут_пула_мс"; 0 - "ждать бесконечно", не
+	// сентинел (см. ir.Program.DBPoolTimeoutMs).
+	DBPoolTimeoutMs int
+	// DBSQLiteBusyTimeoutMs - "бд.sqlite_таймаут_блокировки_мс".
+	DBSQLiteBusyTimeoutMs int
+	// PoolShrinkEnabled - "потоки.сжатие_пула" (false - пул воркер-потоков
+	// "запустить" только растёт, см. ir.Program.PoolShrinkEnabled). У bool
+	// нет сентинела "не задано" - умолчание (true) выставляет cmd/rech.
+	PoolShrinkEnabled bool
+	// PoolIdleTimeoutMs - "потоки.таймаут_простоя_мс" (имеет значение,
+	// только если PoolShrinkEnabled).
+	PoolIdleTimeoutMs int
+	// HTTPMaxRequestBytes - "http.макс_размер_запроса_байт".
+	HTTPMaxRequestBytes int
+	// ExternHeaders - "сборка.заголовки" (см. ir.Program.ExternHeaders).
+	ExternHeaders []string
+	// OptionsYAML - "опции:" (см. ir.Program.OptionsYAML).
+	OptionsYAML string
+	// Service - "сборка.тип: служба" (см. ir.Program.Service; у библиотеки
+	// не используется).
+	Service bool
+	// Release - релизная сборка (`--release`/"сборка.режим: релиз"): без
+	// стека вызовов в сообщении паники и без отладочной информации (см.
+	// ir.Program.Release, CBuild.Release).
+	Release bool
+}
+
+// apply - настройки opts в irProg.
+func (opts GenOptions) apply(irProg *ir.Program) {
+	if opts.DBPoolSize > 0 {
+		irProg.DBPoolSize = opts.DBPoolSize
+	}
+	irProg.DBPoolTimeoutMs = opts.DBPoolTimeoutMs
+	if opts.DBSQLiteBusyTimeoutMs > 0 {
+		irProg.DBSQLiteBusyTimeoutMs = opts.DBSQLiteBusyTimeoutMs
+	}
+	irProg.PoolShrinkEnabled = opts.PoolShrinkEnabled
+	if opts.PoolIdleTimeoutMs > 0 {
+		irProg.PoolIdleTimeoutMs = opts.PoolIdleTimeoutMs
+	}
+	if opts.HTTPMaxRequestBytes > 0 {
+		irProg.HTTPMaxRequestBytes = opts.HTTPMaxRequestBytes
+	}
+	irProg.ExternHeaders = opts.ExternHeaders
+	irProg.OptionsYAML = opts.OptionsYAML
+	irProg.Release = opts.Release
 }
 
 // LibSource - результат Backend.GenerateLib.
@@ -155,6 +186,10 @@ type CBuild struct {
 	// архив объектного кода (StaticLibExtension) вместо разделяемой
 	// библиотеки.
 	StaticLib bool
+	// Release - релизная сборка: оптимизация -O2 и вырезанная таблица
+	// символов вместо отладочных -Og -g (только встроенные флаги - заданные
+	// в проекте флаги_c/флаги_линковки заменяют их и здесь).
+	Release bool
 	// Exports - C-имена экспортируемых символов библиотеки
 	// (LibSource.Exports): у статической библиотеки остальные глобальные
 	// символы архива делаются локальными, чтобы рантайм библиотеки не
@@ -177,28 +212,13 @@ type defaultBackend struct{}
 // удалён.
 func NewBackend() Backend { return defaultBackend{} }
 
-func (defaultBackend) Generate(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int, externHeaders []string, optionsYAML string, service bool) (string, []error, error) {
+func (defaultBackend) Generate(prog *ast.Program, opts GenOptions) (string, []error, error) {
 	irProg, err := semantic.Analyze(prog)
 	if err != nil {
 		return "", nil, err
 	}
-	if dbPoolSize > 0 {
-		irProg.DBPoolSize = dbPoolSize
-	}
-	irProg.DBPoolTimeoutMs = dbPoolTimeoutMs
-	if dbSQLiteBusyTimeoutMs > 0 {
-		irProg.DBSQLiteBusyTimeoutMs = dbSQLiteBusyTimeoutMs
-	}
-	irProg.PoolShrinkEnabled = poolShrinkEnabled
-	if poolIdleTimeoutMs > 0 {
-		irProg.PoolIdleTimeoutMs = poolIdleTimeoutMs
-	}
-	if httpMaxRequestBytes > 0 {
-		irProg.HTTPMaxRequestBytes = httpMaxRequestBytes
-	}
-	irProg.ExternHeaders = externHeaders
-	irProg.OptionsYAML = optionsYAML
-	irProg.Service = service
+	opts.apply(irProg)
+	irProg.Service = opts.Service
 
 	src, err := cbackend.GenerateFromIR(irProg)
 	if err != nil {
@@ -207,27 +227,12 @@ func (defaultBackend) Generate(prog *ast.Program, dbPoolSize, dbPoolTimeoutMs, d
 	return src, irProg.Warnings, nil
 }
 
-func (defaultBackend) GenerateLib(prog *ast.Program, libRoot string, dbPoolSize, dbPoolTimeoutMs, dbSQLiteBusyTimeoutMs int, poolShrinkEnabled bool, poolIdleTimeoutMs, httpMaxRequestBytes int, externHeaders []string, optionsYAML string) (LibSource, error) {
+func (defaultBackend) GenerateLib(prog *ast.Program, libRoot string, opts GenOptions) (LibSource, error) {
 	irProg, err := semantic.Analyze(prog)
 	if err != nil {
 		return LibSource{}, err
 	}
-	if dbPoolSize > 0 {
-		irProg.DBPoolSize = dbPoolSize
-	}
-	irProg.DBPoolTimeoutMs = dbPoolTimeoutMs
-	if dbSQLiteBusyTimeoutMs > 0 {
-		irProg.DBSQLiteBusyTimeoutMs = dbSQLiteBusyTimeoutMs
-	}
-	irProg.PoolShrinkEnabled = poolShrinkEnabled
-	if poolIdleTimeoutMs > 0 {
-		irProg.PoolIdleTimeoutMs = poolIdleTimeoutMs
-	}
-	if httpMaxRequestBytes > 0 {
-		irProg.HTTPMaxRequestBytes = httpMaxRequestBytes
-	}
-	irProg.ExternHeaders = externHeaders
-	irProg.OptionsYAML = optionsYAML
+	opts.apply(irProg)
 
 	cSource, header, stubs, err := cbackend.GenerateLibFromIR(irProg, libRoot)
 	if err != nil {
@@ -264,47 +269,9 @@ type Compiler struct {
 	// (и их зависимостей, рекурсивно). nil - как без транзитивных
 	// зависимостей вовсе (LoadWithDeps вместо LoadWithGraph по факту).
 	DepScopes map[string]map[string]string
-	// DBPoolSize - "бд.размер_пула" файла проекта (0 - нет .rechproj или
-	// поле не указано, см. Backend.Generate) - заполняется cmd/rech перед
-	// вызовом Build, тем же принципом, что и Deps/DepScopes.
-	DBPoolSize int
-	// DBPoolTimeoutMs - "бд.таймаут_пула_мс" файла проекта (0 - нет
-	// .rechproj, поле не указано, ИЛИ явно "0" - все три неотличимы и не
-	// обязаны быть отличимы, см. Backend.Generate) - тем же принципом, что
-	// DBPoolSize.
-	DBPoolTimeoutMs int
-	// DBSQLiteBusyTimeoutMs - "бд.sqlite_таймаут_блокировки_мс" файла
-	// проекта (0 - не указан, используй встроенное умолчание internal/
-	// semantic.DefaultDBSQLiteBusyTimeoutMs), тем же принципом, что
-	// DBPoolSize.
-	DBSQLiteBusyTimeoutMs int
-	// PoolShrinkEnabled - "потоки.сжатие_пула" файла проекта (true - нет
-	// .rechproj, поле не указано, или "истина" - см. cmd/rech/main.go,
-	// значение по умолчанию выставляется там явно, поскольку у bool, в
-	// отличие от int-настроек вроде DBPoolSize, нет естественного
-	// сентинела "не задано") - заполняется cmd/rech перед вызовом Build,
-	// тем же принципом, что и Deps/DepScopes.
-	PoolShrinkEnabled bool
-	// PoolIdleTimeoutMs - "потоки.таймаут_простоя_мс" файла проекта (0 - не
-	// указан, используй встроенное умолчание internal/semantic.
-	// DefaultPoolIdleTimeoutMs), тем же принципом, что DBPoolSize. Имеет
-	// значение, только если PoolShrinkEnabled.
-	PoolIdleTimeoutMs int
-	// HTTPMaxRequestBytes - "http.макс_размер_запроса_байт" файла проекта
-	// (0 - не указан, используй встроенное умолчание internal/semantic.
-	// DefaultHTTPMaxRequestBytes), тем же принципом, что DBPoolSize.
-	HTTPMaxRequestBytes int
-	// ExternHeaders - "сборка.заголовки" файла проекта (internal/project.
-	// File.Заголовки) - заполняется cmd/rech перед вызовом Build, тем же
-	// принципом, что и Deps/DepScopes. nil - нет .rechproj или поле не
-	// указано (см. ir.Program.ExternHeaders).
-	ExternHeaders []string
-	// OptionsYAML - "опции:" файла проекта (internal/project.File.Опции) -
-	// заполняется cmd/rech перед вызовом Build, тем же принципом, что и
-	// ExternHeaders. "" - нет .rechproj или секции (см. ir.Program.OptionsYAML).
-	OptionsYAML string
-	// Service - "сборка.тип: служба" (см. ir.Program.Service).
-	Service bool
+	// GenOptions - настройки кодогенерации из файла проекта и режим
+	// сборки, заполняются cmd/rech перед вызовом Build.
+	GenOptions
 	// CBuild - компилятор/флаги C из файла проекта (Libs/LibPaths здесь не
 	// заполняются - приходят параметрами Build, см. cBuild).
 	CBuild CBuild
@@ -315,6 +282,7 @@ type Compiler struct {
 func (c *Compiler) cBuild(libs, libPaths []string) CBuild {
 	b := c.CBuild
 	b.Libs, b.LibPaths = libs, libPaths
+	b.Release = c.Release
 	return b
 }
 
@@ -413,7 +381,7 @@ func writeInterfaceStubs(stubs map[string]string, base, stubDir string) ([]strin
 // keepC - оба часть публичного API библиотеки, а не техническая заготовка
 // вроде .c.
 func (c *Compiler) compileLibProgram(prog *ast.Program, base, libRoot, stubDir string, keepC bool, extraLibs, extraLibPaths []string) (libPath, hPath string, rechiPaths []string, err error) {
-	lib, err := c.Backend.GenerateLib(prog, libRoot, c.DBPoolSize, c.DBPoolTimeoutMs, c.DBSQLiteBusyTimeoutMs, c.PoolShrinkEnabled, c.PoolIdleTimeoutMs, c.HTTPMaxRequestBytes, c.ExternHeaders, c.OptionsYAML)
+	lib, err := c.Backend.GenerateLib(prog, libRoot, c.GenOptions)
 	if err != nil {
 		return "", "", nil, fmt.Errorf("генерация C: %w", err)
 	}
@@ -428,7 +396,12 @@ func (c *Compiler) compileLibProgram(prog *ast.Program, base, libRoot, stubDir s
 
 	tmpBase := filepath.Join(tmpDir, "out")
 	tmpCPath := tmpBase + ".c"
-	if err := os.WriteFile(tmpCPath, []byte(cSource), 0o644); err != nil {
+	keptCPath := base + ".c"
+	lineCPath := tmpCPath
+	if keepC {
+		lineCPath = keptCPath
+	}
+	if err := os.WriteFile(tmpCPath, []byte(cbackend.ResolveCFile(cSource, lineCPath)), 0o644); err != nil {
 		return "", "", nil, fmt.Errorf("не удалось записать %s: %w", tmpCPath, err)
 	}
 	libExt := c.Toolchain.LibExtension()
@@ -472,9 +445,8 @@ func (c *Compiler) compileLibProgram(prog *ast.Program, base, libRoot, stubDir s
 	}
 
 	if keepC {
-		cPath := base + ".c"
-		if err := os.WriteFile(cPath, []byte(cSource), 0o644); err != nil {
-			return "", "", nil, fmt.Errorf("не удалось записать %s: %w", cPath, err)
+		if err := os.WriteFile(keptCPath, []byte(cbackend.ResolveCFile(cSource, keptCPath)), 0o644); err != nil {
+			return "", "", nil, fmt.Errorf("не удалось записать %s: %w", keptCPath, err)
 		}
 	}
 	return libPath, hPath, rechiPaths, nil
@@ -549,16 +521,18 @@ func (c *Compiler) BuildSource(src string, keepC bool, extraLibs, extraLibPaths 
 // compileProgram - общий хвост Build/BuildSource: генерация C, запись,
 // сборка бинарником, необязательная уборка .c.
 func (c *Compiler) compileProgram(prog *ast.Program, base string, keepC bool, extraLibs, extraLibPaths []string) (string, error) {
-	cSource, warnings, err := c.Backend.Generate(prog, c.DBPoolSize, c.DBPoolTimeoutMs, c.DBSQLiteBusyTimeoutMs, c.PoolShrinkEnabled, c.PoolIdleTimeoutMs, c.HTTPMaxRequestBytes, c.ExternHeaders, c.OptionsYAML, c.Service)
+	cSource, warnings, err := c.Backend.Generate(prog, c.GenOptions)
 	if err != nil {
 		return "", fmt.Errorf("генерация C: %w", err)
 	}
 	c.warn(warnings)
 
+	// #line рантайма указывают на сохранённый .c (отладчик найдёт его рядом
+	// с программой), без --keep-c - на временный.
+	keptCPath := base + ".c"
 	if keepC {
-		cPath := base + ".c"
-		if err := os.WriteFile(cPath, []byte(cSource), 0o644); err != nil {
-			return "", fmt.Errorf("не удалось записать %s: %w", cPath, err)
+		if err := os.WriteFile(keptCPath, []byte(cbackend.ResolveCFile(cSource, keptCPath)), 0o644); err != nil {
+			return "", fmt.Errorf("не удалось записать %s: %w", keptCPath, err)
 		}
 	}
 
@@ -584,7 +558,11 @@ func (c *Compiler) compileProgram(prog *ast.Program, base string, keepC bool, ex
 
 	tmpBase := filepath.Join(tmpDir, "out")
 	tmpCPath := tmpBase + ".c"
-	if err := os.WriteFile(tmpCPath, []byte(cSource), 0o644); err != nil {
+	lineCPath := tmpCPath
+	if keepC {
+		lineCPath = keptCPath
+	}
+	if err := os.WriteFile(tmpCPath, []byte(cbackend.ResolveCFile(cSource, lineCPath)), 0o644); err != nil {
 		return "", fmt.Errorf("не удалось записать %s: %w", tmpCPath, err)
 	}
 	if err := c.Toolchain.CompileC(tmpCPath, tmpBase, c.cBuild(extraLibs, extraLibPaths)); err != nil {

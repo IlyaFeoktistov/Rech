@@ -20,7 +20,13 @@ import (
 //   - то, что новые gcc считают ошибкой, - ошибка на любой версии
 //     (-Werror=...): программа, собравшаяся на старом gcc, собирается и на
 //     новом;
-//   - версия компилятора проверяется: ниже минимальной - понятная ошибка.
+//   - версия компилятора проверяется: ниже минимальной - понятная ошибка;
+//   - семантика языка не зависит от уровня оптимизации: переполнение целых
+//     оборачивается по модулю (-fwrapv, docs/SPEC.md раздел 5 - в C
+//     знаковое переполнение не определено, и -O2 выкидывает проверки,
+//     рассчитывая на его отсутствие), приведения указателей между
+//     структурами рантайма (сущности, Значение, FFI) не ломаются
+//     оптимизатором (-fno-strict-aliasing).
 
 // ccStrictFlags - встроенные флаги C для gcc/clang (заменяются целиком
 // "сборка.флаги_c" проекта).
@@ -30,6 +36,8 @@ var ccStrictFlags = []string{
 	"-Werror=implicit-int",
 	"-Werror=incompatible-pointer-types",
 	"-Werror=int-conversion",
+	"-fwrapv",
+	"-fno-strict-aliasing",
 }
 
 // minCCVersion - наименьшие поддерживаемые версии (major); проверенные -
@@ -93,13 +101,14 @@ func checkCCVersion(path string, info ccInfo) error {
 }
 
 // cFlags - флаги C сборки: "сборка.флаги_c" проекта, если заданы, иначе
-// встроенные (только у gcc/clang - другой компилятор их может не знать).
+// встроенные - строгие и режима сборки (modeCFlags), только у gcc/clang:
+// другой компилятор их может не знать.
 func cFlags(b compiler.CBuild, info ccInfo) []string {
 	if b.CFlagsSet {
 		return append([]string{}, b.CFlags...)
 	}
 	if info.family != "" {
-		return append([]string{}, ccStrictFlags...)
+		return append(append([]string{}, ccStrictFlags...), modeCFlags(b)...)
 	}
 	return nil
 }

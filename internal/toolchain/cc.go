@@ -128,6 +128,9 @@ func ccArgs(b compiler.CBuild, cPath, out string, defaultLink []string, goos str
 		args = append(args, b.LinkFlags...)
 	} else {
 		args = append(args, defaultLink...)
+		if b.Release && info.family != "" {
+			args = append(args, releaseLinkFlags(goos)...)
+		}
 	}
 	// Подсистема - часть "сборка.тип", не флагов линковки: добавляется и
 	// тогда, когда флаги_линковки заданы в проекте целиком.
@@ -139,7 +142,7 @@ func ccArgs(b compiler.CBuild, cPath, out string, defaultLink []string, goos str
 
 // runCC запускает компилятор C: "<флаги C> <cPath> -o <out> <флаги
 // линковки>". Флаги проекта (b.CFlags/b.LinkFlags), если заданы, заменяют
-// встроенные целиком (см. compiler.CBuild); встроенных флагов C нет.
+// встроенные целиком (см. compiler.CBuild, cFlags).
 func runCC(b compiler.CBuild, cPath, out string, defaultLink []string) error {
 	path, err := findCCompiler(b.CCompiler)
 	if err != nil {

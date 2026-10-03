@@ -29,7 +29,7 @@ func TestLoadDefaultsAndPaths(t *testing.T) {
 	if pf.Выход != "сборка" {
 		t.Fatalf("ожидался каталог выхода по умолчанию \"сборка\", получено %q", pf.Выход)
 	}
-	if pf.Режим != "релиз" || pf.Платформа != "текущая" {
+	if pf.Режим != "отладка" || pf.Платформа != "текущая" {
 		t.Fatalf("неожиданные значения по умолчанию: %+v", pf)
 	}
 	if got, want := pf.MainPath(), filepath.Join(dir, "исходники", "главный.rech"); got != want {
@@ -38,8 +38,8 @@ func TestLoadDefaultsAndPaths(t *testing.T) {
 	if got, want := pf.OutputDir(), filepath.Join(dir, "сборка"); got != want {
 		t.Fatalf("OutputDir() = %q, ожидалось %q", got, want)
 	}
-	if pf.KeepC() {
-		t.Fatalf("режим релиз не должен сохранять .c")
+	if pf.IsRelease() {
+		t.Fatalf("режим по умолчанию - отладка, не релиз")
 	}
 	if pf.Тип != "консольное" || pf.IsLibrary() || pf.IsWindowed() {
 		t.Fatalf("ожидался тип по умолчанию \"консольное\", получено %+v", pf)

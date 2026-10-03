@@ -66,6 +66,12 @@ const byteListType = "Список<Байт>"
 // имени - в этом и смысл шага 5 (тип решается один раз, не в каждом
 // backend'е заново).
 type irGenCtx struct {
+	// release - релизная сборка (ir.Program.Release): без стека вызовов
+	// (releaseTraceHelper) и без #line.
+	release bool
+	// srcFile - исходник Rech генерируемой функции/метода/конструктора
+	// (абсолютный путь) для #line, "" - вне тела (line_directives.go).
+	srcFile    string
 	usesConcat bool
 	// builtinFlags - единая таблица диспетчеризации builtinCallCode
 	// (usesPanic из неё же покрывает "утверждать"/деление на ноль -
@@ -681,6 +687,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 		generics[g.Name] = true
 	}
 	ctx := &irGenCtx{
+		release:               prog.Release,
 		entities:              entities,
 		generics:              generics,
 		nullableInner:         nullableInner,
@@ -1548,7 +1555,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 	// ctx.usesExceptions, см. exceptions.go) - раньше определялся только
 	// там, теперь общий для обоих потребителей.
 	sb.WriteString("#if defined(_WIN32)\n#define RECH_THREAD_LOCAL __declspec(thread)\n#else\n#define RECH_THREAD_LOCAL __thread\n#endif\n")
-	sb.WriteString(traceHelper)
+	sb.WriteString(traceHelperFor(ctx))
 	sb.WriteString("\n")
 	sb.WriteString(consoleInitHelper)
 	sb.WriteString("\n")
@@ -2227,7 +2234,7 @@ func generateSource(prog *ir.Program, libMode bool) (string, error) {
 
 	sb.WriteString(body.String())
 	appendCodeIf(&sb, ctx.service, process.ServiceMainCode)
-	return sb.String(), nil
+	return resolveLineMarkers(sb.String()), nil
 }
 
 type ResolveFn = func(ctx *irGenCtx, prog *ir.Program, targets []ir.Type) (string, error)

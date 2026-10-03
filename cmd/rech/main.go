@@ -2,10 +2,10 @@
 //
 // Использование:
 //
-//	rech build [--keep-c] <файл.rech>|<каталог>|-c "<код>"        - собрать бинарник
-//	rech build [--keep-c] --lib <файл.rech>|<каталог>|-c "<код>"  - собрать разделяемую библиотеку (.so/.dylib/.dll) + C-заголовок (.h)
-//	rech run [--keep-c] <файл.rech>|<каталог>|-c "<код>"          - собрать и выполнить
-//	rech test <файл.rech>|<каталог>                                - найти и запустить тесты
+//	rech build [--keep-c] [--release] <файл.rech>|<каталог>|-c "<код>"        - собрать бинарник
+//	rech build [--keep-c] [--release] --lib <файл.rech>|<каталог>|-c "<код>"  - собрать разделяемую библиотеку (.so/.dylib/.dll) + C-заголовок (.h)
+//	rech run [--keep-c] [--release] <файл.rech>|<каталог>|-c "<код>"          - собрать и выполнить
+//	rech test [-j N] <файл.rech>|<каталог>                         - найти и запустить тесты (N процессов параллельно, по умолчанию - число ядер)
 //	rech fmt [--write | --check] <файл.rech>|<каталог>             - канонический отступ, как gofmt; --check ничего не пишет, для CI
 //	rech proto [-o <файл.rech>] <файл.proto>                       - импорт ".proto"-контракта в Rech-сущности с тегами `protobuf:N`
 //	rech add <имя> <url> <версия>                                  - добавить внешнюю зависимость в .rechproj и сразу скачать её
@@ -25,9 +25,13 @@
 // (rech run -c "$(cat <<'EOF' ... EOF)"), отдельной поддержки в самом rech
 // для этого не нужно - строка приходит уже целиком.
 //
+// --release - релизная сборка (как "сборка.режим: релиз" в .rechproj):
+// оптимизация, без отладочной информации и стека вызовов; по умолчанию -
+// отладочная (#line на исходник Rech для gdb/lldb).
+//
 // <каталог> у test обходится рекурсивно, ищет файлы с суффиксом
 // "_тест.rech" и запускает каждый через internal/interp (без вызова
-// системного cc) - детали internal/testrunner.
+// системного cc) в отдельном процессе - детали test.go, internal/testrunner.
 //
 // По умолчанию сгенерированный <файл>.c удаляется после успешной сборки -
 // это техническая заготовка, а не то, что нужно смотреть. --keep-c
@@ -47,7 +51,6 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/debugadapter"
 	"github.com/IlyaFeoktistov/Rech/internal/lsp"
 	"github.com/IlyaFeoktistov/Rech/internal/project"
-	"github.com/IlyaFeoktistov/Rech/internal/testrunner"
 	"github.com/IlyaFeoktistov/Rech/internal/version"
 )
 
@@ -117,11 +120,17 @@ func main() {
 	}
 
 	if cmd == "test" {
-		if len(os.Args) < 3 {
+		if len(os.Args) == 4 && os.Args[2] == testWorkerFlag {
+			runTestWorker(os.Args[3])
+			return
+		}
+		path, jobs, err := parseTestArgs(os.Args[2:])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "ошибка:", err)
 			usage()
 			os.Exit(2)
 		}
-		if !runTests(os.Args[2]) {
+		if !runTests(path, jobs) {
 			os.Exit(1)
 		}
 		return
@@ -141,11 +150,12 @@ func main() {
 		return
 	}
 
-	srcPath, code, keepC, hasCode, isLib, err := parseBuildArgs(os.Args[2:])
+	args, err := parseBuildArgs(os.Args[2:])
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ошибка:", err)
 		os.Exit(2)
 	}
+	srcPath, code, keepC, hasCode, isLib, release := args.srcPath, args.code, args.keepC, args.hasCode, args.isLib, args.release
 
 	// Файл проекта (.rechproj) - либо явно передан вместо <файл.rech>|<каталог>,
 	// либо (при полностью пустых аргументах) единственный в текущем каталоге -
@@ -195,17 +205,17 @@ func main() {
 				os.Exit(1)
 			}
 			srcPath = pf.MainPath()
+			// --keep-c/--lib/--release из командной строки файлом проекта не
+			// отменяются: значение по умолчанию (false) неотличимо от явного
+			// выбора пользователя.
 			if !keepC {
-				// --keep-c из командной строки не переопределяется "режимом"
-				// файла проекта в обратную сторону - иначе значение по
-				// умолчанию (false) неотличимо от явного выбора пользователя.
 				keepC = pf.KeepC()
 			}
 			if !isLib {
-				// Тот же принцип, что и у keepC/pf.KeepC() выше - --lib из
-				// командной строки не переопределяется файлом проекта в
-				// обратную сторону.
 				isLib = pf.IsLibrary()
+			}
+			if !release {
+				release = pf.IsRelease()
 			}
 			outDir, projName, libRoot = pf.OutputDir(), pf.Имя, pf.Dir
 			runEnv = pf.Окружение
@@ -291,6 +301,7 @@ func main() {
 	comp.OptionsYAML = optionsYAML
 	comp.CBuild = cBuild
 	comp.Service = isService
+	comp.Release = release
 	build := func() (string, error) { return comp.Build(srcPath, keepC, extraLibs, extraLibPaths) }
 	if outDir != "" {
 		comp.LibName = projName // placeInOutputDir ниже переносит под этим именем
@@ -405,92 +416,46 @@ func placeInOutputDir(binPath, outDir, projName string) (string, error) {
 	return dst, nil
 }
 
-// parseBuildArgs разбирает аргументы после "build"/"run": флаги --keep-c/
-// --lib (в любом месте, --lib имеет смысл только у "build" - проверяется
-// вызывающим кодом, не здесь), путь к .rech-файлу/каталогу ИЛИ -c/--code
-// <код> (взаимно исключающие способы указать программу - hasCode отличает
-// "код есть, но пустая строка" от "кода не было вовсе").
-func parseBuildArgs(args []string) (srcPath, code string, keepC, hasCode, isLib bool, err error) {
+// buildArgs - аргументы "build"/"run": путь к .rech-файлу/каталогу/
+// .rechproj ИЛИ -c/--code <код> (взаимно исключающие способы указать
+// программу - hasCode отличает "код есть, но пустая строка" от "кода не было
+// вовсе") и флаги --keep-c/--lib/--release (в любом месте; --lib имеет смысл
+// только у "build" - проверяется вызывающим кодом).
+type buildArgs struct {
+	srcPath, code                  string
+	keepC, hasCode, isLib, release bool
+}
+
+// parseBuildArgs разбирает аргументы после "build"/"run" (см. buildArgs).
+func parseBuildArgs(args []string) (buildArgs, error) {
+	var a buildArgs
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--keep-c":
-			keepC = true
+			a.keepC = true
 		case "--lib":
-			isLib = true
+			a.isLib = true
+		case "--release":
+			a.release = true
 		case "-c", "--code":
 			if i+1 >= len(args) {
-				return "", "", false, false, false, fmt.Errorf("после %q ожидался код программы", args[i])
+				return buildArgs{}, fmt.Errorf("после %q ожидался код программы", args[i])
 			}
 			i++
-			code = args[i]
-			hasCode = true
+			a.code = args[i]
+			a.hasCode = true
 		default:
-			srcPath = args[i]
+			a.srcPath = args[i]
 		}
 	}
-	if hasCode && srcPath != "" {
-		return "", "", false, false, false, fmt.Errorf("нельзя одновременно указать -c/--code и путь к файлу/каталогу (%q)", srcPath)
+	if a.hasCode && a.srcPath != "" {
+		return buildArgs{}, fmt.Errorf("нельзя одновременно указать -c/--code и путь к файлу/каталогу (%q)", a.srcPath)
 	}
-	return srcPath, code, keepC, hasCode, isLib, nil
+	return a, nil
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "использование: rech build [--keep-c] [--lib] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech run [--keep-c] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech test <файл.rech>|<каталог> | rech fmt [--write|-w | --check] <файл.rech>|<каталог> | rech proto [-o <файл.rech>] <файл.proto> | rech add <имя> <url> <версия> | rech install | rech debug | rech lsp | rech init [--console|--gui|--service|--library|--static-library] [имя] | rech version")
-}
-
-// testDotsPerLine - сколько точек/"F" печатать в строке прогресса, прежде
-// чем перейти на новую (как у PHPUnit/Composer) - чисто читаемость вывода
-// при большом числе тестов, не влияет на подсчёт результатов.
-const testDotsPerLine = 60
-
-// runTests запускает testrunner.Run по path и печатает результат в стиле
-// прогресс-точек (Composer/PHPUnit): "." за пройденный тест, "F" за
-// непройденный - ни один упавший файл не прерывает прогон остальных
-// (testrunner.RunFile изолирует ошибки каждого файла отдельно). После
-// прогресса - список причин каждого провала, затем итоговая сводка.
-// Возвращает false, если хотя бы один тест не прошёл.
-func runTests(path string) bool {
-	results, err := testrunner.Run(path)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "ошибка:", err)
-		return false
-	}
-	if len(results) == 0 {
-		fmt.Println("тестовых файлов не найдено")
-		return true
-	}
-
-	var failed []testrunner.Result
-	for i, r := range results {
-		if r.Passed {
-			fmt.Print(".")
-		} else {
-			fmt.Print("F")
-			failed = append(failed, r)
-		}
-		if (i+1)%testDotsPerLine == 0 {
-			fmt.Println()
-		}
-	}
-	fmt.Println()
-	fmt.Println()
-
-	for _, r := range results {
-		for _, w := range r.Warnings {
-			printWarning(w)
-		}
-	}
-
-	if len(failed) > 0 {
-		fmt.Println("Провалившиеся тесты:")
-		fmt.Println()
-		for i, r := range failed {
-			fmt.Printf("%d) %s\n%s\n", i+1, r.Path, compileErrorText(r.Err))
-		}
-	}
-
-	fmt.Printf("Тестов: %d, провалено: %d\n", len(results), len(failed))
-	return len(failed) == 0
+	fmt.Fprintln(os.Stderr, "использование: rech build [--keep-c] [--lib] [--release] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech run [--keep-c] [--release] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech test [-j N] <файл.rech>|<каталог> | rech fmt [--write|-w | --check] <файл.rech>|<каталог> | rech proto [-o <файл.rech>] <файл.proto> | rech add <имя> <url> <версия> | rech install | rech debug | rech lsp | rech init [--console|--gui|--service|--library|--static-library] [имя] | rech version")
 }
 
 // runBinary запускает только что собранный binPath - env (project.File.

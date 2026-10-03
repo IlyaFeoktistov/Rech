@@ -360,7 +360,7 @@ func generateIRTryStmt(sb *strings.Builder, ctx *irGenCtx, s *ir.TryStmt, depth 
 	traceVar := frame + "_trace"
 	excPtr := frame + "_exc"
 	fmt.Fprintf(sb, "%s{\n", ind)
-	fmt.Fprintf(sb, "%sint %s = rech_trace_top;\n", in1, traceVar)
+	sb.WriteString(traceSave(ctx, in1, traceVar))
 	fmt.Fprintf(sb, "%s%s %s = {0};\n", in1, catchFrameType, frame)
 	fmt.Fprintf(sb, "%s%s.prev = %s;\n", in1, frame, catchTopVar)
 	fmt.Fprintf(sb, "%s%s = &%s;\n", in1, catchTopVar, frame)
@@ -379,7 +379,7 @@ func generateIRTryStmt(sb *strings.Builder, ctx *irGenCtx, s *ir.TryStmt, depth 
 	fmt.Fprintf(sb, "%s%s = %s.prev;\n", in2, catchTopVar, frame)
 	fmt.Fprintf(sb, "%s} else {\n", in1)
 	fmt.Fprintf(sb, "%s%s = %s.prev;\n", in2, catchTopVar, frame)
-	fmt.Fprintf(sb, "%srech_trace_top = %s;\n", in2, traceVar)
+	sb.WriteString(traceRestore(ctx, in2, traceVar))
 	fmt.Fprintf(sb, "%svoid *%s = %s.exc;\n", in2, excPtr, frame)
 	cond, err := catchMatchExpr(ctx, s, excPtr)
 	if err != nil {
@@ -454,7 +454,7 @@ func generateIRTryWithFinallyStmt(sb *strings.Builder, ctx *irGenCtx, s *ir.TryS
 	outcomeVar := frame + "_outcome" // 0 обычное завершение, 1 - свой поймать сработал, 2 - брошенное прошло насквозь
 
 	fmt.Fprintf(sb, "%s{\n", ind)
-	fmt.Fprintf(sb, "%sint %s = rech_trace_top;\n", in1, traceVar)
+	sb.WriteString(traceSave(ctx, in1, traceVar))
 	fmt.Fprintf(sb, "%s%s %s = {0};\n", in1, catchFrameType, frame)
 	fmt.Fprintf(sb, "%s%s.prev = %s;\n", in1, frame, catchTopVar)
 	fmt.Fprintf(sb, "%s%s = &%s;\n", in1, catchTopVar, frame)
@@ -494,7 +494,7 @@ func generateIRTryWithFinallyStmt(sb *strings.Builder, ctx *irGenCtx, s *ir.TryS
 	fmt.Fprintf(sb, "%s%s = %s.prev;\n", in2, catchTopVar, frame)
 	fmt.Fprintf(sb, "%s} else {\n", in1)
 	fmt.Fprintf(sb, "%s%s = %s.prev;\n", in2, catchTopVar, frame)
-	fmt.Fprintf(sb, "%srech_trace_top = %s;\n", in2, traceVar)
+	sb.WriteString(traceRestore(ctx, in2, traceVar))
 	fmt.Fprintf(sb, "%s%s = %s.exc;\n", in2, excPtr, frame)
 	if s.NoCatch {
 		fmt.Fprintf(sb, "%s%s = 2;\n", in2, outcomeVar)

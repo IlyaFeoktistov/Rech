@@ -25,7 +25,6 @@ type tryCatchClause struct {
 	catchVar   string
 	catchTypes []string
 	catchBody  []ast.Stmt
-	line       int
 }
 
 // parseOneCatchClause разбирает ОДИН "поймать(<имя>: <Тип> { "|" <Тип> }) { <обработчик> }" -
@@ -33,7 +32,7 @@ type tryCatchClause struct {
 // дальше действительно идёт "поймать", и сама отвечает за skipNewlines
 // перед вызовом.
 func (p *Parser) parseOneCatchClause() (tryCatchClause, error) {
-	kw, err := p.expect(lexer.KwCatch)
+	_, err := p.expect(lexer.KwCatch)
 	if err != nil {
 		return tryCatchClause{}, err
 	}
@@ -69,7 +68,7 @@ func (p *Parser) parseOneCatchClause() (tryCatchClause, error) {
 		return tryCatchClause{}, err
 	}
 	return tryCatchClause{
-		catchVar: catchVar.Value, catchTypes: catchTypes, catchBody: catchBody, line: kw.Line,
+		catchVar: catchVar.Value, catchTypes: catchTypes, catchBody: catchBody,
 	}, nil
 }
 
@@ -131,12 +130,12 @@ func (p *Parser) parseTryStmt() (ast.Stmt, error) {
 
 	node := &ast.TryStmt{
 		Body: body, CatchVar: clauses[0].catchVar, CatchTypes: clauses[0].catchTypes,
-		CatchBody: clauses[0].catchBody, Line: clauses[0].line,
+		CatchBody: clauses[0].catchBody, Line: kw.Line,
 	}
 	for _, c := range clauses[1:] {
 		node = &ast.TryStmt{
 			Body: []ast.Stmt{node}, CatchVar: c.catchVar, CatchTypes: c.catchTypes,
-			CatchBody: c.catchBody, Line: c.line,
+			CatchBody: c.catchBody, Line: kw.Line,
 		}
 	}
 	node.Finally = finallyBody

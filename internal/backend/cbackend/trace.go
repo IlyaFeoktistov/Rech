@@ -78,6 +78,41 @@ static void rech_trace_print(void) {
 }
 `, traceMaxFrames, escapeCString(rtmsg.TraceHeader), rtmsg.TraceFrameFormat, escapeCString(rtmsg.TraceTruncated))
 
+// releaseTraceHelper - стек вызовов в релизной сборке: вызовы
+// rech_trace_* остаются в сгенерированном коде, но ничего не делают и не
+// кладут в программу имена функций (аргументы макросов отбрасываются
+// препроцессором), паника печатает только сообщение.
+const releaseTraceHelper = `#define rech_trace_push(name) ((void)0)
+#define rech_trace_pop() ((void)0)
+#define rech_trace_line(line) ((void)0)
+#define rech_trace_print() ((void)0)
+`
+
+// traceHelperFor - рантайм стека вызовов для режима сборки ctx.
+func traceHelperFor(ctx *irGenCtx) string {
+	if ctx.release {
+		return releaseTraceHelper
+	}
+	return traceHelper
+}
+
+// traceSave/traceRestore - запомнить глубину стека вызовов в C-переменной
+// v и восстановить её (попытаться/поймать, см. exceptions.go); в релизе
+// стека нет - пусто.
+func traceSave(ctx *irGenCtx, ind, v string) string {
+	if ctx.release {
+		return ""
+	}
+	return fmt.Sprintf("%sint %s = rech_trace_top;\n", ind, v)
+}
+
+func traceRestore(ctx *irGenCtx, ind, v string) string {
+	if ctx.release {
+		return ""
+	}
+	return fmt.Sprintf("%srech_trace_top = %s;\n", ind, v)
+}
+
 // tracePush - "rech_trace_push("<displayName>");" в начале сгенерированной
 // функции/метода (см. generateIRFunction/generateIRMethod/
 // generateIREntityCtorInit).

@@ -194,6 +194,8 @@ func generateIREntityCtorInit(ctx *irGenCtx, ent *ir.Entity) (string, error) {
 	fmt.Fprintf(&sb, "// %s: конструктор\n", ent.Name)
 	fmt.Fprintf(&sb, "static void %s(%s) {\n", mangleCtorInit(ent.Name), cMethodParamListIR(ctx, ent.Name, ent.Ctor.Params))
 	fmt.Fprintf(&sb, "    %s", tracePush(ent.Name+".конструктор"))
+	ctx.srcFile = sourcePath(ent.Ctor.File)
+	defer func() { ctx.srcFile = "" }()
 	ctx.thisEntity = ent.Name
 	ctx.body = bodyKind{void: true}
 	defer func() {
@@ -330,6 +332,8 @@ func generateIRFunction(ctx *irGenCtx, fn *ir.Function) (string, error) {
 	}
 	fmt.Fprintf(&sb, "%s%s %s(%s) {\n", exportAttr(ctx, fn.Exported), returnType, cName, paramList)
 	fmt.Fprintf(&sb, "    %s", tracePush(fn.Name))
+	ctx.srcFile = sourcePath(fn.File)
+	defer func() { ctx.srcFile = "" }()
 	if isEntry {
 		if ctx.usesGC {
 			sb.WriteString("    GC_INIT();\n")
@@ -373,6 +377,8 @@ func generateIRMethod(ctx *irGenCtx, entityName string, m *ir.Method) (string, e
 	}
 	fmt.Fprintf(&sb, "%s%s %s(%s) {\n", exportAttr(ctx, m.Exported), cReturnTypeFor(ctx, m.HasReturn, m.ReturnType), methodCName(ctx, entityName, m.Name), paramList)
 	fmt.Fprintf(&sb, "    %s", tracePush(entityName+"."+m.Name))
+	ctx.srcFile = sourcePath(m.File)
+	defer func() { ctx.srcFile = "" }()
 	if !m.IsStatic {
 		ctx.thisEntity = entityName
 		defer func() { ctx.thisEntity = "" }()

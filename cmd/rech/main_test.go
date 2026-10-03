@@ -77,7 +77,7 @@ func TestRunTestsComposerStyleOutput(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, "б_тест.rech"), "функция главная { утверждать 1 == 2 }")
 
 	var ok bool
-	out := captureStdout(t, func() { ok = runTests(dir) })
+	out := captureStdout(t, func() { ok = runTests(dir, 2) })
 
 	if ok {
 		t.Fatal("ожидался хотя бы один провал - runTests должна вернуть false")
@@ -98,7 +98,7 @@ func TestRunTestsAllPassReturnsTrue(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, "а_тест.rech"), "функция главная { утверждать 1 == 1 }")
 
 	var ok bool
-	captureStdout(t, func() { ok = runTests(dir) })
+	captureStdout(t, func() { ok = runTests(dir, 2) })
 	if !ok {
 		t.Fatal("ожидалось true - все тесты прошли")
 	}
@@ -110,53 +110,63 @@ func TestRunTestsNeverAbortsOnFirstFailure(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, "б_тест.rech"), "функция главная { переменная а = 1 / 0 }")
 	writeTestFile(t, filepath.Join(dir, "в_тест.rech"), "функция главная { утверждать истина }")
 
-	out := captureStdout(t, func() { runTests(dir) })
+	out := captureStdout(t, func() { runTests(dir, 2) })
 	if !strings.Contains(out, "Тестов: 3, провалено: 2") {
 		t.Fatalf("ожидалось, что все 3 файла запустятся, несмотря на 2 провала, получено:\n%s", out)
 	}
 }
 
 func TestParseBuildArgsPlainPath(t *testing.T) {
-	src, code, keepC, hasCode, _, err := parseBuildArgs([]string{"--keep-c", "прог.rech"})
+	a, err := parseBuildArgs([]string{"--keep-c", "прог.rech"})
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if src != "прог.rech" || code != "" || !keepC || hasCode {
-		t.Fatalf("получено src=%q code=%q keepC=%v hasCode=%v", src, code, keepC, hasCode)
+	if a.srcPath != "прог.rech" || a.code != "" || !a.keepC || a.hasCode || a.release {
+		t.Fatalf("получено %+v", a)
 	}
 }
 
 func TestParseBuildArgsLibFlag(t *testing.T) {
-	src, _, _, _, isLib, err := parseBuildArgs([]string{"--lib", "прог.rech"})
+	a, err := parseBuildArgs([]string{"--lib", "прог.rech"})
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if src != "прог.rech" || !isLib {
-		t.Fatalf("получено src=%q isLib=%v", src, isLib)
+	if a.srcPath != "прог.rech" || !a.isLib {
+		t.Fatalf("получено %+v", a)
+	}
+}
+
+func TestParseBuildArgsReleaseFlag(t *testing.T) {
+	a, err := parseBuildArgs([]string{"прог.rech", "--release"})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if a.srcPath != "прог.rech" || !a.release {
+		t.Fatalf("получено %+v", a)
 	}
 }
 
 func TestParseBuildArgsCodeFlag(t *testing.T) {
 	for _, flag := range []string{"-c", "--code"} {
-		src, code, _, hasCode, _, err := parseBuildArgs([]string{flag, "вывести 1"})
+		a, err := parseBuildArgs([]string{flag, "вывести 1"})
 		if err != nil {
 			t.Fatalf("неожиданная ошибка: %v", err)
 		}
-		if !hasCode || code != "вывести 1" || src != "" {
-			t.Fatalf("флаг %q: получено src=%q code=%q hasCode=%v", flag, src, code, hasCode)
+		if !a.hasCode || a.code != "вывести 1" || a.srcPath != "" {
+			t.Fatalf("флаг %q: получено %+v", flag, a)
 		}
 	}
 }
 
 func TestParseBuildArgsCodeWithoutValueFails(t *testing.T) {
-	_, _, _, _, _, err := parseBuildArgs([]string{"-c"})
+	_, err := parseBuildArgs([]string{"-c"})
 	if err == nil {
 		t.Fatal("ожидалась ошибка - после -c нет значения")
 	}
 }
 
 func TestParseBuildArgsCodeAndPathConflictFails(t *testing.T) {
-	_, _, _, _, _, err := parseBuildArgs([]string{"-c", "вывести 1", "прог.rech"})
+	_, err := parseBuildArgs([]string{"-c", "вывести 1", "прог.rech"})
 	if err == nil {
 		t.Fatal("ожидалась ошибка - -c и путь одновременно")
 	}
@@ -197,5 +207,32 @@ func TestRunBinaryExternalEnvOverridesManifest(t *testing.T) {
 	})
 	if strings.TrimSpace(out) != "снаружи" {
 		t.Fatalf("получено %q, внешнее окружение должно побеждать значение из .rechproj", out)
+	}
+}
+
+// "выйти()" в тесте завершает только свой рабочий процесс: тест провален,
+// остальные исполняются.
+func TestRunTestsExitInTestFailsOnlyThatTest(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "а_тест.rech"), "функция главная { выйти(3) }")
+	writeTestFile(t, filepath.Join(dir, "б_тест.rech"), "функция главная { утверждать истина }")
+
+	out := captureStdout(t, func() { runTests(dir, 1) })
+	if !strings.Contains(out, "Тестов: 2, провалено: 1") || !strings.Contains(out, "код выхода 3") {
+		t.Fatalf("получено:\n%s", out)
+	}
+}
+
+func TestParseTestArgs(t *testing.T) {
+	if p, j, err := parseTestArgs([]string{"-j", "3", "тесты"}); err != nil || p != "тесты" || j != 3 {
+		t.Fatalf("получено %q %d %v", p, j, err)
+	}
+	if _, j, _ := parseTestArgs([]string{"тесты"}); j < 1 {
+		t.Fatalf("по умолчанию - число ядер, получено %d", j)
+	}
+	for _, bad := range [][]string{{"-j", "0", "т"}, {"-j"}, {}, {"а", "б"}} {
+		if _, _, err := parseTestArgs(bad); err == nil {
+			t.Errorf("%q: ожидалась ошибка", bad)
+		}
 	}
 }

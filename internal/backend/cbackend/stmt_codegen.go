@@ -28,8 +28,10 @@ import (
 func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) error {
 	ctx.curIndent = indent(depth)
 	ctx.chainTmpPreamble = nil
+	open := lineMarkerOpen(ctx, ir.LineOf(s))
 	var body strings.Builder
 	err := generateIRStmtBody(&body, ctx, s, depth)
+	sb.WriteString(open)
 	for _, p := range ctx.chainTmpPreamble {
 		sb.WriteString(p)
 	}
@@ -38,6 +40,7 @@ func generateIRStmt(sb *strings.Builder, ctx *irGenCtx, s ir.Stmt, depth int) er
 		return err
 	}
 	sb.WriteString(body.String())
+	sb.WriteString(lineMarkerClose(open))
 	return nil
 }
 

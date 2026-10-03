@@ -243,6 +243,10 @@ type Program struct {
 	// Service - "сборка.тип: служба": на Windows "главная" исполняется
 	// под диспетчером служб (SCM), см. cbackend service main.
 	Service bool
+	// Release - релизная сборка: паника печатает только сообщение, без
+	// стека вызовов (cbackend не ведёт стек и не кладёт в программу имена
+	// функций), без #line на исходник Rech.
+	Release bool
 	// DBRowTargets - сущности, встретившиеся хоть раз ЭЛЕМЕНТОМ цели
 	// "запросить(...) как Список<Тип>" (DBRowsAsExpr, internal/semantic/
 	// db_rows.go), без повторов - тем же принципом, что и ParseTargets:
