@@ -226,6 +226,11 @@ func (d *doc) update(text string) {
 		irProg = salvaged
 	} else {
 		d.setDiagnostics(parseDiagnostics(parseErrs, lines))
+		// Встроенное имя без импорта: в одиночном анализе файла встроенные
+		// видны всегда, ошибку даёт только связывание.
+		if notImportedBuiltinInFile(linkErr, d.path) {
+			d.addDiagnostics(semanticDiagnosticsFor(linkErr, lines))
+		}
 	}
 	d.goodText = text
 

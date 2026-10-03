@@ -267,10 +267,11 @@ func TestLinkResolvesVarDeclTypeAnnotation(t *testing.T) {
 // "Процесс р = ..." (см. examples/основы/сторонний_процесс.rech)
 // падал "не объявлено и не импортировано", хотя тот же файл без единого
 // "использовать" и не должен объявлять "Процесс" вовсе.
-func TestLinkResolvesBuiltinEntityTypeAnnotationWithoutImport(t *testing.T) {
+func TestLinkResolvesBuiltinEntityTypeAnnotation(t *testing.T) {
 	dir := t.TempDir()
 	entry := writeFile(t, dir, "главный.rech",
-		"функция главная\n{\n"+
+		"использовать Процесс, запустить_процесс из стандарт/система\n"+
+			"функция главная\n{\n"+
 			"    Процесс р = запустить_процесс(\"echo\", новый Список<Строка>())\n"+
 			"}\n")
 
@@ -429,6 +430,8 @@ func TestLinkBuiltinTaskTypeRecognized(t *testing.T) {
 {
     вернуть 42
 }
+
+использовать Задача из стандарт/параллельность
 
 функция главная
 {

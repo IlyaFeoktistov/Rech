@@ -3,10 +3,10 @@ package module
 import (
 	"fmt"
 	"github.com/IlyaFeoktistov/Rech/internal/rtmsg"
+	"github.com/IlyaFeoktistov/Rech/internal/stdlib"
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/ast"
-	"github.com/IlyaFeoktistov/Rech/internal/builtins"
 	"github.com/IlyaFeoktistov/Rech/internal/typename"
 )
 
@@ -137,14 +137,18 @@ func init() {
 // "Файл" - собственную сущность с таким именем в принципе нельзя объявить,
 // internal/semantic.ReservedEntityNames без ShadowableEntityNames), порядок
 // проверки не меняет результат - до names долетать нечему.
+//
+// Встроенное имя из стандартного модуля (internal/stdlib) доступно только
+// импортированным (тогда оно уже в names) - иначе errNotImported с
+// подсказкой, откуда импортировать; ядро - всегда.
 func resolveBareName(name string, names map[string]string) (string, error) {
 	if resolved, ok := names[name]; ok {
 		return resolved, nil
 	}
-	if builtinTypeBases[name] {
-		return name, nil
+	if _, std := stdlib.ModuleOf(name); std {
+		return "", errNotImported{name: name}
 	}
-	if builtins.IsReservedName(name) {
+	if isBuiltinName(name) {
 		return name, nil
 	}
 	return "", fmt.Errorf("%q не объявлено в этом файле и не импортировано", name)
@@ -781,9 +785,14 @@ func (r *rewriter) rewriteExpr(e ast.Expr) error {
 			if r.locals[ident.Name] {
 				return nil
 			}
-			if resolved, err := resolveBareName(ident.Name, r.names); err == nil {
+			resolved, err := resolveBareName(ident.Name, r.names)
+			if err == nil {
 				ident.Name = resolved
 				return nil
+			}
+			// Встроенное перечисление ("HTTPКод.ОК") без импорта.
+			if _, notImported := IsNotImportedBuiltin(err); notImported {
+				return fmt.Errorf("строка %d: %w", e.Line, err)
 			}
 			if r.allEnums[ident.Name] {
 				return fmt.Errorf("строка %d: перечисление %q не объявлено в этом файле и не импортировано", e.Line, ident.Name)

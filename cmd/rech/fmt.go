@@ -9,7 +9,9 @@ import (
 	"strings"
 
 	"github.com/IlyaFeoktistov/Rech/internal/format"
+	"github.com/IlyaFeoktistov/Rech/internal/frontend"
 	"github.com/IlyaFeoktistov/Rech/internal/module"
+	"github.com/IlyaFeoktistov/Rech/internal/project"
 )
 
 // runFmt - "rech fmt [--write|-w | --check] <файл.rech>|<каталог>" - тем же
@@ -26,13 +28,21 @@ import (
 func runFmt(args []string) bool {
 	write := false
 	check := false
-	var target string
-	for _, a := range args {
+	var target, as string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
 		switch a {
 		case "--write", "-w":
 			write = true
 		case "--check":
 			check = true
+		case "--as":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "ошибка: после --as ожидался путь")
+				return false
+			}
+			i++
+			as = args[i]
 		default:
 			if target != "" {
 				fmt.Fprintf(os.Stderr, "ошибка: лишний аргумент %q\n", a)
@@ -46,7 +56,7 @@ func runFmt(args []string) bool {
 		return false
 	}
 	if target == "" {
-		fmt.Fprintln(os.Stderr, "использование: rech fmt [--write|-w | --check] <файл.rech>|<каталог>")
+		fmt.Fprintln(os.Stderr, "использование: rech fmt [--write|-w | --check] <файл.rech>|<каталог> | rech fmt --as <путь> <файл.rech>")
 		return false
 	}
 
@@ -81,10 +91,31 @@ func runFmt(args []string) bool {
 		return ok
 	}
 
+	if as != "" {
+		return formatAs(target, as)
+	}
 	if check {
 		return checkOneFile(target)
 	}
 	return formatOneFile(target, write)
+}
+
+// formatAs - "--as <путь>": текст файла target (копия несохранённого
+// документа редактора) форматируется так, будто лежит по пути as -
+// импорты разрешаются от настоящего места файла. Результат - в stdout.
+func formatAs(target, as string) bool {
+	src, err := os.ReadFile(target)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ошибка:", err)
+		return false
+	}
+	out, err := fixImportsAndFormat(as, string(src))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ошибка: %s: %v\n", as, err)
+		return false
+	}
+	fmt.Print(out)
+	return true
 }
 
 // formatOneFile форматирует один файл - при write==true переписывает его на
@@ -96,7 +127,7 @@ func formatOneFile(path string, write bool) bool {
 		fmt.Fprintln(os.Stderr, "ошибка:", err)
 		return false
 	}
-	out, err := format.Format(string(src))
+	out, err := fixImportsAndFormat(path, string(src))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ошибка: %s: %v\n", path, err)
 		return false
@@ -126,7 +157,7 @@ func checkOneFile(path string) bool {
 		fmt.Fprintln(os.Stderr, "ошибка:", err)
 		return false
 	}
-	out, err := format.Format(string(src))
+	out, err := fixImportsAndFormat(path, string(src))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ошибка: %s: %v\n", path, err)
 		return false
@@ -164,4 +195,17 @@ func discoverRechFiles(root string) ([]string, error) {
 	}
 	sort.Strings(files)
 	return files, nil
+}
+
+// fixImportsAndFormat - недостающие импорты встроенных имён из стандартных
+// модулей (module.FixStdImports, как goimports), затем форматирование.
+// Файл, граф импортов которого не разбирается, только форматируется -
+// ошибку разбора покажет сам format.Format.
+func fixImportsAndFormat(path, src string) (string, error) {
+	if root, err := project.RootFor(path); err == nil {
+		if fixed, err := module.FixStdImports(path, src, frontend.NewFrontend(), root); err == nil {
+			src = fixed
+		}
+	}
+	return format.Format(src)
 }

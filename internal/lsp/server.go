@@ -526,8 +526,12 @@ func (s *server) handleCodeAction(msg *Message) {
 	reqStart, reqEnd := p.Range.Start.Line+1, p.Range.End.Line+1 // 1-индексные, как и весь остальной пакет
 	var out []any
 	for _, a := range d.codeActions() {
+		end := a.NewLine
+		if a.Replace {
+			end++
+		}
 		out = append(out, quickFixJSON(p.TextDocument.URI, a.Title,
-			a.NewLine, 0, a.NewLine, 0, a.NewText))
+			a.NewLine, 0, end, 0, a.NewText))
 	}
 	for _, sug := range d.suggestions() {
 		if sug.EndLine < reqStart || sug.StartLine > reqEnd {

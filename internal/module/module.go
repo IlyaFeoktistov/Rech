@@ -97,6 +97,16 @@ type Module struct {
 	Qualifier string
 	AST       *ast.Program
 	Imports   []Import
+	// StdImports - встроенные имена, импортированные из стандартных
+	// модулей ("использовать знак из стандарт/математика"): Alias - как
+	// написано в файле, Name - настоящее встроенное имя.
+	StdImports []StdImport
+}
+
+// StdImport - одно имя из стандартного модуля (internal/stdlib).
+type StdImport struct {
+	Alias string
+	Name  string
 }
 
 // declaredNames - имена, которые Module объявляет на верхнем уровне и
@@ -270,7 +280,14 @@ func LoadWithRoot(entryPath string, frontend Frontend, rootDeps map[string]strin
 // текст) читаются из памяти, а не с диска: так LSP разбирает граф импортов
 // с несохранённым текстом открытого документа.
 func LoadWithOverlay(entryPath string, frontend Frontend, rootDeps map[string]string, scopes map[string]map[string]string, projectRoot string, overlay map[string]string) (*Program, error) {
-	l := &loader{frontend: frontend, loaded: map[string]*Module{}, inProgress: map[string]bool{}, scopes: scopes, overlay: overlay}
+	return loadForPlatform(entryPath, frontend, rootDeps, scopes, projectRoot, overlay, ast.CurrentPlatform())
+}
+
+// loadForPlatform - LoadWithOverlay с блоками "#если", разрешёнными под
+// platform (одно из ast.PlatformNames), а не под текущую платформу -
+// автоимпорт (stdfix.go) проходит код всех платформ.
+func loadForPlatform(entryPath string, frontend Frontend, rootDeps map[string]string, scopes map[string]map[string]string, projectRoot string, overlay map[string]string, platform string) (*Program, error) {
+	l := &loader{frontend: frontend, loaded: map[string]*Module{}, inProgress: map[string]bool{}, scopes: scopes, overlay: overlay, platform: platform}
 	root := projectRoot
 	if root == "" {
 		root = filepath.Dir(filepath.Clean(entryPath))
@@ -283,6 +300,8 @@ func LoadWithOverlay(entryPath string, frontend Frontend, rootDeps map[string]st
 }
 
 type loader struct {
+	// platform - под какую платформу разрешаются блоки "#если".
+	platform   string
 	frontend   Frontend
 	loaded     map[string]*Module
 	inProgress map[string]bool
@@ -324,13 +343,19 @@ func (l *loader) load(path string, stack []string, deps map[string]string, root 
 	// declaredNames ниже - руки, не подошедшие под текущую платформу,
 	// никогда не попадают в declared/moduleVisibility/остальной конвейер
 	// (см. package doc ast.PlatformBlockDecl/ResolvePlatformBlocks).
-	ast.ResolvePlatformBlocks(prog, ast.CurrentPlatform())
+	ast.ResolvePlatformBlocks(prog, l.platform)
 
 	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	m := &Module{Path: path, Qualifier: Qualifier(base), AST: prog}
 	declared := declaredNames(prog)
 
 	for _, use := range prog.Uses {
+		if use.Std {
+			if err := m.addStdImports(use, declared); err != nil {
+				return nil, err
+			}
+			continue
+		}
 		targetPath, crossedInto, err := resolveImportPath(filepath.Dir(path), root, use.Path, deps)
 		if err != nil {
 			return nil, fmt.Errorf("строка %d: %w", use.Line, err)
@@ -371,11 +396,8 @@ func (l *loader) load(path string, stack []string, deps map[string]string, root 
 			if declared[un.Alias] {
 				return nil, fmt.Errorf("строка %d: имя %q уже объявлено в этом файле - используйте \"как\" для переименования при импорте", un.Line, un.Alias)
 			}
-			for _, existing := range m.Imports {
-				if existing.Alias == un.Alias {
-					return nil, fmt.Errorf("строка %d: имя %q уже импортировано (из %q) - используйте \"как\" для переименования одного из импортов",
-						un.Line, un.Alias, existing.Source.Path)
-				}
+			if err := m.checkAliasFree(un); err != nil {
+				return nil, err
 			}
 			m.Imports = append(m.Imports, Import{Alias: un.Alias, Name: un.Name, Source: target})
 		}

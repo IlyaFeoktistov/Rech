@@ -12,7 +12,17 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"strings"
+
+	"github.com/IlyaFeoktistov/Rech/internal/module"
+	"github.com/IlyaFeoktistov/Rech/internal/stdlib"
 )
+
+// stdModule - стандартный модуль встроенного name.
+func stdModule(name string) string {
+	m, _ := stdlib.ModuleOf(name)
+	return m
+}
 
 // CodeAction - один quick fix - НЕ полный LSP CodeAction (severity/kind и
 // т. п. добавляет server.go при сборке ответа), только то, что нужно этому
@@ -21,6 +31,9 @@ type CodeAction struct {
 	Title   string
 	NewLine int // строка (1-индексная), ПЕРЕД которой вставляется NewText
 	NewText string
+	// Replace - NewText заменяет саму строку NewLine (дописать имя в уже
+	// существующий импорт стандартного модуля), а не вставляется перед ней.
+	Replace bool
 }
 
 // missingImportRe - см. package doc: единственная форма сообщения об
@@ -51,6 +64,15 @@ func (d *doc) codeActions() []CodeAction {
 			continue
 		}
 		name := m[1]
+		if line, text, replace, ok := module.StdImportEdit(d.text, name); ok {
+			out = append(out, CodeAction{
+				Title:   fmt.Sprintf("Импортировать %q из %s", name, stdlib.Prefix+stdModule(name)),
+				NewLine: line,
+				NewText: text,
+				Replace: replace,
+			})
+			continue
+		}
 		for _, c := range findWorkspaceDecl(docDir, d.path, name) {
 			out = append(out, CodeAction{
 				Title:   fmt.Sprintf("Импортировать %q из %q", name, c.ImportPath),
@@ -74,4 +96,13 @@ func (d *doc) importInsertLine() int {
 		}
 	}
 	return last + 1
+}
+
+// notImportedBuiltinInFile - err связывания сообщает о встроенном имени
+// без импорта в самом файле path (а не в файле, который он импортирует).
+func notImportedBuiltinInFile(err error, path string) bool {
+	if _, ok := module.IsNotImportedBuiltin(err); !ok || path == "" {
+		return false
+	}
+	return strings.HasPrefix(err.Error(), filepath.Clean(path)+": ")
 }

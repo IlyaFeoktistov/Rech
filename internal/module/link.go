@@ -15,9 +15,11 @@ import (
 // имён), поэтому при слиянии в одну плоскую internal/ast.Program (её всё
 // ещё разбирает единственный проход cbackend/semantic, см. package doc)
 // имена нужно развести, иначе они столкнутся так же, как если бы это был
-// один файл.
+// один файл. Объявление entry с именем встроенной функции/типа (своё
+// "знак", когда встроенное не импортировано) - тоже с префиксом: в
+// слинкованной программе имя встроенного занято им самим.
 func mangledName(m, entry *Module, name string) string {
-	if m == entry {
+	if m == entry && !isBuiltinName(name) {
 		return name
 	}
 	return m.Qualifier + "_" + name
@@ -64,6 +66,9 @@ func buildNames(m, entry *Module) map[string]string {
 			continue
 		}
 		names[imp.Alias] = mangledName(imp.Source, entry, imp.Name)
+	}
+	for _, imp := range m.StdImports {
+		names[imp.Alias] = imp.Name
 	}
 	return names
 }
@@ -266,26 +271,26 @@ func (p *Program) Link() (*ast.Program, error) {
 		// деле не важен (разные поля разных узлов), но так нагляднее -
 		// сначала решить, что куда ссылается, потом переименовать то, на что
 		// ссылаются.
-		if m != p.Entry {
-			for _, fn := range m.AST.Functions {
-				fn.Name = mangledName(m, p.Entry, fn.Name)
+		// У entry переименовываются только объявления с именем встроенного
+		// (см. mangledName).
+		for _, fn := range m.AST.Functions {
+			fn.Name = mangledName(m, p.Entry, fn.Name)
+		}
+		for _, ent := range m.AST.Entities {
+			ent.Name = mangledName(m, p.Entry, ent.Name)
+			for i := range ent.States {
+				ent.States[i].TypeName = mangledName(m, p.Entry, ent.States[i].TypeName)
 			}
-			for _, ent := range m.AST.Entities {
-				ent.Name = mangledName(m, p.Entry, ent.Name)
-				for i := range ent.States {
-					ent.States[i].TypeName = mangledName(m, p.Entry, ent.States[i].TypeName)
-				}
-			}
-			// ExternFuncDecl.Alias переименовывается тем же принципом - CName
-			// (настоящий C-символ) не трогается, переименовывается только
-			// Rech-facing имя, под которым функция видна в остальном коде.
-			for _, ext := range m.AST.ExternFuncs {
-				ext.Alias = mangledName(m, p.Entry, ext.Alias)
-			}
-			// ExternEntityDecl.Alias - тот же принцип: CName не трогается.
-			for _, extEnt := range m.AST.ExternEntities {
-				extEnt.Alias = mangledName(m, p.Entry, extEnt.Alias)
-			}
+		}
+		// ExternFuncDecl.Alias переименовывается тем же принципом - CName
+		// (настоящий C-символ) не трогается, переименовывается только
+		// Rech-facing имя, под которым функция видна в остальном коде.
+		for _, ext := range m.AST.ExternFuncs {
+			ext.Alias = mangledName(m, p.Entry, ext.Alias)
+		}
+		// ExternEntityDecl.Alias - тот же принцип: CName не трогается.
+		for _, extEnt := range m.AST.ExternEntities {
+			extEnt.Alias = mangledName(m, p.Entry, extEnt.Alias)
 		}
 	}
 

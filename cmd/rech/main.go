@@ -6,7 +6,7 @@
 //	rech build [--keep-c] [--release] --lib <файл.rech>|<каталог>|-c "<код>"  - собрать разделяемую библиотеку (.so/.dylib/.dll) + C-заголовок (.h)
 //	rech run [--keep-c] [--release] <файл.rech>|<каталог>|-c "<код>"          - собрать и выполнить
 //	rech test [-j N] <файл.rech>|<каталог>                         - найти и запустить тесты (N процессов параллельно, по умолчанию - число ядер)
-//	rech fmt [--write | --check] <файл.rech>|<каталог>             - канонический отступ, как gofmt; --check ничего не пишет, для CI
+//	rech fmt [--write | --check] <файл.rech>|<каталог>             - канонический отступ и недостающие импорты встроенных, как gofmt+goimports; --check ничего не пишет, для CI
 //	rech proto [-o <файл.rech>] <файл.proto>                       - импорт ".proto"-контракта в Rech-сущности с тегами `protobuf:N`
 //	rech add <имя> <url> <версия>                                  - добавить внешнюю зависимость в .rechproj и сразу скачать её
 //	rech install                                                   - скачать/обновить кеш внешних зависимостей (.rechproj, "зависимости:")
@@ -455,7 +455,7 @@ func parseBuildArgs(args []string) (buildArgs, error) {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "использование: rech build [--keep-c] [--lib] [--release] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech run [--keep-c] [--release] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech test [-j N] <файл.rech>|<каталог> | rech fmt [--write|-w | --check] <файл.rech>|<каталог> | rech proto [-o <файл.rech>] <файл.proto> | rech add <имя> <url> <версия> | rech install | rech debug | rech lsp | rech init [--console|--gui|--service|--library|--static-library] [имя] | rech version")
+	fmt.Fprintln(os.Stderr, "использование: rech build [--keep-c] [--lib] [--release] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech run [--keep-c] [--release] <файл.rech>|<каталог>|<файл.rechproj>|-c \"<код>\" | rech test [-j N] <файл.rech>|<каталог> | rech fmt [--write|-w | --check] <файл.rech>|<каталог> | rech fmt --as <путь> <файл.rech> | rech proto [-o <файл.rech>] <файл.proto> | rech add <имя> <url> <версия> | rech install | rech debug | rech lsp | rech init [--console|--gui|--service|--library|--static-library] [имя] | rech version")
 }
 
 // runBinary запускает только что собранный binPath - env (project.File.

@@ -85,3 +85,23 @@ func TestScanRootFindsRechprojAncestor(t *testing.T) {
 		t.Fatalf("ожидался корень %q, получено %q", dir, got)
 	}
 }
+
+// Встроенное имя без импорта: quick fix вставляет импорт из стандартного
+// модуля или дописывает имя в уже существующую строку этого модуля.
+func TestCodeActionImportsBuiltinFromStdModule(t *testing.T) {
+	dir := t.TempDir()
+	src := "использовать корень из стандарт/математика\n\nфункция главная\n{\n    вывести синус(корень(2.0))\n}\n"
+	mainPath := writeMultiFileSource(t, dir, "главный.rech", src)
+	actions := newDoc(fileURI(mainPath), src).codeActions()
+	if len(actions) != 1 || !actions[0].Replace || actions[0].NewLine != 1 ||
+		actions[0].NewText != "использовать корень, синус из стандарт/математика\n" {
+		t.Fatalf("ожидалась замена строки 1, получено %+v", actions)
+	}
+
+	src = "функция главная\n{\n    вывести время()\n}\n"
+	mainPath = writeMultiFileSource(t, dir, "второй.rech", src)
+	actions = newDoc(fileURI(mainPath), src).codeActions()
+	if len(actions) != 1 || actions[0].Replace || actions[0].NewText != "использовать время из стандарт/время\n\n" {
+		t.Fatalf("ожидалась вставка новой строки, получено %+v", actions)
+	}
+}

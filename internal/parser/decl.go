@@ -9,6 +9,7 @@ import (
 	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 	"github.com/IlyaFeoktistov/Rech/internal/lexer"
 	"github.com/IlyaFeoktistov/Rech/internal/morph"
+	"github.com/IlyaFeoktistov/Rech/internal/stdlib"
 	"github.com/IlyaFeoktistov/Rech/internal/typename"
 )
 
@@ -35,7 +36,8 @@ func (p *Parser) parseOptionalAlias() (string, error) {
 // разбить на несколько строк), каждое опционально с "как <псевдоним>"
 // (переименование при импорте - единственный способ ввести два одноимённых
 // в исходных файлах импорта одновременно, не сталкиваясь друг с другом),
-// затем "из" и путь строковым литералом. Разрешение пути (относительно
+// затем "из" и путь строковым литералом либо стандартный модуль без
+// кавычек ("из стандарт/математика", internal/stdlib). Разрешение пути (относительно
 // каталога текущего файла), проверка существования импортируемых имён в
 // целевом файле и видимости - вне парсера, см. internal/module.
 func (p *Parser) parseUseDecl() (*ast.UseDecl, error) {
@@ -63,9 +65,20 @@ func (p *Parser) parseUseDecl() (*ast.UseDecl, error) {
 	if _, err := p.expect(lexer.KwOf); err != nil {
 		return nil, diagnostics.Wrap(err, "после списка имён ожидалось \"из\"")
 	}
+	if p.cur().Type == lexer.IDENT && p.cur().Value+"/" == stdlib.Prefix {
+		p.advance() // "стандарт"
+		if _, err := p.expect(lexer.SLASH); err != nil {
+			return nil, diagnostics.Wrap(err, "после \"стандарт\" ожидалось \"/\" и имя модуля (\"стандарт/математика\")")
+		}
+		module, err := p.expect(lexer.IDENT)
+		if err != nil {
+			return nil, diagnostics.Wrap(err, "после \"стандарт/\" ожидалось имя модуля")
+		}
+		return &ast.UseDecl{Names: names, Path: stdlib.Prefix + module.Value, Std: true, Line: kw.Line}, nil
+	}
 	path, err := p.expect(lexer.STRING)
 	if err != nil {
-		return nil, diagnostics.Wrap(err, "после \"из\" ожидался путь строковым литералом")
+		return nil, diagnostics.Wrap(err, "после \"из\" ожидался путь строковым литералом или стандартный модуль (стандарт/математика)")
 	}
 	return &ast.UseDecl{Names: names, Path: path.Value, Line: kw.Line}, nil
 }

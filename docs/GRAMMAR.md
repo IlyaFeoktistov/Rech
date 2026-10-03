@@ -115,7 +115,7 @@ extern_entity  := "внешняя" "сущность" IDENT [ "как" IDENT ]
 extern_struct  := "внешняя" "структура" IDENT [ "как" IDENT ] { sep } "{" { sep } fields_section { sep } "}"
                                              (* внешняя функция/структура/сущность - раздел 12 (FFI) *)
 
-import_decl    := "использовать" import_item { "," import_item } "из" STRING
+import_decl    := "использовать" import_item { "," import_item } "из" ( STRING | "стандарт" "/" IDENT )
 import_item    := IDENT [ "как" IDENT ]
                                              (* раздел 10 - "как" относится к КОНКРЕТНОМУ имени списка,
                                                 не ко всему списку сразу *)
