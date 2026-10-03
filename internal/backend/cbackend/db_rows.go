@@ -141,7 +141,7 @@ func dbDecimalFromAnyCode() string {
     rech_dec d;
     if (v.type == &%[1]s) return v.v.d;
     if (v.type == &%[2]s) return rech_dec_from_int(v.v.i);
-    if (v.type == &%[3]s) return rech_dec_from_double(v.v.f64);
+    if (v.type == &%[3]s) return rech_dec_from_double(v.v.f64, 0);
     if (v.type == &%[4]s && rech_dec_parse(v.v.s, &d)) return d;
     return rech_unbox_check(v, &%[1]s).v.d;
 }

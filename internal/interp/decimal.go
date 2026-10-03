@@ -84,9 +84,9 @@ func castDecimal(v Value, to ir.Type) (Value, bool) {
 			return decimalValue(d), true
 		case from == ir.TypeFloat || from == ir.TypeFloat32:
 			if math.IsNaN(v.F) || math.IsInf(v.F, 0) {
-				panicRuntimeAs(rtmsg.PanicBadCast, "%s", rtmsg.CastStrToFloatFailedFormat("Десятичное", numfmt.Float(v.F, 64)))
+				panicRuntimeAs(rtmsg.PanicBadCast, "%s", rtmsg.CastStrToFloatFailedFormat("Десятичное", numfmt.Float(v.F, floatBits(from))))
 			}
-			return decimalResult(decimal.Parse(numfmt.Float(v.F, 64))), true
+			return decimalResult(decimal.Parse(numfmt.Float(v.F, floatBits(from)))), true
 		case isUnsignedFixedWidth(from.Kind):
 			return decimalValue(decimal.FromUint(uint64(v.I))), true
 		default:
@@ -119,4 +119,12 @@ func castDecimal(v Value, to ir.Type) (Value, bool) {
 func decimalToFloat(d decimal.Decimal) float64 {
 	f, _ := strconv.ParseFloat(d.String(), 64)
 	return f
+}
+
+// floatBits - разрядность дробного типа t для записи его значения.
+func floatBits(t ir.Type) int {
+	if t == ir.TypeFloat32 {
+		return 32
+	}
+	return 64
 }

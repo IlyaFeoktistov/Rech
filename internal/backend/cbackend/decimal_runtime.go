@@ -248,15 +248,17 @@ static rech_dec rech_dec_from_text(const char *s, const char *type_name) {
     }
     return d;
 }
-static rech_dec rech_dec_from_double(double v) {
+/* f32 - значение из 32-битного дробного: запись по его точности (0.1, а не
+   0.10000000149011612 расширенного до double). */
+static rech_dec rech_dec_from_double(double v, int f32) {
     char buf[48];
     rech_dec d;
     if (v != v || v > 1.7976931348623157e308 || v < -1.7976931348623157e308) {
         char msg[128];
-        snprintf(msg, sizeof(msg), "каст (Десятичное): \"%s\" не является числом", rech_fmt_float(buf, v, 0));
+        snprintf(msg, sizeof(msg), "каст (Десятичное): \"%s\" не является числом", rech_fmt_float(buf, v, f32));
         RECH_DEC_BADCAST(msg);
     }
-    rech_dec_parse(rech_fmt_float(buf, v, 0), &d);
+    rech_dec_parse(rech_fmt_float(buf, v, f32), &d);
     return d;
 }
 static double rech_dec_to_double(rech_dec d) {

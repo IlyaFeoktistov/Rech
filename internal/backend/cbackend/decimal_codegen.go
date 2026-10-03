@@ -53,8 +53,10 @@ func decimalCastCode(ctx *irGenCtx, code string, from, to valueType, toName stri
 		switch {
 		case from == typeString:
 			return fmt.Sprintf("rech_dec_from_text(%s, \"Десятичное\")", code), true
-		case from == typeFloat || from == typeFloat32:
-			return fmt.Sprintf("rech_dec_from_double((double)(%s))", code), true
+		case from == typeFloat:
+			return fmt.Sprintf("rech_dec_from_double((double)(%s), 0)", code), true
+		case from == typeFloat32:
+			return fmt.Sprintf("rech_dec_from_double((double)(%s), 1)", code), true
 		case isUnsignedFixedWidth(from):
 			return fmt.Sprintf("rech_dec_from_uint((unsigned long long)(%s))", code), true
 		default:
