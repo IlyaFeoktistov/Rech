@@ -1,6 +1,11 @@
 package lexer
 
-import "testing"
+import (
+	"errors"
+	"testing"
+
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
+)
 
 func TestLexerLineCommentUnaffectedByBlockCommentAddition(t *testing.T) {
 	toks, err := New("переменная x = 1 // комментарий\nвывести x").Tokenize()
@@ -63,5 +68,36 @@ func TestLexerUnclosedBlockCommentIsError(t *testing.T) {
 func TestLexerUnclosedDocCommentIsError(t *testing.T) {
 	if _, err := New("/** не закрыт").Tokenize(); err == nil {
 		t.Fatalf("ожидалась ошибка на незакрытом doc-комментарии")
+	}
+}
+
+// TestLexerCommentInTemplateExprIsError - вставка "${...}" - часть строки:
+// "//" и "/*" в ней - ошибка с позицией в исходнике всего файла, а не тихо
+// выброшенный остаток выражения. Вне вставки "//" - обычный текст строки.
+func TestLexerCommentInTemplateExprIsError(t *testing.T) {
+	for _, src := range []string{"вывести `${1 // 2}`", "вывести `${1 /* 2 */}`"} {
+		toks, err := New(src).Tokenize()
+		if err != nil {
+			t.Fatalf("%s: неожиданная ошибка лексера: %v", src, err)
+		}
+		_, err = TemplatePartTokens(toks[1].Parts[0])
+		var d *diagnostics.Diagnostic
+		if !errors.As(err, &d) || d.Code != CodeCommentInTemplate {
+			t.Fatalf("%s: ожидалась ошибка %s, получено %v", src, CodeCommentInTemplate, err)
+		}
+		if d.Pos.Line != 1 || d.Pos.Col != 14 {
+			t.Fatalf("%s: позиция %d:%d, ожидалось 1:14", src, d.Pos.Line, d.Pos.Col)
+		}
+	}
+	toks, err := New("вывести `a // b /* c */ ${\"//\"}`").Tokenize()
+	if err != nil {
+		t.Fatalf("неожиданная ошибка лексера: %v", err)
+	}
+	for _, part := range toks[1].Parts {
+		if part.Expr {
+			if _, err := TemplatePartTokens(part); err != nil {
+				t.Fatalf("\"//\" в строковом литерале внутри вставки - не комментарий: %v", err)
+			}
+		}
 	}
 }

@@ -1,5 +1,11 @@
 package lexer
 
+import (
+	"errors"
+
+	"github.com/IlyaFeoktistov/Rech/internal/diagnostics"
+)
+
 // TemplatePart - кусок строки в обратных кавычках: буквальный текст (Expr
 // == false, экранирования уже раскрыты) либо исходный текст одной
 // "${...}"-вставки без "${"/"}" (Expr == true, как написан - разбирается
@@ -132,17 +138,23 @@ func (l *Lexer) readTemplateExpr(line, col int) (string, error) {
 // от строки 1 текста вставки - включая куски вложенных шаблонных строк.
 // Последний токен - EOF вставки.
 func TemplatePartTokens(part TemplatePart) ([]Token, error) {
-	toks, err := New(part.Text).Tokenize()
-	if err != nil {
-		return nil, err
-	}
-	toks = withoutNewlines(toks)
 	shift := func(line, col *int) {
 		if *line == 1 {
 			*col += part.Col - 1
 		}
 		*line += part.Line - 1
 	}
+	l := New(part.Text)
+	l.inTemplateExpr = true
+	toks, err := l.Tokenize()
+	if err != nil {
+		var d *diagnostics.Diagnostic
+		if errors.As(err, &d) {
+			shift(&d.Pos.Line, &d.Pos.Col)
+		}
+		return nil, err
+	}
+	toks = withoutNewlines(toks)
 	for i := range toks {
 		if toks[i].EndLine != 0 {
 			toks[i].EndLine += part.Line - 1

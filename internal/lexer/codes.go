@@ -8,11 +8,12 @@ import "github.com/IlyaFeoktistov/Rech/internal/diagnostics"
 // перенос строки внутри них - всё "литерал не закрыт или некорректен",
 // не отдельный код на каждую комбинацию.
 var (
-	CodeUnexpectedChar  = diagnostics.Register("RECH1001", "неожиданный символ")
-	CodeUnclosedComment = diagnostics.Register("RECH1002", "комментарий не закрыт")
-	CodeBadLiteral      = diagnostics.Register("RECH1003", "литерал не закрыт или некорректен")
-	CodeBadEscape       = diagnostics.Register("RECH1004", "неизвестная последовательность экранирования")
-	CodeBadEncoding     = diagnostics.Register("RECH1005", "исходный файл не в допустимой кодировке/нормализации Unicode")
+	CodeUnexpectedChar    = diagnostics.Register("RECH1001", "неожиданный символ")
+	CodeUnclosedComment   = diagnostics.Register("RECH1002", "комментарий не закрыт")
+	CodeBadLiteral        = diagnostics.Register("RECH1003", "литерал не закрыт или некорректен")
+	CodeBadEscape         = diagnostics.Register("RECH1004", "неизвестная последовательность экранирования")
+	CodeBadEncoding       = diagnostics.Register("RECH1005", "исходный файл не в допустимой кодировке/нормализации Unicode")
+	CodeCommentInTemplate = diagnostics.Register("RECH1006", "комментарий внутри вставки шаблонной строки")
 )
 
 // errAt строит диагностику лексера с позицией (line, col) - в отличие от

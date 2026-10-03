@@ -22,6 +22,11 @@ type Lexer struct {
 	// skipped - next() пропустил пробелы/комментарии перед последним
 	// токеном (Token.SpaceBefore).
 	skipped bool
+
+	// inTemplateExpr - лексер разбирает текст "${...}"-вставки: вставка -
+	// часть строки, комментариев в ней нет, "//" и "/*" - ошибка, а не
+	// тихо выброшенный остаток выражения.
+	inTemplateExpr bool
 }
 
 // New строит Lexer над src. Ведущий UTF-8 BOM (U+FEFF - типичный результат
@@ -284,6 +289,9 @@ func (l *Lexer) skipInsignificantWhitespaceAndComments() error {
 		switch {
 		case r == ' ' || r == '\t' || r == '\r':
 			l.advance()
+		case l.inTemplateExpr && r == '/' && (l.peekAt(1) == '/' || l.peekAt(1) == '*'):
+			return errAt(CodeCommentInTemplate, l.line, l.col,
+				"комментарий недопустим - вставка часть строки, текст \"%c%c\" пишите вне \"${...}\"", r, l.peekAt(1))
 		case r == '/' && l.peekAt(1) == '/':
 			for l.pos < len(l.src) && l.peek() != '\n' {
 				l.advance()
